@@ -1,0 +1,22 @@
+services:
+  openclaw-runner-01:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: openclaw-runner-01
+    restart: unless-stopped
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+      - ${HOME}/.codex/config.toml:/root/.codex/config.toml:ro
+      - ${HOME}/.codex/auth.json:/root/.codex/auth.json:ro
+    environment:
+      COLA_API_BASE_URL: ${COLA_API_BASE_URL:-http://host.docker.internal:3000}
+      COLA_RUNNER_NAME: ${COLA_RUNNER_NAME:-OpenClaw Runner-01}
+      COLA_RESOURCE_POOL: ${COLA_RESOURCE_POOL:-docker-core}
+      COLA_RUNNER_HOST: ${COLA_RUNNER_HOST:-host.docker.internal}
+    command:
+      [
+        "sh",
+        "-lc",
+        "echo 'Replace this with the real OpenClaw worker bootstrap command' && sleep infinity",
+      ]
+

@@ -1,5 +1,7 @@
+import { officeRouter } from "@/server/api/routers/office";
 import { postRouter } from "@/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
+import { workerRouter } from "@/server/api/routers/worker";
 
 /**
  * This is the primary router for your server.
@@ -7,7 +9,9 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
+  office: officeRouter,
   post: postRouter,
+  worker: workerRouter,
 });
 
 // export type definition of API

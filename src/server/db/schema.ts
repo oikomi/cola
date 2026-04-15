@@ -1,7 +1,20 @@
-// Example model schema from the Drizzle docs
-// https://orm.drizzle.team/docs/sql-schema-declaration
+import { index, pgEnum, pgTableCreator } from "drizzle-orm/pg-core";
 
-import { index, pgTableCreator } from "drizzle-orm/pg-core";
+import {
+  agentRoleValues,
+  agentStatusValues,
+  approvalStatusValues,
+  approvalTypeValues,
+  deviceStatusValues,
+  deviceTypeValues,
+  eventSeverityValues,
+  priorityValues,
+  riskLevelValues,
+  sessionStatusValues,
+  taskStatusValues,
+  taskTypeValues,
+  zoneValues,
+} from "@/server/office/catalog";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -10,6 +23,197 @@ import { index, pgTableCreator } from "drizzle-orm/pg-core";
  * @see https://orm.drizzle.team/docs/goodies#multi-project-schema
  */
 export const createTable = pgTableCreator((name) => `cola_${name}`);
+
+export const agentRoleEnum = pgEnum("cola_agent_role", agentRoleValues);
+export const agentStatusEnum = pgEnum("cola_agent_status", agentStatusValues);
+export const zoneEnum = pgEnum("cola_zone", zoneValues);
+export const taskTypeEnum = pgEnum("cola_task_type", taskTypeValues);
+export const taskStatusEnum = pgEnum("cola_task_status", taskStatusValues);
+export const priorityEnum = pgEnum("cola_priority", priorityValues);
+export const riskLevelEnum = pgEnum("cola_risk_level", riskLevelValues);
+export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
+export const deviceStatusEnum = pgEnum("cola_device_status", deviceStatusValues);
+export const sessionStatusEnum = pgEnum(
+  "cola_execution_session_status",
+  sessionStatusValues,
+);
+export const approvalTypeEnum = pgEnum(
+  "cola_approval_type",
+  approvalTypeValues,
+);
+export const approvalStatusEnum = pgEnum(
+  "cola_approval_status",
+  approvalStatusValues,
+);
+export const eventSeverityEnum = pgEnum(
+  "cola_event_severity",
+  eventSeverityValues,
+);
+
+export const agents = createTable(
+  "agent",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    name: d.varchar({ length: 120 }).notNull(),
+    roleType: agentRoleEnum().notNull(),
+    status: agentStatusEnum().notNull(),
+    zoneId: zoneEnum().notNull(),
+    focus: d.text(),
+    capabilities: d.jsonb(),
+    riskScope: d.jsonb(),
+    isEnabled: d.boolean().notNull().default(true),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("agent_role_idx").on(t.roleType),
+    index("agent_status_idx").on(t.status),
+    index("agent_zone_idx").on(t.zoneId),
+  ],
+);
+
+export const tasks = createTable(
+  "task",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    title: d.varchar({ length: 160 }).notNull(),
+    taskType: taskTypeEnum().notNull(),
+    status: taskStatusEnum().notNull(),
+    priority: priorityEnum().notNull().default("medium"),
+    riskLevel: riskLevelEnum().notNull().default("low"),
+    zoneId: zoneEnum().notNull(),
+    currentAgentId: d.uuid().references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    parentTaskId: d.uuid(),
+    inputPayload: d.jsonb(),
+    outputPayload: d.jsonb(),
+    summary: d.text(),
+    dueAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("task_status_idx").on(t.status),
+    index("task_agent_idx").on(t.currentAgentId),
+    index("task_zone_idx").on(t.zoneId),
+    index("task_risk_idx").on(t.riskLevel),
+  ],
+);
+
+export const devices = createTable(
+  "device",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    name: d.varchar({ length: 120 }).notNull(),
+    deviceType: deviceTypeEnum().notNull(),
+    status: deviceStatusEnum().notNull(),
+    resourcePool: d.varchar({ length: 120 }).notNull(),
+    host: d.varchar({ length: 255 }),
+    metadata: d.jsonb(),
+    lastHeartbeatAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("device_status_idx").on(t.status),
+    index("device_pool_idx").on(t.resourcePool),
+  ],
+);
+
+export const executionSessions = createTable(
+  "execution_session",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    taskId: d.uuid().references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    agentId: d.uuid().references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    deviceId: d.uuid().references(() => devices.id, {
+      onDelete: "set null",
+    }),
+    status: sessionStatusEnum().notNull().default("pending"),
+    logPath: d.text(),
+    artifactPath: d.text(),
+    startedAt: d.timestamp({ withTimezone: true }),
+    endedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("execution_session_task_idx").on(t.taskId),
+    index("execution_session_device_idx").on(t.deviceId),
+    index("execution_session_status_idx").on(t.status),
+  ],
+);
+
+export const approvals = createTable(
+  "approval",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    taskId: d.uuid().references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    approvalType: approvalTypeEnum().notNull(),
+    status: approvalStatusEnum().notNull().default("pending"),
+    requestedByAgentId: d.uuid().references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    approvedByUserId: d.varchar({ length: 120 }),
+    title: d.varchar({ length: 160 }).notNull(),
+    reason: d.text(),
+    resolvedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("approval_status_idx").on(t.status),
+    index("approval_task_idx").on(t.taskId),
+  ],
+);
+
+export const events = createTable(
+  "event",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    eventType: d.varchar({ length: 120 }).notNull(),
+    entityType: d.varchar({ length: 80 }).notNull(),
+    entityId: d.varchar({ length: 120 }).notNull(),
+    severity: eventSeverityEnum().notNull().default("info"),
+    title: d.varchar({ length: 160 }).notNull(),
+    description: d.text(),
+    payload: d.jsonb(),
+    occurredAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+  }),
+  (t) => [
+    index("event_entity_idx").on(t.entityType, t.entityId),
+    index("event_occurred_idx").on(t.occurredAt),
+  ],
+);
 
 export const posts = createTable(
   "post",
