@@ -308,4 +308,19 @@ export const officeSnapshot: OfficeSnapshot = {
       at: "11 分钟前",
     },
   ],
+  executionReports: [
+    {
+      sessionId: "c880df5c-82ed-4931-9c4c-4e152bf3be7f",
+      taskId: "2fdb16f5-8b8e-44ee-b6f0-c1c40cc3165a",
+      agentId: "f8354066-8fa0-4aad-92a4-c8c2228799b8",
+      deviceId: "54441991-5849-4d5a-beca-592da32c30b1",
+      status: "succeeded",
+      title: "LinDev 自动认领测试",
+      summary: "OpenClaw 已自动认领并完成这条任务。",
+      outputText: "已完成，任务已被 OpenClaw 自动认领。文件变更：无，本次未修改任何文件。",
+      artifactPath: "/workspace/.openclaw-runner/result-2fdb16f5-8b8e-44ee-b6f0-c1c40cc3165a.json",
+      logPath: "/workspace/.openclaw-runner/bootstrap.log",
+      completedAt: "2026-04-15T07:25:04.125Z",
+    },
+  ],
 };

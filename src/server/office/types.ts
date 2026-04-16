@@ -87,6 +87,20 @@ export type OfficeEvent = {
   at: string;
 };
 
+export type OfficeExecutionReport = {
+  sessionId: string;
+  taskId: string;
+  agentId: string | null;
+  deviceId: string | null;
+  status: SessionStatus;
+  title: string;
+  summary: string;
+  outputText: string | null;
+  artifactPath: string | null;
+  logPath: string | null;
+  completedAt: string | null;
+};
+
 export type OfficeSnapshot = {
   generatedAt: string;
   headline: string;
@@ -97,5 +111,5 @@ export type OfficeSnapshot = {
   devices: OfficeDevice[];
   approvals: OfficeApproval[];
   events: OfficeEvent[];
+  executionReports: OfficeExecutionReport[];
 };
-

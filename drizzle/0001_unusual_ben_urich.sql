@@ -1,0 +1,1 @@
+ALTER TYPE "public"."cola_device_type" ADD VALUE 'docker_openclaw' BEFORE 'browser_runner';

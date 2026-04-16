@@ -1,17 +1,30 @@
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
-import { agents, approvals, events, tasks } from "@/server/db/schema";
+import { db } from "@/server/db";
+import { agents, approvals, devices, events, tasks } from "@/server/db/schema";
 import {
+  agentRoleValues,
+  dockerRunnerDeviceTypeByEngine,
+  dockerRunnerEngineLabels,
+  dockerRunnerEngineValues,
   approvalTypeValues,
   priorityValues,
   riskLevelValues,
+  taskStatusLabels,
   taskStatusValues,
   taskTypeValues,
 } from "@/server/office/catalog";
+import { provisionDockerRunner } from "@/server/office/provision-docker-runner";
 import { getOfficeSnapshot } from "@/server/office/snapshot";
+
+const createAgentInput = z.object({
+  name: z.string().trim().min(2).max(120),
+  role: z.enum(agentRoleValues),
+  engine: z.enum(dockerRunnerEngineValues).default("openclaw"),
+});
 
 const createTaskInput = z.object({
   title: z.string().trim().min(3).max(160),
@@ -39,7 +52,9 @@ const resolveApprovalInput = z.object({
   decision: z.enum(["approved", "rejected"]),
 });
 
-function nextAgentStatusForTaskStatus(status: (typeof taskStatusValues)[number]) {
+function nextAgentStatusForTaskStatus(
+  status: (typeof taskStatusValues)[number],
+) {
   switch (status) {
     case "assigned":
     case "created":
@@ -61,6 +76,212 @@ function nextAgentStatusForTaskStatus(status: (typeof taskStatusValues)[number])
   }
 }
 
+function taskStatusLabel(status: (typeof taskStatusValues)[number]) {
+  return taskStatusLabels[status];
+}
+
+function zoneForRole(role: (typeof agentRoleValues)[number]) {
+  switch (role) {
+    case "product":
+      return "product";
+    case "engineering":
+      return "engineering";
+    case "operations":
+      return "growth";
+    case "hr":
+      return "people";
+    case "procurement":
+      return "vendor";
+    case "ceo_office":
+      return "command";
+    default:
+      return "command";
+  }
+}
+
+function resourcePoolForRole(role: (typeof agentRoleValues)[number]) {
+  switch (role) {
+    case "engineering":
+      return "docker-core";
+    case "operations":
+      return "docker-ops";
+    case "hr":
+    case "procurement":
+      return "docker-backoffice";
+    case "product":
+    case "ceo_office":
+    default:
+      return "docker-command";
+  }
+}
+
+function roleLabel(role: (typeof agentRoleValues)[number]) {
+  switch (role) {
+    case "product":
+      return "产品";
+    case "engineering":
+      return "研发";
+    case "operations":
+      return "运营";
+    case "hr":
+      return "HR";
+    case "procurement":
+      return "采购";
+    case "ceo_office":
+      return "CEO Office";
+    default:
+      return "角色";
+  }
+}
+
+type Database = typeof db;
+
+type BackgroundProvisionInput = {
+  agentId: string;
+  agentName: string;
+  deviceId: string;
+  deviceName: string;
+  roleLabel: string;
+  resourcePool: string;
+  engine: (typeof dockerRunnerEngineValues)[number];
+};
+
+async function markProvisionFailed(
+  database: Database,
+  input: BackgroundProvisionInput,
+  engineLabel: string,
+  host: string,
+  image: string,
+  errorMessage: string,
+) {
+  const now = new Date();
+
+  await database
+    .update(devices)
+    .set({
+      status: "unhealthy",
+      host,
+      metadata: {
+        agentId: input.agentId,
+        agentName: input.agentName,
+        runtime: "docker",
+        engine: input.engine,
+        image,
+        healthSummary: "Docker runner 拉起失败，角色已创建但进入阻塞态。",
+        errorMessage,
+      },
+      lastHeartbeatAt: null,
+      updatedAt: now,
+    })
+    .where(eq(devices.id, input.deviceId));
+
+  await database
+    .update(agents)
+    .set({
+      status: "blocked",
+      focus: `${input.agentName} runner 拉起失败，需要处理 Docker / ${engineLabel} 配置`,
+      updatedAt: now,
+    })
+    .where(eq(agents.id, input.agentId));
+
+  await database.insert(events).values({
+    eventType: "device.provision.failed",
+    entityType: "device",
+    entityId: input.deviceId,
+    severity: "critical",
+    title: `Docker ${engineLabel} runner 启动失败：${input.agentName}`,
+    description: errorMessage,
+    occurredAt: now,
+  });
+}
+
+async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput) {
+  const engineLabel = dockerRunnerEngineLabels[input.engine];
+
+  try {
+    const provision = await provisionDockerRunner({
+      agentId: input.agentId,
+      agentName: input.agentName,
+      runnerName: input.deviceName,
+      roleLabel: input.roleLabel,
+      resourcePool: input.resourcePool,
+      engine: input.engine,
+    });
+
+    if (!provision.success) {
+      await markProvisionFailed(
+        db,
+        input,
+        engineLabel,
+        provision.host,
+        provision.image,
+        provision.errorMessage ?? provision.healthSummary,
+      );
+      return;
+    }
+
+    const now = new Date();
+    const [deviceRow] = await db
+      .select()
+      .from(devices)
+      .where(eq(devices.id, input.deviceId))
+      .limit(1);
+    const [agentRow] = await db
+      .select()
+      .from(agents)
+      .where(eq(agents.id, input.agentId))
+      .limit(1);
+
+    if (deviceRow?.status === "maintenance") {
+      await db
+        .update(devices)
+        .set({
+          host: provision.host,
+          metadata: {
+            agentId: input.agentId,
+            agentName: input.agentName,
+            runtime: "docker",
+            engine: input.engine,
+            containerName: provision.containerName,
+            image: provision.image,
+            healthSummary: `${input.roleLabel} runner 容器已启动，等待 ${engineLabel} 自注册。`,
+          },
+          updatedAt: now,
+        })
+        .where(eq(devices.id, input.deviceId));
+    }
+
+    if (agentRow?.status === "waiting_device") {
+      await db
+        .update(agents)
+        .set({
+          focus: `${input.agentName} runner 容器已启动，等待 ${engineLabel} 完成注册`,
+          updatedAt: now,
+        })
+        .where(eq(agents.id, input.agentId));
+    }
+
+    await db.insert(events).values({
+      eventType: "device.provisioned",
+      entityType: "device",
+      entityId: input.deviceId,
+      severity: "info",
+      title: `Docker ${engineLabel} runner 已启动：${input.agentName}`,
+      description: `${input.roleLabel} runner 容器已启动，等待 ${engineLabel} 自注册。`,
+      occurredAt: now,
+    });
+  } catch (error) {
+    await markProvisionFailed(
+      db,
+      input,
+      engineLabel,
+      "host.docker.internal",
+      "",
+      error instanceof Error ? error.message : "未知 Docker 启动错误",
+    );
+  }
+}
+
 export const officeRouter = createTRPCRouter({
   getSnapshot: publicProcedure.query(({ ctx }) => getOfficeSnapshot(ctx.db)),
 
@@ -68,7 +289,9 @@ export const officeRouter = createTRPCRouter({
     .input(z.object({ agentId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const snapshot = await getOfficeSnapshot(ctx.db);
-      return snapshot.agents.find((agent) => agent.id === input.agentId) ?? null;
+      return (
+        snapshot.agents.find((agent) => agent.id === input.agentId) ?? null
+      );
     }),
 
   getTaskById: publicProcedure
@@ -76,6 +299,122 @@ export const officeRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const snapshot = await getOfficeSnapshot(ctx.db);
       return snapshot.tasks.find((task) => task.id === input.taskId) ?? null;
+    }),
+
+  createAgent: publicProcedure
+    .input(createAgentInput)
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const zoneId = zoneForRole(input.role);
+      const resourcePool = resourcePoolForRole(input.role);
+      const roleText = roleLabel(input.role);
+      const engineLabel = dockerRunnerEngineLabels[input.engine];
+      const runnerName = `${input.name} Runner`;
+
+      const { createdAgent, createdDevice } = await ctx.db.transaction(
+        async (tx) => {
+          const [existingAgent] = await tx
+            .select({ id: agents.id })
+            .from(agents)
+            .where(eq(agents.name, input.name))
+            .limit(1);
+
+          if (existingAgent) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "人物名称已存在，请换一个名称后再创建。",
+            });
+          }
+
+          const [existingDevice] = await tx
+            .select({ id: devices.id })
+            .from(devices)
+            .where(eq(devices.name, runnerName))
+            .limit(1);
+
+          if (existingDevice) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "同名 Runner 已存在，请换一个人物名称后再创建。",
+            });
+          }
+
+          const [createdAgent] = await tx
+            .insert(agents)
+            .values({
+              name: input.name,
+              roleType: input.role,
+              status: "waiting_device",
+              zoneId,
+              focus: `正在为 ${input.name} 拉起 Docker ${engineLabel} runner`,
+              createdAt: now,
+            })
+            .returning();
+
+          if (!createdAgent) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "角色创建失败。",
+            });
+          }
+
+          const [createdDevice] = await tx
+            .insert(devices)
+            .values({
+              name: runnerName,
+              deviceType: dockerRunnerDeviceTypeByEngine[input.engine],
+              status: "maintenance",
+              resourcePool,
+              metadata: {
+                agentId: createdAgent.id,
+                agentName: input.name,
+                runtime: "docker",
+                engine: input.engine,
+                healthSummary: `正在为 ${input.name} 创建 Docker runner`,
+              },
+              createdAt: now,
+            })
+            .returning();
+
+          if (!createdDevice) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "执行设备创建失败。",
+            });
+          }
+
+          await tx.insert(events).values({
+            eventType: "agent.created",
+            entityType: "agent",
+            entityId: createdAgent.id,
+            severity: "info",
+            title: `新增角色：${input.name}`,
+            description: `${roleText}角色已创建，开始拉起 Docker ${engineLabel} runner。`,
+            occurredAt: now,
+          });
+
+          return { createdAgent, createdDevice };
+        },
+      );
+
+      setTimeout(() => {
+        void provisionDockerRunnerInBackground({
+          agentId: createdAgent.id,
+          agentName: input.name,
+          deviceId: createdDevice.id,
+          deviceName: createdDevice.name,
+          roleLabel: roleText,
+          resourcePool,
+          engine: input.engine,
+        });
+      }, 0);
+
+      return {
+        agentId: createdAgent.id,
+        deviceId: createdDevice.id,
+        queued: true,
+        message: `${input.name} 已创建，正在后台拉起 Docker ${engineLabel} runner。`,
+      };
     }),
 
   createTask: publicProcedure
@@ -164,6 +503,24 @@ export const officeRouter = createTRPCRouter({
           });
         }
 
+        if (task.status === input.status) {
+          return { taskId: task.id };
+        }
+
+        if (task.status === "pending_approval") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "任务正在等待审批，处理审批后才能继续修改状态。",
+          });
+        }
+
+        if (task.status === "completed" || task.status === "canceled") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "已结束任务不能再次修改状态。",
+          });
+        }
+
         await tx
           .update(tasks)
           .set({
@@ -177,7 +534,7 @@ export const officeRouter = createTRPCRouter({
             .update(agents)
             .set({
               status: nextAgentStatusForTaskStatus(input.status),
-              focus: `任务「${task.title}」状态已更新为 ${input.status}`,
+              focus: `任务「${task.title}」状态已更新为 ${taskStatusLabel(input.status)}`,
               updatedAt: now,
             })
             .where(eq(agents.id, task.currentAgentId));
@@ -194,7 +551,7 @@ export const officeRouter = createTRPCRouter({
                 ? "warning"
                 : "info",
           title: `任务状态已更新：${task.title}`,
-          description: `任务已被更新为 ${input.status}。`,
+          description: `任务已被更新为${taskStatusLabel(input.status)}。`,
           occurredAt: now,
         });
 
@@ -221,13 +578,29 @@ export const officeRouter = createTRPCRouter({
           });
         }
 
+        if (task.status === "pending_approval") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "该任务已有待处理审批。",
+          });
+        }
+
+        if (task.status === "completed" || task.status === "canceled") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "已结束任务不能再发起审批。",
+          });
+        }
+
         const [pendingApproval] = await tx
           .select()
           .from(approvals)
-          .where(eq(approvals.taskId, task.id))
+          .where(
+            and(eq(approvals.taskId, task.id), eq(approvals.status, "pending")),
+          )
           .limit(1);
 
-        if (pendingApproval?.status === "pending") {
+        if (pendingApproval) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "该任务已有待处理审批。",
@@ -332,8 +705,7 @@ export const officeRouter = createTRPCRouter({
             await tx
               .update(agents)
               .set({
-                status:
-                  input.decision === "approved" ? "planning" : "blocked",
+                status: input.decision === "approved" ? "planning" : "blocked",
                 focus:
                   input.decision === "approved"
                     ? `审批通过，继续执行：${approval.title}`

@@ -36,7 +36,7 @@
 - 控制面：`cola` Next.js 应用
 - 执行面：Docker 容器中的 OpenClaw runner
 - 配置来源：直接挂载宿主机的 `~/.codex/config.toml` 和 `~/.codex/auth.json`
-- 状态回传：通过 `worker` API 注册、心跳和会话上报
+- 状态回传：通过 `/api/worker/*` REST API 或 `worker` tRPC 接口注册、心跳和会话上报
 
 ## 4. 已落地后端接口
 
@@ -44,13 +44,30 @@
 
 - `worker.registerDockerRunner`
 - `worker.heartbeat`
+- `worker.pullNextTask`
 - `worker.reportSession`
+- `POST /api/worker/register`
+- `POST /api/worker/heartbeat`
+- `POST /api/worker/tasks/next`
+- `POST /api/worker/session`
+- `GET /api/office/stream`
 
 用途分别是：
 
 - 注册 Docker OpenClaw runner 到设备池
 - 周期性上报在线状态和健康状态
+- 空闲 runner 拉取下一个可执行任务
 - 上报执行会话状态、日志路径和产物路径
+- 单页面前端订阅办公室状态变化并触发实时刷新
+
+对应代码位置：
+
+- `src/server/worker/service.ts`
+- `src/server/worker/schemas.ts`
+- `src/app/api/worker/register/route.ts`
+- `src/app/api/worker/heartbeat/route.ts`
+- `src/app/api/worker/tasks/next/route.ts`
+- `src/app/api/worker/session/route.ts`
 
 ## 5. 推荐容器挂载方式
 
@@ -91,16 +108,49 @@ COLA_RUNNER_HOST=host.docker.internal
 
 - `docker/openclaw-runner.compose.yml`
 
-该文件是示意模板，不直接假设某个固定 OpenClaw 镜像命令。你需要根据实际 OpenClaw 镜像的启动方式替换 `command`。
+该文件现在默认会执行仓库里的 bootstrap 脚本：
+
+- `scripts/openclaw-runner/bootstrap.mjs`
+
+默认逻辑是：
+
+- 注册 runner
+- 从 `~/.codex/config.toml` 与 `~/.codex/auth.json` 派生一份临时 OpenClaw JSON 配置
+- 执行 OpenClaw 就绪检查
+- 周期性发送 heartbeat
+- 空闲时轮询下一个任务
+- 默认优先使用 `openclaw infer model run --local --model provider/model` 执行任务
+- 如果设置了 `OPENCLAW_BOOT_COMMAND`，则在容器内执行启动命令并上报会话状态
 
 ## 8. 建议的 runner 生命周期
 
 1. 容器启动
 2. 读取 `/root/.codex/config.toml` 和 `/root/.codex/auth.json`
-3. 调用 `worker.registerDockerRunner`
-4. 定期调用 `worker.heartbeat`
-5. 执行任务时调用 `worker.reportSession`
-6. 会话结束后继续心跳等待下一次调度
+3. 运行 `scripts/openclaw-runner/bootstrap.mjs`
+4. bootstrap 调用 `/api/worker/register`
+5. bootstrap 定期调用 `/api/worker/heartbeat`
+6. bootstrap 空闲时调用 `/api/worker/tasks/next`
+7. 认领到任务后调用 `/api/worker/session`
+8. 会话结束后继续心跳并等待下一次调度
+
+## 8.1 当前已验证的本地联调结果
+
+当前仓库已经完成一条真实联调：
+
+- 控制面运行在本地 `3000`
+- 新增人物后，服务端成功 `docker run` OpenClaw runner
+- runner 自动注册并持续心跳
+- runner 自动轮询 `/api/worker/tasks/next`
+- runner 自动认领任务并执行
+- 执行成功后，任务状态更新为 `completed`
+- 执行会话写入 `cola_execution_session`
+- 前端 inspector 可直接读取最近一次执行结果回放
+
+当前实际使用的模型路径为：
+
+- provider: `openai`
+- model: `gpt-5.4`
+- base URL: 由 Codex 配置中的自定义 OpenAI 兼容入口派生
 
 ## 9. 安全建议
 
@@ -113,7 +163,6 @@ COLA_RUNNER_HOST=host.docker.internal
 
 如果继续推进，建议下一步实现：
 
-- 一个最小的 OpenClaw worker bootstrap 脚本
-- Docker runner 的任务拉取协议
 - 基于 WebSocket 的实时状态推送
-
+- Worker 鉴权与签名校验
+- 真正的任务结果回传与产物索引

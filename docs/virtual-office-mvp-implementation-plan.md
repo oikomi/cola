@@ -10,7 +10,6 @@
 
 - 还没有 Virtual Office 的业务实体
 - 还没有任务、角色、设备的真实数据模型
-- 还没有 Docker OpenClaw worker 接入
 - 还没有审批和审计的后端闭环
 - 还没有实时通信层
 
@@ -30,6 +29,10 @@
 - 本地 Docker Postgres 已完成 Virtual Office 初始 seed
 - `office` router 已切到“优先读真实数据库，异常时回退样例快照”
 - 首页已接入任务创建、任务状态推进、审批创建与审批处理
+- 前端已重构为单页面 office 主场景，并使用 `shadcn/ui`
+- 新增人物已接入 `createAgent`，会尝试直接拉起 Docker OpenClaw runner
+- 已接入 SSE 实时流，单页面可自动刷新 office 快照
+- 已支持人物 inspector 查看最近一次执行结果回放
 
 ## 4. 本期范围
 
@@ -40,13 +43,12 @@
 - Drizzle migration
 - 初始 seed 脚本
 - `office` tRPC router
-- 基于样例快照数据的首页
+- 基于真实快照数据的单页面 office 首页
 - 实施计划文档
 
 ### 4.2 未纳入
 
 - WebSocket 实时状态推送
-- Mac mini worker 接入
 - 登录、权限和组织隔离
 - 更细粒度的审计与回放
 
@@ -84,6 +86,7 @@
 
 - `src/server/api/routers/office.ts`
 - `src/server/api/root.ts`
+- `src/server/api/routers/worker.ts`
 
 当前提供：
 
@@ -94,6 +97,11 @@
 - `office.updateTaskStatus`
 - `office.requestApproval`
 - `office.resolveApproval`
+- `office.createAgent`
+- `worker.registerDockerRunner`
+- `worker.heartbeat`
+- `worker.pullNextTask`
+- `worker.reportSession`
 
 设计原则：
 
@@ -106,22 +114,26 @@
 - `src/app/page.tsx`
 - `src/app/layout.tsx`
 - `src/styles/globals.css`
+- `src/app/_components/office-shell.tsx`
 
 当前首页已经从模板页替换为：
 
-- 顶部组织指标
-- 指挥台
-- 设备资源池
-- 空间化办公室总览
-- 任务流列表
-- 事件流列表
+- 顶部轻量控制条与状态指标
+- office 主场景
+- 人物选中高亮与 inspector
+- 新增人物 Dialog
+- 下发任务 Dialog
+- 移动端 Sheet 总控面板
+- SSE 实时状态刷新
+- 最近一次执行结果回放
 
-其中指挥台已经支持：
+其中单页面控制面已经支持：
 
 - 创建任务
 - 更新任务状态
 - 发起审批
 - 批准或驳回审批
+- 新增角色并尝试 provision Docker OpenClaw runner
 
 ### 5.5 初始化与种子脚本
 
@@ -187,6 +199,8 @@
 
 ## Phase 2：设备接入
 
+状态：已完成最小骨架
+
 目标：
 
 - 让 Virtual Office 不只显示状态，而是具备真实执行能力
@@ -202,7 +216,17 @@
 
 - 至少 1 个真实 Docker OpenClaw runner 可以接入并执行一类任务
 
+当前结果：
+
+- 新增人物时会尝试直接 `docker run` OpenClaw runner
+- 已提供 worker 注册、心跳和会话回报接口
+- 已提供任务拉取协议和容器内 bootstrap 脚本
+- 已支持挂载 `~/.codex/config.toml` 与 `~/.codex/auth.json` 的设计
+- 已本地验证“新增人物 -> runner 注册 -> 自动认领任务 -> 执行成功 -> 回报 session”闭环
+
 ## Phase 3：实时化
+
+状态：已完成第一版
 
 目标：
 
@@ -217,6 +241,12 @@
 完成标准：
 
 - 首页状态变化可以在不刷新的情况下实时反映
+
+当前结果：
+
+- 已提供 `/api/office/stream` SSE 接口
+- 前端单页通过 EventSource 自动失效并刷新 office 快照
+- 任务、审批、设备和执行结果更新会自动反映到页面
 
 ## Phase 4：治理与接管
 
@@ -239,17 +269,17 @@
 
 如果只做最短路径，我建议下一步按这个顺序继续：
 
-1. 先做设备接入协议和 worker
-2. 再做实时事件流
-3. 然后补人工接管和治理闭环
-4. 最后做登录、权限和组织隔离
+1. 先做实时事件流
+2. 再补人工接管和治理闭环
+3. 然后做登录、权限和组织隔离
+4. 最后补任务结果回放和资产索引
 
 原因：
 
 - 真实数据层已经具备最小闭环
 - 任务与审批已经可写
-- 现在真正的缺口是“可执行”和“可实时”
-- 没有 worker，系统仍然是“看得见但动不了”
+- 现在已经具备最小执行闭环
+- 当前真正的缺口是“可实时”和“可治理”
 
 ## 9. 风险提示
 
@@ -261,8 +291,8 @@
 
 从工程推进角度，最合理的下一步是：
 
-- 定义 Docker OpenClaw worker 的心跳与执行协议
 - 给首页加上真实事件推送
 - 增加人工接管入口和执行会话控制
+- 增加任务执行结果的历史回放与产物索引
 
 完成这一步之后，Virtual Office 就会从“数据库驱动的空间化控制台”迈向“真实可执行的多 Agent 系统”。

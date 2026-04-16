@@ -1,7 +1,7 @@
 import { zoneLabels, type ZoneId } from "@/server/office/catalog";
 
 export const officeHeadline =
-  "Virtual Office MVP 正在跑真实数据库模型：产品整理需求，研发占用 Docker OpenClaw runner 执行，运营等待发布摘要，CEO Office 只处理升级与批准。";
+  "Virtual Office MVP 正在跑真实数据库模型：产品整理需求，研发占用 Docker runner 执行，运营等待发布摘要，CEO Office 只处理升级与批准。";
 
 export const zonePresentation: Record<
   ZoneId,

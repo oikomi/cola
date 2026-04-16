@@ -8,6 +8,20 @@
       "when": 1776232063136,
       "tag": "0000_flawless_miracleman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776235010198,
+      "tag": "0001_unusual_ben_urich",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776262800000,
+      "tag": "0002_bright_sif",
+      "breakpoints": true
     }
   ]
 }

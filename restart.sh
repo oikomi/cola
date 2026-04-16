@@ -7,6 +7,7 @@ PID_FILE="$ROOT_DIR/.next-dev.pid"
 LOG_FILE="$ROOT_DIR/.next-dev.log"
 PORT="${PORT:-3000}"
 NEXT_BIN="$ROOT_DIR/node_modules/.bin/next"
+DB_CHECK_SCRIPT="$ROOT_DIR/scripts/check-office-db.mjs"
 RUN_MODE="background"
 
 while [[ $# -gt 0 ]]; do
@@ -37,6 +38,55 @@ if [[ ! -x "$NEXT_BIN" ]]; then
   echo "Next.js is not installed. Run npm install first."
   exit 1
 fi
+
+load_env_file() {
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/.env"
+    set +a
+  fi
+}
+
+ensure_virtual_office_schema() {
+  if [[ ! -f "$DB_CHECK_SCRIPT" ]]; then
+    return 0
+  fi
+
+  load_env_file
+
+  if [[ -z "${DATABASE_URL:-}" ]]; then
+    echo "DATABASE_URL is not set. Skipping Virtual Office database check."
+    return 0
+  fi
+
+  local status=0
+  if node "$DB_CHECK_SCRIPT"; then
+    return 0
+  else
+    status=$?
+  fi
+
+  case "$status" in
+    2)
+      echo "Virtual Office tables are missing. Running migrations..."
+      if npm run db:migrate; then
+        echo "Virtual Office migrations applied."
+      else
+        echo "Virtual Office migration failed. Starting app with fallback office snapshot."
+      fi
+      ;;
+    3)
+      echo "Database is unreachable. Starting app with fallback office snapshot."
+      ;;
+    4)
+      echo "DATABASE_URL is not set. Starting app without schema verification."
+      ;;
+    *)
+      echo "Unexpected database readiness status: $status"
+      ;;
+  esac
+}
 
 stop_pid() {
   local pid="$1"
@@ -80,6 +130,8 @@ while IFS= read -r pid; do
   [[ -z "$pid" || "$pid" == "$$" ]] && continue
   stop_pid "$pid" "Next dev process"
 done < <(find_repo_next_pids || true)
+
+ensure_virtual_office_schema
 
 if command -v lsof >/dev/null 2>&1; then
   while IFS= read -r pid; do

@@ -6,9 +6,12 @@
   "scripts": {
     "build": "next build",
     "check": "next lint && tsc --noEmit",
+    "containers:cleanup": "./cleanup-containers.sh",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
+    "db:reset": "./reset-database.sh",
+    "db:reset:office": "./reset-database.sh --seed-office",
     "db:seed:office": "node scripts/seed-virtual-office.mjs",
     "db:setup:office": "npm run db:migrate && npm run db:seed:office",
     "db:studio": "drizzle-kit studio",
