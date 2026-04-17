@@ -1,0 +1,17 @@
+services:
+  runner-dashboard-proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./runner-dashboard-proxy.Caddyfile:/etc/caddy/Caddyfile:ro
+      - runner_dashboard_caddy_data:/data
+      - runner_dashboard_caddy_config:/config
+
+volumes:
+  runner_dashboard_caddy_data:
+  runner_dashboard_caddy_config:

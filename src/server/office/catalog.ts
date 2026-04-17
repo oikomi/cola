@@ -192,3 +192,43 @@ export const zoneLabels: Record<ZoneId, string> = {
   people: "People Desk",
   vendor: "供应商港",
 };
+
+export const zoneWorkstationLimitByZone: Record<ZoneId, number> = {
+  command: 3,
+  product: 4,
+  engineering: 7,
+  growth: 3,
+  people: 3,
+  vendor: 3,
+};
+
+export const zoneWorkstationDefaultCapacityByZone: Record<ZoneId, number> = {
+  command: 1,
+  product: 2,
+  engineering: 3,
+  growth: 1,
+  people: 1,
+  vendor: 1,
+};
+
+export function resolveZoneWorkstationCapacity(
+  zoneId: ZoneId,
+  options?: {
+    configuredCapacity?: number | null;
+    occupiedCount?: number;
+  },
+) {
+  const limit = zoneWorkstationLimitByZone[zoneId];
+  const occupiedCount = Math.max(0, options?.occupiedCount ?? 0);
+  const baseline = Math.max(
+    zoneWorkstationDefaultCapacityByZone[zoneId],
+    occupiedCount,
+  );
+  const configuredCapacity =
+    typeof options?.configuredCapacity === "number" &&
+    Number.isFinite(options.configuredCapacity)
+      ? Math.max(0, Math.trunc(options.configuredCapacity))
+      : baseline;
+
+  return Math.min(limit, Math.max(baseline, configuredCapacity));
+}

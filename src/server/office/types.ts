@@ -3,6 +3,7 @@ import type {
   AgentStatus,
   ApprovalStatus,
   ApprovalType,
+  DockerRunnerEngine,
   DeviceStatus,
   DeviceType,
   EventSeverity,
@@ -26,6 +27,8 @@ export type OfficeZone = {
   summary: string;
   headcount: number;
   activeCount: number;
+  workstationCapacity: number;
+  workstationMax: number;
   x: number;
   y: number;
   width: number;
@@ -36,6 +39,7 @@ export type OfficeAgent = {
   id: string;
   name: string;
   role: AgentRole;
+  engine: DockerRunnerEngine | null;
   status: AgentStatus;
   zoneId: ZoneId;
   focus: string;
@@ -62,6 +66,8 @@ export type OfficeDevice = {
   id: string;
   name: string;
   type: DeviceType;
+  engine: DockerRunnerEngine | null;
+  nativeDashboardUrl: string | null;
   status: DeviceStatus;
   resourcePool: string;
   currentSessionStatus: SessionStatus | null;
@@ -103,6 +109,8 @@ export type OfficeExecutionReport = {
 
 export type OfficeSnapshot = {
   generatedAt: string;
+  mode: "database" | "fallback";
+  readOnlyReason: string | null;
   headline: string;
   metrics: OfficeMetric[];
   zones: OfficeZone[];

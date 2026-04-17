@@ -10,10 +10,14 @@ import {
   events,
   executionSessions,
   tasks,
+  zoneSettings,
 } from "@/server/db/schema";
 import {
   agentStatusLabels,
   deviceStatusLabels,
+  resolveZoneWorkstationCapacity,
+  zoneWorkstationLimitByZone,
+  type DockerRunnerEngine,
   type ZoneId,
 } from "@/server/office/catalog";
 import { officeHeadline, agentPresentation, zonePresentation } from "@/server/office/presentation";
@@ -33,6 +37,9 @@ const activeAgentStatuses = new Set([
 
 const canonicalPoolDeviceNamePattern =
   /^(OpenClaw Runner-\d+|HermesHub Runner|Mac mini.*)$/;
+const staleDeviceThresholdMs = Number(
+  process.env.COLA_DEVICE_STALE_AFTER_MS ?? "45000",
+);
 
 function formatRelativeTime(occurredAt: Date, now: Date) {
   const diffMs = now.getTime() - occurredAt.getTime();
@@ -87,10 +94,51 @@ function tryReadExecutionResult(inputPath: string | null | undefined) {
   }
 }
 
-function buildEmptySnapshot(now: Date): OfficeSnapshot {
+function buildSnapshotZones(
+  agentsByZone: Map<ZoneId, Array<typeof agents.$inferSelect>>,
+  zoneSettingByZoneId: Map<ZoneId, typeof zoneSettings.$inferSelect>,
+) {
+  return (Object.entries(zonePresentation) as Array<
+    [ZoneId, (typeof zonePresentation)[ZoneId]]
+  >).map(([zoneId, zone]) => {
+    const agentsInZone = agentsByZone.get(zoneId) ?? [];
+    const workstationCapacity = resolveZoneWorkstationCapacity(zoneId, {
+      configuredCapacity: zoneSettingByZoneId.get(zoneId)?.workstationCapacity ?? null,
+      occupiedCount: agentsInZone.length,
+    });
+
+    return {
+      id: zoneId,
+      label: zone.label,
+      summary: zone.summary,
+      headcount: agentsInZone.length,
+      activeCount: agentsInZone.filter((agent) =>
+        activeAgentStatuses.has(agent.status),
+      ).length,
+      workstationCapacity,
+      workstationMax: zoneWorkstationLimitByZone[zoneId],
+      x: zone.x,
+      y: zone.y,
+      width: zone.width,
+      height: zone.height,
+    };
+  });
+}
+
+function buildEmptySnapshot(
+  now: Date,
+  zoneSettingByZoneId: Map<ZoneId, typeof zoneSettings.$inferSelect>,
+): OfficeSnapshot {
+  const agentsByZone = new Map<ZoneId, Array<typeof agents.$inferSelect>>();
+  for (const zoneId of Object.keys(zonePresentation) as ZoneId[]) {
+    agentsByZone.set(zoneId, []);
+  }
+
   return {
     generatedAt: now.toISOString(),
-    headline: "数据库为空，当前没有分区、角色、任务或执行记录。",
+    mode: "database",
+    readOnlyReason: null,
+    headline: "系统已初始化基础办公区，当前还没有人物、任务或执行记录。",
     metrics: [
       {
         label: "在线角色",
@@ -113,7 +161,7 @@ function buildEmptySnapshot(now: Date): OfficeSnapshot {
         delta: "当前没有关键级异常",
       },
     ],
-    zones: [],
+    zones: buildSnapshotZones(agentsByZone, zoneSettingByZoneId),
     agents: [],
     tasks: [],
     devices: [],
@@ -123,9 +171,55 @@ function buildEmptySnapshot(now: Date): OfficeSnapshot {
   };
 }
 
+function buildFallbackSnapshot(now: Date, reason: string): OfficeSnapshot {
+  return {
+    generatedAt: now.toISOString(),
+    mode: "fallback",
+    readOnlyReason: reason,
+    headline: "数据库当前不可用，页面已切换到只读回退模式。",
+    metrics: [
+      {
+        label: "在线角色",
+        value: "0",
+        delta: "数据库恢复后才会展示真实人物状态",
+      },
+      {
+        label: "执行中任务",
+        value: "0",
+        delta: "回退模式下不支持任务写入与调度",
+      },
+      {
+        label: "设备池负载",
+        value: "0%",
+        delta: "当前无法读取真实 runner 状态",
+      },
+      {
+        label: "异常事件",
+        value: "1",
+        delta: "请先恢复本地数据库连接",
+      },
+    ],
+    zones: [],
+    agents: [],
+    tasks: [],
+    devices: [],
+    approvals: [],
+    events: [
+      {
+        id: "fallback-db-unreachable",
+        severity: "critical",
+        title: "数据库不可用",
+        description: reason,
+        at: "刚刚",
+      },
+    ],
+    executionReports: [],
+  };
+}
+
 export async function getOfficeSnapshot(database: Database): Promise<OfficeSnapshot> {
   try {
-    const [agentRows, taskRows, deviceRows, approvalRows, eventRows] =
+    const [agentRows, taskRows, deviceRows, approvalRows, eventRows, zoneSettingRows] =
       await Promise.all([
         database.select().from(agents),
         database.select().from(tasks),
@@ -136,10 +230,15 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
           .where(eq(approvals.status, "pending"))
           .orderBy(desc(approvals.createdAt)),
         database.select().from(events).orderBy(desc(events.occurredAt)).limit(32),
+        database.select().from(zoneSettings),
       ]);
 
+    const zoneSettingByZoneId = new Map(
+      zoneSettingRows.map((setting) => [setting.zoneId, setting] as const),
+    );
+
     if (agentRows.length === 0) {
-      return buildEmptySnapshot(new Date());
+      return buildEmptySnapshot(new Date(), zoneSettingByZoneId);
     }
 
     const now = new Date();
@@ -152,10 +251,32 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       .orderBy(desc(executionSessions.createdAt))
       .limit(sessionLimit);
     const sessionIds = new Set(sessionRows.map((session) => session.id));
+    const deviceById = new Map(deviceRows.map((device) => [device.id, device]));
     const currentTaskByAgentId = new Map<string, string>();
     const agentsByZone = new Map<ZoneId, typeof agentRows>();
     const assignedDeviceByAgentId = new Map<string, (typeof deviceRows)[number]>();
     const runningSessionByAgentId = new Map<string, (typeof sessionRows)[number]>();
+
+    const inferEngineFromDevice = (
+      device: (typeof deviceRows)[number] | undefined,
+    ): DockerRunnerEngine | null => {
+      if (!device) return null;
+
+      const metadata =
+        device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+      if (
+        metadata &&
+        "engine" in metadata &&
+        (metadata.engine === "openclaw" || metadata.engine === "hermes-agent")
+      ) {
+        return metadata.engine;
+      }
+
+      if (device.deviceType === "docker_openclaw") return "openclaw";
+      if (device.deviceType === "docker_hermes_agent") return "hermes-agent";
+
+      return null;
+    };
 
     for (const task of taskRows) {
       if (!task.currentAgentId || currentTaskByAgentId.has(task.currentAgentId)) continue;
@@ -222,25 +343,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const relevantDeviceIds = new Set(relevantDeviceRows.map((device) => device.id));
     const relevantApprovalIds = new Set(approvalRows.map((approval) => approval.id));
 
-    const zones = (Object.entries(zonePresentation) as Array<
-      [ZoneId, (typeof zonePresentation)[ZoneId]]
-    >).map(([zoneId, zone]) => {
-      const agentsInZone = agentsByZone.get(zoneId) ?? [];
-
-      return {
-        id: zoneId,
-        label: zone.label,
-        summary: zone.summary,
-        headcount: agentsInZone.length,
-        activeCount: agentsInZone.filter((agent) =>
-          activeAgentStatuses.has(agent.status),
-        ).length,
-        x: zone.x,
-        y: zone.y,
-        width: zone.width,
-        height: zone.height,
-      };
-    });
+    const zones = buildSnapshotZones(agentsByZone, zoneSettingByZoneId);
 
     const zoneAgentIndices = new Map<string, number>();
 
@@ -250,6 +353,10 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       zoneAgentIndices.set(agent.zoneId, dynamicIndex + 1);
       const assignedDevice = assignedDeviceByAgentId.get(agent.id);
       const runningSession = runningSessionByAgentId.get(agent.id);
+      const activeDevice =
+        (runningSession?.deviceId
+          ? deviceById.get(runningSession.deviceId)
+          : undefined) ?? assignedDevice;
 
       const presentation = agentPresentation[agent.id] ?? {
         x: zone.x + 8 + (dynamicIndex % 2) * 9,
@@ -261,11 +368,12 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
         id: agent.id,
         name: agent.name,
         role: agent.roleType,
+        engine: inferEngineFromDevice(activeDevice),
         status: agent.status,
         zoneId: agent.zoneId,
         focus: agent.focus ?? `${agentStatusLabels[agent.status]}，等待新上下文`,
         currentTaskId: currentTaskByAgentId.get(agent.id) ?? null,
-        deviceId: runningSession?.deviceId ?? assignedDevice?.id ?? null,
+        deviceId: activeDevice?.id ?? null,
         energy: presentation.energy,
         x: presentation.x,
         y: presentation.y,
@@ -288,18 +396,37 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       const session = latestSessionByDeviceId.get(device.id);
       const metadata =
         device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+      const isStale =
+        device.lastHeartbeatAt instanceof Date &&
+        now.getTime() - device.lastHeartbeatAt.getTime() > staleDeviceThresholdMs;
+      const effectiveStatus =
+        isStale && ["online", "busy", "maintenance"].includes(device.status)
+          ? "offline"
+          : device.status;
       const healthSummary =
-        metadata &&
-        "healthSummary" in metadata &&
-        typeof metadata.healthSummary === "string"
-          ? metadata.healthSummary
-          : `${deviceStatusLabels[device.status]}，等待新的执行会话`;
+        isStale
+          ? "Runner 心跳已超时，原生入口已暂时禁用。"
+          : metadata &&
+              "healthSummary" in metadata &&
+              typeof metadata.healthSummary === "string"
+            ? metadata.healthSummary
+            : `${deviceStatusLabels[effectiveStatus]}，等待新的执行会话`;
+      const nativeDashboardUrl =
+        isStale
+          ? null
+          : metadata &&
+              "nativeDashboardUrl" in metadata &&
+              typeof metadata.nativeDashboardUrl === "string"
+            ? metadata.nativeDashboardUrl
+            : null;
 
       return {
         id: device.id,
         name: device.name,
         type: device.deviceType,
-        status: device.status,
+        engine: inferEngineFromDevice(device),
+        nativeDashboardUrl,
+        status: effectiveStatus,
         resourcePool: device.resourcePool,
         currentSessionStatus: session?.status ?? null,
         currentTaskId: session?.taskId ?? null,
@@ -385,6 +512,8 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     return {
       generatedAt: now.toISOString(),
+      mode: "database",
+      readOnlyReason: null,
       headline: officeHeadline,
       metrics: [
         {
@@ -417,8 +546,11 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       events: snapshotEvents,
       executionReports: latestExecutionReports,
     };
-  } catch {
-    return buildEmptySnapshot(new Date());
+  } catch (error) {
+    return buildFallbackSnapshot(
+      new Date(),
+      error instanceof Error ? error.message : "数据库连接失败",
+    );
   }
 }
 

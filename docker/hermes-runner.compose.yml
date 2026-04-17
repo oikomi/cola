@@ -1,6 +1,6 @@
 services:
   hermes-runner-01:
-    image: ${HERMES_AGENT_IMAGE:-ghcr.io/nousresearch/hermes-agent:latest}
+    image: ${HERMES_AGENT_IMAGE:-nousresearch/hermes-agent:latest}
     container_name: hermes-runner-01
     restart: unless-stopped
     working_dir: /workspace
@@ -9,7 +9,7 @@ services:
       - ..:/workspace
       - ${HOME}/.codex:/home/node/.codex:ro
     environment:
-      COLA_API_BASE_URL: ${COLA_API_BASE_URL:-http://host.docker.internal:3000}
+      COLA_API_BASE_URL: ${COLA_API_BASE_URL:-http://host.docker.internal:50038}
       COLA_RUNNER_NAME: ${COLA_RUNNER_NAME:-Hermes Runner-01}
       COLA_RESOURCE_POOL: ${COLA_RESOURCE_POOL:-docker-core}
       COLA_RUNNER_HOST: ${COLA_RUNNER_HOST:-host.docker.internal}

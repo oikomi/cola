@@ -1,29 +1,75 @@
-# Create T3 App
+# Cola Virtual Office
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+`cola` 是一个基于 Next.js、tRPC、Drizzle 和 PostgreSQL 的多角色 Agent 控制面。当前仓库聚焦 Virtual Office 场景：用单页面办公室视图展示角色、任务、设备、审批和事件，并支持通过 Docker 接入 OpenClaw / Hermes Agent runner。
 
-## What's next? How do I make an app with this?
+## 当前能力
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+- 单页面办公室控制台，支持实时刷新 office 快照
+- 角色、任务、审批、设备、事件、执行会话的数据模型与 API
+- 新增人物后异步拉起 Docker runner，不再阻塞前端请求
+- OpenClaw / Hermes Agent runner 注册、心跳、拉任务、会话回报
+- 原生页面链接支持本地直连和远程模板 URL
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+## 本地开发
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+1. 安装依赖
 
-## Learn More
+```bash
+npm install
+```
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+2. 准备环境变量
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+```bash
+cp .env.example .env
+```
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+3. 初始化数据库和样例办公室数据
 
-## How do I deploy this?
+```bash
+npm run db:setup:office
+```
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+4. 启动控制面
+
+```bash
+./restart.sh -f
+```
+
+默认控制面地址是 `http://localhost:50038`。
+
+## Docker Runner
+
+新增人物后，系统会先落库，再在后台尝试 `docker pull` + `docker run` 对应 runner 镜像。状态通过 `agent/device/event + SSE` 反映到前端：
+
+- `waiting_device` / `maintenance`：容器正在启动或等待 runner 注册
+- `online` / `idle`：runner 已就绪
+- `unhealthy` / `blocked`：镜像拉取、容器启动或 runner 自检失败
+
+详细接入方式见：
+
+- [Docker OpenClaw Runner 接入说明](./docs/docker-openclaw-runner.md)
+- [Docker Hermes Agent Runner 接入说明](./docs/docker-hermes-runner.md)
+
+## 远程部署
+
+如果控制面部署在远程主机，不应该再让浏览器打开 `127.0.0.1` 原生页。请至少配置原生页模板：
+
+```env
+NEXT_PUBLIC_OPENCLAW_NATIVE_URL="https://cola.example.com/openclaw-native?agentId={agentId}&deviceId={deviceId}&engine={engine}"
+NEXT_PUBLIC_HERMES_NATIVE_URL="https://cola.example.com/hermes-native?agentId={agentId}&deviceId={deviceId}&engine={engine}"
+```
+
+如果你要直接暴露 runner dashboard 端口而不是走反向代理，再额外配置：
+
+```env
+COLA_DASHBOARD_BIND_HOST="0.0.0.0"
+COLA_DASHBOARD_ALLOWED_ORIGINS="https://cola.example.com,https://openclaw.example.com"
+```
+
+## 相关文档
+
+- [Virtual Office 多角色 Agent 系统 PRD](./docs/virtual-office-agent-prd.md)
+- [Virtual Office 多角色 Agent 系统技术架构](./docs/virtual-office-agent-architecture.md)
+- [Cola Virtual Office MVP 实施计划](./docs/virtual-office-mvp-implementation-plan.md)
+- [AI-Native 公司环境 1.0 PRD](./docs/ai-native-company-prd.md)

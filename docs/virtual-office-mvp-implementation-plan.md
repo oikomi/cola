@@ -30,7 +30,7 @@
 - `office` router 已切到“优先读真实数据库，异常时回退样例快照”
 - 首页已接入任务创建、任务状态推进、审批创建与审批处理
 - 前端已重构为单页面 office 主场景，并使用 `shadcn/ui`
-- 新增人物已接入 `createAgent`，会尝试直接拉起 Docker OpenClaw runner
+- 新增人物已接入 `createAgent`，会先落库，再在后台尝试拉起 Docker OpenClaw runner
 - 已接入 SSE 实时流，单页面可自动刷新 office 快照
 - 已支持人物 inspector 查看最近一次执行结果回放
 
@@ -133,7 +133,7 @@
 - 更新任务状态
 - 发起审批
 - 批准或驳回审批
-- 新增角色并尝试 provision Docker OpenClaw runner
+- 新增角色并异步 provision Docker OpenClaw runner
 
 ### 5.5 初始化与种子脚本
 
@@ -218,7 +218,7 @@
 
 当前结果：
 
-- 新增人物时会尝试直接 `docker run` OpenClaw runner
+- 新增人物时请求会立即返回，后台继续 `docker pull` + `docker run` OpenClaw runner
 - 已提供 worker 注册、心跳和会话回报接口
 - 已提供任务拉取协议和容器内 bootstrap 脚本
 - 已支持挂载 `~/.codex/config.toml` 与 `~/.codex/auth.json` 的设计

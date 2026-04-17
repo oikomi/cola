@@ -1,40 +1,33 @@
 "use client";
 
 import {
-  type CSSProperties,
-  type ReactNode,
+  type LucideIcon,
+  ActivityIcon,
+  ArrowRightIcon,
+  BotIcon,
+  BriefcaseBusinessIcon,
+  CpuIcon,
+  LoaderCircleIcon,
+  RadarIcon,
+  SearchIcon,
+  SendIcon,
+  SparklesIcon,
+  UserRoundPlusIcon,
+  UsersIcon,
+} from "lucide-react";
+import {
+  startTransition,
+  useDeferredValue,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import {
-  ActivityIcon,
-  ArrowRightIcon,
-  BriefcaseBusinessIcon,
-  Building2Icon,
-  CpuIcon,
-  PackageIcon,
-  PlusIcon,
-  SendIcon,
-  SparklesIcon,
-  UserPlusIcon,
-  UsersIcon,
-} from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -43,39 +36,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
   agentRoleValues,
   agentStatusLabels,
   dockerRunnerEngineLabels,
   dockerRunnerEngineValues,
-  deviceStatusLabels,
-  deviceTypeLabels,
   priorityLabels,
   riskLevelLabels,
   roleLabels,
   taskStatusLabels,
   taskTypeValues,
+  zoneLabels,
   type AgentRole,
-  type ApprovalType,
   type DockerRunnerEngine,
-  type RiskLevel,
   type TaskStatus,
 } from "@/server/office/catalog";
 import type { OfficeSnapshot } from "@/server/office/types";
-import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 
 type Props = {
   snapshot: OfficeSnapshot;
+};
+
+type FeedbackState = {
+  message: string;
+  tone: "success" | "error";
 };
 
 const taskTypeLabels: Record<(typeof taskTypeValues)[number], string> = {
@@ -84,61 +70,31 @@ const taskTypeLabels: Record<(typeof taskTypeValues)[number], string> = {
   campaign: "运营活动",
   recruiting: "招聘推进",
   procurement: "采购流转",
-  coordination: "跨部门协调",
+  coordination: "跨部门协作",
 };
 
-const roleIcons: Record<AgentRole, typeof BriefcaseBusinessIcon> = {
-  product: BriefcaseBusinessIcon,
+const roleHints: Record<AgentRole, string> = {
+  product: "负责拆解目标、整理需求和界面策略。",
+  engineering: "负责实现、调试和交付执行结果。",
+  operations: "负责增长动作、投放节奏和运营响应。",
+  hr: "负责招聘推进、候选人协同和组织动作。",
+  procurement: "负责报价、供应商沟通和采购节奏。",
+  ceo_office: "负责跨团队编排和关键节点对齐。",
+};
+
+const roleIcons: Record<AgentRole, LucideIcon> = {
+  product: SparklesIcon,
   engineering: CpuIcon,
-  operations: SparklesIcon,
+  operations: RadarIcon,
   hr: UsersIcon,
-  procurement: PackageIcon,
-  ceo_office: Building2Icon,
+  procurement: BotIcon,
+  ceo_office: BriefcaseBusinessIcon,
 };
 
-function isAgentRole(value: string): value is AgentRole {
-  return agentRoleValues.includes(value as AgentRole);
-}
-
-function isTaskType(value: string): value is (typeof taskTypeValues)[number] {
-  return taskTypeValues.includes(value as (typeof taskTypeValues)[number]);
-}
-
-function isDockerRunnerEngine(value: string): value is DockerRunnerEngine {
-  return dockerRunnerEngineValues.includes(value as DockerRunnerEngine);
-}
-
-function isPriority(value: string): value is keyof typeof priorityLabels {
-  return value in priorityLabels;
-}
-
-function isRiskLevel(value: string): value is keyof typeof riskLevelLabels {
-  return value in riskLevelLabels;
-}
-
-const badgeTone = {
-  idle: "secondary",
-  planning: "outline",
-  waiting_device: "outline",
-  executing: "default",
-  waiting_handoff: "secondary",
-  waiting_approval: "secondary",
-  blocked: "destructive",
-  error: "destructive",
-} as const;
-
-const statusDotTone = {
-  idle: "bg-stone-400",
-  planning: "bg-amber-500",
-  waiting_device: "bg-amber-500",
-  executing: "bg-emerald-500",
-  waiting_handoff: "bg-sky-500",
-  waiting_approval: "bg-amber-500",
-  blocked: "bg-rose-500",
-  error: "bg-rose-500",
-} as const;
-
-const agentStatusSortOrder: Record<keyof typeof statusDotTone, number> = {
+const agentStatusOrder: Record<
+  OfficeSnapshot["agents"][number]["status"],
+  number
+> = {
   executing: 0,
   planning: 1,
   waiting_handoff: 2,
@@ -149,265 +105,161 @@ const agentStatusSortOrder: Record<keyof typeof statusDotTone, number> = {
   error: 7,
 };
 
-const executionStatusLabels = {
-  pending: "待启动",
-  starting: "启动中",
-  running: "运行中",
-  succeeded: "成功",
-  failed: "失败",
-  canceled: "已取消",
-} as const;
-
-const eventSeverityLabels = {
-  info: "信息",
-  warning: "提醒",
-  critical: "严重",
-} as const;
-
-type FeedbackState = {
-  message: string;
-  tone: "success" | "error";
+const taskStatusOrder: Record<TaskStatus, number> = {
+  in_progress: 0,
+  assigned: 1,
+  queued: 2,
+  created: 3,
+  pending_approval: 4,
+  handed_off: 5,
+  completed: 6,
+  failed: 7,
+  canceled: 8,
 };
+
+const eventTone = {
+  info: "bg-emerald-500",
+  warning: "bg-amber-500",
+  critical: "bg-rose-500",
+} as const;
+
+const panelClass =
+  "overflow-hidden rounded-[30px] border border-black/8 bg-white/78 shadow-[0_24px_80px_rgba(25,18,12,0.08)] backdrop-blur-xl";
+
+function engineTone(engine: DockerRunnerEngine | null | undefined) {
+  if (engine === "hermes-agent") {
+    return {
+      badge: "bg-[#e7f0ff] text-[#31527f]",
+      panel:
+        "border-[#d7e2f6] bg-[linear-gradient(135deg,rgba(244,248,255,0.96),rgba(255,255,255,0.98))]",
+      hero: "border-[#d7e2f6] bg-[#111827] text-[#eff6ff]",
+    };
+  }
+
+  return {
+    badge: "bg-[#fff0d7] text-[#8f5e11]",
+    panel:
+      "border-[#eedfc7] bg-[linear-gradient(135deg,rgba(255,248,236,0.96),rgba(255,255,255,0.98))]",
+    hero: "border-[#eedfc7] bg-[#1f170f] text-[#fff7ed]",
+  };
+}
 
 function FormField({
   label,
   children,
 }: {
   label: string;
-  children: ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-[11px] font-medium tracking-[0.28em] text-[#7d6858] uppercase">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function SectionTitle({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-[11px] font-medium tracking-[0.22em] text-stone-600 uppercase">
-        {label}
+      <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
+        {eyebrow}
       </p>
-      {children}
+      <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+        {title}
+      </h2>
+      <p className="max-w-2xl text-sm leading-6 text-[#6f5f52]">{description}</p>
     </div>
   );
 }
 
-function canStartTask(status: TaskStatus) {
-  return (
-    status === "created" ||
-    status === "queued" ||
-    status === "assigned" ||
-    status === "handed_off"
-  );
-}
-
-function canCompleteTask(status: TaskStatus) {
-  return status === "in_progress";
-}
-
-function canRequestTaskApproval(
-  status: TaskStatus,
-  riskLevel: RiskLevel,
-) {
-  if (riskLevel === "low") return false;
-
-  return (
-    status === "created" ||
-    status === "queued" ||
-    status === "assigned" ||
-    status === "in_progress"
-  );
-}
-
-type ZoneCardProps = {
-  zone: OfficeSnapshot["zones"][number];
-  agents: OfficeSnapshot["agents"];
-  active: boolean;
-  selectedAgentId: string | null;
-  onSelectAgent: (agentId: string) => void;
-  className?: string;
-  style?: CSSProperties;
-};
-
-function ZoneCard({
-  zone,
-  agents,
-  active,
-  selectedAgentId,
-  onSelectAgent,
-  className,
-  style,
-}: ZoneCardProps) {
-  return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-[28px] border bg-white/52 shadow-[0_20px_44px_rgba(88,60,25,0.09)] backdrop-blur-sm",
-        active
-          ? "border-[#d39b42]/75 bg-white/72 shadow-[0_22px_56px_rgba(181,122,28,0.16)]"
-          : "border-white/55",
-        className,
-      )}
-      style={style}
-    >
-      <div className="flex h-full flex-col gap-4 p-4 md:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] tracking-[0.28em] text-stone-500 uppercase">
-              {zone.id}
-            </p>
-            <h3 className="mt-2 text-base font-semibold text-stone-950 md:text-lg">
-              {zone.label}
-            </h3>
-            <p className="mt-1 max-w-[26ch] text-xs leading-5 text-stone-500">
-              {zone.summary}
-            </p>
-          </div>
-          <span className="shrink-0 rounded-full bg-white/85 px-2.5 py-1 text-[11px] font-medium text-stone-600">
-            {zone.activeCount}/{zone.headcount}
-          </span>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          {agents.length > 0 ? (
-            <div className="flex flex-wrap gap-2.5">
-              {agents.map((agent) => {
-                const Icon = roleIcons[agent.role];
-                const selected = selectedAgentId === agent.id;
-
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => onSelectAgent(agent.id)}
-                    className={cn(
-                      "flex min-w-0 flex-1 basis-[148px] items-center gap-3 rounded-[20px] border px-3 py-3 text-left transition-all duration-200",
-                      selected
-                        ? "border-[#d39b42]/70 bg-[#fff8eb] shadow-[0_12px_26px_rgba(181,122,28,0.14)]"
-                        : "border-white/70 bg-white/86 hover:border-[#d39b42]/45 hover:bg-white",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "relative flex size-10 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold text-stone-900",
-                        selected ? "bg-[#f4deb0]" : "bg-stone-900/[0.05]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-white",
-                          statusDotTone[agent.status],
-                        )}
-                      />
-                      {agent.name.slice(0, 1)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-stone-900">
-                          {agent.name}
-                        </span>
-                        {selected ? (
-                          <span className="rounded-full bg-[#e8c98d] px-2 py-0.5 text-[10px] font-semibold text-[#5b3507]">
-                            当前
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-stone-500">
-                        <Icon className="size-3.5 shrink-0" />
-                        <span className="truncate">
-                          {agentStatusLabels[agent.status]}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex h-full items-end">
-              <p className="text-xs text-stone-400">当前没有在岗人物。</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ColaLogo({
-  className,
-  compact = false,
+function EmptyBlock({
+  title,
+  description,
 }: {
-  className?: string;
-  compact?: boolean;
+  title: string;
+  description: string;
 }) {
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-3 rounded-full border border-white/70 bg-white/74 text-stone-900 shadow-[0_14px_30px_rgba(92,63,23,0.12)] backdrop-blur-sm",
-        compact ? "px-2.5 py-2" : "px-3 py-2.5",
-        className,
-      )}
-    >
-      <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[linear-gradient(145deg,#2f2214_0%,#8d5f21_52%,#efce8f_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
-        <div className="absolute inset-[1px] rounded-[15px] bg-[radial-gradient(circle_at_top,rgba(255,250,239,0.28),transparent_58%)]" />
-        <svg
-          viewBox="0 0 48 48"
-          aria-hidden="true"
-          className="relative z-10 size-8 text-[#fff7ea]"
-          fill="none"
-        >
-          <path
-            d="M33 14.5c-2.1-2.6-5.3-4-9-4-6.6 0-11.5 5.2-11.5 13.5S17.4 37.5 24 37.5c3.7 0 6.8-1.3 9-3.8"
-            stroke="currentColor"
-            strokeWidth="4.2"
-            strokeLinecap="round"
-          />
-          <path
-            d="M30.8 17.2H23.5"
-            stroke="currentColor"
-            strokeWidth="3.6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M28.5 30.8H20.2"
-            stroke="currentColor"
-            strokeWidth="3.6"
-            strokeLinecap="round"
-          />
-        </svg>
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-medium tracking-[0.32em] text-stone-500 uppercase">
-          Cola Systems
-        </p>
-        <p
-          className={cn(
-            "truncate font-semibold tracking-[-0.04em] text-stone-950",
-            compact ? "text-base" : "text-lg",
-          )}
-        >
-          Cola Virtual Office
-        </p>
-      </div>
+    <div className="rounded-[24px] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6">
+      <p className="text-sm font-medium text-[#201912]">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-[#7b695a]">{description}</p>
     </div>
   );
+}
+
+function initialsFromName(name: string) {
+  return name.trim().slice(0, 2).toUpperCase() || "AI";
+}
+
+function formatGeneratedAt(iso: string) {
+  return new Date(iso).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function surfaceClassForEngine(
+  engine: DockerRunnerEngine | null | undefined,
+  highlighted = false,
+) {
+  if (engine === "hermes-agent") {
+    return highlighted
+      ? "border-[#6d91d4]/30 bg-[linear-gradient(135deg,rgba(233,241,255,0.94),rgba(250,252,255,0.98))] shadow-[0_24px_60px_rgba(80,112,166,0.14)]"
+      : "border-[#d7e2f6] bg-[linear-gradient(135deg,rgba(244,248,255,0.95),rgba(255,255,255,0.98))]";
+  }
+
+  return highlighted
+    ? "border-[#e7b86a]/40 bg-[linear-gradient(135deg,rgba(255,244,224,0.95),rgba(255,250,242,0.98))] shadow-[0_24px_60px_rgba(186,124,27,0.14)]"
+    : "border-[#eedfc7] bg-[linear-gradient(135deg,rgba(255,248,236,0.94),rgba(255,255,255,0.98))]";
+}
+
+function toneClassForTaskStatus(status: TaskStatus) {
+  switch (status) {
+    case "in_progress":
+      return "bg-[#edf9f3] text-[#0f6a3c]";
+    case "assigned":
+    case "queued":
+    case "created":
+      return "bg-[#f7f1df] text-[#8b5b10]";
+    case "pending_approval":
+      return "bg-[#fff1e2] text-[#b06200]";
+    case "handed_off":
+      return "bg-[#eef4ff] text-[#3458a4]";
+    case "completed":
+      return "bg-[#f1f5f9] text-[#334155]";
+    case "failed":
+    case "canceled":
+      return "bg-[#fff1f2] text-[#b42318]";
+    default:
+      return "bg-[#f5f5f4] text-[#44403c]";
+  }
 }
 
 export function OfficeShell({ snapshot }: Props) {
   const utils = api.useUtils();
-  const [streamState, setStreamState] = useState<
-    "connecting" | "live" | "reconnecting"
-  >("connecting");
   const lastVersionRef = useRef<string | null>(null);
-  const snapshotQuery = api.office.getSnapshot.useQuery(undefined, {
-    initialData: snapshot,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: true,
-  });
-  const liveSnapshot = snapshotQuery.data ?? snapshot;
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    liveSnapshot.agents.find((agent) => agent.role === "engineering")?.id ??
-      liveSnapshot.agents[0]?.id ??
-      null,
+  const [streamState, setStreamState] = useState<"live" | "reconnecting">(
+    "reconnecting",
   );
-  const [addAgentOpen, setAddAgentOpen] = useState(false);
-  const [assignTaskOpen, setAssignTaskOpen] = useState(false);
-  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
+  const [searchValue, setSearchValue] = useState("");
+  const deferredSearch = useDeferredValue(searchValue);
+  const [highlightedAgentId, setHighlightedAgentId] = useState<string | null>(
+    snapshot.agents[0]?.id ?? null,
+  );
   const [agentDraft, setAgentDraft] = useState({
     name: "",
     role: "engineering" as AgentRole,
@@ -416,102 +268,51 @@ export function OfficeShell({ snapshot }: Props) {
   const [taskDraft, setTaskDraft] = useState({
     title: "",
     summary: "",
-    ownerAgentId:
-      liveSnapshot.agents.find((agent) => agent.id === selectedAgentId)?.id ??
-      liveSnapshot.agents[0]?.id ??
-      "",
+    ownerAgentId: snapshot.agents[0]?.id ?? "",
     taskType: "feature" as (typeof taskTypeValues)[number],
     priority: "medium" as keyof typeof priorityLabels,
     riskLevel: "medium" as keyof typeof riskLevelLabels,
   });
 
-  const selectedAgent =
-    liveSnapshot.agents.find((agent) => agent.id === selectedAgentId) ??
-    liveSnapshot.agents[0] ??
-    null;
-
-  const selectedAgentDevice = selectedAgent
-    ? (liveSnapshot.devices.find(
-        (device) => device.id === selectedAgent.deviceId,
-      ) ?? null)
-    : null;
-  const selectedZone = selectedAgent
-    ? (liveSnapshot.zones.find((zone) => zone.id === selectedAgent.zoneId) ??
-      null)
-    : null;
-  const generatedAtLabel = new Date(
-    liveSnapshot.generatedAt,
-  ).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
+  const snapshotQuery = api.office.getSnapshot.useQuery(undefined, {
+    initialData: snapshot,
+    refetchOnWindowFocus: false,
   });
-  const hasWorkspaceContent = liveSnapshot.zones.length > 0;
-  const canCreateTask = liveSnapshot.agents.length > 0;
 
-  const selectedAgentTasks = useMemo(() => {
-    if (!selectedAgent) return [];
-    return liveSnapshot.tasks.filter(
-      (task) => task.ownerAgentId === selectedAgent.id,
-    );
-  }, [selectedAgent, liveSnapshot.tasks]);
+  const liveSnapshot = snapshotQuery.data ?? snapshot;
+  const isReadOnlyFallback = liveSnapshot.mode === "fallback";
+  const generatedAt = formatGeneratedAt(liveSnapshot.generatedAt);
+  const normalizedSearch = deferredSearch.trim().toLowerCase();
 
-  const selectedAgentApprovals = useMemo(() => {
-    if (!selectedAgent) return [];
-    return liveSnapshot.approvals.filter(
-      (approval) => approval.requestedByAgentId === selectedAgent.id,
-    );
-  }, [selectedAgent, liveSnapshot.approvals]);
-
-  const selectedAgentReports = useMemo(() => {
-    if (!selectedAgent) return [];
-    return liveSnapshot.executionReports.filter(
-      (report) => report.agentId === selectedAgent.id,
-    );
-  }, [selectedAgent, liveSnapshot.executionReports]);
-
-  const agentsByZone = useMemo(() => {
-    const grouped = new Map<string, OfficeSnapshot["agents"]>();
-
-    for (const zone of liveSnapshot.zones) {
-      grouped.set(zone.id, []);
+  useEffect(() => {
+    if (!liveSnapshot.agents.some((agent) => agent.id === taskDraft.ownerAgentId)) {
+      setTaskDraft((current) => ({
+        ...current,
+        ownerAgentId: liveSnapshot.agents[0]?.id ?? "",
+      }));
     }
-
-    for (const agent of liveSnapshot.agents) {
-      grouped.set(agent.zoneId, [...(grouped.get(agent.zoneId) ?? []), agent]);
-    }
-
-    for (const agents of grouped.values()) {
-      agents.sort((left, right) => {
-        if (left.id === selectedAgentId) return -1;
-        if (right.id === selectedAgentId) return 1;
-
-        const statusDelta =
-          agentStatusSortOrder[left.status] -
-          agentStatusSortOrder[right.status];
-
-        if (statusDelta !== 0) return statusDelta;
-
-        return left.name.localeCompare(right.name, "zh-CN");
-      });
-    }
-
-    return grouped;
-  }, [liveSnapshot.agents, liveSnapshot.zones, selectedAgentId]);
+  }, [liveSnapshot.agents, taskDraft.ownerAgentId]);
 
   useEffect(() => {
     if (
-      selectedAgentId &&
-      liveSnapshot.agents.some((agent) => agent.id === selectedAgentId)
+      highlightedAgentId &&
+      liveSnapshot.agents.some((agent) => agent.id === highlightedAgentId)
     ) {
       return;
     }
 
-    setSelectedAgentId(
-      liveSnapshot.agents.find((agent) => agent.role === "engineering")?.id ??
-        liveSnapshot.agents[0]?.id ??
-        null,
-    );
-  }, [liveSnapshot.agents, selectedAgentId]);
+    setHighlightedAgentId(liveSnapshot.agents[0]?.id ?? null);
+  }, [highlightedAgentId, liveSnapshot.agents]);
+
+  useEffect(() => {
+    if (!feedback) return;
+
+    const timeout = window.setTimeout(() => {
+      setFeedback(null);
+    }, feedback.tone === "error" ? 5200 : 3200);
+
+    return () => window.clearTimeout(timeout);
+  }, [feedback]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -543,27 +344,12 @@ export function OfficeShell({ snapshot }: Props) {
 
     eventSource.addEventListener("snapshot", handleSnapshot as EventListener);
     eventSource.addEventListener("heartbeat", handleHeartbeat as EventListener);
-    eventSource.onerror = () => {
-      setStreamState("reconnecting");
-    };
+    eventSource.onerror = () => setStreamState("reconnecting");
 
     return () => {
       eventSource.close();
     };
   }, [utils.office.getSnapshot]);
-
-  useEffect(() => {
-    if (!feedback) return;
-
-    const timeout = window.setTimeout(
-      () => setFeedback(null),
-      feedback.tone === "error" ? 5200 : 3600,
-    );
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [feedback]);
 
   const pushFeedback = (
     message: string,
@@ -575,9 +361,18 @@ export function OfficeShell({ snapshot }: Props) {
   const createAgent = api.office.createAgent.useMutation({
     onSuccess: (result) => {
       pushFeedback(result.message);
-      setSelectedAgentId(result.agentId);
-      setAddAgentOpen(false);
-      setAgentDraft({ name: "", role: "engineering", engine: "openclaw" });
+      setAgentDraft({
+        name: "",
+        role: "engineering",
+        engine: "openclaw",
+      });
+      startTransition(() => {
+        setHighlightedAgentId(result.agentId);
+        setTaskDraft((current) => ({
+          ...current,
+          ownerAgentId: result.agentId,
+        }));
+      });
       void utils.office.getSnapshot.invalidate();
     },
     onError: (error) => pushFeedback(error.message, "error"),
@@ -585,1019 +380,1170 @@ export function OfficeShell({ snapshot }: Props) {
 
   const createTask = api.office.createTask.useMutation({
     onSuccess: () => {
-      pushFeedback("任务已分派，角色会在 office 中继续处理。");
-      setAssignTaskOpen(false);
-      setTaskDraft((current) => ({ ...current, title: "", summary: "" }));
+      pushFeedback("任务已下发，人物工作台会持续刷新执行状态。");
+      setTaskDraft((current) => ({
+        ...current,
+        title: "",
+        summary: "",
+      }));
       void utils.office.getSnapshot.invalidate();
     },
     onError: (error) => pushFeedback(error.message, "error"),
   });
+  const getNativeDashboardUrl = api.office.getNativeDashboardUrl.useMutation();
 
-  const updateTaskStatus = api.office.updateTaskStatus.useMutation({
-    onSuccess: () => {
-      pushFeedback("任务状态已更新。");
-      void utils.office.getSnapshot.invalidate();
-    },
-    onError: (error) => pushFeedback(error.message, "error"),
+  const agents = [...liveSnapshot.agents]
+    .sort((left, right) => {
+      const statusDelta =
+        agentStatusOrder[left.status] - agentStatusOrder[right.status];
+      if (statusDelta !== 0) return statusDelta;
+      return left.name.localeCompare(right.name, "zh-CN");
+    })
+    .filter((agent) => {
+      if (!normalizedSearch) return true;
+
+      return [agent.name, roleLabels[agent.role], dockerRunnerEngineLabels[agent.engine ?? "openclaw"]]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    });
+
+  const taskCountByAgentId = new Map<string, number>();
+  for (const task of liveSnapshot.tasks) {
+    if (!task.ownerAgentId) continue;
+    taskCountByAgentId.set(
+      task.ownerAgentId,
+      (taskCountByAgentId.get(task.ownerAgentId) ?? 0) + 1,
+    );
+  }
+
+  const tasks = [...liveSnapshot.tasks].sort((left, right) => {
+    const statusDelta = taskStatusOrder[left.status] - taskStatusOrder[right.status];
+    if (statusDelta !== 0) return statusDelta;
+    return left.title.localeCompare(right.title, "zh-CN");
   });
 
-  const requestApproval = api.office.requestApproval.useMutation({
-    onSuccess: () => {
-      pushFeedback("审批请求已发出。");
-      void utils.office.getSnapshot.invalidate();
-    },
-    onError: (error) => pushFeedback(error.message, "error"),
-  });
+  const openclawCount = liveSnapshot.agents.filter(
+    (agent) => agent.engine !== "hermes-agent",
+  ).length;
+  const hermesCount = liveSnapshot.agents.filter(
+    (agent) => agent.engine === "hermes-agent",
+  ).length;
+  const activeTaskCount = liveSnapshot.tasks.filter((task) =>
+    ["created", "queued", "assigned", "in_progress", "pending_approval"].includes(
+      task.status,
+    ),
+  ).length;
+  const highlightedAgent =
+    liveSnapshot.agents.find((agent) => agent.id === highlightedAgentId) ?? null;
+  const highlightedDevice = highlightedAgent
+    ? (liveSnapshot.devices.find((device) => device.id === highlightedAgent.deviceId) ??
+      null)
+    : null;
+  const highlightedTasks = highlightedAgent
+    ? tasks.filter((task) => task.ownerAgentId === highlightedAgent.id)
+    : [];
+  const highlightedApprovals = highlightedAgent
+    ? liveSnapshot.approvals.filter(
+        (approval) => approval.requestedByAgentId === highlightedAgent.id,
+      )
+    : [];
+  const highlightedReports = highlightedAgent
+    ? liveSnapshot.executionReports.filter(
+        (report) => report.agentId === highlightedAgent.id,
+      )
+    : [];
+  const highlightedRoleIcon = highlightedAgent
+    ? roleIcons[highlightedAgent.role]
+    : null;
+  const HighlightedRoleIcon = highlightedRoleIcon;
+  const highlightedTone = engineTone(highlightedAgent?.engine);
+  const openNativeWorkspace = async (agent: OfficeSnapshot["agents"][number]) => {
+    setHighlightedAgentId(agent.id);
 
-  const resolveApproval = api.office.resolveApproval.useMutation({
-    onSuccess: () => {
-      pushFeedback("审批结果已写入系统。");
-      void utils.office.getSnapshot.invalidate();
-    },
-    onError: (error) => pushFeedback(error.message, "error"),
-  });
+    if (typeof window === "undefined") return;
 
-  const busy =
-    createAgent.isPending ||
-    createTask.isPending ||
-    updateTaskStatus.isPending ||
-    requestApproval.isPending ||
-    resolveApproval.isPending;
+    const openedWindow = window.open("about:blank", "_blank");
 
-  const openAssignTaskDialog = (agentId?: string) => {
-    if (!canCreateTask) {
-      pushFeedback("请先新增人物，再下发任务。", "error");
+    if (!openedWindow) {
+      pushFeedback("浏览器阻止了新窗口，请允许弹窗后重试。", "error");
       return;
     }
 
-    setTaskDraft((current) => ({
-      ...current,
-      ownerAgentId:
-        agentId ?? selectedAgent?.id ?? liveSnapshot.agents[0]?.id ?? "",
-    }));
-    setAssignTaskOpen(true);
+    const linkedDevice =
+      liveSnapshot.devices.find((device) => device.id === agent.deviceId) ?? null;
+    let nativeUrl = linkedDevice?.nativeDashboardUrl ?? null;
+
+    try {
+      const refreshed = await getNativeDashboardUrl.mutateAsync({
+        agentId: agent.id,
+      });
+      nativeUrl = refreshed.url ?? nativeUrl;
+    } catch {
+      nativeUrl = nativeUrl ?? null;
+    }
+
+    nativeUrl = resolveBrowserNativeWorkspaceHref({
+      agentId: agent.id,
+      deviceId: agent.deviceId,
+      engine: agent.engine,
+      nativeUrl,
+      openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
+      hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
+      origin: window.location.origin,
+    });
+
+    if (!nativeUrl) {
+      openedWindow.close();
+      pushFeedback(
+        `${dockerRunnerEngineLabels[agent.engine ?? "openclaw"]} 原生页面地址未配置。`,
+        "error",
+      );
+      return;
+    }
+
+    openedWindow.location.replace(nativeUrl);
   };
 
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,#f7edd8_0%,#ecd7ad_52%,#debc82_100%)] px-3 py-3 text-stone-900 md:px-5 md:py-4 xl:h-dvh xl:overflow-hidden">
-      <main className="mx-auto flex max-w-[1700px] flex-col gap-4 xl:h-full">
-        <header className="shrink-0 rounded-[30px] border border-white/65 bg-white/62 px-4 py-5 backdrop-blur md:px-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-3">
-              <ColaLogo className="w-fit" />
-              <div className="space-y-2">
-                <p className="text-[11px] tracking-[0.32em] text-stone-500 uppercase">
-                  Control Surface
-                </p>
-                <h1 className="text-3xl font-semibold tracking-[-0.05em] text-stone-950 md:text-[3.4rem]">
-                  Cola Virtual Office
-                </h1>
-                <p className="max-w-3xl text-sm leading-6 text-stone-600 md:text-[15px]">
-                  {liveSnapshot.headline}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
-                <Badge
-                  variant={streamState === "live" ? "default" : "secondary"}
-                >
-                  {streamState === "live" ? "实时流已连接" : "实时流重连中"}
+    <div className="min-h-dvh overflow-x-hidden bg-[#f5f1e9] text-[#17120d] xl:h-dvh xl:overflow-hidden">
+      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(255,215,159,0.32),transparent_28%),radial-gradient(circle_at_top_right,rgba(144,174,222,0.2),transparent_26%),linear-gradient(180deg,#f7f4ef_0%,#f2ede5_46%,#ebe2d5_100%)]" />
+
+      <main className="mx-auto flex max-w-[1520px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+        <section className="relative overflow-hidden rounded-[36px] bg-[#17120d] text-[#f7efe3] shadow-[0_36px_120px_rgba(23,18,13,0.22)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,188,88,0.24),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(131,161,217,0.24),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+          <div className="relative grid gap-10 px-6 py-7 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge className="bg-white/10 text-white hover:bg-white/10">
+                  Persona Control
                 </Badge>
-                <span>快照更新时间 {generatedAtLabel}</span>
+                <Badge
+                  className={cn(
+                    "border-0",
+                    streamState === "live"
+                      ? "bg-emerald-400/14 text-emerald-100"
+                      : "bg-amber-300/14 text-amber-100",
+                  )}
+                >
+                  {streamState === "live" ? "实时同步中" : "正在重连"}
+                </Badge>
+                {snapshotQuery.isFetching ? (
+                  <Badge className="bg-white/10 text-white hover:bg-white/10">
+                    <LoaderCircleIcon className="animate-spin" />
+                    刷新快照
+                  </Badge>
+                ) : null}
               </div>
-            </div>
 
-            <div className="flex flex-wrap gap-2 xl:max-w-[340px] xl:justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setMobileInspectorOpen(true)}
-                className="lg:hidden"
-              >
-                <ActivityIcon data-icon="inline-start" />
-                打开总控
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => openAssignTaskDialog()}
-                disabled={!canCreateTask}
-              >
-                <SendIcon data-icon="inline-start" />
-                下发任务
-              </Button>
-              <Button onClick={() => setAddAgentOpen(true)}>
-                <UserPlusIcon data-icon="inline-start" />
-                新增人物
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 border-t border-white/70 pt-4 sm:grid-cols-2 xl:grid-cols-4">
-            {liveSnapshot.metrics.map((metric) => (
-              <div key={metric.label} className="min-w-0">
-                <p className="text-[11px] tracking-[0.22em] text-stone-400 uppercase">
-                  {metric.label}
+              <div className="max-w-4xl space-y-4">
+                <p className="text-[11px] tracking-[0.34em] text-white/52 uppercase">
+                  Cola Frontline
                 </p>
-                <p className="mt-2 text-3xl font-semibold text-stone-950">
-                  {metric.value}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">
-                  {metric.delta}
+                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.06em] md:text-6xl">
+                  把首页改成一个可直接调度人物和引擎的工作台。
+                </h1>
+                <p className="max-w-3xl text-base leading-8 text-white/72 md:text-lg">
+                  新增人物后，列表会立即显示当前全部人物；点击任意人物会新开窗口打开它对应的
+                  OpenClaw 或 Hermes 原生页面，当前页右侧继续保留系统摘要和执行状态。
                 </p>
               </div>
-            ))}
-          </div>
-        </header>
 
-        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_380px] xl:grid-rows-[minmax(0,1fr)]">
-          <section className="flex min-h-[560px] flex-col overflow-hidden rounded-[30px] border border-white/60 bg-white/22 p-4 shadow-[0_24px_80px_rgba(72,45,19,0.12)] md:p-5 xl:h-full xl:min-h-0">
-            <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
-              <div>
-                <p className="text-[11px] tracking-[0.28em] text-stone-500 uppercase">
-                  Workspace
-                </p>
-                <h2 className="mt-1 text-xl font-semibold text-stone-950 md:text-2xl">
-                  Office floor
-                </h2>
-              </div>
-              <p className="max-w-sm text-sm leading-6 text-stone-600 lg:justify-self-end">
-                {hasWorkspaceContent
-                  ? "只显示分区、在岗人物和活跃人数。详细任务、设备与审批统一收进右侧总控。"
-                  : "数据库已清空。创建角色后，办公分区和人物才会重新出现。"}
-              </p>
-            </div>
-
-            {hasWorkspaceContent ? (
-              <div className="mt-4 grid gap-3 md:hidden">
-                {liveSnapshot.zones.map((zone) => (
-                  <ZoneCard
-                    key={zone.id}
-                    zone={zone}
-                    agents={agentsByZone.get(zone.id) ?? []}
-                    active={selectedZone?.id === zone.id}
-                    selectedAgentId={selectedAgent?.id ?? null}
-                    onSelectAgent={setSelectedAgentId}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 flex min-h-[320px] items-center justify-center rounded-[28px] border border-dashed border-white/50 bg-white/28 px-6 text-center md:hidden">
-                <div className="max-w-sm">
-                  <p className="text-[11px] tracking-[0.28em] text-stone-400 uppercase">
-                    Empty workspace
-                  </p>
-                  <h3 className="mt-3 text-2xl font-semibold text-stone-950">
-                    办公区已清空
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-stone-500">
-                    当前没有任何分区或人物数据，所以这里不再显示默认布局。
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="relative mt-4 hidden flex-1 overflow-hidden rounded-[28px] border border-white/45 bg-[linear-gradient(180deg,rgba(255,249,238,0.96)_0%,rgba(238,221,188,0.88)_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] md:block">
-              <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[size:72px_72px] opacity-30" />
-              <div className="absolute inset-[18px] rounded-[24px] border border-white/35" />
-
-              {hasWorkspaceContent ? (
-                liveSnapshot.zones.map((zone) => (
-                  <ZoneCard
-                    key={zone.id}
-                    zone={zone}
-                    agents={agentsByZone.get(zone.id) ?? []}
-                    active={selectedZone?.id === zone.id}
-                    selectedAgentId={selectedAgent?.id ?? null}
-                    onSelectAgent={setSelectedAgentId}
-                    className="absolute transition-all duration-200"
-                    style={{
-                      left: `${zone.x}%`,
-                      top: `${zone.y}%`,
-                      width: `${zone.width}%`,
-                      height: `${zone.height}%`,
-                    }}
-                  />
-                ))
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center p-6">
-                  <div className="max-w-md text-center">
-                    <p className="text-[11px] tracking-[0.28em] text-stone-400 uppercase">
-                      Empty workspace
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {liveSnapshot.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="rounded-[24px] border border-white/10 bg-white/6 px-4 py-4"
+                  >
+                    <p className="text-[11px] tracking-[0.26em] text-white/48 uppercase">
+                      {metric.label}
                     </p>
-                    <h3 className="mt-3 text-3xl font-semibold text-stone-950">
-                      办公区已清空
-                    </h3>
-                    <p className="mt-3 text-sm leading-6 text-stone-500">
-                      当前数据库没有任何分区或人物数据，所以这里不再显示默认布局。新增人物后再恢复真实办公画布。
+                    <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white">
+                      {metric.value}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-white/60">
+                      {metric.delta}
                     </p>
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
             </div>
-          </section>
 
-          <aside className="hidden xl:block xl:h-full xl:min-h-0">
-            <InspectorPanel
-              agent={selectedAgent}
-              zone={selectedZone}
-              device={selectedAgentDevice}
-              tasks={selectedAgentTasks}
-              approvals={selectedAgentApprovals}
-              events={liveSnapshot.events}
-              reports={selectedAgentReports}
-              onStatusChange={(taskId, status) =>
-                updateTaskStatus.mutate({ taskId, status })
-              }
-              onRequestApproval={(taskId, title, summary, approvalType) =>
-                requestApproval.mutate({ taskId, title, summary, approvalType })
-              }
-              onResolveApproval={(approvalId, decision) =>
-                resolveApproval.mutate({ approvalId, decision })
-              }
-              busy={busy}
-            />
-          </aside>
-        </div>
-      </main>
+            <div className="grid gap-4 self-stretch">
+              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+                <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                  当前编排
+                </p>
+                <div className="mt-4 grid gap-4 text-sm text-white/72 sm:grid-cols-3 xl:grid-cols-1">
+                  <div>
+                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                      {liveSnapshot.agents.length}
+                    </p>
+                    <p className="mt-1">当前人物</p>
+                  </div>
+                  <div>
+                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                      {activeTaskCount}
+                    </p>
+                    <p className="mt-1">待处理任务</p>
+                  </div>
+                  <div>
+                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                      {liveSnapshot.approvals.length}
+                    </p>
+                    <p className="mt-1">待审批节点</p>
+                  </div>
+                </div>
+              </div>
 
-      <Sheet open={mobileInspectorOpen} onOpenChange={setMobileInspectorOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>办公室总控</SheetTitle>
-            <SheetDescription>
-              查看当前选中角色的状态、任务与审批。
-            </SheetDescription>
-          </SheetHeader>
-          <InspectorPanel
-            agent={selectedAgent}
-            zone={selectedZone}
-            device={selectedAgentDevice}
-            tasks={selectedAgentTasks}
-            approvals={selectedAgentApprovals}
-            events={liveSnapshot.events}
-            reports={selectedAgentReports}
-            onStatusChange={(taskId, status) =>
-              updateTaskStatus.mutate({ taskId, status })
-            }
-            onRequestApproval={(taskId, title, summary, approvalType) =>
-              requestApproval.mutate({ taskId, title, summary, approvalType })
-            }
-            onResolveApproval={(approvalId, decision) =>
-              resolveApproval.mutate({ approvalId, decision })
-            }
-            busy={busy}
-          />
-        </SheetContent>
-      </Sheet>
+              <div className="grid gap-4 rounded-[28px] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-2">
+                <div>
+                  <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                    引擎分布
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                    OpenClaw {openclawCount}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-white/60">
+                    默认执行引擎，适合通用型任务调度与持续轮询。
+                  </p>
+                </div>
+                <div className="border-t border-white/10 pt-4 sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0">
+                  <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                    第二执行面
+                  </p>
+                  <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                    Hermes {hermesCount}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-white/60">
+                    作为补充运行面接入，人物卡会按实际引擎打开对应原生页面。
+                  </p>
+                </div>
+              </div>
 
-      <Dialog open={addAgentOpen} onOpenChange={setAddAgentOpen}>
-        <DialogContent className="max-h-[calc(100svh-2rem)] max-w-md overflow-y-auto rounded-[28px] border border-white/75 bg-[#fffdf8]/95 p-5 shadow-[0_32px_80px_rgba(74,46,16,0.18)]">
-          <DialogHeader>
-            <DialogTitle>新增人物</DialogTitle>
-            <DialogDescription className="leading-6">
-              创建角色后，系统会先落库，再在后台尝试用本机 Docker 拉起一个
-              runner。OpenClaw 和 Hermes Agent 都会复用 `~/.codex` 里的模型配置与认证信息。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 rounded-[24px] bg-[#fbf4e4] p-4">
-            <FormField label="人物名称">
-              <Input
-                aria-label="人物名称"
-                className="h-11 rounded-xl bg-white/86"
-                value={agentDraft.name}
-                onChange={(event) =>
-                  {
-                    createAgent.reset();
+              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+                <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                  刷新时间
+                </p>
+                <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                  {generatedAt}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white/60">
+                  当前控制台和弹出的原生页面共享同一套人物与任务状态。
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {feedback ? (
+          <div
+            className={cn(
+              "rounded-[22px] border px-4 py-3 text-sm",
+              feedback.tone === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-rose-200 bg-rose-50 text-rose-900",
+            )}
+          >
+            {feedback.message}
+          </div>
+        ) : null}
+
+        {isReadOnlyFallback && liveSnapshot.readOnlyReason ? (
+          <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            当前处于只读回退模式：{liveSnapshot.readOnlyReason}
+          </div>
+        ) : null}
+
+        <section className="grid gap-4 xl:grid-cols-[380px_380px_minmax(0,1fr)]">
+          <div className={panelClass}>
+            <div className="border-b border-black/6 px-5 py-5">
+              <SectionTitle
+                eyebrow="Create Agent"
+                title="新增人物"
+                description="创建人物时直接绑定执行引擎。创建完成后，人物会立即进入下方列表。"
+              />
+            </div>
+
+            <div className="grid gap-4 px-5 py-5">
+              <FormField label="人物名称">
+                <Input
+                  value={agentDraft.name}
+                  onChange={(event) =>
                     setAgentDraft((current) => ({
                       ...current,
                       name: event.target.value,
-                    }));
+                    }))
                   }
-                }
-                placeholder="例如：陈产品 / 周运营 / 何HR"
-              />
-            </FormField>
-            <FormField label="角色职责">
-              <Select
-                value={agentDraft.role}
-                onValueChange={(value) => {
-                  if (!value || !isAgentRole(value)) return;
-                  createAgent.reset();
-                  setAgentDraft((current) => ({
-                    ...current,
-                    role: value,
-                  }));
-                }}
-              >
-                <SelectTrigger
-                  aria-label="角色职责"
-                  className="h-11 w-full rounded-xl bg-white/86"
-                >
-                  <SelectValue placeholder="选择角色">
-                    {(value) =>
-                      typeof value === "string" && isAgentRole(value)
-                        ? roleLabels[value]
-                        : "选择角色"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {agentRoleValues.map((role) => (
-                      <SelectItem key={role} value={role}>
-                        {roleLabels[role]}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FormField>
-            <FormField label="执行引擎">
-              <Select
-                value={agentDraft.engine}
-                onValueChange={(value) => {
-                  if (!value || !isDockerRunnerEngine(value)) return;
-                  createAgent.reset();
-                  setAgentDraft((current) => ({
-                    ...current,
-                    engine: value,
-                  }));
-                }}
-              >
-                <SelectTrigger
-                  aria-label="执行引擎"
-                  className="h-11 w-full rounded-xl bg-white/86"
-                >
-                  <SelectValue placeholder="选择执行引擎">
-                    {(value) =>
-                      typeof value === "string" && isDockerRunnerEngine(value)
-                        ? dockerRunnerEngineLabels[value]
-                        : "选择执行引擎"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {dockerRunnerEngineValues.map((engine) => (
-                      <SelectItem key={engine} value={engine}>
-                        {dockerRunnerEngineLabels[engine]}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </FormField>
-          </div>
-          {createAgent.error ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-900">
-              {createAgent.error.message}
-            </p>
-          ) : null}
-          <DialogFooter className="-mx-5 -mb-5 bg-[#fff8ea] px-5">
-            <Button variant="outline" onClick={() => setAddAgentOpen(false)}>
-              取消
-            </Button>
-            <Button
-              disabled={busy || !agentDraft.name.trim()}
-              onClick={() => createAgent.mutate(agentDraft)}
-            >
-              <PlusIcon data-icon="inline-start" />
-              {createAgent.isPending ? "正在创建..." : "创建并后台拉起 Runner"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                  placeholder="例如：Luna、Mika、采购官 Zero"
+                />
+              </FormField>
 
-      <Dialog open={assignTaskOpen} onOpenChange={setAssignTaskOpen}>
-        <DialogContent className="max-h-[calc(100svh-2rem)] max-w-2xl overflow-y-auto rounded-[28px] border border-white/75 bg-[#fffdf8]/95 p-5 shadow-[0_32px_80px_rgba(74,46,16,0.18)]">
-          <DialogHeader>
-            <DialogTitle>给人物下发任务</DialogTitle>
-            <DialogDescription className="leading-6">
-              任务会直接进入所选角色的待办；如果该角色空闲，会立刻开始进入规划状态。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 rounded-[24px] bg-[#fbf4e4] p-4">
-            <FormField label="任务标题">
-              <Input
-                aria-label="任务标题"
-                className="h-11 rounded-xl bg-white/86"
-                value={taskDraft.title}
-                onChange={(event) =>
-                  {
-                    createTask.reset();
-                    setTaskDraft((current) => ({
+              <FormField label="角色">
+                <Select
+                  value={agentDraft.role}
+                  onValueChange={(value) =>
+                    setAgentDraft((current) => ({
                       ...current,
-                      title: event.target.value,
-                    }));
+                      role: value!,
+                    }))
                   }
-                }
-                placeholder="例如：补审批回放页面 / 整理 HR 入职清单"
-              />
-            </FormField>
-            <FormField label="任务说明">
-              <Textarea
-                aria-label="任务说明"
-                className="min-h-[120px] rounded-2xl bg-white/86"
-                value={taskDraft.summary}
-                onChange={(event) =>
-                  {
-                    createTask.reset();
-                    setTaskDraft((current) => ({
+                >
+                  <SelectTrigger className="w-full bg-white">
+                    <SelectValue placeholder="选择角色" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {agentRoleValues.map((role) => (
+                        <SelectItem key={role} value={role}>
+                          {roleLabels[role]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              <FormField label="执行引擎">
+                <Select
+                  value={agentDraft.engine}
+                  onValueChange={(value) =>
+                    setAgentDraft((current) => ({
                       ...current,
-                      summary: event.target.value,
-                    }));
+                      engine: value!,
+                    }))
                   }
+                >
+                  <SelectTrigger className="w-full bg-white">
+                    <SelectValue placeholder="选择执行引擎" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {dockerRunnerEngineValues.map((engine) => (
+                        <SelectItem key={engine} value={engine}>
+                          {dockerRunnerEngineLabels[engine]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              <div className="rounded-[22px] bg-[#f7f2ea] px-4 py-4 text-sm leading-6 text-[#6b5a4c]">
+                {roleHints[agentDraft.role]}
+              </div>
+
+              <Button
+                className="h-11 rounded-[18px] bg-[#17120d] text-white hover:bg-[#2a221b]"
+                disabled={
+                  isReadOnlyFallback ||
+                  createAgent.isPending ||
+                  agentDraft.name.trim().length < 2
                 }
-                placeholder="写清输出物、上下文和限制条件"
-                rows={4}
+                onClick={() => {
+                  if (isReadOnlyFallback) {
+                    pushFeedback("数据库不可用，当前模式下不能创建人物。", "error");
+                    return;
+                  }
+
+                  createAgent.mutate(agentDraft);
+                }}
+              >
+                {createAgent.isPending ? (
+                  <LoaderCircleIcon className="animate-spin" />
+                ) : (
+                  <UserRoundPlusIcon />
+                )}
+                {createAgent.isPending ? "正在创建人物..." : "创建人物并拉起 Runner"}
+              </Button>
+            </div>
+          </div>
+
+          <div className={panelClass}>
+            <div className="border-b border-black/6 px-5 py-5">
+              <SectionTitle
+                eyebrow="Create Task"
+                title="新增任务"
+                description="直接把任务派给人物。下面的人物列表和右侧工作台会在当前页同步更新。"
               />
-            </FormField>
-            <div className="grid gap-3 md:grid-cols-2">
-              <FormField label="执行角色">
+            </div>
+
+            <div className="grid gap-4 px-5 py-5">
+              <FormField label="负责人">
                 <Select
                   value={taskDraft.ownerAgentId}
-                  onValueChange={(value) => {
-                    if (!value) return;
-                    createTask.reset();
+                  onValueChange={(value) =>
                     setTaskDraft((current) => ({
                       ...current,
-                      ownerAgentId: value,
-                    }));
-                  }}
+                      ownerAgentId: value ?? "",
+                    }))
+                  }
+                  disabled={liveSnapshot.agents.length === 0}
                 >
-                  <SelectTrigger
-                    aria-label="执行角色"
-                    className="h-11 w-full rounded-xl bg-white/86"
-                  >
-                    <SelectValue placeholder="选择角色">
-                      {(value) => {
-                        const agent = liveSnapshot.agents.find(
-                          (candidate) => candidate.id === value,
-                        );
-
-                        return agent
-                          ? `${agent.name} · ${roleLabels[agent.role]}`
-                          : "选择角色";
-                      }}
-                    </SelectValue>
+                  <SelectTrigger className="w-full bg-white">
+                    <SelectValue
+                      placeholder={
+                        liveSnapshot.agents.length === 0
+                          ? "请先创建人物"
+                          : "选择负责人"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
                       {liveSnapshot.agents.map((agent) => (
                         <SelectItem key={agent.id} value={agent.id}>
-                          {agent.name} / {roleLabels[agent.role]}
+                          {agent.name} · {roleLabels[agent.role]}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
               </FormField>
-              <FormField label="任务类型">
-                <Select
-                  value={taskDraft.taskType}
-                  onValueChange={(value) => {
-                    if (!value || !isTaskType(value)) return;
-                    createTask.reset();
+
+              <FormField label="任务标题">
+                <Input
+                  value={taskDraft.title}
+                  onChange={(event) =>
                     setTaskDraft((current) => ({
                       ...current,
-                      taskType: value,
-                    }));
-                  }}
-                >
-                  <SelectTrigger
-                    aria-label="任务类型"
-                    className="h-11 w-full rounded-xl bg-white/86"
-                  >
-                    <SelectValue placeholder="选择任务类型">
-                      {(value) =>
-                        typeof value === "string" && isTaskType(value)
-                          ? taskTypeLabels[value]
-                          : "选择任务类型"
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {taskTypeValues.map((taskType) => (
-                        <SelectItem key={taskType} value={taskType}>
-                          {taskTypeLabels[taskType]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder="例如：整理 OpenClaw 接入发布清单"
+                />
               </FormField>
-              <FormField label="优先级">
-                <Select
-                  value={taskDraft.priority}
-                  onValueChange={(value) => {
-                    if (!value || !isPriority(value)) return;
-                    createTask.reset();
+
+              <FormField label="任务摘要">
+                <Textarea
+                  value={taskDraft.summary}
+                  onChange={(event) =>
                     setTaskDraft((current) => ({
                       ...current,
-                      priority: value,
-                    }));
-                  }}
-                >
-                  <SelectTrigger
-                    aria-label="优先级"
-                    className="h-11 w-full rounded-xl bg-white/86"
-                  >
-                    <SelectValue placeholder="选择优先级">
-                      {(value) =>
-                        typeof value === "string" && isPriority(value)
-                          ? priorityLabels[value]
-                          : "选择优先级"
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {Object.entries(priorityLabels).map(([priority, label]) => (
-                        <SelectItem key={priority} value={priority}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                      summary: event.target.value,
+                    }))
+                  }
+                  placeholder="说明目标、产出和边界。"
+                  className="min-h-28 resize-none"
+                />
               </FormField>
-              <FormField label="风险等级">
-                <Select
-                  value={taskDraft.riskLevel}
-                  onValueChange={(value) => {
-                    if (!value || !isRiskLevel(value)) return;
-                    createTask.reset();
-                    setTaskDraft((current) => ({
-                      ...current,
-                      riskLevel: value,
-                    }));
-                  }}
-                >
-                  <SelectTrigger
-                    aria-label="风险等级"
-                    className="h-11 w-full rounded-xl bg-white/86"
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField label="任务类型">
+                  <Select
+                    value={taskDraft.taskType}
+                    onValueChange={(value) =>
+                      setTaskDraft((current) => ({
+                        ...current,
+                        taskType: value!,
+                      }))
+                    }
                   >
-                    <SelectValue placeholder="选择风险等级">
-                      {(value) =>
-                        typeof value === "string" && isRiskLevel(value)
-                          ? riskLevelLabels[value]
-                          : "选择风险等级"
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {Object.entries(riskLevelLabels).map(([risk, label]) => (
-                        <SelectItem key={risk} value={risk}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </FormField>
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="任务类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {taskTypeValues.map((taskType) => (
+                          <SelectItem key={taskType} value={taskType}>
+                            {taskTypeLabels[taskType]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <FormField label="优先级">
+                  <Select
+                    value={taskDraft.priority}
+                    onValueChange={(value) =>
+                      setTaskDraft((current) => ({
+                        ...current,
+                        priority: value!,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="优先级" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Object.entries(priorityLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <FormField label="风险级别">
+                  <Select
+                    value={taskDraft.riskLevel}
+                    onValueChange={(value) =>
+                      setTaskDraft((current) => ({
+                        ...current,
+                        riskLevel: value!,
+                      }))
+                    }
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="风险级别" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Object.entries(riskLevelLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+              </div>
+
+              <Button
+                className="h-11 rounded-[18px] bg-[#17120d] text-white hover:bg-[#2a221b]"
+                disabled={
+                  isReadOnlyFallback ||
+                  createTask.isPending ||
+                  liveSnapshot.agents.length === 0 ||
+                  taskDraft.title.trim().length < 3 ||
+                  taskDraft.summary.trim().length < 8
+                }
+                onClick={() => {
+                  if (isReadOnlyFallback) {
+                    pushFeedback("数据库不可用，当前模式下不能下发任务。", "error");
+                    return;
+                  }
+
+                  createTask.mutate(taskDraft);
+                }}
+              >
+                {createTask.isPending ? (
+                  <LoaderCircleIcon className="animate-spin" />
+                ) : (
+                  <SendIcon />
+                )}
+                {createTask.isPending ? "正在下发任务..." : "下发任务"}
+              </Button>
             </div>
           </div>
-          {createTask.error ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-900">
-              {createTask.error.message}
-            </p>
-          ) : null}
-          <DialogFooter className="-mx-5 -mb-5 bg-[#fff8ea] px-5">
-            <Button variant="outline" onClick={() => setAssignTaskOpen(false)}>
-              取消
-            </Button>
-            <Button
-              disabled={
-                busy || !taskDraft.title.trim() || !taskDraft.summary.trim()
-              }
-              onClick={() => createTask.mutate(taskDraft)}
-            >
-              <ArrowRightIcon data-icon="inline-start" />
-              {createTask.isPending ? "正在下发..." : "下发任务"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {feedback ? (
-        <div
-          aria-live="polite"
-          className={cn(
-            "pointer-events-none fixed bottom-4 left-1/2 z-[90] flex w-[min(560px,calc(100%-1.5rem))] -translate-x-1/2 items-start gap-3 rounded-2xl px-4 py-3 text-sm shadow-[0_18px_50px_rgba(50,30,15,0.16)] backdrop-blur",
-            feedback.tone === "error"
-              ? "border border-rose-200/80 bg-rose-50/95 text-rose-950"
-              : "border border-white/70 bg-white/94 text-stone-800",
-          )}
-        >
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-[0.18em] uppercase",
-              feedback.tone === "error"
-                ? "bg-rose-100 text-rose-700"
-                : "bg-[#f0debb] text-[#7b4a10]",
-            )}
-          >
-            {feedback.tone === "error" ? "异常" : "已更新"}
-          </span>
-          <p className="leading-6">{feedback.message}</p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
+          <div className={panelClass}>
+            <div className="border-b border-black/6 px-5 py-5">
+              <SectionTitle
+                eyebrow="System Pulse"
+                title="当前运行面"
+                description="当前页负责编排与状态，人物卡点击后会新窗口打开原生 OpenClaw / Hermes 页面。"
+              />
+            </div>
 
-function InspectorPanel({
-  agent,
-  zone,
-  device,
-  tasks,
-  approvals,
-  events,
-  reports,
-  onStatusChange,
-  onRequestApproval,
-  onResolveApproval,
-  busy,
-}: {
-  agent: OfficeSnapshot["agents"][number] | null;
-  zone: OfficeSnapshot["zones"][number] | null;
-  device: OfficeSnapshot["devices"][number] | null;
-  tasks: OfficeSnapshot["tasks"];
-  approvals: OfficeSnapshot["approvals"];
-  events: OfficeSnapshot["events"];
-  reports: OfficeSnapshot["executionReports"];
-  onStatusChange: (
-    taskId: string,
-    status: OfficeSnapshot["tasks"][number]["status"],
-  ) => void;
-  onRequestApproval: (
-    taskId: string,
-    title: string,
-    summary: string,
-    approvalType: ApprovalType,
-  ) => void;
-  onResolveApproval: (
-    approvalId: string,
-    decision: "approved" | "rejected",
-  ) => void;
-  busy: boolean;
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[30px] border border-white/60 bg-white/72 p-4 shadow-[0_24px_80px_rgba(65,42,23,0.1)] backdrop-blur">
-      <ScrollArea className="min-h-0 flex-1 pr-3">
-        {agent ? (
-          <div className="space-y-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <Avatar size="lg">
-                  <AvatarFallback>{agent.name.slice(0, 1)}</AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col gap-1">
-                  <p className="text-lg font-semibold text-stone-950">
-                    {agent.name}
+            <div className="grid gap-5 px-5 py-5">
+              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                  <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                    当前焦点
                   </p>
-                  <p className="text-sm text-stone-500">
-                    {roleLabels[agent.role]}
+                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                    {highlightedAgent?.name ?? "还没有人物"}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                    {highlightedAgent?.focus ?? "创建人物后，这里会显示当前焦点。"}
+                  </p>
+                </div>
+
+                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                  <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                    最近执行
+                  </p>
+                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                    {liveSnapshot.executionReports[0]?.title ?? "暂无执行记录"}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                    {liveSnapshot.executionReports[0]?.summary ??
+                      "一旦 runner 回传会话，这里会显示最新结果。"}
+                  </p>
+                </div>
+
+                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                  <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                    最近事件
+                  </p>
+                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                    {liveSnapshot.events[0]?.title ?? "暂无事件"}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                    {liveSnapshot.events[0]?.description ??
+                      "系统事件会随着人物和任务变化持续滚动。"}
                   </p>
                 </div>
               </div>
-              <Badge variant={badgeTone[agent.status]}>
-                {agentStatusLabels[agent.status]}
-              </Badge>
-            </div>
 
-            <p className="text-sm leading-6 text-stone-600">{agent.focus}</p>
-
-            <div className="rounded-[24px] bg-[#f7ecd5] px-4 py-4">
-              <p className="text-[11px] tracking-[0.2em] text-stone-600 uppercase">
-                当前工位
-              </p>
-              <div className="mt-2 flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-base font-semibold text-stone-950">
-                    {zone?.label ?? "未分配区域"}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-stone-700">
-                    {zone?.summary ?? "等待系统分配工作区。"}
-                  </p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[11px] tracking-[0.2em] text-stone-600 uppercase">
-                    能量
-                  </p>
-                  <p className="mt-1 text-lg font-semibold text-stone-950">
-                    {agent.energy}%
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-white/70 bg-white/78 p-3">
-                <p className="text-[11px] tracking-[0.2em] text-stone-600 uppercase">
-                  设备会话
-                </p>
-                <p className="mt-2 text-sm font-medium text-stone-900">
-                  {device?.name ?? "尚未绑定会话"}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">
-                  {device
-                    ? `${deviceTypeLabels[device.type]} / ${deviceStatusLabels[device.status]}`
-                    : "等待下一次 Docker 调度或执行会话"}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/70 bg-white/78 p-3">
-                <p className="text-[11px] tracking-[0.2em] text-stone-600 uppercase">
-                  活跃状态
-                </p>
-                <p className="mt-2 text-sm font-medium text-stone-900">
-                  {tasks.length} 项任务
-                </p>
-                <p className="mt-1 text-xs leading-5 text-stone-500">
-                  {reports.length} 条执行记录，{approvals.length}{" "}
-                  项审批挂在此角色上
-                </p>
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-950">任务清单</p>
-              <Badge variant="outline">{tasks.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {tasks.length > 0 ? (
-                tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="rounded-2xl border border-white/70 bg-white/82 p-4"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">
-                        {taskStatusLabels[task.status]}
-                      </Badge>
-                      <Badge variant="secondary">
-                        {priorityLabels[task.priority]}
-                      </Badge>
-                      <Badge variant="outline">
-                        {riskLevelLabels[task.riskLevel]}
-                      </Badge>
-                    </div>
-                    <p className="mt-3 text-sm font-medium text-stone-900">
-                      {task.title}
+              <div className="rounded-[28px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                      待审批任务
                     </p>
-                    <p className="mt-2 text-xs leading-5 text-stone-500">
-                      {task.summary}
+                    <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                      {liveSnapshot.approvals.length}
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {canStartTask(task.status) ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => onStatusChange(task.id, "in_progress")}
-                        >
-                          开始执行
-                        </Button>
-                      ) : null}
-                      {canCompleteTask(task.status) ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => onStatusChange(task.id, "completed")}
-                        >
-                          标记完成
-                        </Button>
-                      ) : null}
-                      {canRequestTaskApproval(task.status, task.riskLevel) ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() =>
-                            onRequestApproval(
-                              task.id,
-                              `审批：${task.title}`,
-                              `由 inspector 发起审批，请确认任务「${task.title}」是否继续执行。`,
-                              task.type === "procurement"
-                                ? "vendor_quote"
-                                : task.type === "recruiting"
-                                  ? "offer_release"
-                                  : "production_release",
-                            )
-                          }
-                        >
-                          请求审批
-                        </Button>
-                      ) : null}
-                    </div>
                   </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/70 bg-white/60 p-6 text-sm leading-6 text-stone-500">
-                  当前角色还没有任务。可以直接用顶部“下发任务”给它分派工作。
+                  <ActivityIcon className="size-5 text-[#8b735d]" />
                 </div>
-              )}
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-950">
-                最近一次执行结果
-              </p>
-              <Badge variant="outline">{reports.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {reports.length > 0 ? (
-                reports.slice(0, 1).map((report) => (
-                  <div
-                    key={report.sessionId}
-                    className="rounded-2xl border border-white/70 bg-white/82 p-4"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          report.status === "succeeded"
-                            ? "default"
-                            : report.status === "failed"
-                              ? "destructive"
-                              : "secondary"
-                        }
-                      >
-                        {executionStatusLabels[report.status] ?? report.status}
-                      </Badge>
-                      {report.completedAt ? (
-                        <span className="text-[11px] text-stone-600">
-                          {new Date(report.completedAt).toLocaleString("zh-CN")}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-sm font-medium text-stone-900">
-                      {report.title}
-                    </p>
-                    <p className="mt-2 text-xs leading-5 text-stone-500">
-                      {report.summary}
-                    </p>
-                    <div className="mt-3 rounded-2xl bg-stone-950 px-4 py-3 text-xs leading-6 text-stone-200">
-                      {report.outputText ?? "本次执行还没有可展示的输出内容。"}
-                    </div>
-                    {report.artifactPath ? (
-                      <p className="mt-3 truncate text-[11px] text-stone-600">
-                        artifact: {report.artifactPath}
+                <div className="mt-4 space-y-3">
+                  {liveSnapshot.approvals.slice(0, 3).map((approval) => (
+                    <div
+                      key={approval.id}
+                      className="rounded-[20px] bg-[#faf6f0] px-4 py-3"
+                    >
+                      <p className="text-sm font-medium text-[#17120d]">
+                        {approval.title}
                       </p>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/70 bg-white/60 p-6 text-sm text-stone-500">
-                  当前角色还没有执行结果回放。
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-950">待处理审批</p>
-              <Badge variant="outline">{approvals.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {approvals.length > 0 ? (
-                approvals.map((approval) => (
-                  <div
-                    key={approval.id}
-                    className="rounded-2xl border border-white/70 bg-white/82 p-4"
-                  >
-                    <p className="text-sm font-medium text-stone-900">
-                      {approval.title}
-                    </p>
-                    <p className="mt-2 text-xs leading-5 text-stone-500">
-                      {approval.summary}
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          onResolveApproval(approval.id, "approved")
-                        }
-                      >
-                        批准
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          onResolveApproval(approval.id, "rejected")
-                        }
-                      >
-                        驳回
-                      </Button>
+                      <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
+                        {approval.summary}
+                      </p>
                     </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/70 bg-white/60 p-6 text-sm text-stone-500">
-                  当前角色没有挂起审批。
+                  ))}
+                  {liveSnapshot.approvals.length === 0 ? (
+                    <p className="text-sm leading-6 text-[#6f5f52]">
+                      当前没有卡在人工审批的任务节点。
+                    </p>
+                  ) : null}
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.28fr)_minmax(360px,0.72fr)]">
+          <div className={panelClass} id="people-list">
+            <div className="flex flex-col gap-4 border-b border-black/6 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
+              <SectionTitle
+                eyebrow="People"
+                title="当前所有人物"
+                description="点击人物卡片会新开窗口进入对应原生页面，当前页仍保留系统级摘要。"
+              />
+
+              <div className="w-full sm:max-w-xs">
+                <div className="relative">
+                  <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#8b735d]" />
+                  <Input
+                    value={searchValue}
+                    onChange={(event) => setSearchValue(event.target.value)}
+                    placeholder="搜索人物、角色或引擎"
+                    className="h-11 rounded-[16px] bg-[#fbf8f4] pl-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 px-5 py-5">
+              {agents.length === 0 ? (
+                <EmptyBlock
+                  title="还没有可展示的人物"
+                  description="先创建人物，列表会自动出现，之后可直接打开对应原生页面。"
+                />
+              ) : (
+                agents.map((agent) => {
+                  const RoleIcon = roleIcons[agent.role];
+                  const device = liveSnapshot.devices.find(
+                    (item) => item.id === agent.deviceId,
+                  );
+                  const isHighlighted = agent.id === highlightedAgentId;
+
+                  return (
+                    <button
+                      type="button"
+                      key={agent.id}
+                      aria-pressed={isHighlighted}
+                      onClick={() => openNativeWorkspace(agent)}
+                      onMouseEnter={() => setHighlightedAgentId(agent.id)}
+                      onFocus={() => setHighlightedAgentId(agent.id)}
+                      className={cn(
+                        "group block w-full rounded-[28px] border px-5 py-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_60px_rgba(32,24,18,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a45]/40",
+                        surfaceClassForEngine(agent.engine, isHighlighted),
+                      )}
+                    >
+                      <div className="flex flex-col gap-4">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="flex items-start gap-4">
+                            <div className="flex size-14 shrink-0 items-center justify-center rounded-[18px] bg-[#17120d] text-sm font-semibold tracking-[0.12em] text-white">
+                              {initialsFromName(agent.name)}
+                            </div>
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="text-xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                                  {agent.name}
+                                </h3>
+                                <Badge variant="outline" className="bg-white/70">
+                                  <RoleIcon />
+                                  {roleLabels[agent.role]}
+                                </Badge>
+                                <Badge
+                                  className={cn(
+                                    "border-0",
+                                    agent.engine === "hermes-agent"
+                                      ? "bg-[#e7f0ff] text-[#31527f]"
+                                      : "bg-[#fff0d7] text-[#8f5e11]",
+                                  )}
+                                >
+                                  {dockerRunnerEngineLabels[agent.engine ?? "openclaw"]}
+                                </Badge>
+                              </div>
+                              <p className="max-w-3xl text-sm leading-6 text-[#66584b]">
+                                {agent.focus}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-sm text-[#5f5347]">
+                            <span>新开原生页</span>
+                            <ArrowRightIcon className="size-4 transition-transform duration-200 group-hover:translate-x-1" />
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 border-t border-black/6 pt-4 text-sm text-[#5f5347] lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,0.75fr))]">
+                          <div>
+                            <p className="text-[11px] tracking-[0.28em] text-[#8b735d] uppercase">
+                              当前状态
+                            </p>
+                            <p className="mt-2 font-medium text-[#17120d]">
+                              {agentStatusLabels[agent.status]}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] tracking-[0.28em] text-[#8b735d] uppercase">
+                              当前任务数
+                            </p>
+                            <p className="mt-2 font-medium text-[#17120d]">
+                              {taskCountByAgentId.get(agent.id) ?? 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] tracking-[0.28em] text-[#8b735d] uppercase">
+                              设备状态
+                            </p>
+                            <p className="mt-2 font-medium text-[#17120d]">
+                              {device?.healthSummary ?? "Runner 还在初始化"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[11px] tracking-[0.28em] text-[#8b735d] uppercase">
+                              原生页面
+                            </p>
+                            <p className="mt-2 font-medium text-[#17120d]">
+                              {(device?.nativeDashboardUrl ??
+                                (agent.engine === "hermes-agent"
+                                  ? process.env.NEXT_PUBLIC_HERMES_NATIVE_URL
+                                  : process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL))
+                                ? "已配置"
+                                : "待配置"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
+          </div>
 
-            <Separator />
+          <div className="grid gap-6">
+            <div className={panelClass}>
+              <div className="border-b border-black/6 px-5 py-5">
+                <SectionTitle
+                  eyebrow="Focused Workspace"
+                  title="当前人物摘要"
+                  description="点击左侧人物会新开原生页面，当前页右侧保留该人物的任务、设备和执行摘要。"
+                />
+              </div>
 
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-950">Office feed</p>
-              <Badge variant="outline">{events.length}</Badge>
+              <div className="grid gap-3 px-5 py-5">
+                {!highlightedAgent ? (
+                  <EmptyBlock
+                    title="还没有选中的人物"
+                    description="从左侧选择一个人物，右侧会直接展开它的单页面工作台。"
+                  />
+                ) : (
+                  <>
+                    <div
+                      className={cn(
+                        "rounded-[28px] border px-5 py-5",
+                        highlightedTone.hero,
+                      )}
+                    >
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="flex items-start gap-4">
+                          <div className="flex size-16 shrink-0 items-center justify-center rounded-[20px] bg-white/10 text-base font-semibold tracking-[0.12em] text-white">
+                            {initialsFromName(highlightedAgent.name)}
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-2xl font-semibold tracking-[-0.05em] text-white">
+                                {highlightedAgent.name}
+                              </h3>
+                              <Badge className={cn("border-0", highlightedTone.badge)}>
+                                {dockerRunnerEngineLabels[highlightedAgent.engine ?? "openclaw"]}
+                              </Badge>
+                              <Badge className="bg-white/10 text-white hover:bg-white/10">
+                                {HighlightedRoleIcon ? <HighlightedRoleIcon /> : null}
+                                {roleLabels[highlightedAgent.role]}
+                              </Badge>
+                            </div>
+                            <p className="max-w-3xl text-sm leading-7 text-white/76">
+                              {highlightedAgent.focus}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-white/72">
+                              <Badge className="bg-white/10 text-white hover:bg-white/10">
+                                {agentStatusLabels[highlightedAgent.status]}
+                              </Badge>
+                              <Badge className="bg-white/10 text-white hover:bg-white/10">
+                                {zoneLabels[highlightedAgent.zoneId]}
+                              </Badge>
+                              <Badge className="bg-white/10 text-white hover:bg-white/10">
+                                {highlightedDevice?.name ?? "Runner 初始化中"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3 lg:max-w-[360px] lg:grid-cols-1">
+                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                            <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                              任务数
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-white">
+                              {highlightedTasks.length}
+                            </p>
+                          </div>
+                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                            <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                              审批数
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-white">
+                              {highlightedApprovals.length}
+                            </p>
+                          </div>
+                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                            <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
+                              执行回报
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-white">
+                              {highlightedReports.length}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                      <div className="grid gap-4">
+                        <div
+                          className={cn(
+                            "rounded-[24px] border px-4 py-4",
+                            highlightedTone.panel,
+                          )}
+                        >
+                          <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                            设备健康
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-[#17120d]">
+                            {highlightedDevice?.healthSummary ?? "Runner 还在初始化"}
+                          </p>
+                        </div>
+
+                        <div
+                          className={cn(
+                            "rounded-[24px] border px-4 py-4",
+                            highlightedTone.panel,
+                          )}
+                        >
+                          <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                            当前工作台
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-[#17120d]">
+                            {highlightedAgent.engine === "hermes-agent"
+                              ? "Hermes Agent 单页面上下文"
+                              : "OpenClaw 单页面上下文"}
+                          </p>
+                        </div>
+
+                        <div
+                          className={cn(
+                            "rounded-[24px] border px-4 py-4",
+                            highlightedTone.panel,
+                          )}
+                        >
+                          <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                            待审批
+                          </p>
+                          {highlightedApprovals.length === 0 ? (
+                            <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                              当前人物没有挂起的审批。
+                            </p>
+                          ) : (
+                            <div className="mt-3 space-y-3">
+                              {highlightedApprovals.slice(0, 3).map((approval) => (
+                                <div
+                                  key={approval.id}
+                                  className="rounded-[18px] bg-white/70 px-4 py-3"
+                                >
+                                  <p className="text-sm font-medium text-[#17120d]">
+                                    {approval.title}
+                                  </p>
+                                  <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
+                                    {approval.summary}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4">
+                        <div className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                              当前任务
+                            </p>
+                            <span className="text-sm text-[#6f5f52]">
+                              {highlightedTasks.length}
+                            </span>
+                          </div>
+
+                          <div className="mt-4 grid gap-3">
+                            {highlightedTasks.length === 0 ? (
+                              <p className="text-sm leading-6 text-[#6f5f52]">
+                                当前人物还没有任务。
+                              </p>
+                            ) : (
+                              highlightedTasks.slice(0, 4).map((task) => (
+                                <div
+                                  key={task.id}
+                                  className="rounded-[20px] bg-[#faf7f2] px-4 py-4"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={cn(
+                                        "rounded-full px-2.5 py-1 text-xs font-medium",
+                                        toneClassForTaskStatus(task.status),
+                                      )}
+                                    >
+                                      {taskStatusLabels[task.status]}
+                                    </span>
+                                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#725e4f]">
+                                      {taskTypeLabels[task.type]}
+                                    </span>
+                                  </div>
+                                  <p className="mt-3 text-base font-semibold text-[#17120d]">
+                                    {task.title}
+                                  </p>
+                                  <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                                    {task.summary}
+                                  </p>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                              最近执行结果
+                            </p>
+                            <span className="text-sm text-[#6f5f52]">
+                              {highlightedReports.length}
+                            </span>
+                          </div>
+
+                          <div className="mt-4 grid gap-3">
+                            {highlightedReports.length === 0 ? (
+                              <p className="text-sm leading-6 text-[#6f5f52]">
+                                Runner 还没有为当前人物回传执行结果。
+                              </p>
+                            ) : (
+                              highlightedReports.slice(0, 3).map((report) => (
+                                <div
+                                  key={report.sessionId}
+                                  className="rounded-[20px] bg-[#faf7f2] px-4 py-4"
+                                >
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="outline">{report.status}</Badge>
+                                    {report.completedAt ? (
+                                      <Badge variant="outline">{report.completedAt}</Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-3 text-base font-semibold text-[#17120d]">
+                                    {report.title}
+                                  </p>
+                                  <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                                    {report.summary}
+                                  </p>
+                                  {report.outputText ? (
+                                    <pre className="mt-4 overflow-x-auto rounded-[18px] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
+                                      {report.outputText}
+                                    </pre>
+                                  ) : null}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-            <div className="space-y-3">
-              {events.length > 0 ? (
-                events.slice(0, 6).map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-2xl border border-white/70 bg-white/78 p-3"
-                  >
-                    <div className="flex items-start gap-3">
-                      <Badge
-                        variant={
-                          event.severity === "critical"
-                            ? "destructive"
-                            : event.severity === "warning"
-                              ? "secondary"
-                              : "outline"
-                        }
+
+            <div className={panelClass}>
+              <div className="border-b border-black/6 px-5 py-5">
+                <SectionTitle
+                  eyebrow="Task Board"
+                  title="系统任务总览"
+                  description="系统内全部任务继续保留在同一页，方便和所选人物工作台一起对照。"
+                />
+              </div>
+
+              <div className="grid gap-3 px-5 py-5">
+                {tasks.length === 0 ? (
+                  <EmptyBlock
+                    title="当前没有任务"
+                    description="下发任务后，这里会显示系统级任务队列。"
+                  />
+                ) : (
+                  tasks.slice(0, 8).map((task) => {
+                    const owner = liveSnapshot.agents.find(
+                      (agent) => agent.id === task.ownerAgentId,
+                    );
+
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
                       >
-                        {eventSeverityLabels[event.severity] ?? event.severity}
-                      </Badge>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-stone-900">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-xs font-medium",
+                              toneClassForTaskStatus(task.status),
+                            )}
+                          >
+                            {taskStatusLabels[task.status]}
+                          </span>
+                          <span className="rounded-full bg-[#f6f1e8] px-2.5 py-1 text-xs font-medium text-[#725e4f]">
+                            {taskTypeLabels[task.type]}
+                          </span>
+                          <span className="rounded-full bg-[#f6f1e8] px-2.5 py-1 text-xs font-medium text-[#725e4f]">
+                            {priorityLabels[task.priority]}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-base font-semibold text-[#17120d]">
+                          {task.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                          {task.summary}
+                        </p>
+                        <p className="mt-3 text-sm text-[#6f5f52]">
+                          负责人：{owner?.name ?? "未分配"}
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className={panelClass}>
+              <div className="border-b border-black/6 px-5 py-5">
+                <SectionTitle
+                  eyebrow="Activity"
+                  title="系统动态"
+                  description="执行回报和系统事件继续保留在首页右侧，整个系统保持单页面显示。"
+                />
+              </div>
+
+              <div className="grid gap-5 px-5 py-5">
+                <div className="space-y-3">
+                  <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                    最近执行
+                  </p>
+                  {liveSnapshot.executionReports.slice(0, 3).map((report) => {
+                    const owner = liveSnapshot.agents.find(
+                      (agent) => agent.id === report.agentId,
+                    );
+
+                    return (
+                      <div
+                        key={report.sessionId}
+                        className="rounded-[24px] bg-[#faf7f2] px-4 py-4"
+                      >
+                        <p className="text-sm font-medium text-[#17120d]">
+                          {report.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
+                          {report.summary}
+                        </p>
+                        <p className="mt-3 text-sm text-[#6f5f52]">
+                          {owner?.name ?? "未绑定人物"} · {report.status}
+                        </p>
+                      </div>
+                    );
+                  })}
+                  {liveSnapshot.executionReports.length === 0 ? (
+                    <p className="text-sm leading-6 text-[#6f5f52]">
+                      还没有 runner 回传执行结果。
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
+                    最近事件
+                  </p>
+                  {liveSnapshot.events.slice(0, 5).map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex gap-3 rounded-[22px] bg-[#faf7f2] px-4 py-4"
+                    >
+                      <span
+                        className={cn(
+                          "mt-1 size-2.5 shrink-0 rounded-full",
+                          eventTone[event.severity],
+                        )}
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-[#17120d]">
                           {event.title}
                         </p>
-                        <p className="mt-1 text-xs leading-5 text-stone-500">
+                        <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
                           {event.description}
                         </p>
-                        <p className="mt-2 text-[11px] text-stone-600">
+                        <p className="mt-2 text-xs tracking-[0.18em] text-[#8b735d] uppercase">
                           {event.at}
                         </p>
                       </div>
                     </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/70 bg-white/60 p-6 text-sm text-stone-500">
-                  当前没有新的办公室事件。
+                  ))}
+                  {liveSnapshot.events.length === 0 ? (
+                    <p className="text-sm leading-6 text-[#6f5f52]">
+                      当前没有新的系统事件。
+                    </p>
+                  ) : null}
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="space-y-5">
-            <div className="rounded-[24px] border border-dashed border-white/70 bg-white/60 p-6 text-sm leading-6 text-stone-500">
-              先从办公室中选择一个人物，再查看它的设备、任务、审批和执行结果。
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-stone-950">Office feed</p>
-              <Badge variant="outline">{events.length}</Badge>
-            </div>
-            <div className="space-y-3">
-              {events.slice(0, 6).map((event) => (
-                <div
-                  key={event.id}
-                  className="rounded-2xl border border-white/70 bg-white/78 p-3"
-                >
-                  <div className="flex items-start gap-3">
-                    <Badge
-                      variant={
-                        event.severity === "critical"
-                          ? "destructive"
-                          : event.severity === "warning"
-                            ? "secondary"
-                            : "outline"
-                      }
-                    >
-                      {event.severity}
-                    </Badge>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-stone-900">
-                        {event.title}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-stone-500">
-                        {event.description}
-                      </p>
-                      <p className="mt-2 text-[11px] text-stone-400">
-                        {event.at}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </ScrollArea>
+        </section>
+      </main>
     </div>
   );
 }

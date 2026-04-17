@@ -6,18 +6,24 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 
 const apiBaseUrl =
-  process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:3000";
+  process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "OpenClaw Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "host.docker.internal";
-const image = process.env.OPENCLAW_IMAGE ?? "unknown-image";
+const image =
+  process.env.COLA_RUNNER_IMAGE ?? process.env.OPENCLAW_IMAGE ?? "unknown-image";
 const containerName =
   process.env.HOSTNAME ?? process.env.COLA_CONTAINER_NAME ?? runnerName;
 const configPath =
+  process.env.COLA_CODEX_CONFIG_PATH ??
+  process.env.OPENCLAW_CODEX_CONFIG_PATH ??
   process.env.OPENCLAW_CONFIG_PATH ??
   path.join(homedir(), ".codex", "config.toml");
 const authPath =
-  process.env.OPENCLAW_AUTH_PATH ?? path.join(homedir(), ".codex", "auth.json");
+  process.env.COLA_CODEX_AUTH_PATH ??
+  process.env.OPENCLAW_CODEX_AUTH_PATH ??
+  process.env.OPENCLAW_AUTH_PATH ??
+  path.join(homedir(), ".codex", "auth.json");
 const heartbeatIntervalMs = Number(
   process.env.COLA_HEARTBEAT_INTERVAL_MS ?? "15000",
 );

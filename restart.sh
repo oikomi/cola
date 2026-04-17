@@ -5,15 +5,25 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$ROOT_DIR/.next-dev.pid"
 LOG_FILE="$ROOT_DIR/.next-dev.log"
-PORT="${PORT:-3000}"
+PORT="${PORT:-50038}"
 NEXT_BIN="$ROOT_DIR/node_modules/.bin/next"
 DB_CHECK_SCRIPT="$ROOT_DIR/scripts/check-office-db.mjs"
+START_DB_SCRIPT="$ROOT_DIR/start-database.sh"
 RUN_MODE="background"
+CLEAN_RUNNERS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -f|--foreground)
       RUN_MODE="foreground"
+      shift
+      ;;
+    --clean-runners)
+      CLEAN_RUNNERS=1
+      shift
+      ;;
+    --keep-runners)
+      CLEAN_RUNNERS=0
       shift
       ;;
     -h|--help)
@@ -22,6 +32,8 @@ while [[ $# -gt 0 ]]; do
       echo "Restarts the local Next.js dev server for this repo."
       echo "Default: restart in background and write logs to $LOG_FILE"
       echo "Foreground: replace this shell with the Next.js dev server"
+      echo "By default, dynamic cola Docker runner containers are preserved."
+      echo "Use --clean-runners to remove runner containers before restart."
       exit 0
       ;;
     *)
@@ -48,6 +60,10 @@ load_env_file() {
   fi
 }
 
+run_db_check() {
+  node "$DB_CHECK_SCRIPT"
+}
+
 ensure_virtual_office_schema() {
   if [[ ! -f "$DB_CHECK_SCRIPT" ]]; then
     return 0
@@ -61,10 +77,28 @@ ensure_virtual_office_schema() {
   fi
 
   local status=0
-  if node "$DB_CHECK_SCRIPT"; then
+  if run_db_check; then
     return 0
   else
     status=$?
+  fi
+
+  if [[ "$status" -eq 3 && -x "$START_DB_SCRIPT" ]]; then
+    echo "Database is unreachable. Attempting to start local database container..."
+    if NON_INTERACTIVE=1 "$START_DB_SCRIPT"; then
+      for _ in {1..30}; do
+        if run_db_check; then
+          return 0
+        fi
+        status=$?
+
+        if [[ "$status" -ne 3 ]]; then
+          break
+        fi
+
+        sleep 1
+      done
+    fi
   fi
 
   case "$status" in
@@ -118,6 +152,32 @@ find_repo_next_pids() {
   '
 }
 
+cleanup_dynamic_runner_containers() {
+  [[ "$CLEAN_RUNNERS" -eq 1 ]] || return 0
+
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local runner_names=""
+  runner_names="$(
+    docker ps -a --format '{{.Names}}' 2>/dev/null | awk '
+      /^cola-[a-z0-9-]+-[0-9a-f]{8}$/ { print }
+    '
+  )"
+
+  if [[ -z "$runner_names" ]]; then
+    return 0
+  fi
+
+  echo "Removing dynamic Cola runner containers..."
+  while IFS= read -r container_name; do
+    [[ -n "$container_name" ]] || continue
+    docker rm -f "$container_name" >/dev/null 2>&1 || true
+    echo "Removed runner container: $container_name"
+  done <<< "$runner_names"
+}
+
 if [[ -f "$PID_FILE" ]]; then
   stored_pid="$(tr -d '[:space:]' < "$PID_FILE")"
   if [[ "$stored_pid" =~ ^[0-9]+$ ]]; then
@@ -130,6 +190,8 @@ while IFS= read -r pid; do
   [[ -z "$pid" || "$pid" == "$$" ]] && continue
   stop_pid "$pid" "Next dev process"
 done < <(find_repo_next_pids || true)
+
+cleanup_dynamic_runner_containers
 
 ensure_virtual_office_schema
 

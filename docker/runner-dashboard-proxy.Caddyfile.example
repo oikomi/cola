@@ -1,0 +1,10 @@
+# Copy this file to docker/runner-dashboard-proxy.Caddyfile and replace the
+# example domains with real DNS names pointing to this host.
+
+openclaw.example.com {
+  reverse_proxy host.docker.internal:18789
+}
+
+hermes.example.com {
+  reverse_proxy host.docker.internal:19119
+}

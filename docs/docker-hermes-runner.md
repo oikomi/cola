@@ -38,12 +38,14 @@
 ## 4. 推荐环境变量
 
 ```env
-HERMES_AGENT_IMAGE=ghcr.io/nousresearch/hermes-agent:latest
+HERMES_AGENT_IMAGE=nousresearch/hermes-agent:latest
 HERMES_CODEX_CONFIG_PATH=/Users/your-user/.codex/config.toml
 HERMES_CODEX_AUTH_PATH=/Users/your-user/.codex/auth.json
 HERMES_WORKSPACE_ROOT=/absolute/path/to/cola
-COLA_API_BASE_URL=http://host.docker.internal:3000
+COLA_API_BASE_URL=http://host.docker.internal:50038
 COLA_RUNNER_HOST=host.docker.internal
+COLA_DASHBOARD_BIND_HOST=127.0.0.1
+NEXT_PUBLIC_HERMES_NATIVE_URL=https://cola.example.com/hermes-native?agentId={agentId}&deviceId={deviceId}&engine={engine}
 ```
 
 说明：
@@ -51,11 +53,14 @@ COLA_RUNNER_HOST=host.docker.internal
 - `HERMES_AGENT_IMAGE` 控制容器镜像
 - `HERMES_CODEX_CONFIG_PATH` 与 `HERMES_CODEX_AUTH_PATH` 控制 Hermes 读取哪一套 Codex 配置
 - `HERMES_WORKSPACE_ROOT` 是挂进容器的项目目录
+- `COLA_DASHBOARD_BIND_HOST` 控制 Hermes dashboard 是否只绑定本机
+- `NEXT_PUBLIC_HERMES_NATIVE_URL` 用于远程部署时生成浏览器可访问的原生页地址
 
 ## 5. 默认 runner 行为
 
 Hermes runner bootstrap 当前会：
 
+- 每次新增人物都会先 `docker pull` 镜像；远程 `latest` 没更新时只做 manifest 检查，不会整包重下
 - 注册设备到 Cola
 - 周期性发送心跳
 - 空闲时轮询下一个任务
@@ -73,6 +78,44 @@ HERMES_READY_COMMAND=...
 
 ## 6. 注意事项
 
+- `createAgent` 已改成异步 provisioning：人物会先出现为 `waiting_device`，随后由 runner 注册把状态推进到 `idle` 或 `blocked`
 - Hermes 当前与 OpenClaw 一样复用 `~/.codex` 作为模型与鉴权来源
-- 当前默认镜像标签为 `ghcr.io/nousresearch/hermes-agent:latest`
+- 当前默认镜像标签为 `nousresearch/hermes-agent:latest`
 - 如果 Hermes 对 custom OpenAI-compatible endpoint 有额外兼容性要求，需要按实际 provider 能力调整生成的配置
+
+## 7. HTTPS 反向代理
+
+Hermes dashboard 也建议通过 HTTPS 域名访问。
+
+仓库中已提供：
+
+- `docker/runner-dashboard-proxy.Caddyfile.example`
+- `docker/runner-dashboard-proxy.compose.yml`
+
+使用方式：
+
+1. 复制 `docker/runner-dashboard-proxy.Caddyfile.example` 为
+   `docker/runner-dashboard-proxy.Caddyfile`
+2. 把 `hermes.example.com` 改成真实域名
+3. 启动 Caddy：
+
+```bash
+docker compose -f docker/runner-dashboard-proxy.compose.yml up -d
+```
+
+4. `.env` 中至少配置：
+
+```env
+COLA_DASHBOARD_BIND_HOST=0.0.0.0
+COLA_HERMES_DASHBOARD_PUBLIC_HOST=hermes.example.com
+NEXT_PUBLIC_HERMES_NATIVE_URL=https://hermes.example.com/
+```
+
+如果 OpenClaw 和 Hermes 都需要 HTTPS，可以共用同一个 Caddy 配置文件。
+
+也可以直接用脚本自动生成配置：
+
+```bash
+./scripts/setup-runner-dashboard-proxy.sh openclaw.example.com hermes.example.com https://cola.example.com
+```
+- 远程部署时，建议优先配置 `NEXT_PUBLIC_HERMES_NATIVE_URL`，不要让浏览器直接打开 `127.0.0.1`

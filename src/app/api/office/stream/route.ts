@@ -16,41 +16,55 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller: ReadableStreamDefaultController<Uint8Array>) {
+      const safeEnqueue = (event: string, data: unknown) => {
+        if (closed) return false;
+
+        try {
+          controller.enqueue(encodeSse(event, data));
+          return true;
+        } catch {
+          closed = true;
+          if (interval) clearInterval(interval);
+          return false;
+        }
+      };
+
       const close = () => {
         if (closed) return;
         closed = true;
         if (interval) clearInterval(interval);
-        controller.close();
+
+        try {
+          controller.close();
+        } catch {
+          // The stream may already be closed if the client disconnected.
+        }
       };
 
       const tick = async () => {
         try {
+          if (closed) return;
           const nextVersion = await getOfficeRealtimeVersion(db);
+          if (closed) return;
 
           if (nextVersion !== latestVersion) {
             latestVersion = nextVersion;
-            controller.enqueue(
-              encodeSse("snapshot", {
-                version: nextVersion,
-                updatedAt: new Date().toISOString(),
-              }),
-            );
+            safeEnqueue("snapshot", {
+              version: nextVersion,
+              updatedAt: new Date().toISOString(),
+            });
             return;
           }
 
-          controller.enqueue(
-            encodeSse("heartbeat", {
-              version: latestVersion,
-              at: new Date().toISOString(),
-            }),
-          );
+          safeEnqueue("heartbeat", {
+            version: latestVersion,
+            at: new Date().toISOString(),
+          });
         } catch (error) {
-          controller.enqueue(
-            encodeSse("error", {
-              message:
-                error instanceof Error ? error.message : "office stream failed",
-            }),
-          );
+          safeEnqueue("error", {
+            message:
+              error instanceof Error ? error.message : "office stream failed",
+          });
         }
       };
 
@@ -60,13 +74,20 @@ export async function GET(request: Request) {
 
       let latestVersion = "initializing";
       void (async () => {
-        latestVersion = await getOfficeRealtimeVersion(db);
-        controller.enqueue(
-          encodeSse("snapshot", {
+        try {
+          latestVersion = await getOfficeRealtimeVersion(db);
+          if (closed) return;
+
+          safeEnqueue("snapshot", {
             version: latestVersion,
             connectedAt: new Date().toISOString(),
-          }),
-        );
+          });
+        } catch (error) {
+          safeEnqueue("error", {
+            message:
+              error instanceof Error ? error.message : "office stream failed",
+          });
+        }
       })();
 
       interval = setInterval(() => {

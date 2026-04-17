@@ -75,6 +75,16 @@ export const agents = createTable(
   ],
 );
 
+export const zoneSettings = createTable("zone_setting", (d) => ({
+  zoneId: zoneEnum().primaryKey(),
+  workstationCapacity: d.integer().notNull().default(0),
+  createdAt: d
+    .timestamp({ withTimezone: true })
+    .$defaultFn(() => new Date())
+    .notNull(),
+  updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+}));
+
 export const tasks = createTable(
   "task",
   (d) => ({

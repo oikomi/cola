@@ -1,10 +1,23 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { z } from "zod";
 
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { db } from "@/server/db";
-import { agents, approvals, devices, events, tasks } from "@/server/db/schema";
+import {
+  mergeNativeWorkspaceUrl,
+  resolveNativeWorkspaceHref,
+} from "@/lib/office-routing";
+import {
+  agents,
+  approvals,
+  devices,
+  events,
+  tasks,
+  zoneSettings,
+} from "@/server/db/schema";
 import {
   agentRoleValues,
   dockerRunnerDeviceTypeByEngine,
@@ -13,17 +26,27 @@ import {
   approvalTypeValues,
   priorityValues,
   riskLevelValues,
+  resolveZoneWorkstationCapacity,
   taskStatusLabels,
   taskStatusValues,
   taskTypeValues,
+  zoneLabels,
+  zoneValues,
+  zoneWorkstationLimitByZone,
 } from "@/server/office/catalog";
 import { provisionDockerRunner } from "@/server/office/provision-docker-runner";
 import { getOfficeSnapshot } from "@/server/office/snapshot";
+
+const execFileAsync = promisify(execFile);
 
 const createAgentInput = z.object({
   name: z.string().trim().min(2).max(120),
   role: z.enum(agentRoleValues),
   engine: z.enum(dockerRunnerEngineValues).default("openclaw"),
+});
+
+const addWorkstationInput = z.object({
+  zoneId: z.enum(zoneValues),
 });
 
 const createTaskInput = z.object({
@@ -131,6 +154,125 @@ function roleLabel(role: (typeof agentRoleValues)[number]) {
       return "CEO Office";
     default:
       return "角色";
+  }
+}
+
+async function resolveFreshDashboardUrl(
+  database: Database,
+  agentId: string,
+): Promise<string | null> {
+  const snapshot = await getOfficeSnapshot(database);
+  const agent = snapshot.agents.find((item) => item.id === agentId);
+  if (!agent?.deviceId) return null;
+
+  const [deviceRow] = await database
+    .select({ deviceId: devices.id })
+    .from(devices)
+    .where(eq(devices.id, agent.deviceId))
+    .limit(1);
+
+  if (!deviceRow?.deviceId) return null;
+
+  const [device] = await database
+    .select()
+    .from(devices)
+    .where(eq(devices.id, deviceRow.deviceId))
+    .limit(1);
+
+  return device ? resolveDeviceDashboardUrl(device) : null;
+}
+
+async function resolveDeviceDashboardUrl(
+  device: typeof devices.$inferSelect,
+): Promise<string | null> {
+  const metadata =
+    device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+  const currentUrl =
+    metadata &&
+    "nativeDashboardUrl" in metadata &&
+    typeof metadata.nativeDashboardUrl === "string"
+      ? metadata.nativeDashboardUrl
+      : null;
+  const containerName =
+    metadata &&
+    "containerName" in metadata &&
+    typeof metadata.containerName === "string"
+      ? metadata.containerName
+      : null;
+  const engine =
+    metadata &&
+    "engine" in metadata &&
+    typeof metadata.engine === "string"
+      ? metadata.engine
+      : null;
+  const agentId =
+    metadata &&
+    "agentId" in metadata &&
+    typeof metadata.agentId === "string"
+      ? metadata.agentId
+      : null;
+
+  const templateUrl =
+    agentId &&
+    (engine === "openclaw" || engine === "hermes-agent")
+      ? resolveNativeWorkspaceHref({
+          agentId,
+          deviceId: device.id,
+          engine,
+          openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
+          hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
+        })
+      : null;
+
+  if (templateUrl && engine !== "openclaw") {
+    return templateUrl;
+  }
+
+  if (engine !== "openclaw" || !containerName || !currentUrl) {
+    return currentUrl;
+  }
+
+  try {
+    const { stdout } = await execFileAsync("docker", [
+      "exec",
+      containerName,
+      "sh",
+      "-lc",
+      "openclaw dashboard --no-open",
+    ]);
+    const dashboardLine = stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("Dashboard URL: "));
+
+    if (!dashboardLine) {
+      return currentUrl;
+    }
+
+    const freshUrl = new URL(dashboardLine.replace("Dashboard URL: ", "").trim());
+    const current = new URL(currentUrl);
+    const publicHost =
+      process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
+      process.env.COLA_DASHBOARD_PUBLIC_HOST ??
+      current.hostname;
+    const port = current.port || freshUrl.port;
+    const controlUrl = new URL(
+      `${current.protocol}//${publicHost}${port ? `:${port}` : ""}/`,
+    );
+    controlUrl.searchParams.set(
+      "gatewayUrl",
+      `${controlUrl.protocol === "https:" ? "wss:" : "ws:"}//${publicHost}${port ? `:${port}` : ""}`,
+    );
+    controlUrl.hash = freshUrl.hash;
+
+    return templateUrl
+      ? mergeNativeWorkspaceUrl({
+          nativeUrl: controlUrl.toString(),
+          templateUrl,
+        })
+      : controlUrl.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -244,6 +386,7 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
             engine: input.engine,
             containerName: provision.containerName,
             image: provision.image,
+            nativeDashboardUrl: provision.nativeDashboardUrl,
             healthSummary: `${input.roleLabel} runner 容器已启动，等待 ${engineLabel} 自注册。`,
           },
           updatedAt: now,
@@ -299,6 +442,13 @@ export const officeRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const snapshot = await getOfficeSnapshot(ctx.db);
       return snapshot.tasks.find((task) => task.id === input.taskId) ?? null;
+    }),
+
+  getNativeDashboardUrl: publicProcedure
+    .input(z.object({ agentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const url = await resolveFreshDashboardUrl(ctx.db, input.agentId);
+      return { url };
     }),
 
   createAgent: publicProcedure
@@ -413,8 +563,74 @@ export const officeRouter = createTRPCRouter({
         agentId: createdAgent.id,
         deviceId: createdDevice.id,
         queued: true,
-        message: `${input.name} 已创建，正在后台拉起 Docker ${engineLabel} runner。`,
+        message: `${input.name} 已创建，并已触发 Docker ${engineLabel} runner 拉起流程。`,
       };
+    }),
+
+  addWorkstation: publicProcedure
+    .input(addWorkstationInput)
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const maxCapacity = zoneWorkstationLimitByZone[input.zoneId];
+
+      return ctx.db.transaction(async (tx) => {
+        const agentsInZone = await tx
+          .select({ id: agents.id })
+          .from(agents)
+          .where(eq(agents.zoneId, input.zoneId));
+
+        const [currentSetting] = await tx
+          .select()
+          .from(zoneSettings)
+          .where(eq(zoneSettings.zoneId, input.zoneId))
+          .limit(1);
+
+        const currentCapacity = resolveZoneWorkstationCapacity(input.zoneId, {
+          configuredCapacity: currentSetting?.workstationCapacity ?? null,
+          occupiedCount: agentsInZone.length,
+        });
+        const nextCapacity = currentCapacity + 1;
+
+        if (nextCapacity > maxCapacity) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `${zoneLabels[input.zoneId]} 的预设工位已经全部启用。`,
+          });
+        }
+
+        if (currentSetting) {
+          await tx
+            .update(zoneSettings)
+            .set({
+              workstationCapacity: nextCapacity,
+              updatedAt: now,
+            })
+            .where(eq(zoneSettings.zoneId, input.zoneId));
+        } else {
+          await tx.insert(zoneSettings).values({
+            zoneId: input.zoneId,
+            workstationCapacity: nextCapacity,
+            createdAt: now,
+          });
+        }
+
+        await tx.insert(events).values({
+          eventType: "zone.workstation_added",
+          entityType: "zone",
+          entityId: input.zoneId,
+          severity: "info",
+          title: `${zoneLabels[input.zoneId]} 已新增工位`,
+          description: `当前已启用 ${nextCapacity} / ${maxCapacity} 个预设工位。`,
+          occurredAt: now,
+        });
+
+        return {
+          zoneId: input.zoneId,
+          workstationCapacity: nextCapacity,
+          workstationMax: maxCapacity,
+          message: `${zoneLabels[input.zoneId]} 已新增工位，当前 ${nextCapacity} / ${maxCapacity} 个工位已启用。`,
+        };
+      });
     }),
 
   createTask: publicProcedure

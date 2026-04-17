@@ -8,13 +8,13 @@ services:
       - ..:/workspace
       - ${HOME}/.codex:/home/node/.codex:ro
     environment:
-      COLA_API_BASE_URL: ${COLA_API_BASE_URL:-http://host.docker.internal:3000}
+      COLA_API_BASE_URL: ${COLA_API_BASE_URL:-http://host.docker.internal:50038}
       COLA_RUNNER_NAME: ${COLA_RUNNER_NAME:-OpenClaw Runner-01}
       COLA_RESOURCE_POOL: ${COLA_RESOURCE_POOL:-docker-core}
       COLA_RUNNER_HOST: ${COLA_RUNNER_HOST:-host.docker.internal}
       COLA_RUNNER_ENGINE: openclaw
-      OPENCLAW_CONFIG_PATH: /home/node/.codex/config.toml
-      OPENCLAW_AUTH_PATH: /home/node/.codex/auth.json
+      COLA_CODEX_CONFIG_PATH: /home/node/.codex/config.toml
+      COLA_CODEX_AUTH_PATH: /home/node/.codex/auth.json
     command:
       [
         "sh",

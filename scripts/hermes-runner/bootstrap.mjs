@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 const apiBaseUrl =
-  process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:3000";
+  process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "Hermes Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "host.docker.internal";
