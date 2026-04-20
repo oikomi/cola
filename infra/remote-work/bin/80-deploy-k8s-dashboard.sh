@@ -122,6 +122,8 @@ wait_for_dashboard_ready() {
   if [[ "$all_ready" -ne 1 ]]; then
     print_step "Dashboard 超时未就绪，输出诊断信息"
     print_dashboard_diagnostics
+    echo
+    echo "如果 Pod 处于 ImagePullBackOff，可先执行：./bin/83-prepull-k8s-dashboard-images.sh"
     die "Kubernetes Dashboard 在 ${WAIT_TIMEOUT_SECONDS}s 内未就绪。"
   fi
 }

@@ -166,6 +166,7 @@ https://localhost:8443/
 
 - 这里按 Kubernetes 官方文档推荐的方式接入：Helm 安装 + `port-forward`
 - 不再默认改成 `NodePort`
+- 如果当前网络环境下 Dashboard Pod 拉镜像失败，可先执行 `./bin/83-prepull-k8s-dashboard-images.sh` 再重跑安装
 
 ## 7. 创建一个远程工作区
 
