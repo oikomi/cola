@@ -111,19 +111,15 @@ function priorityTone(priority: keyof typeof priorityLabels) {
   }
 }
 
-function Field(props: {
-  label: string;
-  children: ReactNode;
-  hint?: string;
-}) {
+function Field(props: { label: string; children: ReactNode; hint?: string }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+      <span className="text-muted-foreground text-xs font-medium tracking-[0.18em] uppercase">
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-xs text-muted-foreground">{props.hint}</span>
+        <span className="text-muted-foreground text-xs">{props.hint}</span>
       ) : null}
     </label>
   );
@@ -135,7 +131,7 @@ function LoadingRows() {
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`training-skeleton-${index}`}
-          className="rounded-3xl border border-border/70 bg-background/70 p-4"
+          className="border-border/70 bg-background/70 rounded-3xl border p-4"
         >
           <div className="grid gap-3 md:grid-cols-[1.4fr_110px_1fr_110px_140px_220px] md:items-center">
             <div className="grid gap-2">
@@ -220,7 +216,9 @@ export function TrainingShell() {
   const jobs = jobsQuery.data ?? [];
   const runningCount = jobs.filter((job) => job.status === "running").length;
   const draftCount = jobs.filter((job) => job.status === "draft").length;
-  const completedCount = jobs.filter((job) => job.status === "completed").length;
+  const completedCount = jobs.filter(
+    (job) => job.status === "completed",
+  ).length;
   const activeGpuCount = jobs
     .filter((job) => job.status === "running")
     .reduce((total, job) => total + job.gpuCount, 0);
@@ -240,12 +238,16 @@ export function TrainingShell() {
       <ProductAreaHeader />
 
       <ModuleHero
+        size="compact"
         eyebrow="Training Jobs"
         title="训练平台"
-        description="把训练任务、基础模型、数据集和 GPU 配额统一收口到一张作业表里，直接面向 Kubernetes Job 执行。"
+        description="把训练任务、基础模型、数据集和 GPU 配额统一收口到一张作业表里。"
         icon={BrainCircuitIcon}
         badges={
-          <Badge variant="outline" className="border-border/80 bg-background/60">
+          <Badge
+            variant="outline"
+            className="border-border/80 bg-background/60"
+          >
             Unsloth / Kubernetes
           </Badge>
         }
@@ -253,43 +255,51 @@ export function TrainingShell() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              size="lg"
-              className="rounded-full"
+              className="h-9 rounded-full px-4"
               onClick={() => void jobsQuery.refetch()}
             >
               <RefreshCwIcon
-                className={cn(jobsQuery.isFetching ? "animate-spin" : undefined)}
+                className={cn(
+                  jobsQuery.isFetching ? "animate-spin" : undefined,
+                )}
                 data-icon="inline-start"
               />
               刷新列表
             </Button>
-            <Button size="lg" className="rounded-full" onClick={() => setIsCreateOpen(true)}>
+            <Button
+              className="h-9 rounded-full px-4"
+              onClick={() => setIsCreateOpen(true)}
+            >
               <PlusIcon data-icon="inline-start" />
               创建训练任务
             </Button>
           </div>
         }
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ModuleMetricCard
+            size="compact"
             label="任务总数"
             value={String(jobs.length)}
             description="当前训练控制面中记录的全部任务。"
             icon={BrainCircuitIcon}
           />
           <ModuleMetricCard
+            size="compact"
             label="运行中"
             value={String(runningCount)}
             description="已经提交并正在实际执行的训练作业。"
             icon={PlayIcon}
           />
           <ModuleMetricCard
+            size="compact"
             label="草稿"
             value={String(draftCount)}
             description="参数已配置但还未开始执行的任务。"
             icon={SquareIcon}
           />
           <ModuleMetricCard
+            size="compact"
             label="活跃 GPU"
             value={String(activeGpuCount)}
             description="按照运行中训练任务累计的 GPU 使用量。"
@@ -306,8 +316,12 @@ export function TrainingShell() {
       ) : null}
 
       {feedback ? (
-        <Alert variant={feedback.tone === "success" ? "default" : "destructive"}>
-          <AlertTitle>{feedback.tone === "success" ? "操作完成" : "操作失败"}</AlertTitle>
+        <Alert
+          variant={feedback.tone === "success" ? "default" : "destructive"}
+        >
+          <AlertTitle>
+            {feedback.tone === "success" ? "操作完成" : "操作失败"}
+          </AlertTitle>
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       ) : null}
@@ -316,7 +330,10 @@ export function TrainingShell() {
         title="任务列表"
         description="查看运行态、优先级、数据集和动作入口。错误信息会直接内嵌在任务行里。"
         action={
-          <Badge variant="outline" className="border-border/80 bg-background/60">
+          <Badge
+            variant="outline"
+            className="border-border/80 bg-background/60"
+          >
             已完成 {completedCount}
           </Badge>
         }
@@ -368,25 +385,27 @@ export function TrainingShell() {
                     <TableCell className="align-top">
                       <div className="flex max-w-[26rem] flex-col gap-2">
                         <div className="flex flex-col gap-1">
-                          <p className="font-medium text-foreground">{job.title}</p>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-foreground font-medium">
+                            {job.title}
+                          </p>
+                          <p className="text-muted-foreground text-sm">
                             {trainingJobTypeLabels[job.jobType]} ·{" "}
                             <span className={priorityTone(job.priority)}>
                               {priorityLabels[job.priority]}优先级
                             </span>
                           </p>
                         </div>
-                        <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
+                        <p className="text-muted-foreground line-clamp-2 text-sm leading-6">
                           {job.objective}
                         </p>
                         {job.runtimeJobName ? (
-                          <p className="text-xs leading-5 text-muted-foreground">
+                          <p className="text-muted-foreground text-xs leading-5">
                             K8s Job: {job.runtimeNamespace ?? "default"}/
                             {job.runtimeJobName}
                           </p>
                         ) : null}
                         {job.artifactPath ? (
-                          <p className="text-xs leading-5 text-muted-foreground">
+                          <p className="text-muted-foreground text-xs leading-5">
                             产物目录: {job.artifactPath}
                           </p>
                         ) : null}
@@ -407,20 +426,20 @@ export function TrainingShell() {
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium text-foreground">
+                        <span className="text-foreground font-medium">
                           {job.baseModel}
                         </span>
-                        <span className="text-sm text-muted-foreground">
+                        <span className="text-muted-foreground text-sm">
                           {job.datasetName}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top font-medium text-foreground">
+                    <TableCell className="text-foreground align-top font-medium">
                       {job.gpuCount} GPU
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex flex-col gap-1 text-sm">
-                        <span className="font-medium text-foreground">
+                        <span className="text-foreground font-medium">
                           {formatTime(job.updatedAt ?? job.createdAt)}
                         </span>
                         <span className="text-muted-foreground">
@@ -478,7 +497,11 @@ export function TrainingShell() {
                             isDeleting
                           }
                           onClick={() => {
-                            if (!window.confirm(`确认删除训练任务「${job.title}」吗？`)) {
+                            if (
+                              !window.confirm(
+                                `确认删除训练任务「${job.title}」吗？`,
+                              )
+                            ) {
                               return;
                             }
 
@@ -506,12 +529,12 @@ export function TrainingShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-[720px] border-border/70 bg-background/95 p-0 backdrop-blur-xl text-foreground">
-          <DialogHeader className="border-b border-border/70 px-6 py-5">
+        <DialogContent className="border-border/70 bg-background/95 text-foreground max-w-[720px] p-0 backdrop-blur-xl">
+          <DialogHeader className="border-border/70 border-b px-6 py-5">
             <DialogTitle className="text-2xl tracking-[-0.04em]">
               创建训练任务
             </DialogTitle>
-            <DialogDescription className="text-sm leading-6 text-muted-foreground">
+            <DialogDescription className="text-muted-foreground text-sm leading-6">
               当前启动后会提交到 Kubernetes，使用 Unsloth 容器执行。数据集可填写
               Hugging Face 数据集名，或挂载卷里的文件路径。
             </DialogDescription>
@@ -642,7 +665,7 @@ export function TrainingShell() {
             </div>
           </div>
 
-          <DialogFooter className="border-t border-border/70 bg-muted/30 px-6 py-4">
+          <DialogFooter className="border-border/70 bg-muted/30 border-t px-6 py-4">
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>

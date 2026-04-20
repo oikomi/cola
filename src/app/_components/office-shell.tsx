@@ -23,6 +23,7 @@ import {
   useState,
 } from "react";
 
+import { AdminChrome } from "@/app/_components/admin-chrome";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
@@ -125,23 +126,24 @@ const eventTone = {
 } as const;
 
 const panelClass =
-  "overflow-hidden rounded-[30px] border border-border/70 bg-background/78 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl";
+  "overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 shadow-[0_18px_52px_rgba(15,23,42,0.06)] backdrop-blur-xl";
+const panelShellClass = `${panelClass} xl:flex xl:min-h-0 xl:flex-col`;
 
 function engineTone(engine: DockerRunnerEngine | null | undefined) {
   if (engine === "hermes-agent") {
     return {
-      badge: "bg-[#e7f0ff] text-[#31527f]",
+      badge: "bg-sky-50 text-sky-700",
       panel:
-        "border-[#d7e2f6] bg-[linear-gradient(135deg,rgba(244,248,255,0.96),rgba(255,255,255,0.98))]",
-      hero: "border-[#d7e2f6] bg-[#111827] text-[#eff6ff]",
+        "border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98))]",
+      hero: "border-sky-200 bg-[#0f172a] text-slate-50",
     };
   }
 
   return {
-    badge: "bg-[#fff0d7] text-[#8f5e11]",
+    badge: "bg-emerald-50 text-emerald-700",
     panel:
-      "border-[#eedfc7] bg-[linear-gradient(135deg,rgba(255,248,236,0.96),rgba(255,255,255,0.98))]",
-    hero: "border-[#eedfc7] bg-[#1f170f] text-[#fff7ed]",
+      "border-emerald-100 bg-[linear-gradient(135deg,rgba(240,253,250,0.96),rgba(255,255,255,0.98))]",
+    hero: "border-emerald-200 bg-[#111827] text-slate-50",
   };
 }
 
@@ -154,7 +156,7 @@ function FormField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[11px] font-medium tracking-[0.28em] text-[#7d6858] uppercase">
+      <span className="text-[11px] font-medium tracking-[0.28em] text-slate-500 uppercase">
         {label}
       </span>
       {children}
@@ -173,13 +175,13 @@ function SectionTitle({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
+      <p className="text-[11px] tracking-[0.32em] text-slate-500 uppercase">
         {eyebrow}
       </p>
-      <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+      <h2 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">
         {title}
       </h2>
-      <p className="max-w-2xl text-sm leading-6 text-[#6f5f52]">
+      <p className="max-w-2xl text-sm leading-6 text-slate-500">
         {description}
       </p>
     </div>
@@ -194,9 +196,9 @@ function EmptyBlock({
   description: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6">
-      <p className="text-sm font-medium text-[#201912]">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-[#7b695a]">{description}</p>
+    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-5 py-6">
+      <p className="text-sm font-medium text-slate-950">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
     </div>
   );
 }
@@ -528,19 +530,17 @@ export function OfficeShell({ snapshot }: Props) {
   };
 
   return (
-    <div className="min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(107,138,173,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(255,210,155,0.18),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_42%,#edf2f7_100%)] text-foreground xl:h-dvh xl:overflow-hidden">
-      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(245,158,11,0.12),transparent_24%)]" />
-
-      <main className="mx-auto flex max-w-[1640px] flex-col gap-6 px-4 py-5 md:px-6 md:py-6 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+    <AdminChrome>
+      <div className="flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0 xl:overflow-hidden">
         <ProductAreaHeader />
 
-        <section className="relative overflow-hidden rounded-[36px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(30,41,59,0.96))] text-slate-50 shadow-[0_36px_120px_rgba(15,23,42,0.2)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(148,163,184,0.22),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(245,158,11,0.16),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
-          <div className="relative grid gap-10 px-6 py-7 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-            <div className="space-y-6">
+        <section className="relative shrink-0 overflow-hidden rounded-[32px] border border-slate-900/80 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(23,32,51,0.96))] text-slate-50 shadow-[0_36px_110px_rgba(15,23,42,0.16)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(96,165,250,0.22),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(14,165,233,0.16),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+          <div className="relative grid gap-6 px-5 py-5 md:px-6 md:py-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.82fr)]">
+            <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-3">
                 <Badge className="bg-white/10 text-white hover:bg-white/10">
-                  Persona Control
+                  Agent Control Plane
                 </Badge>
                 <Badge
                   className={cn(
@@ -560,17 +560,17 @@ export function OfficeShell({ snapshot }: Props) {
                 ) : null}
               </div>
 
-              <div className="max-w-4xl space-y-4">
+              <div className="max-w-4xl space-y-3">
                 <p className="text-[11px] tracking-[0.34em] text-white/52 uppercase">
-                  Cola Frontline
+                  Cola Operations
                 </p>
-                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.06em] md:text-6xl">
-                  把首页改成一个可直接调度人物和引擎的工作台。
+                <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.06em] md:text-5xl xl:text-[3.35rem]">
+                  多智能体指挥中心
                 </h1>
-                <p className="max-w-3xl text-base leading-8 text-white/72 md:text-lg">
-                  新增人物后，列表会立即显示当前全部人物；点击任意人物会新开窗口打开它对应的
+                <p className="max-w-3xl text-sm leading-7 text-white/72 md:text-base">
+                  在一个控制面里查看人物、任务、审批和引擎分布。人物卡可以直接打开对应的
                   OpenClaw / Hermes K8s
-                  workspace，当前页右侧继续保留系统摘要和执行状态。
+                  workspace，右侧持续保留系统摘要和执行状态。
                 </p>
               </div>
 
@@ -594,7 +594,7 @@ export function OfficeShell({ snapshot }: Props) {
               </div>
             </div>
 
-            <div className="grid gap-4 self-stretch">
+            <div className="grid gap-3 self-stretch xl:max-w-[420px]">
               <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   当前编排
@@ -666,7 +666,7 @@ export function OfficeShell({ snapshot }: Props) {
         {feedback ? (
           <div
             className={cn(
-              "rounded-[22px] border px-4 py-3 text-sm",
+              "shrink-0 rounded-[22px] border px-4 py-3 text-sm",
               feedback.tone === "success"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                 : "border-rose-200 bg-rose-50 text-rose-900",
@@ -677,13 +677,13 @@ export function OfficeShell({ snapshot }: Props) {
         ) : null}
 
         {isReadOnlyFallback && liveSnapshot.readOnlyReason ? (
-          <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div className="shrink-0 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             当前处于只读回退模式：{liveSnapshot.readOnlyReason}
           </div>
         ) : null}
 
-        <section className="grid gap-4 xl:grid-cols-[380px_380px_minmax(0,1fr)]">
-          <div className={panelClass}>
+        <section className="grid gap-4 xl:min-h-0 xl:flex-[0.94] xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.04fr)_minmax(0,0.94fr)]">
+          <div className={panelShellClass}>
             <div className="border-b border-black/6 px-5 py-5">
               <SectionTitle
                 eyebrow="Create Agent"
@@ -692,7 +692,7 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-4 px-5 py-5">
+            <div className="grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
               <FormField label="人物名称">
                 <Input
                   value={agentDraft.name}
@@ -791,7 +791,7 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
           </div>
 
-          <div className={panelClass}>
+          <div className={panelShellClass}>
             <div className="border-b border-black/6 px-5 py-5">
               <SectionTitle
                 eyebrow="Create Task"
@@ -800,7 +800,7 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-4 px-5 py-5">
+            <div className="grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
               <FormField label="负责人">
                 <Select
                   value={taskDraft.ownerAgentId}
@@ -972,7 +972,7 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
           </div>
 
-          <div className={panelClass}>
+          <div className={panelShellClass}>
             <div className="border-b border-black/6 px-5 py-5">
               <SectionTitle
                 eyebrow="System Pulse"
@@ -981,7 +981,7 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-5 px-5 py-5">
+            <div className="grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
               <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
                 <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
@@ -1060,8 +1060,8 @@ export function OfficeShell({ snapshot }: Props) {
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.28fr)_minmax(360px,0.72fr)]">
-          <div className={panelClass} id="people-list">
+        <section className="grid gap-4 xl:min-h-0 xl:flex-[1.18] xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
+          <div className={cn(panelShellClass)} id="people-list">
             <div className="flex flex-col gap-4 border-b border-black/6 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
               <SectionTitle
                 eyebrow="People"
@@ -1082,7 +1082,7 @@ export function OfficeShell({ snapshot }: Props) {
               </div>
             </div>
 
-            <div className="grid gap-3 px-5 py-5">
+            <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
               {agents.length === 0 ? (
                 <EmptyBlock
                   title="还没有可展示的人物"
@@ -1201,8 +1201,8 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
           </div>
 
-          <div className="grid gap-6">
-            <div className={panelClass}>
+          <div className="grid gap-4 xl:min-h-0 xl:grid-rows-[minmax(0,1.18fr)_minmax(0,0.8fr)_minmax(0,0.9fr)]">
+            <div className={panelShellClass}>
               <div className="border-b border-black/6 px-5 py-5">
                 <SectionTitle
                   eyebrow="Focused Workspace"
@@ -1211,7 +1211,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-3 px-5 py-5">
+              <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
                 {!highlightedAgent ? (
                   <EmptyBlock
                     title="还没有选中的人物"
@@ -1469,7 +1469,7 @@ export function OfficeShell({ snapshot }: Props) {
               </div>
             </div>
 
-            <div className={panelClass}>
+            <div className={panelShellClass}>
               <div className="border-b border-black/6 px-5 py-5">
                 <SectionTitle
                   eyebrow="Task Board"
@@ -1478,7 +1478,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-3 px-5 py-5">
+              <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
                 {tasks.length === 0 ? (
                   <EmptyBlock
                     title="当前没有任务"
@@ -1527,7 +1527,7 @@ export function OfficeShell({ snapshot }: Props) {
               </div>
             </div>
 
-            <div className={panelClass}>
+            <div className={panelShellClass}>
               <div className="border-b border-black/6 px-5 py-5">
                 <SectionTitle
                   eyebrow="Activity"
@@ -1536,7 +1536,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-5 px-5 py-5">
+              <div className="grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
                 <div className="space-y-3">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     最近执行
@@ -1608,7 +1608,7 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
           </div>
         </section>
-      </main>
-    </div>
+      </div>
+    </AdminChrome>
   );
 }

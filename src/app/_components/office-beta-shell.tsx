@@ -1,26 +1,23 @@
 "use client";
 
 import {
-  ArrowUpRightIcon,
   BriefcaseBusinessIcon,
   CpuIcon,
   ExternalLinkIcon,
   LoaderCircleIcon,
   PlusIcon,
   RadarIcon,
-  RefreshCcwIcon,
   ShieldAlertIcon,
   SparklesIcon,
   Trash2Icon,
   UserRoundPlusIcon,
   UsersIcon,
 } from "lucide-react";
-import Link from "next/link";
 import * as PIXI from "pixi.js";
 import { gsap } from "gsap";
 import { startTransition, useEffect, useRef, useState } from "react";
 
-import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { AdminChrome } from "@/app/_components/admin-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -311,14 +308,14 @@ const ZONE_SCENE: Record<ZoneKey, ZoneSceneConfig> = {
     decor: "people",
   },
   vendor: {
-    anchor: { x: 15.0, y: 7.7 },
+    anchor: { x: 13.55, y: 6.95 },
     rugTint: 0xffd5d8,
     deskTint: 0xbd8559,
     chairTint: 0x8b6a74,
     workstations: [
-      { deskX: 14.0, deskY: 6.85, personX: 14.58, personY: 7.72 },
-      { deskX: 15.25, deskY: 7.15, personX: 15.82, personY: 8.0 },
-      { deskX: 14.55, deskY: 8.2, personX: 15.12, personY: 9.06 },
+      { deskX: 12.55, deskY: 6.1, personX: 13.13, personY: 6.97 },
+      { deskX: 13.8, deskY: 6.4, personX: 14.37, personY: 7.25 },
+      { deskX: 13.1, deskY: 7.45, personX: 13.67, personY: 8.31 },
     ],
     decor: "vendor",
   },
@@ -406,6 +403,45 @@ function isoToScreen(x: number, y: number) {
   return {
     x: (x - y) * (TILE_WIDTH / 2),
     y: (x + y) * (TILE_HEIGHT / 2),
+  };
+}
+
+function getDefaultSceneAnchor() {
+  const floorCenter = isoToScreen(ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
+  return {
+    x: floorCenter.x,
+    y: floorCenter.y - WALL_HEIGHT / 2,
+  };
+}
+
+function getCameraPose(
+  size: { width: number; height: number },
+  focused: SceneAgentPosition | null,
+) {
+  const baseTarget = {
+    x: size.width * 0.5,
+    y: size.height * 0.53,
+  };
+  const focusedTarget = {
+    x: size.width * 0.46,
+    y: size.height * 0.44,
+  };
+  const targetScale = focused
+    ? size.width < 900
+      ? 0.66
+      : 0.86
+    : size.width < 900
+      ? 0.6
+      : 0.76;
+  const anchor = focused
+    ? { x: focused.screenX, y: focused.screenY }
+    : getDefaultSceneAnchor();
+  const target = focused ? focusedTarget : baseTarget;
+
+  return {
+    scale: targetScale,
+    x: target.x - anchor.x * targetScale,
+    y: target.y - anchor.y * targetScale,
   };
 }
 
@@ -799,7 +835,7 @@ function addZoneGround(
       break;
     case "vendor":
       ground.beginFill(0xffd8dc, alpha);
-      ground.drawEllipse(center.x + 8, center.y + 14, 120, 54);
+      ground.drawEllipse(center.x + 6, center.y + 12, 104, 48);
       ground.endFill();
       break;
   }
@@ -840,8 +876,8 @@ function addDeskCluster(
   rug.drawEllipse(
     anchorScreen.x,
     anchorScreen.y + 8,
-    zoneId === "engineering" ? 160 : 96,
-    zoneId === "engineering" ? 82 : 50,
+    zoneId === "engineering" ? 160 : zoneId === "vendor" ? 86 : 96,
+    zoneId === "engineering" ? 82 : zoneId === "vendor" ? 44 : 50,
   );
   rug.endFill();
   rug.zIndex = anchorScreen.y - 10;
@@ -978,8 +1014,8 @@ function addZoneDecor(
       const crates = new PIXI.Container();
       drawIsoBox(
         crates,
-        zone.anchor.x + 1.15,
-        zone.anchor.y - 0.4,
+        zone.anchor.x + 0.82,
+        zone.anchor.y - 0.22,
         0.8,
         0.6,
         24,
@@ -989,12 +1025,20 @@ function addZoneDecor(
           right: 0x8d5f3d,
         },
       );
-      drawIsoBox(crates, zone.anchor.x + 1.9, zone.anchor.y, 0.52, 0.52, 18, {
-        top: 0xe0b486,
-        left: 0xbd9068,
-        right: 0xa97a55,
-      });
-      crates.zIndex = isoToScreen(zone.anchor.x + 2.1, zone.anchor.y + 0.8).y;
+      drawIsoBox(
+        crates,
+        zone.anchor.x + 1.48,
+        zone.anchor.y + 0.18,
+        0.52,
+        0.52,
+        18,
+        {
+          top: 0xe0b486,
+          left: 0xbd9068,
+          right: 0xa97a55,
+        },
+      );
+      crates.zIndex = isoToScreen(zone.anchor.x + 1.72, zone.anchor.y + 0.88).y;
       layer.addChild(crates);
       break;
     }
@@ -1144,12 +1188,12 @@ function addSceneDecor(layer: PIXI.Container) {
   layer.addChild(bench);
 
   const sideTable = new PIXI.Container();
-  drawIsoBox(sideTable, 16.0, 8.85, 0.7, 0.44, 16, {
+  drawIsoBox(sideTable, 14.7, 8.05, 0.7, 0.44, 16, {
     top: 0x906955,
     left: 0x714f40,
     right: 0x805b49,
   });
-  sideTable.zIndex = isoToScreen(16.6, 9.2).y;
+  sideTable.zIndex = isoToScreen(15.3, 8.4).y;
   layer.addChild(sideTable);
 }
 
@@ -1398,36 +1442,20 @@ function animateCamera(
   focused: SceneAgentPosition | null,
   cameraTweenRef: React.MutableRefObject<gsap.core.Tween | null>,
 ) {
-  const baseX = size.width * 0.5;
-  const baseY = size.height * 0.53;
-  const focusX = size.width * 0.46;
-  const focusY = size.height * 0.44;
-  const targetScale = focused
-    ? size.width < 900
-      ? 0.66
-      : 0.86
-    : size.width < 900
-      ? 0.6
-      : 0.76;
-  const targetX = focused
-    ? baseX + (focusX - (baseX + focused.screenX * targetScale))
-    : baseX;
-  const targetY = focused
-    ? baseY + (focusY - (baseY + focused.screenY * targetScale))
-    : baseY;
+  const pose = getCameraPose(size, focused);
 
   cameraTweenRef.current?.kill();
   cameraTweenRef.current = gsap.to(world, {
     duration: 0.72,
-    x: targetX,
-    y: targetY,
+    x: pose.x,
+    y: pose.y,
     ease: "power3.out",
   });
 
   gsap.to(world.scale, {
     duration: 0.72,
-    x: targetScale,
-    y: targetScale,
+    x: pose.scale,
+    y: pose.scale,
     ease: "power3.out",
   });
 }
@@ -1920,8 +1948,16 @@ export function OfficeBetaShell({ snapshot }: Props) {
     liveSnapshot.agents.find((agent) => agent.id === selectedAgentId) ?? null;
 
   useEffect(() => {
+    followSelectionRef.current = true;
+    pendingSelectedAgentIdRef.current = null;
+    selectedAgentIdRef.current = null;
+    hoveredAgentIdRef.current = null;
+    setHoveredAgentId(null);
+    setSelectedAgentId(null);
+  }, [setHoveredAgentId, setSelectedAgentId]);
+
+  useEffect(() => {
     if (!selectedAgentId) {
-      setSelectedAgentId(liveSnapshot.agents[0]?.id ?? null);
       return;
     }
 
@@ -1936,7 +1972,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
       return;
     }
 
-    setSelectedAgentId(liveSnapshot.agents[0]?.id ?? null);
+    setSelectedAgentId(null);
   }, [liveSnapshot.agents, selectedAgentId, setSelectedAgentId]);
 
   useEffect(() => {
@@ -2000,8 +2036,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
       host.replaceChildren(app.canvas);
 
       const world = new PIXI.Container();
-      world.position.set(host.clientWidth * 0.5, host.clientHeight * 0.53);
-      world.scale.set(host.clientWidth < 900 ? 0.68 : 0.86);
+      const initialCanvasSize = {
+        width: Math.max(320, Math.round(host.clientWidth)),
+        height: Math.max(380, Math.round(host.clientHeight)),
+      };
+      const initialPose = getCameraPose(initialCanvasSize, null);
+      world.position.set(initialPose.x, initialPose.y);
+      world.scale.set(initialPose.scale);
       app.stage.addChild(world);
       worldRef.current = world;
 
@@ -2016,10 +2057,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
         },
         setHoveredAgentIdRef.current,
         tweenRegistryRef,
-        {
-          width: Math.max(320, Math.round(host.clientWidth)),
-          height: Math.max(380, Math.round(host.clientHeight)),
-        },
+        initialCanvasSize,
         cameraTweenRef,
         followSelectionRef.current,
       );
@@ -2359,97 +2397,89 @@ export function OfficeBetaShell({ snapshot }: Props) {
     : null;
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,rgba(107,138,173,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(255,210,155,0.18),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_42%,#edf2f7_100%)] text-foreground">
-      <div className="mx-auto max-w-[1640px] px-4 py-4 md:px-6 md:py-6">
-        <ProductAreaHeader />
-
-        <div className="relative overflow-hidden rounded-[28px] border border-border/70 bg-background/78 p-3 shadow-[0_26px_90px_rgba(15,23,42,0.1)] backdrop-blur-xl md:p-4">
-          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-[10px] tracking-[0.34em] text-[#a78560] uppercase">
-                Experimental
+    <AdminChrome>
+      <div className="flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0">
+        <div className="border-border/70 bg-background/78 relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border px-4 py-3 shadow-[0_26px_90px_rgba(15,23,42,0.1)] backdrop-blur-xl md:px-5 md:py-4">
+          <div className="grid shrink-0 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+            <div className="space-y-2">
+              <p className="text-[10px] tracking-[0.32em] text-[#a78560] uppercase">
+                2D Live View
               </p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-[-0.06em] text-[#2a1d12] md:text-[2.7rem]">
-                Office Beta
+              <h1 className="text-[2.45rem] font-semibold tracking-[-0.06em] text-[#2a1d12] md:text-[3.2rem]">
+                虚拟 Office
               </h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-[#6d5544]">
-                等距办公室场景以真实 office snapshot
-                驱动。人物继续在办公室里编排， 但 OpenClaw / Hermes
-                的执行入口已经按 workspace 范式对齐到 K8s
-                工作区，顶部仍可直接添加工位和人物。
+              <p className="max-w-2xl text-[15px] leading-7 text-[#6d5544]">
+                你之前的 2D 动画办公室继续以真实 office snapshot
+                驱动。人物仍在办公室里编排，OpenClaw / Hermes 的执行入口已经按
+                workspace 范式对齐到 K8s 工作区，顶部仍可直接添加工位和人物。
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                className={cn(
-                  "border-0 px-3 py-1.5",
-                  streamState === "live"
-                    ? "bg-[#eef7ee] text-[#21643b]"
-                    : "bg-[#fff4dd] text-[#8b5b10]",
-                )}
-              >
-                {streamState === "live" ? "实时同步中" : "正在重连"}
-              </Badge>
-              <Button
-                variant="outline"
-                className="h-10 rounded-full border-[#d9c2a2] bg-white/80 px-4 text-sm font-medium text-[#2b1d12] hover:bg-white"
-                disabled={Boolean(liveSnapshot.readOnlyReason)}
-                onClick={() => {
-                  setWorkstationZoneId(
-                    selectedAgent?.zoneId ??
-                      liveSnapshot.zones[0]?.id ??
-                      "engineering",
-                  );
-                  setIsAddWorkstationOpen(true);
-                }}
-              >
-                <PlusIcon data-icon="inline-start" />
-                添加工位
-              </Button>
-              <Button
-                className="h-10 rounded-full border border-[#c9964c] bg-[#a75b16] px-4 text-sm font-medium text-[#fff8ef] hover:bg-[#8f4d12]"
-                disabled={Boolean(liveSnapshot.readOnlyReason)}
-                onClick={() => {
-                  setIsCreateAgentOpen(true);
-                }}
-              >
-                <UserRoundPlusIcon data-icon="inline-start" />
-                添加人物
-              </Button>
-              <Link
-                href="/control"
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-[#d9c2a2] bg-white/80 px-4 text-sm font-medium text-[#2b1d12] transition hover:bg-white"
-              >
-                <ArrowUpRightIcon className="size-4" />
-                打开控制台
-              </Link>
+            <div className="flex flex-col gap-3 xl:items-end">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <Badge
+                  className={cn(
+                    "border-0 px-3 py-1.5",
+                    streamState === "live"
+                      ? "bg-[#eef7ee] text-[#21643b]"
+                      : "bg-[#fff4dd] text-[#8b5b10]",
+                  )}
+                >
+                  {streamState === "live" ? "实时同步中" : "正在重连"}
+                </Badge>
+                <Button
+                  variant="outline"
+                  className="h-9 rounded-full border-[#d9c2a2] bg-white/80 px-4 text-sm font-medium text-[#2b1d12] hover:bg-white"
+                  disabled={Boolean(liveSnapshot.readOnlyReason)}
+                  onClick={() => {
+                    setWorkstationZoneId(
+                      selectedAgent?.zoneId ??
+                        liveSnapshot.zones[0]?.id ??
+                        "engineering",
+                    );
+                    setIsAddWorkstationOpen(true);
+                  }}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  添加工位
+                </Button>
+                <Button
+                  className="h-9 rounded-full border border-[#c9964c] bg-[#a75b16] px-4 text-sm font-medium text-[#fff8ef] hover:bg-[#8f4d12]"
+                  disabled={Boolean(liveSnapshot.readOnlyReason)}
+                  onClick={() => {
+                    setIsCreateAgentOpen(true);
+                  }}
+                >
+                  <UserRoundPlusIcon data-icon="inline-start" />
+                  添加人物
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 xl:justify-end">
+                {summaryCards.map((card) => (
+                  <div
+                    key={card.label}
+                    className={cn(
+                      "min-w-[68px] rounded-[20px] border px-3 py-1.5",
+                      statCardClass(card.tone),
+                    )}
+                  >
+                    <p className="text-[9px] tracking-[0.22em] text-current/50 uppercase">
+                      {card.label}
+                    </p>
+                    <p className="mt-1 text-[1.95rem] leading-none font-semibold tracking-[-0.05em]">
+                      {card.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            {summaryCards.map((card) => (
-              <div
-                key={card.label}
-                className={cn(
-                  "min-w-[74px] rounded-2xl border px-3 py-2",
-                  statCardClass(card.tone),
-                )}
-              >
-                <p className="text-[10px] tracking-[0.24em] text-current/50 uppercase">
-                  {card.label}
-                </p>
-                <p className="mt-1 text-2xl font-semibold tracking-[-0.05em]">
-                  {card.value}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="relative mt-3 overflow-hidden rounded-[24px] border border-[#d0b38e] bg-[#ceb58e] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
+          <div className="relative mt-3 flex min-h-[440px] flex-1 overflow-hidden rounded-[24px] border border-[#d0b38e] bg-[#ceb58e] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] xl:min-h-0">
             <div
               ref={canvasHostRef}
-              className="relative h-[700px] w-full bg-[linear-gradient(180deg,rgba(203,175,134,0.72),rgba(194,161,117,0.82))] md:h-[760px]"
+              className="relative h-full min-h-[440px] w-full bg-[linear-gradient(180deg,rgba(203,175,134,0.72),rgba(194,161,117,0.82))] xl:min-h-0"
             />
 
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,245,225,0.18),transparent_40%)]" />
@@ -2552,13 +2582,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <ExternalLinkIcon />
                     进入工作区
                   </Button>
-                  <Link
-                    href="/control"
-                    className="inline-flex items-center gap-2 rounded-full border border-[#dcc4a3] bg-white/86 px-4 text-sm font-medium text-[#2b1d12] transition hover:bg-white"
-                  >
-                    <RefreshCcwIcon className="size-4" />
-                    控制台
-                  </Link>
                   <Button
                     variant="outline"
                     className="rounded-full border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
@@ -2582,12 +2605,12 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
             <div className="absolute right-4 bottom-4 max-w-[320px] rounded-[24px] border border-[#4a372a] bg-[#2a2018]/94 px-4 py-3 text-[#fff3df] shadow-[0_20px_44px_rgba(31,19,9,0.28)]">
               <p className="text-[11px] tracking-[0.28em] text-[#cfb797] uppercase">
-                Scene Notes
+                2D 场景
               </p>
               <p className="mt-2 text-sm leading-6 text-[#f5e4c7]">
                 办公室空间和人物热区都由 snapshot
                 驱动。拖动画布可漫游，滚轮可缩放； 人物点击后会进入对应的 K8s
-                workspace，审批和任务编排仍保留在控制台页面。
+                workspace，所有操作都保留在当前单页面内完成。
               </p>
             </div>
           </div>
@@ -2824,6 +2847,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
           </Dialog>
         </div>
       </div>
-    </div>
+    </AdminChrome>
   );
 }

@@ -6,8 +6,8 @@ import { Geist, Geist_Mono, Manrope } from "next/font/google";
 import { TRPCReactProvider } from "@/trpc/react";
 
 export const metadata: Metadata = {
-  title: "Cola Virtual Office",
-  description: "AI-native virtual office for multi-agent operations",
+  title: "Cola Agent Admin",
+  description: "Admin control plane for multi-agent operations on Kubernetes",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 

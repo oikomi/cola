@@ -222,15 +222,17 @@ export function WorkspaceShell() {
       <ProductAreaHeader />
 
       <ModuleHero
+        size="compact"
         eyebrow="Remote Desktop"
         title="远程桌面"
-        description="统一管理远程工作区、节点分配、访问入口和启动状态。列表状态会自动轮询刷新，不再依赖手动刷新页面。"
+        description="统一管理远程工作区、节点分配、访问入口和启动状态。"
         icon={MonitorSmartphoneIcon}
         badges={
           <>
             <Badge
               variant="outline"
               className={cn(
+                "rounded-full px-2.5 py-0.5 text-[12px]",
                 available
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border-rose-200 bg-rose-50 text-rose-700",
@@ -240,7 +242,7 @@ export function WorkspaceShell() {
             </Badge>
             <Badge
               variant="outline"
-              className="border-border/80 bg-background/60"
+              className="border-border/80 bg-background/60 rounded-full px-2.5 py-0.5 text-[12px]"
             >
               {workspaceQuery.isFetching && !workspaceQuery.isLoading ? (
                 <LoaderCircleIcon
@@ -256,8 +258,7 @@ export function WorkspaceShell() {
         }
         actions={
           <Button
-            size="lg"
-            className="rounded-full"
+            className="h-[30px] rounded-full px-3.5 text-[13px]"
             disabled={!available}
             onClick={() => setIsCreateOpen(true)}
           >
@@ -266,20 +267,23 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-3">
           <ModuleMetricCard
+            size="compact"
             label="工作区总数"
             value={String(rows.length)}
             description="当前纳入远程桌面控制面的全部 workspace。"
             icon={MonitorSmartphoneIcon}
           />
           <ModuleMetricCard
+            size="compact"
             label="运行中"
             value={String(runningCount)}
             description="已经拿到访问入口，可以直接登录的工作区。"
             icon={ActivityIcon}
           />
           <ModuleMetricCard
+            size="compact"
             label="待就绪"
             value={String(startingCount)}
             description="容器正在拉起或探针尚未完成。"

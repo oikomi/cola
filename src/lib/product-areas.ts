@@ -17,33 +17,31 @@ export const PRODUCT_AREAS: Array<{
     key: "office",
     href: "/",
     title: "虚拟 Office",
-    description:
-      "空间化展示人物、任务、设备与事件状态，OpenClaw / Hermes 在模块内以 K8s 方式部署。",
+    description: "统一查看 agent、任务、审批、执行状态和 workspace 路由。",
   },
   {
     key: "workspace",
     href: "/workspace",
-    title: "远程桌面",
-    description:
-      "独立管理 remote workspace、浏览器桌面、Ingress 地址与节点级 GPU 会话。",
+    title: "远程工作区",
+    description: "集中管理 remote workspace、浏览器桌面、入口地址与节点资源。",
   },
   {
     key: "training",
     href: "/training",
-    title: "训练平台",
-    description: "独立管理训练作业、数据集、实验轨迹与训练产物。",
+    title: "训练作业",
+    description: "统一管理训练任务、数据集、优先级和 GPU 消耗。",
   },
   {
     key: "deployments",
     href: "/deployments",
-    title: "推理部署平台",
-    description: "独立管理推理服务、版本灰度、流量切换、发布与回滚。",
+    title: "推理部署",
+    description: "管理模型服务、规格、入口地址和服务状态。",
   },
   {
     key: "system",
     href: "/system",
-    title: "系统管理",
-    description: "进入 K8s Dashboard，查看集群对象、命名空间与工作负载状态。",
+    title: "集群管理",
+    description: "跳转 Kubernetes Dashboard 查看集群对象与工作负载。",
   },
 ];
 

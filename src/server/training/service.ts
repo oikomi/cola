@@ -520,6 +520,40 @@ function deriveJobTerminalState(runtimeJob: V1Job): {
   return null;
 }
 
+async function resolveRuntimeJobReference(
+  job: TrainingJobRecord,
+  ctx: TrainingKubeContext,
+) {
+  const namespace = job.runtimeNamespace ?? ctx.namespace;
+
+  if (job.runtimeJobName) {
+    return {
+      namespace,
+      jobName: job.runtimeJobName,
+    };
+  }
+
+  const jobList = await ctx.batchApi.listNamespacedJob({
+    namespace,
+    labelSelector: `cola.training/job-id=${job.id}`,
+  });
+  const matchedJob = [...jobList.items]
+    .sort((left, right) =>
+      new Date(right.metadata?.creationTimestamp ?? 0).valueOf() -
+      new Date(left.metadata?.creationTimestamp ?? 0).valueOf(),
+    )
+    .find((entry) => entry.metadata?.name);
+
+  if (!matchedJob?.metadata?.name) {
+    return null;
+  }
+
+  return {
+    namespace,
+    jobName: matchedJob.metadata.name,
+  };
+}
+
 export async function submitTrainingJob(job: TrainingJobRecord) {
   if (!trainingK8sSupportedJobTypes.some((type) => type === job.jobType)) {
     throw new Error(
@@ -545,15 +579,14 @@ export async function submitTrainingJob(job: TrainingJobRecord) {
 }
 
 export async function stopTrainingJobRun(job: TrainingJobRecord) {
-  if (!job.runtimeJobName) return;
-
   const ctx = await createKubeContext();
-  const namespace = job.runtimeNamespace ?? ctx.namespace;
+  const runtimeJob = await resolveRuntimeJobReference(job, ctx);
+  if (!runtimeJob) return;
 
   try {
     await ctx.batchApi.deleteNamespacedJob({
-      namespace,
-      name: job.runtimeJobName,
+      namespace: runtimeJob.namespace,
+      name: runtimeJob.jobName,
       propagationPolicy: "Foreground",
       gracePeriodSeconds: 0,
     });
@@ -564,16 +597,16 @@ export async function stopTrainingJobRun(job: TrainingJobRecord) {
 }
 
 async function syncTrainingJobRuntime(job: TrainingJobRecord, ctx: TrainingKubeContext) {
-  if (job.status !== "running" || !job.runtimeJobName) return job;
-
-  const namespace = job.runtimeNamespace ?? ctx.namespace;
+  if (job.status !== "running") return job;
+  const runtimeJob = await resolveRuntimeJobReference(job, ctx);
+  if (!runtimeJob) return job;
 
   try {
-    const runtimeJob = await ctx.batchApi.readNamespacedJob({
-      namespace,
-      name: job.runtimeJobName,
+    const runtimeJobDetail = await ctx.batchApi.readNamespacedJob({
+      namespace: runtimeJob.namespace,
+      name: runtimeJob.jobName,
     });
-    const nextState = deriveJobTerminalState(runtimeJob);
+    const nextState = deriveJobTerminalState(runtimeJobDetail);
     if (!nextState) return job;
 
     await db
@@ -622,9 +655,7 @@ async function syncTrainingJobRuntime(job: TrainingJobRecord, ctx: TrainingKubeC
 }
 
 export async function syncTrainingJobs(jobs: TrainingJobRecord[]) {
-  const jobsToSync = jobs.filter(
-    (job) => job.status === "running" && job.runtimeJobName,
-  );
+  const jobsToSync = jobs.filter((job) => job.status === "running");
 
   if (jobsToSync.length === 0) return jobs;
 

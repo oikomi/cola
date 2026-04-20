@@ -102,19 +102,15 @@ function statusTone(status: DeploymentRow["status"]) {
   }
 }
 
-function Field(props: {
-  label: string;
-  children: ReactNode;
-  hint?: string;
-}) {
+function Field(props: { label: string; children: ReactNode; hint?: string }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
+      <span className="text-muted-foreground text-xs font-medium tracking-[0.18em] uppercase">
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-xs text-muted-foreground">{props.hint}</span>
+        <span className="text-muted-foreground text-xs">{props.hint}</span>
       ) : null}
     </label>
   );
@@ -134,7 +130,7 @@ function LoadingRows() {
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`deployment-skeleton-${index}`}
-          className="rounded-3xl border border-border/70 bg-background/70 p-4"
+          className="border-border/70 bg-background/70 rounded-3xl border p-4"
         >
           <div className="grid gap-3 md:grid-cols-[1.2fr_110px_1fr_180px_1fr_140px_260px] md:items-center">
             <div className="grid gap-2">
@@ -279,8 +275,9 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Kubernetes Inference"
         title="推理部署平台"
-        description="统一编排 vLLM、llama.cpp 和 SGLang 运行时，把资源规格、节点分布、入口地址和状态切换收敛到单一控制面。"
+        description="统一管理 vLLM、llama.cpp 和 SGLang 部署，集中查看资源规格、入口地址和服务状态。"
         icon={BrainCircuitIcon}
+        size="compact"
         badges={
           <>
             <Badge
@@ -293,7 +290,10 @@ export function DeploymentsShell() {
             >
               {available ? "K8s 已连接" : "K8s 不可用"}
             </Badge>
-            <Badge variant="outline" className="border-border/80 bg-background/60">
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
               master NodePort 入口
             </Badge>
           </>
@@ -302,7 +302,7 @@ export function DeploymentsShell() {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              size="lg"
+              size="sm"
               className="rounded-full"
               onClick={() => void deploymentsQuery.refetch()}
             >
@@ -315,7 +315,7 @@ export function DeploymentsShell() {
               刷新列表
             </Button>
             <Button
-              size="lg"
+              size="sm"
               className="rounded-full"
               disabled={!available}
               onClick={() => setIsCreateOpen(true)}
@@ -326,30 +326,34 @@ export function DeploymentsShell() {
           </div>
         }
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ModuleMetricCard
             label="部署总数"
             value={String(rows.length)}
             description="当前集群中被控制面纳管的全部推理运行时。"
             icon={BlocksIcon}
+            size="compact"
           />
           <ModuleMetricCard
             label="服务中"
             value={String(servingCount)}
             description="已准备好承接线上流量的推理部署。"
             icon={ActivityIcon}
+            size="compact"
           />
           <ModuleMetricCard
             label="已暂停"
             value={String(pausedCount)}
             description="Deployment 还在，但副本已经缩容到 0。"
             icon={PauseCircleIcon}
+            size="compact"
           />
           <ModuleMetricCard
             label="活跃 GPU"
             value={String(activeGpuCount)}
             description="按服务中和启动中的副本累计 GPU 配额。"
             icon={CpuIcon}
+            size="compact"
           />
         </div>
       </ModuleHero>
@@ -362,8 +366,12 @@ export function DeploymentsShell() {
       ) : null}
 
       {feedback ? (
-        <Alert variant={feedback.tone === "success" ? "default" : "destructive"}>
-          <AlertTitle>{feedback.tone === "success" ? "操作完成" : "操作失败"}</AlertTitle>
+        <Alert
+          variant={feedback.tone === "success" ? "default" : "destructive"}
+        >
+          <AlertTitle>
+            {feedback.tone === "success" ? "操作完成" : "操作失败"}
+          </AlertTitle>
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       ) : null}
@@ -372,7 +380,10 @@ export function DeploymentsShell() {
         title="运行时列表"
         description="查看模型引用、节点落点、外部入口与副本状态，并在同一行完成上线、暂停或删除。"
         action={
-          <Badge variant="outline" className="border-border/80 bg-background/60">
+          <Badge
+            variant="outline"
+            className="border-border/80 bg-background/60"
+          >
             启动中 {startingCount}
           </Badge>
         }
@@ -384,7 +395,10 @@ export function DeploymentsShell() {
             title="还没有推理部署"
             description="先选择一个 runtime，把模型、镜像和资源规格固化成可上线的 K8s 部署。"
             action={
-              <Button disabled={!available} onClick={() => setIsCreateOpen(true)}>
+              <Button
+                disabled={!available}
+                onClick={() => setIsCreateOpen(true)}
+              >
                 <PlusIcon data-icon="inline-start" />
                 创建第一个部署
               </Button>
@@ -408,20 +422,29 @@ export function DeploymentsShell() {
             <TableBody>
               {rows.map((row) => {
                 const isStarting =
-                  startDeployment.isPending && startDeployment.variables?.name === row.name;
+                  startDeployment.isPending &&
+                  startDeployment.variables?.name === row.name;
                 const isStopping =
-                  stopDeployment.isPending && stopDeployment.variables?.name === row.name;
+                  stopDeployment.isPending &&
+                  stopDeployment.variables?.name === row.name;
                 const isDeleting =
-                  deleteDeployment.isPending && deleteDeployment.variables?.name === row.name;
-                const canStart = ["draft", "paused", "failed"].includes(row.status);
+                  deleteDeployment.isPending &&
+                  deleteDeployment.variables?.name === row.name;
+                const canStart = ["draft", "paused", "failed"].includes(
+                  row.status,
+                );
                 const canStop = ["serving", "starting"].includes(row.status);
+                const canOpenApi =
+                  row.status === "serving" && Boolean(row.endpoint);
 
                 return (
                   <TableRow key={row.id} className="border-border/70">
                     <TableCell className="align-top">
                       <div className="flex flex-col gap-1">
-                        <p className="font-medium text-foreground">{row.name}</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-foreground font-medium">
+                          {row.name}
+                        </p>
+                        <p className="text-muted-foreground text-sm">
                           {row.readyReplicas}/{row.desiredReplicas} Ready 副本
                         </p>
                       </div>
@@ -436,54 +459,61 @@ export function DeploymentsShell() {
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex max-w-[24rem] flex-col gap-1">
-                        <span className="font-medium text-foreground">
+                        <span className="text-foreground font-medium">
                           {inferenceDeploymentEngineLabels[row.engine]}
                         </span>
-                        <span className="break-all text-sm text-muted-foreground">
+                        <span className="text-muted-foreground text-sm break-all">
                           {row.modelRef}
                         </span>
-                        <span className="break-all text-xs text-muted-foreground/85">
+                        <span className="text-muted-foreground/85 text-xs break-all">
                           {row.image}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium text-foreground">
+                        <span className="text-foreground font-medium">
                           {resourceLabel(row)}
                         </span>
-                        <span className="text-sm text-muted-foreground">
+                        <span className="text-muted-foreground text-sm">
                           {nodeLabel(row)}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium text-foreground">
+                        <span className="text-foreground font-medium">
                           {row.nodePort ? `:${row.nodePort}` : "-"}
                         </span>
-                        <span className="break-all text-sm text-muted-foreground">
+                        <span className="text-muted-foreground text-sm break-all">
                           {row.endpoint ?? "-"}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top text-muted-foreground">
+                    <TableCell className="text-muted-foreground align-top">
                       {row.updatedAt ?? "-"}
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="flex justify-end gap-2">
-                        {row.endpoint ? (
+                        {canOpenApi ? (
                           <a
-                            href={row.endpoint}
+                            href={row.endpoint!}
                             target="_blank"
                             rel="noreferrer"
-                            className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
+                            className={cn(
+                              buttonVariants({ variant: "outline" }),
+                              "rounded-full",
+                            )}
                           >
                             <GlobeIcon data-icon="inline-start" />
                             API
                           </a>
                         ) : (
-                          <Button variant="outline" className="rounded-full" disabled>
+                          <Button
+                            variant="outline"
+                            className="rounded-full"
+                            disabled
+                          >
                             API
                           </Button>
                         )}
@@ -494,7 +524,9 @@ export function DeploymentsShell() {
                             className="rounded-full"
                             disabled={isStarting || isStopping || isDeleting}
                             onClick={() =>
-                              void startDeployment.mutateAsync({ name: row.name })
+                              void startDeployment.mutateAsync({
+                                name: row.name,
+                              })
                             }
                           >
                             {isStarting ? (
@@ -515,7 +547,9 @@ export function DeploymentsShell() {
                             className="rounded-full"
                             disabled={isStarting || isStopping || isDeleting}
                             onClick={() =>
-                              void stopDeployment.mutateAsync({ name: row.name })
+                              void stopDeployment.mutateAsync({
+                                name: row.name,
+                              })
                             }
                           >
                             {isStopping ? (
@@ -557,13 +591,14 @@ export function DeploymentsShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-[760px] border-border/70 bg-background/95 p-0 text-foreground backdrop-blur-xl">
-          <DialogHeader className="border-b border-border/70 px-6 py-5">
+        <DialogContent className="border-border/70 bg-background/95 text-foreground max-w-[760px] p-0 backdrop-blur-xl">
+          <DialogHeader className="border-border/70 border-b px-6 py-5">
             <DialogTitle className="text-2xl tracking-[-0.04em]">
               创建推理部署
             </DialogTitle>
-            <DialogDescription className="text-sm leading-6 text-muted-foreground">
-              运行时会部署成 K8s Deployment，创建后默认先停留在草稿状态，点击上线再扩成目标副本。
+            <DialogDescription className="text-muted-foreground text-sm leading-6">
+              运行时会部署成 K8s
+              Deployment，创建后默认先停留在草稿状态，点击上线再扩成目标副本。
             </DialogDescription>
           </DialogHeader>
 
@@ -685,7 +720,11 @@ export function DeploymentsShell() {
 
               <Field
                 label="GPU"
-                hint={engineNeedsGpu ? "当前 runtime 至少需要 1 GPU" : "llama.cpp 可选 CPU 模式"}
+                hint={
+                  engineNeedsGpu
+                    ? "当前 runtime 至少需要 1 GPU"
+                    : "llama.cpp 可选 CPU 模式"
+                }
               >
                 <Input
                   type="number"
@@ -732,7 +771,7 @@ export function DeploymentsShell() {
             </Field>
           </div>
 
-          <DialogFooter className="border-t border-border/70 bg-muted/30 px-6 py-4">
+          <DialogFooter className="border-border/70 bg-muted/30 border-t px-6 py-4">
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>

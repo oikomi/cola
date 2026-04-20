@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import type { db } from "@/server/db";
 import { events, trainingJobs } from "@/server/db/schema";
 import {
   priorityValues,
@@ -13,6 +14,10 @@ import {
   trainingJobTypeLabels,
   trainingJobTypeValues,
 } from "@/server/training/catalog";
+import {
+  getTrainingRuntimeColumnSupport,
+  normalizeTrainingJobRecord,
+} from "@/server/training/compat";
 import {
   stopTrainingJobRun,
   submitTrainingJob,
@@ -33,14 +38,97 @@ const trainingJobActionInput = z.object({
   jobId: z.string().uuid(),
 });
 
+type TrainingJobReader = Pick<typeof db, "select">;
+
+async function listTrainingJobsWithCompat(database: TrainingJobReader) {
+  const runtimeColumns = await getTrainingRuntimeColumnSupport();
+  const rows = await database
+    .select({
+      id: trainingJobs.id,
+      title: trainingJobs.title,
+      jobType: trainingJobs.jobType,
+      status: trainingJobs.status,
+      priority: trainingJobs.priority,
+      baseModel: trainingJobs.baseModel,
+      datasetName: trainingJobs.datasetName,
+      objective: trainingJobs.objective,
+      gpuCount: trainingJobs.gpuCount,
+      lastError: trainingJobs.lastError,
+      startedAt: trainingJobs.startedAt,
+      finishedAt: trainingJobs.finishedAt,
+      createdAt: trainingJobs.createdAt,
+      updatedAt: trainingJobs.updatedAt,
+      ...(runtimeColumns.runtimeNamespace
+        ? { runtimeNamespace: trainingJobs.runtimeNamespace }
+        : {}),
+      ...(runtimeColumns.runtimeJobName
+        ? { runtimeJobName: trainingJobs.runtimeJobName }
+        : {}),
+      ...(runtimeColumns.runtimeImage
+        ? { runtimeImage: trainingJobs.runtimeImage }
+        : {}),
+      ...(runtimeColumns.artifactPath
+        ? { artifactPath: trainingJobs.artifactPath }
+        : {}),
+    })
+    .from(trainingJobs)
+    .orderBy(desc(trainingJobs.createdAt));
+
+  return {
+    rows: rows.map(normalizeTrainingJobRecord),
+    runtimeColumns,
+  };
+}
+
+async function getTrainingJobByIdWithCompat(
+  database: TrainingJobReader,
+  jobId: string,
+) {
+  const runtimeColumns = await getTrainingRuntimeColumnSupport();
+  const [row] = await database
+    .select({
+      id: trainingJobs.id,
+      title: trainingJobs.title,
+      jobType: trainingJobs.jobType,
+      status: trainingJobs.status,
+      priority: trainingJobs.priority,
+      baseModel: trainingJobs.baseModel,
+      datasetName: trainingJobs.datasetName,
+      objective: trainingJobs.objective,
+      gpuCount: trainingJobs.gpuCount,
+      lastError: trainingJobs.lastError,
+      startedAt: trainingJobs.startedAt,
+      finishedAt: trainingJobs.finishedAt,
+      createdAt: trainingJobs.createdAt,
+      updatedAt: trainingJobs.updatedAt,
+      ...(runtimeColumns.runtimeNamespace
+        ? { runtimeNamespace: trainingJobs.runtimeNamespace }
+        : {}),
+      ...(runtimeColumns.runtimeJobName
+        ? { runtimeJobName: trainingJobs.runtimeJobName }
+        : {}),
+      ...(runtimeColumns.runtimeImage
+        ? { runtimeImage: trainingJobs.runtimeImage }
+        : {}),
+      ...(runtimeColumns.artifactPath
+        ? { artifactPath: trainingJobs.artifactPath }
+        : {}),
+    })
+    .from(trainingJobs)
+    .where(eq(trainingJobs.id, jobId))
+    .limit(1);
+
+  return {
+    job: row ? normalizeTrainingJobRecord(row) : null,
+    runtimeColumns,
+  };
+}
+
 export const trainingRouter = createTRPCRouter({
   listJobs: publicProcedure.query(async ({ ctx }) => {
-    const jobs = await ctx.db
-      .select()
-      .from(trainingJobs)
-      .orderBy(desc(trainingJobs.createdAt));
+    const { rows } = await listTrainingJobsWithCompat(ctx.db);
 
-    return syncTrainingJobs(jobs);
+    return syncTrainingJobs(rows);
   }),
 
   createJob: publicProcedure
@@ -93,11 +181,10 @@ export const trainingRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
 
-      const [job] = await ctx.db
-        .select()
-        .from(trainingJobs)
-        .where(eq(trainingJobs.id, input.jobId))
-        .limit(1);
+      const { job, runtimeColumns } = await getTrainingJobByIdWithCompat(
+        ctx.db,
+        input.jobId,
+      );
 
       if (!job) {
         throw new TRPCError({
@@ -141,12 +228,20 @@ export const trainingRouter = createTRPCRouter({
               status: "running",
               startedAt: now,
               finishedAt: null,
-              runtimeNamespace: runtime.namespace,
-              runtimeJobName: runtime.jobName,
-              runtimeImage: runtime.image,
-              artifactPath: runtime.artifactPath,
               lastError: null,
               updatedAt: now,
+              ...(runtimeColumns.runtimeNamespace
+                ? { runtimeNamespace: runtime.namespace }
+                : {}),
+              ...(runtimeColumns.runtimeJobName
+                ? { runtimeJobName: runtime.jobName }
+                : {}),
+              ...(runtimeColumns.runtimeImage
+                ? { runtimeImage: runtime.image }
+                : {}),
+              ...(runtimeColumns.artifactPath
+                ? { artifactPath: runtime.artifactPath }
+                : {}),
             })
             .where(eq(trainingJobs.id, job.id));
 
@@ -183,11 +278,7 @@ export const trainingRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
 
-      const [job] = await ctx.db
-        .select()
-        .from(trainingJobs)
-        .where(eq(trainingJobs.id, input.jobId))
-        .limit(1);
+      const { job } = await getTrainingJobByIdWithCompat(ctx.db, input.jobId);
 
       if (!job) {
         throw new TRPCError({
@@ -250,11 +341,7 @@ export const trainingRouter = createTRPCRouter({
       const now = new Date();
 
       return ctx.db.transaction(async (tx) => {
-        const [job] = await tx
-          .select()
-          .from(trainingJobs)
-          .where(eq(trainingJobs.id, input.jobId))
-          .limit(1);
+        const { job } = await getTrainingJobByIdWithCompat(tx, input.jobId);
 
         if (!job) {
           throw new TRPCError({
