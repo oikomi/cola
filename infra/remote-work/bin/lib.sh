@@ -7,6 +7,7 @@ RUNTIME_DIR="$ROOT_DIR/runtime"
 GENERATED_DIR="$RUNTIME_DIR/generated"
 WORKSPACE_DIR="$RUNTIME_DIR/workspaces"
 KUBEASZ_DIR="$RUNTIME_DIR/kubeasz"
+KUBEASZ_BASE_DIR="/etc/kubeasz"
 QUERY_SCRIPT="$ROOT_DIR/bin/query-cluster.mjs"
 RENDER_CLUSTER_SCRIPT="$ROOT_DIR/bin/render-cluster.mjs"
 
@@ -25,6 +26,17 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"
 }
 
+require_any_cmd() {
+  local found=1
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      found=0
+      break
+    fi
+  done
+  [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
+}
+
 cluster_query() {
   node "$QUERY_SCRIPT" "$@"
 }
@@ -35,6 +47,16 @@ ensure_runtime_dirs() {
 
 cluster_name() {
   cluster_query clusterName
+}
+
+kubernetes_version() {
+  local version
+  version="$(cluster_query kubernetesVersion)"
+  if [[ "$version" == v* ]]; then
+    printf '%s\n' "$version"
+  else
+    printf 'v%s\n' "$version"
+  fi
 }
 
 workspace_namespace() {
@@ -126,13 +148,12 @@ render_cluster_inventory() {
 }
 
 copy_hosts_into_kubeasz() {
-  local target_file="$KUBEASZ_DIR/clusters/$(cluster_name)/hosts"
-  mkdir -p "$(dirname "$target_file")"
-  cp "$GENERATED_DIR/hosts" "$target_file"
+  local target_dir="$KUBEASZ_BASE_DIR/clusters/$(cluster_name)"
+  sudo mkdir -p "$target_dir"
+  sudo install -m 0644 "$GENERATED_DIR/hosts" "$target_dir/hosts"
 }
 
 print_step() {
   echo
   echo "==> $*"
 }
-

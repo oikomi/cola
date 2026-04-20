@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd node
+require_cmd sudo
 
 NAME=""
 IP=""
@@ -62,7 +63,7 @@ fi
 print_step "通过 kubeasz 加入 worker 节点"
 (
   cd "$KUBEASZ_DIR"
-  ./ezctl add-node "$(cluster_name)" "$IP" \
+  sudo ./ezctl add-node "$(cluster_name)" "$IP" \
     "ansible_user=$SSH_USER" \
     "ansible_ssh_pass=$SSH_PASSWORD" \
     "ansible_ssh_port=$SSH_PORT" \
@@ -90,4 +91,3 @@ if [[ ",$ROLES," == *",gpu,"* ]]; then
 fi
 
 echo "节点 $NAME ($IP) 已加入集群。"
-

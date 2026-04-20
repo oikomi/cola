@@ -28,7 +28,8 @@ infra/remote-work
 ## 前提
 
 - 本地部署机能 SSH 到所有服务器
-- `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`sshpass`、`rsync`
+- 本地部署机需要可用的 `sudo`
+- `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`curl` 或 `wget`
 - `10-install-cluster.sh` 额外需要：`ansible-playbook`
 - `30-build-and-load-image.sh` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
@@ -74,8 +75,9 @@ cd infra/remote-work
 这个脚本会：
 
 - 克隆指定版本的 `kubeasz`
-- 执行 `./ezdown -D -k <k8s version>`
-- 初始化 `ezctl new <clusterName>`
+- 预下载 Docker 静态包，并在清华镜像 403 时自动 fallback 到官方地址
+- 通过 `sudo ./ezdown -D -k <k8s version>` 初始化 `/etc/kubeasz`
+- 在不依赖本机 Ansible 的前提下初始化 cluster 目录
 - 根据 `cluster/nodes.json` 生成 kubeasz `hosts` 文件
 
 ## 3. 安装集群
