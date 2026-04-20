@@ -307,6 +307,17 @@ remote_ssh() {
     "$@"
 }
 
+remote_sudo_ssh() {
+  local node_name="$1"
+  shift
+
+  sshpass -p "$(node_password "$node_name")" \
+    ssh "${SSH_OPTS[@]}" \
+    -p "$(node_port "$node_name")" \
+    "$(node_user "$node_name")@$(node_ip "$node_name")" \
+    "printf '%s\n' $(printf '%q' "$(node_password "$node_name")") | sudo -S -p '' bash -lc $(printf '%q' "$*")"
+}
+
 remote_scp() {
   local source_path="$1"
   local node_name="$2"
@@ -322,7 +333,7 @@ remote_scp() {
 kubectl_remote() {
   local master
   master="$(first_master_name)"
-  remote_ssh "$master" "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl $*"
+  remote_sudo_ssh "$master" "KUBECONFIG=/etc/kubernetes/admin.conf kubectl $*"
 }
 
 kubectl_apply_file() {
@@ -332,7 +343,7 @@ kubectl_apply_file() {
 
   master="$(first_master_name)"
   remote_scp "$local_file" "$master" "$remote_file"
-  remote_ssh "$master" "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f $remote_file && rm -f $remote_file"
+  remote_sudo_ssh "$master" "KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f $remote_file && rm -f $remote_file"
 }
 
 render_cluster_inventory() {

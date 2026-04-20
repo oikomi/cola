@@ -59,11 +59,7 @@ for node_name in "${GPU_NODES[@]}"; do
   remote_ssh "$node_name" "command -v nvidia-smi >/dev/null 2>&1" || \
     die "节点 $node_name 上未检测到 nvidia-smi，请先安装 NVIDIA 驱动。"
 
-  sshpass -p "$(node_password "$node_name")" \
-    ssh "${SSH_OPTS[@]}" \
-    -p "$(node_port "$node_name")" \
-    "$(node_user "$node_name")@$(node_ip "$node_name")" \
-    "bash -s" <<'REMOTE_SCRIPT'
+  remote_sudo_ssh "$node_name" '
 set -euo pipefail
 
 if ! command -v curl >/dev/null 2>&1; then
@@ -74,16 +70,16 @@ fi
 source /etc/os-release
 
 if [[ "$ID" == "ubuntu" || "$ID" == "debian" ]]; then
-  sudo apt-get update
-  sudo apt-get install -y curl gnupg ca-certificates
-  sudo rm -f /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  apt-get update
+  apt-get install -y curl gnupg ca-certificates
+  rm -f /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-    sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
   curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' | \
-    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-  sudo apt-get update
-  sudo apt-get install -y nvidia-container-toolkit
+    sed '"'"'s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#'"'"' | \
+    tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+  apt-get update
+  apt-get install -y nvidia-container-toolkit
 elif [[ "${ID_LIKE:-}" == *"rhel"* || "$ID" == "centos" || "$ID" == "rocky" || "$ID" == "almalinux" ]]; then
   if command -v dnf >/dev/null 2>&1; then
     PKG_MGR="dnf"
@@ -91,16 +87,16 @@ elif [[ "${ID_LIKE:-}" == *"rhel"* || "$ID" == "centos" || "$ID" == "rocky" || "
     PKG_MGR="yum"
   fi
   curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
-    sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo >/dev/null
-  sudo "$PKG_MGR" install -y nvidia-container-toolkit
+    tee /etc/yum.repos.d/nvidia-container-toolkit.repo >/dev/null
+  "$PKG_MGR" install -y nvidia-container-toolkit
 else
   echo "当前系统 $ID 不在此脚本的自动安装覆盖范围内。" >&2
   exit 1
 fi
 
-sudo nvidia-ctk runtime configure --runtime=containerd
-sudo systemctl restart containerd
-REMOTE_SCRIPT
+nvidia-ctk runtime configure --runtime=containerd
+systemctl restart containerd
+'
 done
 
 print_step "给节点打标签"
