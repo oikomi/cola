@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd sudo
+require_cmd python3
 
 NAMESPACE="kubernetes-dashboard"
 SERVICE_ACCOUNT="admin-user"
@@ -60,18 +61,15 @@ run_cluster_kubectl apply -f "$ROOT_DIR/manifests/dashboard/admin-user.yaml" >/d
 TOKEN=""
 elapsed=0
 while (( elapsed < WAIT_TIMEOUT_SECONDS )); do
-  TOKEN="$(
-    run_cluster_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o jsonpath='{.data.token}' 2>/dev/null | \
-      python3 - <<'PY'
-import base64
-import sys
+  TOKEN_B64="$(run_cluster_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o jsonpath='{.data.token}' 2>/dev/null || true)"
 
-data = sys.stdin.read().strip()
-if not data:
-    raise SystemExit(0)
-print(base64.b64decode(data).decode())
-PY
-  )"
+  if [[ -n "$TOKEN_B64" ]]; then
+    TOKEN="$(
+      printf '%s' "$TOKEN_B64" | python3 -c 'import base64,sys; data=sys.stdin.read().strip(); print(base64.b64decode(data).decode() if data else "", end="")' 2>/dev/null || true
+    )"
+  else
+    TOKEN=""
+  fi
 
   if [[ -n "$TOKEN" ]]; then
     break
