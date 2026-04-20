@@ -109,7 +109,32 @@ ansible_env_path() {
 
 run_kubeasz_ezctl() {
   ensure_ansible_available
+  patch_kubeasz_compatibility
   sudo env PATH="$(ansible_env_path)" "$KUBEASZ_DIR/ezctl" "$@"
+}
+
+patch_kubeasz_compatibility() {
+  sudo python3 - <<'PY'
+from pathlib import Path
+
+task_file = Path("/etc/kubeasz/roles/prepare/tasks/main.yml")
+if not task_file.exists():
+    raise SystemExit(0)
+
+text = task_file.read_text()
+updated = text
+updated = updated.replace(
+    '      when: "inventory_hostname == ansible_env.SSH_CLIENT.split(\' \')[0]"',
+    '      when: "local_registry_host is defined and local_registry_host != \'\' and inventory_hostname == local_registry_host"',
+)
+updated = updated.replace(
+    '        line: "{{ ansible_env.SSH_CLIENT.split(\' \')[0] }}    easzlab.io.local"',
+    '        line: "{{ local_registry_host }}    easzlab.io.local"',
+)
+
+if updated != text:
+    task_file.write_text(updated)
+PY
 }
 
 cluster_query() {

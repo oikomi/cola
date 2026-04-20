@@ -162,6 +162,7 @@ if ! run_ezdown_download_all "$KUBE_VERSION"; then
 fi
 
 init_cluster_dir_without_ansible
+patch_kubeasz_compatibility
 
 print_step "渲染并同步 inventory"
 render_cluster_inventory
