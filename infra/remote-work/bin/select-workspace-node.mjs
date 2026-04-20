@@ -84,6 +84,12 @@ function hasGpu(nodeConfig, nodeLive) {
   return false;
 }
 
+function allocatableGpuCount(nodeLive) {
+  const raw = nodeLive?.status?.allocatable?.["nvidia.com/gpu"];
+  const value = Number(raw ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
 let candidates = configuredNodes.filter((node) => node.roles.includes("worker"));
 
 if (args["requested-node"]) {
@@ -105,6 +111,7 @@ candidates = candidates
       ready: live ? isReady(live) : false,
       workspaceCount: workspaceCounts.get(node.name) ?? 0,
       gpuCapable: hasGpu(node, live),
+      allocatableGpu: allocatableGpuCount(live),
       workspaceLabeled:
         live?.metadata?.labels?.[args["workspace-label-key"]] === "true",
     };
@@ -112,7 +119,7 @@ candidates = candidates
   .filter((entry) => entry.live && entry.ready);
 
 if (requestGpu > 0) {
-  candidates = candidates.filter((entry) => entry.gpuCapable);
+  candidates = candidates.filter((entry) => entry.allocatableGpu >= requestGpu);
 }
 
 const labeledCandidates = candidates.filter((entry) => entry.workspaceLabeled);
@@ -123,7 +130,7 @@ if (labeledCandidates.length > 0) {
 if (candidates.length === 0) {
   throw new Error(
     requestGpu > 0
-      ? "没有找到 Ready 且可提供 GPU 的候选节点。"
+      ? "没有找到 Ready 且 allocatable GPU 足够的候选节点。"
       : "没有找到 Ready 的候选 worker 节点。",
   );
 }
@@ -149,4 +156,3 @@ const result = {
 };
 
 console.log(JSON.stringify(result));
-
