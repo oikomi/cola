@@ -50,3 +50,5 @@ yarn-error.log*
 .idea
 
 .playwright-mcp/
+
+output
