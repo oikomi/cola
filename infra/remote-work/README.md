@@ -28,9 +28,18 @@ infra/remote-work
 ## 前提
 
 - 本地部署机能 SSH 到所有服务器
-- 本地部署机已安装：`git`、`node`、`ansible-playbook`、`sshpass`、`rsync`、`docker`
+- `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`sshpass`、`rsync`
+- `10-install-cluster.sh` 额外需要：`ansible-playbook`
+- `30-build-and-load-image.sh` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
+
+如果部署机是 Ubuntu / Debian，缺少 Ansible 时可执行：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ansible
+```
 
 ## 1. 调整机器清单
 
@@ -175,4 +184,3 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点
 - `bin/20-enable-gpu.sh` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
 - 这套脚本没有在当前仓库 CI 中接真实服务器执行，交付的是静态校验通过的部署资产
-

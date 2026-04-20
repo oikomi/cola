@@ -4,7 +4,10 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
-require_cmd ansible-playbook
+if ! command -v ansible-playbook >/dev/null 2>&1; then
+  die "缺少命令: ansible-playbook。Ubuntu/Debian 可先执行: sudo apt-get update && sudo apt-get install -y ansible"
+fi
+
 require_cmd node
 
 CLUSTER_NAME="$(cluster_name)"
@@ -22,4 +25,3 @@ print_step "开始安装 Kubernetes 集群"
 )
 
 echo "集群安装完成。下一步执行: ./bin/20-enable-gpu.sh"
-

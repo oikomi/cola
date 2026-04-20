@@ -6,7 +6,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd git
 require_cmd node
-require_cmd ansible-playbook
 require_cmd sshpass
 require_cmd rsync
 
@@ -45,4 +44,3 @@ render_cluster_inventory
 copy_hosts_into_kubeasz
 
 echo "kubeasz 已准备完成。下一步执行: ./bin/10-install-cluster.sh"
-
