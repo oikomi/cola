@@ -112,7 +112,7 @@ const manifest = [
   `    spec:`,
   ...(gpu > 0 ? [`      runtimeClassName: nvidia`] : []),
   `      nodeSelector:`,
-  `        kubernetes.io/hostname: ${targetNode.name}`,
+  `        kubernetes.io/hostname: ${yamlQuote(targetNode.name)}`,
   `      containers:`,
   `        - name: desktop`,
   `          image: ${yamlQuote(args.image)}`,
