@@ -357,7 +357,16 @@ function buildTrainingJob(job: TrainingJobRecord, ctx: TrainingKubeContext) {
     "cola.training/type": job.jobType,
   };
 
-  const env = [
+  const env: Array<{
+    name: string;
+    value?: string;
+    valueFrom?: {
+      secretKeyRef: {
+        name: string;
+        key: string;
+      };
+    };
+  }> = [
     { name: "TZ", value: process.env.COLA_TRAINING_TZ ?? "Asia/Shanghai" },
     { name: "COLA_JOB_SPEC", value: buildJobSpecPayload(job) },
     { name: "COLA_ARTIFACT_DIR", value: artifactPath },
@@ -512,7 +521,7 @@ function deriveJobTerminalState(runtimeJob: V1Job): {
 }
 
 export async function submitTrainingJob(job: TrainingJobRecord) {
-  if (!trainingK8sSupportedJobTypes.includes(job.jobType)) {
+  if (!trainingK8sSupportedJobTypes.some((type) => type === job.jobType)) {
     throw new Error(
       `当前 Unsloth Kubernetes 执行器暂不支持 ${job.jobType.toUpperCase()} 类型。`,
     );

@@ -43,6 +43,13 @@
       "when": 1776721200000,
       "tag": "0005_inference_deployments",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776811200000,
+      "tag": "0006_unsloth_training_runtime",
+      "breakpoints": true
     }
   ]
 }

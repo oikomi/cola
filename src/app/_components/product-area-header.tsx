@@ -7,6 +7,7 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   MonitorSmartphoneIcon,
+  Settings2Icon,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ const areaIcons = {
   workspace: MonitorSmartphoneIcon,
   training: BrainCircuitIcon,
   deployments: BlocksIcon,
+  system: Settings2Icon,
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
 
 export function ProductAreaHeader() {
@@ -40,7 +42,7 @@ export function ProductAreaHeader() {
           <div>
             <p className="text-sm font-semibold text-[#26190f]">功能菜单栏</p>
             <p className="text-xs leading-5 text-[#7b624d]">
-              四个模块独立，通过菜单切换入口。
+              五个模块独立，通过菜单切换入口。
             </p>
           </div>
         </div>

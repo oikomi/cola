@@ -4,6 +4,7 @@ import {
   BrainCircuitIcon,
   PlayIcon,
   PlusIcon,
+  RefreshCwIcon,
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -196,15 +197,26 @@ export function TrainingShell() {
                   训练任务列表
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-[#61704f]">
-                  先提供最直接的操作面：创建、启动、停止、删除。
+                  任务会直接提交为 Kubernetes Job，默认使用 Unsloth 镜像执行。
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <Badge className="border-0 bg-[#edf5e3] text-[#35552a] hover:bg-[#edf5e3]">
-                简化调度面
+                Unsloth / K8s
               </Badge>
+              <Button
+                variant="outline"
+                className="h-10 rounded-full border-[#c9d8b7] bg-[#f4f8ee] px-4 text-[#22301b] hover:bg-white"
+                onClick={() => void jobsQuery.refetch()}
+              >
+                <RefreshCwIcon
+                  data-icon="inline-start"
+                  className={jobsQuery.isFetching ? "animate-spin" : undefined}
+                />
+                刷新列表
+              </Button>
               <Button
                 className="h-10 rounded-full bg-[#22301b] px-4 text-white hover:bg-[#162013]"
                 onClick={() => setIsCreateOpen(true)}
@@ -272,7 +284,12 @@ export function TrainingShell() {
                     stopJob.isPending && stopJob.variables?.jobId === job.id;
                   const isDeleting =
                     deleteJob.isPending && deleteJob.variables?.jobId === job.id;
-                  const canStart = ["draft", "stopped", "failed"].includes(job.status);
+                  const status: keyof typeof trainingJobStatusLabels =
+                    job.status as keyof typeof trainingJobStatusLabels;
+                  const canStart =
+                    status === "draft" ||
+                    status === "stopped" ||
+                    status === "failed";
 
                   return (
                     <div
@@ -294,6 +311,22 @@ export function TrainingShell() {
                           <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#62714f]">
                             {job.objective}
                           </p>
+                          {job.runtimeJobName ? (
+                            <p className="mt-3 text-xs leading-5 text-[#6d7d5a]">
+                              K8s Job: {job.runtimeNamespace ?? "default"}/
+                              {job.runtimeJobName}
+                            </p>
+                          ) : null}
+                          {job.artifactPath ? (
+                            <p className="mt-1 text-xs leading-5 text-[#6d7d5a]">
+                              产物目录: {job.artifactPath}
+                            </p>
+                          ) : null}
+                          {job.lastError ? (
+                            <p className="mt-3 rounded-2xl border border-[#efd0cb] bg-[#fff6f3] px-3 py-2 text-xs leading-5 text-[#9b3d20]">
+                              {job.lastError}
+                            </p>
+                          ) : null}
                         </div>
 
                         <div>
@@ -301,9 +334,9 @@ export function TrainingShell() {
                             状态
                           </p>
                           <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(job.status)}`}
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(status)}`}
                           >
-                            {trainingJobStatusLabels[job.status]}
+                            {trainingJobStatusLabels[status]}
                           </span>
                         </div>
 
@@ -405,7 +438,8 @@ export function TrainingShell() {
               创建训练任务
             </DialogTitle>
             <DialogDescription className="text-sm leading-6 text-[#667553]">
-              先把训练配置作为任务实体沉淀下来，后面再接实际队列和执行器。
+              当前启动后会提交到 Kubernetes，使用 Unsloth 容器执行。数据集可填写
+              Hugging Face 数据集名，或挂载卷里的文件路径。
             </DialogDescription>
           </DialogHeader>
 

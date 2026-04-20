@@ -447,7 +447,10 @@ function buildRuntimeCommand(input: {
           "-c",
           process.env.LLAMA_CPP_CONTEXT_SIZE ?? "4096",
           ...(input.gpuCount > 0
-            ? ["-ngl", process.env.LLAMA_CPP_GPU_LAYERS ?? "999"]
+            ? [
+                "--n-gpu-layers",
+                process.env.LLAMA_CPP_GPU_LAYERS ?? "999",
+              ]
             : []),
         ],
       };
@@ -461,7 +464,7 @@ function buildRuntimeCommand(input: {
           "0.0.0.0",
           "--port",
           "8000",
-          "--tp-size",
+          "--tp",
           String(Math.max(input.gpuCount, 1)),
         ],
       };
@@ -979,6 +982,60 @@ async function readInferenceDeployment(ctx: KubeContext, name: string) {
   });
 }
 
+function buildReplacementDeployment(input: {
+  deployment: V1Deployment;
+  name: string;
+  replicas: number;
+  refreshStartedAt?: boolean;
+}) {
+  const spec = input.deployment.spec;
+  const metadata = input.deployment.metadata;
+
+  if (!spec?.selector || !spec.template) {
+    throw new Error(`推理部署 ${input.name} 的 Kubernetes 模板不完整。`);
+  }
+
+  const desiredReplicas = Number.parseInt(
+    metadata?.annotations?.[INFERENCE_METADATA.desiredReplicas] ?? "1",
+    10,
+  );
+  const engine =
+    (metadata?.annotations?.[
+      INFERENCE_METADATA.engine
+    ] as InferenceDeploymentEngine | undefined) ?? "vllm";
+  const modelRef = metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? input.name;
+
+  return {
+    apiVersion: input.deployment.apiVersion,
+    kind: input.deployment.kind,
+    metadata: {
+      name: metadata?.name,
+      namespace: metadata?.namespace,
+      resourceVersion: metadata?.resourceVersion,
+      labels: metadata?.labels,
+      annotations: deploymentAnnotations({
+        engine,
+        modelRef,
+        desiredReplicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
+        ...(input.refreshStartedAt
+          ? { lastStartedAt: new Date().toISOString() }
+          : metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]
+            ? {
+                lastStartedAt:
+                  metadata.annotations[INFERENCE_METADATA.lastStartedAt],
+              }
+            : {}),
+      }),
+    },
+    spec: {
+      ...spec,
+      selector: spec.selector,
+      template: spec.template,
+      replicas: input.replicas,
+    },
+  } satisfies V1Deployment;
+}
+
 export async function startInferenceDeployment(name: string) {
   validateInferenceName(name);
 
@@ -999,26 +1056,12 @@ export async function startInferenceDeployment(name: string) {
   await ctx.appsApi.replaceNamespacedDeployment({
     namespace: ctx.namespace,
     name: deployment.metadata?.name ?? inferenceDeploymentName(name),
-    body: {
-      ...deployment,
-      metadata: {
-        ...deployment.metadata,
-        annotations: deploymentAnnotations({
-          engine:
-            (deployment.metadata?.annotations?.[
-              INFERENCE_METADATA.engine
-            ] as InferenceDeploymentEngine | undefined) ?? "vllm",
-          modelRef:
-            deployment.metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? name,
-          desiredReplicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
-          lastStartedAt: new Date().toISOString(),
-        }),
-      },
-      spec: {
-        ...deployment.spec,
-        replicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
-      },
-    },
+    body: buildReplacementDeployment({
+      deployment,
+      name,
+      replicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
+      refreshStartedAt: true,
+    }),
   });
 
   return {
@@ -1043,13 +1086,11 @@ export async function stopInferenceDeployment(name: string) {
   await ctx.appsApi.replaceNamespacedDeployment({
     namespace: ctx.namespace,
     name: deployment.metadata?.name ?? inferenceDeploymentName(name),
-    body: {
-      ...deployment,
-      spec: {
-        ...deployment.spec,
-        replicas: 0,
-      },
-    },
+    body: buildReplacementDeployment({
+      deployment,
+      name,
+      replicas: 0,
+    }),
   });
 
   return {

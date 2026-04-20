@@ -11,7 +11,6 @@ import {
   type V1Deployment,
   type V1Ingress,
   type V1Node,
-  type V1Secret,
   type V1Service,
 } from "@kubernetes/client-node";
 

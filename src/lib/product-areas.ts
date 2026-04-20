@@ -4,7 +4,8 @@ export type ProductAreaKey =
   | "office"
   | "workspace"
   | "training"
-  | "deployments";
+  | "deployments"
+  | "system";
 
 export const PRODUCT_AREAS: Array<{
   key: ProductAreaKey;
@@ -37,6 +38,12 @@ export const PRODUCT_AREAS: Array<{
     href: "/deployments",
     title: "推理部署平台",
     description: "独立管理推理服务、版本灰度、流量切换、发布与回滚。",
+  },
+  {
+    key: "system",
+    href: "/system",
+    title: "系统管理",
+    description: "进入 K8s Dashboard，查看集群对象、命名空间与工作负载状态。",
   },
 ];
 
@@ -73,6 +80,10 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/deployments")) {
     return "deployments";
+  }
+
+  if (pathname.startsWith("/system")) {
+    return "system";
   }
 
   return "office";

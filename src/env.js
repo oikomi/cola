@@ -21,6 +21,7 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_OPENCLAW_NATIVE_URL: z.string().url().optional(),
     NEXT_PUBLIC_HERMES_NATIVE_URL: z.string().url().optional(),
+    NEXT_PUBLIC_K8S_DASHBOARD_URL: z.string().url().optional(),
   },
 
   /**
@@ -33,6 +34,7 @@ export const env = createEnv({
     NEXT_PUBLIC_OPENCLAW_NATIVE_URL:
       process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
     NEXT_PUBLIC_HERMES_NATIVE_URL: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
+    NEXT_PUBLIC_K8S_DASHBOARD_URL: process.env.NEXT_PUBLIC_K8S_DASHBOARD_URL,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
