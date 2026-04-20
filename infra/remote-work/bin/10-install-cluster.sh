@@ -5,11 +5,8 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd sudo
-if ! command -v ansible-playbook >/dev/null 2>&1; then
-  die "缺少命令: ansible-playbook。Ubuntu/Debian 可先执行: sudo apt-get update && sudo apt-get install -y ansible"
-fi
-
 require_cmd node
+ensure_ansible_available()
 
 CLUSTER_NAME="$(cluster_name)"
 

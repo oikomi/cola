@@ -30,17 +30,10 @@ infra/remote-work
 - 本地部署机能 SSH 到所有服务器
 - 本地部署机需要可用的 `sudo`
 - `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`curl` 或 `wget`
-- `10-install-cluster.sh` 额外需要：`ansible-playbook`
+- `10-install-cluster.sh` 与 `60-add-node.sh` 会在缺少 Ansible 时自动尝试安装
 - `30-build-and-load-image.sh` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
-
-如果部署机是 Ubuntu / Debian，缺少 Ansible 时可执行：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ansible
-```
 
 ## 1. 调整机器清单
 

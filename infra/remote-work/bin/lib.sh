@@ -37,6 +37,33 @@ require_any_cmd() {
   [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
 }
 
+ensure_ansible_available() {
+  if command -v ansible-playbook >/dev/null 2>&1 && command -v ansible >/dev/null 2>&1; then
+    return 0
+  fi
+
+  require_cmd sudo
+  require_any_cmd apt-get dnf yum
+
+  print_step "检测到本机缺少 Ansible，开始自动安装"
+
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ansible || \
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ansible-core ansible
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y ansible-core || sudo dnf install -y ansible
+  else
+    sudo yum install -y epel-release || true
+    sudo yum install -y ansible || sudo yum install -y ansible-core
+  fi
+
+  command -v ansible-playbook >/dev/null 2>&1 || \
+    die "Ansible 安装后仍未找到 ansible-playbook，请手动检查包源配置。"
+  command -v ansible >/dev/null 2>&1 || \
+    die "Ansible 安装后仍未找到 ansible，请手动检查包源配置。"
+}
+
 cluster_query() {
   node "$QUERY_SCRIPT" "$@"
 }
