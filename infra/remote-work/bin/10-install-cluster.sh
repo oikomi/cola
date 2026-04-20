@@ -19,7 +19,7 @@ copy_hosts_into_kubeasz
 print_step "开始安装 Kubernetes 集群"
 (
   cd "$KUBEASZ_DIR"
-  sudo ./ezctl setup "$CLUSTER_NAME" all
+  run_kubeasz_ezctl setup "$CLUSTER_NAME" all
 )
 
 echo "集群安装完成。下一步执行: ./bin/20-enable-gpu.sh"

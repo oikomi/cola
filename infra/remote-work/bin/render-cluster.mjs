@@ -24,6 +24,11 @@ function renderHostLine(node) {
     `ansible_user=${shellQuote(node.sshUser)}`,
     `ansible_ssh_pass=${shellQuote(node.sshPassword)}`,
     `ansible_ssh_port=${node.sshPort}`,
+    `ansible_become=true`,
+    `ansible_become_method=sudo`,
+    `ansible_become_user=root`,
+    `ansible_become_pass=${shellQuote(node.sshPassword)}`,
+    `ansible_python_interpreter=/usr/bin/python3`,
     `k8s_nodename=${node.name}`,
   ].join(" ");
 }
@@ -77,4 +82,3 @@ fs.writeFileSync(
 );
 
 console.log(`Rendered kubeasz hosts to ${path.join(GENERATED_DIR, "hosts")}`);
-

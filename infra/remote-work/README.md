@@ -30,7 +30,7 @@ infra/remote-work
 - 本地部署机能 SSH 到所有服务器
 - 本地部署机需要可用的 `sudo`
 - `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`curl` 或 `wget`
-- `10-install-cluster.sh` 与 `60-add-node.sh` 会在缺少 Ansible 时自动尝试安装
+- `10-install-cluster.sh` 与 `60-add-node.sh` 会自动准备一套独立的现代版 Ansible 运行时
 - `30-build-and-load-image.sh` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
@@ -76,6 +76,7 @@ cd infra/remote-work
 - 在不依赖本机 Ansible 的前提下初始化 cluster 目录
 - 如果你配置的 `kubernetesVersion` 对应镜像 tag 不存在，会自动回退到 kubeasz 自带版本
 - 根据 `cluster/nodes.json` 生成 kubeasz `hosts` 文件
+- 生成的 inventory 默认带 `sudo` 提权与 `/usr/bin/python3` 解释器配置
 
 ## 3. 安装集群
 
@@ -177,7 +178,27 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 这个脚本当前只支持扩容 `worker` / `worker,gpu` 节点，不负责把新机器升级成 `master` 或 `etcd`。这样更稳，也更贴合“后续任意增加 node 服务器”的常见路径。
 
-## 9. 已知边界
+## 9. 一键清理
+
+销毁当前 `remote-work` 集群，并清理本机运行态：
+
+```bash
+./bin/99-clean-all.sh --yes
+```
+
+如果还要顺手清每台节点上的工作区持久目录：
+
+```bash
+./bin/99-clean-all.sh --yes --purge-remote-data
+```
+
+如果只想删集群，但保留本地 `runtime/` 缓存：
+
+```bash
+./bin/99-clean-all.sh --yes --keep-local-cache
+```
+
+## 10. 已知边界
 
 - 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点

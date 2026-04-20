@@ -64,10 +64,15 @@ fi
 print_step "通过 kubeasz 加入 worker 节点"
 (
   cd "$KUBEASZ_DIR"
-  sudo ./ezctl add-node "$(cluster_name)" "$IP" \
+  run_kubeasz_ezctl add-node "$(cluster_name)" "$IP" \
     "ansible_user=$SSH_USER" \
     "ansible_ssh_pass=$SSH_PASSWORD" \
     "ansible_ssh_port=$SSH_PORT" \
+    "ansible_become=true" \
+    "ansible_become_method=sudo" \
+    "ansible_become_user=root" \
+    "ansible_become_pass=$SSH_PASSWORD" \
+    "ansible_python_interpreter=/usr/bin/python3" \
     "k8s_nodename=$NAME"
 )
 

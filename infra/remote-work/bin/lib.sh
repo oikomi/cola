@@ -8,6 +8,8 @@ GENERATED_DIR="$RUNTIME_DIR/generated"
 WORKSPACE_DIR="$RUNTIME_DIR/workspaces"
 KUBEASZ_DIR="$RUNTIME_DIR/kubeasz"
 KUBEASZ_BASE_DIR="/etc/kubeasz"
+ANSIBLE_VENV_DIR="$RUNTIME_DIR/ansible-venv"
+ANSIBLE_BIN_DIR="$ANSIBLE_VENV_DIR/bin"
 QUERY_SCRIPT="$ROOT_DIR/bin/query-cluster.mjs"
 RENDER_CLUSTER_SCRIPT="$ROOT_DIR/bin/render-cluster.mjs"
 
@@ -38,30 +40,56 @@ require_any_cmd() {
 }
 
 ensure_ansible_available() {
-  if command -v ansible-playbook >/dev/null 2>&1 && command -v ansible >/dev/null 2>&1; then
+  require_cmd python3
+  require_cmd sudo
+
+  local need_install=1
+  if [[ -x "$ANSIBLE_BIN_DIR/ansible-playbook" ]]; then
+    if "$ANSIBLE_BIN_DIR/python" - <<'PY' >/dev/null 2>&1
+from importlib import metadata
+from packaging.version import Version
+version = metadata.version("ansible-core")
+raise SystemExit(0 if Version(version) >= Version("2.16.0") else 1)
+PY
+    then
+      need_install=0
+    fi
+  fi
+
+  if [[ "$need_install" -eq 0 ]]; then
     return 0
   fi
 
-  require_cmd sudo
-  require_any_cmd apt-get dnf yum
+  print_step "准备独立的 Ansible 运行时"
 
-  print_step "检测到本机缺少 Ansible，开始自动安装"
-
-  if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ansible || \
-      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ansible-core ansible
-  elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y ansible-core || sudo dnf install -y ansible
-  else
-    sudo yum install -y epel-release || true
-    sudo yum install -y ansible || sudo yum install -y ansible-core
+  if ! python3 -m venv --help >/dev/null 2>&1; then
+    require_any_cmd apt-get dnf yum
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y python3 python3-pip
+    else
+      sudo yum install -y python3 python3-pip
+    fi
   fi
 
-  command -v ansible-playbook >/dev/null 2>&1 || \
-    die "Ansible 安装后仍未找到 ansible-playbook，请手动检查包源配置。"
-  command -v ansible >/dev/null 2>&1 || \
-    die "Ansible 安装后仍未找到 ansible，请手动检查包源配置。"
+  rm -rf "$ANSIBLE_VENV_DIR"
+  python3 -m venv "$ANSIBLE_VENV_DIR"
+  "$ANSIBLE_BIN_DIR/pip" install --upgrade pip setuptools wheel
+  "$ANSIBLE_BIN_DIR/pip" install "ansible>=9,<11" netaddr jmespath packaging
+
+  [[ -x "$ANSIBLE_BIN_DIR/ansible-playbook" ]] || \
+    die "独立 Ansible 运行时准备失败，未找到 $ANSIBLE_BIN_DIR/ansible-playbook"
+}
+
+ansible_env_path() {
+  printf '%s\n' "$ANSIBLE_BIN_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+}
+
+run_kubeasz_ezctl() {
+  ensure_ansible_available
+  sudo env PATH="$(ansible_env_path)" "$KUBEASZ_DIR/ezctl" "$@"
 }
 
 cluster_query() {
@@ -180,6 +208,25 @@ kubectl_apply_file() {
 render_cluster_inventory() {
   ensure_runtime_dirs
   node "$RENDER_CLUSTER_SCRIPT"
+}
+
+cluster_exists_in_kubeasz() {
+  sudo test -d "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)"
+}
+
+confirm_or_exit() {
+  local prompt="$1"
+  local answer
+
+  read -r -p "$prompt [y/N]: " answer
+  case "$answer" in
+    y|Y|yes|YES)
+      return 0
+      ;;
+    *)
+      die "已取消。"
+      ;;
+  esac
 }
 
 copy_hosts_into_kubeasz() {
