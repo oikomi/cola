@@ -15,6 +15,32 @@ KUBEASZ_VERSION="$(cluster_query kubeaszVersion)"
 KUBE_VERSION="$(kubernetes_version)"
 KUBEASZ_REPO_URL="$(cluster_query kubeaszRepoUrl)"
 CLUSTER_NAME="$(cluster_name)"
+WITH_IMAGES=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --with-images)
+      WITH_IMAGES=1
+      shift
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./bin/00-bootstrap-kubeasz.sh [--with-images]
+
+Default behavior:
+  - prepare kubeasz binaries and /etc/kubeasz cluster assets
+  - skip pushing default images into the local registry
+
+Optional:
+  --with-images   also pre-pull default images and push them into the local registry
+EOF
+      exit 0
+      ;;
+    *)
+      die "未知参数: $1"
+      ;;
+  esac
+done
 
 run_ezdown_download_all() {
   local kube_version="$1"
@@ -25,6 +51,33 @@ run_ezdown_download_all() {
     cd "$KUBEASZ_DIR"
     set +e
     sudo ./ezdown -D -k "$kube_version" 2>&1 | tee "$log_file"
+    status=${PIPESTATUS[0]}
+    exit "$status"
+  )
+}
+
+run_ezdown_bootstrap_only() {
+  local kube_version="$1"
+  local log_file="$RUNTIME_DIR/ezdown-bootstrap-${kube_version}.log"
+  local status
+
+  (
+    cd "$KUBEASZ_DIR"
+    set +e
+    sudo bash -lc "
+      set -euo pipefail
+      source ./ezdown
+      BASE=/etc/kubeasz
+      IMAGES=()
+      imageDir=\$BASE/down
+      ARCH=\$(uname -m)
+      K8S_BIN_VER='${kube_version}'
+      download_docker
+      install_docker
+      get_kubeasz
+      get_k8s_bin
+      get_ext_bin
+    " 2>&1 | tee "$log_file"
     status=${PIPESTATUS[0]}
     exit "$status"
   )
@@ -147,17 +200,30 @@ prepare_kubeasz_docker_bundle
 
 print_step "下载 kubeasz 依赖"
 KUBEASZ_BUNDLED_KUBE_VERSION="$(kubeasz_bundled_kubernetes_version)"
-if ! run_ezdown_download_all "$KUBE_VERSION"; then
+if [[ "$WITH_IMAGES" -eq 1 ]]; then
+  EZDOWN_RUNNER="run_ezdown_download_all"
+  LOG_HINT="$RUNTIME_DIR/ezdown-${KUBE_VERSION}.log"
+else
+  EZDOWN_RUNNER="run_ezdown_bootstrap_only"
+  LOG_HINT="$RUNTIME_DIR/ezdown-bootstrap-${KUBE_VERSION}.log"
+fi
+
+if ! "$EZDOWN_RUNNER" "$KUBE_VERSION"; then
   if [[ "$KUBE_VERSION" != "$KUBEASZ_BUNDLED_KUBE_VERSION" ]] && \
-    grep -q "kubeasz-k8s-bin:${KUBE_VERSION}.*not found" "$RUNTIME_DIR/ezdown-${KUBE_VERSION}.log"; then
+    grep -q "kubeasz-k8s-bin:${KUBE_VERSION}.*not found" "$LOG_HINT"; then
     echo
     echo "WARN: kubeasz 3.6.8 当前无法下载 Kubernetes 二进制镜像 ${KUBE_VERSION}。"
     echo "WARN: 自动回退到 kubeasz 自带版本 ${KUBEASZ_BUNDLED_KUBE_VERSION}。"
     echo "WARN: 建议把 cluster/config.json 中的 kubernetesVersion 改成 ${KUBEASZ_BUNDLED_KUBE_VERSION#v}。"
-    run_ezdown_download_all "$KUBEASZ_BUNDLED_KUBE_VERSION" || \
-      die "回退到 kubeasz 自带 Kubernetes 版本 ${KUBEASZ_BUNDLED_KUBE_VERSION} 仍然失败，请检查 $RUNTIME_DIR/ezdown-${KUBEASZ_BUNDLED_KUBE_VERSION}.log"
+    if [[ "$WITH_IMAGES" -eq 1 ]]; then
+      run_ezdown_download_all "$KUBEASZ_BUNDLED_KUBE_VERSION" || \
+        die "回退到 kubeasz 自带 Kubernetes 版本 ${KUBEASZ_BUNDLED_KUBE_VERSION} 仍然失败，请检查 $RUNTIME_DIR/ezdown-${KUBEASZ_BUNDLED_KUBE_VERSION}.log"
+    else
+      run_ezdown_bootstrap_only "$KUBEASZ_BUNDLED_KUBE_VERSION" || \
+        die "回退到 kubeasz 自带 Kubernetes 版本 ${KUBEASZ_BUNDLED_KUBE_VERSION} 仍然失败，请检查 $RUNTIME_DIR/ezdown-bootstrap-${KUBEASZ_BUNDLED_KUBE_VERSION}.log"
+    fi
   else
-    die "ezdown 执行失败，请检查日志: $RUNTIME_DIR/ezdown-${KUBE_VERSION}.log"
+    die "ezdown 执行失败，请检查日志: $LOG_HINT"
   fi
 fi
 

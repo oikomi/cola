@@ -84,12 +84,18 @@ cd infra/remote-work
 
 - 克隆指定版本的 `kubeasz`
 - 预下载 Docker 静态包，并在清华镜像 403 时自动 fallback 到官方地址
-- 通过 `sudo ./ezdown -D -k <k8s version>` 初始化 `/etc/kubeasz`
+- 默认只准备二进制和 `/etc/kubeasz` 资产，不强制推送默认镜像到本地 registry
 - 在不依赖本机 Ansible 的前提下初始化 cluster 目录
 - 自动给 kubeasz 的 `prepare` 角色打一层兼容补丁，避免依赖 `SSH_CLIENT` 环境变量
 - 如果你配置的 `kubernetesVersion` 对应镜像 tag 不存在，会自动回退到 kubeasz 自带版本
 - 根据 `cluster/nodes.json` 生成 kubeasz `hosts` 文件
 - 生成的 inventory 默认带 `sudo` 提权、`/usr/bin/python3` 解释器配置，以及 `local_registry_host`
+
+如果你确实想在 bootstrap 阶段顺手预热 kubeasz 默认镜像，再显式执行：
+
+```bash
+./bin/00-bootstrap-kubeasz.sh --with-images
+```
 
 ## 3. 安装集群
 
