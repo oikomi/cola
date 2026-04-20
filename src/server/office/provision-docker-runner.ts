@@ -12,6 +12,26 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+export async function cleanupDockerRunner(options: {
+  containerName?: string | null;
+}) {
+  const containerName = options.containerName?.trim();
+  if (!containerName) return;
+
+  try {
+    await execFileAsync("docker", ["rm", "-f", containerName]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (
+      message.includes("No such container") ||
+      message.includes("No such object")
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 function slugify(input: string) {
   const slug = input
     .toLowerCase()
@@ -33,12 +53,14 @@ export type ProvisionDockerRunnerInput = {
 
 export type ProvisionDockerRunnerResult = {
   success: boolean;
-  containerName: string;
+  runtime: "docker" | "kubernetes";
   image: string;
   host: string;
   healthSummary: string;
   nativeDashboardUrl: string | null;
+  containerName?: string;
   errorMessage?: string;
+  metadata?: Record<string, string>;
 };
 
 type DockerLaunchConfig = {
@@ -85,7 +107,9 @@ function publishPortArg(hostPort: number, containerPort: number) {
 }
 
 function uniqueOrigins(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
 }
 
 function extractOrigin(urlValue: string | undefined) {
@@ -106,10 +130,10 @@ function openClawAllowedOrigins(dashboardHostPort: number) {
     publicHost ? `http://${publicHost}:${dashboardHostPort}` : null,
     publicHost ? `https://${publicHost}:${dashboardHostPort}` : null,
     extractOrigin(process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL),
-    ...((process.env.COLA_DASHBOARD_ALLOWED_ORIGINS ?? "")
+    ...(process.env.COLA_DASHBOARD_ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((value) => value.trim())
-      .filter(Boolean)),
+      .filter(Boolean),
   ]);
 }
 
@@ -453,12 +477,14 @@ export async function provisionDockerRunner(
       : dashboardPublicHost("hermes-agent")
         ? `http://${dashboardPublicHost("hermes-agent")}:${launchConfig.dashboardHostPort}/`
         : `http://127.0.0.1:${launchConfig.dashboardHostPort}/`;
-  const hasAllPaths = launchConfig.missingPaths.every((filePath) => existsSync(filePath));
+  const hasAllPaths = launchConfig.missingPaths.every((filePath) =>
+    existsSync(filePath),
+  );
 
   if (!hasAllPaths) {
     return {
       success: false,
-      containerName,
+      runtime: "docker",
       image: launchConfig.image,
       host: launchConfig.host,
       healthSummary: `${engineLabel} 配置或认证文件不存在，Docker runner 未启动。`,
@@ -474,7 +500,7 @@ export async function provisionDockerRunner(
   } catch (error) {
     return {
       success: false,
-      containerName,
+      runtime: "docker",
       image: launchConfig.image,
       host: launchConfig.host,
       healthSummary: "Docker 镜像拉取失败，runner 未启动。",
@@ -491,16 +517,19 @@ export async function provisionDockerRunner(
 
     return {
       success: true,
-      containerName,
+      runtime: "docker",
       image: launchConfig.image,
       host: launchConfig.host,
       healthSummary: `${input.roleLabel} runner 已在 Docker 中启动，等待 ${engineLabel} 自注册。`,
       nativeDashboardUrl,
+      metadata: {
+        containerName,
+      },
     };
   } catch (error) {
     return {
       success: false,
-      containerName,
+      runtime: "docker",
       image: launchConfig.image,
       host: launchConfig.host,
       healthSummary: "Docker runner 拉起失败，角色已创建但进入阻塞态。",

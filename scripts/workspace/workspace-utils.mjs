@@ -216,7 +216,7 @@ export function buildWorkspaceManifest({
   image,
   gpu = 0,
   nodePort,
-  resolution = "1920x1080x24",
+  resolution = "1600x900x24",
   cpuRequest = "2",
   cpuLimit = "4",
   memoryRequest = "4Gi",
@@ -433,11 +433,15 @@ export function buildWorkspaceAccessUrl({
   nodeIp,
   nodePort,
 }) {
+  const quality = process.env.REMOTE_WORKSPACE_NOVNC_QUALITY ?? "9";
+  const compression = process.env.REMOTE_WORKSPACE_NOVNC_COMPRESSION ?? "0";
+  const query = `vnc.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
+
   if (ingressHost) {
-    return `${tlsSecret ? "https" : "http"}://${ingressHost}/`;
+    return `${tlsSecret ? "https" : "http"}://${ingressHost}/${query}`;
   }
 
-  return `http://${nodeIp}:${nodePort}/vnc.html?autoconnect=1&resize=remote`;
+  return `http://${nodeIp}:${nodePort}/${query}`;
 }
 
 export function prepareWorkspace({

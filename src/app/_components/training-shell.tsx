@@ -2,6 +2,7 @@
 
 import {
   BrainCircuitIcon,
+  LoaderCircleIcon,
   PlayIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -10,7 +11,15 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
+import {
+  ModuleEmptyState,
+  ModuleHero,
+  ModuleMetricCard,
+  ModulePageShell,
+  ModuleSection,
+} from "@/app/_components/module-shell";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,11 +39,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  priorityLabels,
-  priorityValues,
-} from "@/server/office/catalog";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { priorityLabels, priorityValues } from "@/server/office/catalog";
 import {
   trainingJobStatusLabels,
   trainingJobTypeLabels,
@@ -67,31 +83,31 @@ function formatTime(value: Date | string | null | undefined) {
 function statusTone(status: keyof typeof trainingJobStatusLabels) {
   switch (status) {
     case "running":
-      return "bg-[#edf9f3] text-[#0f6a3c]";
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "draft":
-      return "bg-[#edf3ff] text-[#264f92]";
+      return "border-sky-200 bg-sky-50 text-sky-700";
     case "stopped":
-      return "bg-[#f4f5f7] text-[#344054]";
+      return "border-border bg-muted text-muted-foreground";
     case "completed":
-      return "bg-[#edf8ff] text-[#1d5b83]";
+      return "border-indigo-200 bg-indigo-50 text-indigo-700";
     case "failed":
-      return "bg-[#fff1ef] text-[#a63f2b]";
+      return "border-rose-200 bg-rose-50 text-rose-700";
     default:
-      return "bg-[#f4f5f7] text-[#344054]";
+      return "border-border bg-muted text-muted-foreground";
   }
 }
 
 function priorityTone(priority: keyof typeof priorityLabels) {
   switch (priority) {
     case "critical":
-      return "text-[#a63f2b]";
+      return "text-rose-700";
     case "high":
-      return "text-[#9a5a07]";
+      return "text-amber-700";
     case "medium":
-      return "text-[#355b34]";
+      return "text-emerald-700";
     case "low":
     default:
-      return "text-[#61708a]";
+      return "text-muted-foreground";
   }
 }
 
@@ -102,14 +118,48 @@ function Field(props: {
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-medium tracking-[0.18em] text-[#6d7c61] uppercase">
+      <span className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-xs text-[#7c8b70]">{props.hint}</span>
+        <span className="text-xs text-muted-foreground">{props.hint}</span>
       ) : null}
     </label>
+  );
+}
+
+function LoadingRows() {
+  return (
+    <div className="grid gap-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={`training-skeleton-${index}`}
+          className="rounded-3xl border border-border/70 bg-background/70 p-4"
+        >
+          <div className="grid gap-3 md:grid-cols-[1.4fr_110px_1fr_110px_140px_220px] md:items-center">
+            <div className="grid gap-2">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <Skeleton className="h-5 w-16" />
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-20 rounded-full" />
+              <Skeleton className="h-9 w-20 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -168,6 +218,13 @@ export function TrainingShell() {
   });
 
   const jobs = jobsQuery.data ?? [];
+  const runningCount = jobs.filter((job) => job.status === "running").length;
+  const draftCount = jobs.filter((job) => job.status === "draft").length;
+  const completedCount = jobs.filter((job) => job.status === "completed").length;
+  const activeGpuCount = jobs
+    .filter((job) => job.status === "running")
+    .reduce((total, job) => total + job.gpuCount, 0);
+
   const parsedGpuCount = Number(draft.gpuCount);
   const canSubmit =
     draft.title.trim().length >= 3 &&
@@ -179,265 +236,282 @@ export function TrainingShell() {
     parsedGpuCount <= 64;
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,rgba(183,216,148,0.24),transparent_24%),linear-gradient(180deg,#f6f8ef_0%,#eef3e6_46%,#e5ebdb_100%)] text-[#1f2616]">
-      <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
-        <ProductAreaHeader />
+    <ModulePageShell>
+      <ProductAreaHeader />
 
-        <section className="mt-6 rounded-[32px] border border-[#d8e4ca] bg-white/88 shadow-[0_24px_90px_rgba(74,101,54,0.12)]">
-          <div className="flex flex-col gap-4 border-b border-[#e2ebd6] px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">
-            <div className="flex items-start gap-4">
-              <div className="flex size-12 items-center justify-center rounded-[18px] bg-[#22301b] text-white">
-                <BrainCircuitIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-[11px] tracking-[0.3em] text-[#738564] uppercase">
-                  Training Jobs
-                </p>
-                <h2 className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-[#1a2413]">
-                  训练任务列表
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-[#61704f]">
-                  任务会直接提交为 Kubernetes Job，默认使用 Unsloth 镜像执行。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge className="border-0 bg-[#edf5e3] text-[#35552a] hover:bg-[#edf5e3]">
-                Unsloth / K8s
-              </Badge>
-              <Button
-                variant="outline"
-                className="h-10 rounded-full border-[#c9d8b7] bg-[#f4f8ee] px-4 text-[#22301b] hover:bg-white"
-                onClick={() => void jobsQuery.refetch()}
-              >
-                <RefreshCwIcon
-                  data-icon="inline-start"
-                  className={jobsQuery.isFetching ? "animate-spin" : undefined}
-                />
-                刷新列表
-              </Button>
-              <Button
-                className="h-10 rounded-full bg-[#22301b] px-4 text-white hover:bg-[#162013]"
-                onClick={() => setIsCreateOpen(true)}
-              >
-                <PlusIcon data-icon="inline-start" />
-                创建训练任务
-              </Button>
-            </div>
-          </div>
-
-          {feedback ? (
-            <div
-              className={`mx-5 mt-5 rounded-[20px] border px-4 py-3 text-sm md:mx-6 ${
-                feedback.tone === "success"
-                  ? "border-[#cfe2bd] bg-[#f3f9ec] text-[#365028]"
-                  : "border-[#efd0cb] bg-[#fff5f3] text-[#9b3d20]"
-              }`}
+      <ModuleHero
+        eyebrow="Training Jobs"
+        title="训练平台"
+        description="把训练任务、基础模型、数据集和 GPU 配额统一收口到一张作业表里，直接面向 Kubernetes Job 执行。"
+        icon={BrainCircuitIcon}
+        badges={
+          <Badge variant="outline" className="border-border/80 bg-background/60">
+            Unsloth / Kubernetes
+          </Badge>
+        }
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="lg"
+              className="rounded-full"
+              onClick={() => void jobsQuery.refetch()}
             >
-              {feedback.message}
-            </div>
-          ) : null}
+              <RefreshCwIcon
+                className={cn(jobsQuery.isFetching ? "animate-spin" : undefined)}
+                data-icon="inline-start"
+              />
+              刷新列表
+            </Button>
+            <Button size="lg" className="rounded-full" onClick={() => setIsCreateOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              创建训练任务
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ModuleMetricCard
+            label="任务总数"
+            value={String(jobs.length)}
+            description="当前训练控制面中记录的全部任务。"
+            icon={BrainCircuitIcon}
+          />
+          <ModuleMetricCard
+            label="运行中"
+            value={String(runningCount)}
+            description="已经提交并正在实际执行的训练作业。"
+            icon={PlayIcon}
+          />
+          <ModuleMetricCard
+            label="草稿"
+            value={String(draftCount)}
+            description="参数已配置但还未开始执行的任务。"
+            icon={SquareIcon}
+          />
+          <ModuleMetricCard
+            label="活跃 GPU"
+            value={String(activeGpuCount)}
+            description="按照运行中训练任务累计的 GPU 使用量。"
+            icon={LoaderCircleIcon}
+          />
+        </div>
+      </ModuleHero>
 
-          <div className="px-5 py-5 md:px-6">
-            <div className="hidden rounded-[20px] border border-[#e7eedf] bg-[#f6faef] px-4 py-3 text-[11px] font-medium tracking-[0.18em] text-[#718161] uppercase md:grid md:grid-cols-[minmax(0,1.25fr)_120px_minmax(0,1fr)_130px_130px_220px] md:items-center md:gap-4">
-              <span>任务</span>
-              <span>状态</span>
-              <span>模型 / 数据集</span>
-              <span>资源</span>
-              <span>时间</span>
-              <span>操作</span>
-            </div>
+      {jobsQuery.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>训练任务读取失败</AlertTitle>
+          <AlertDescription>{jobsQuery.error.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
-            {jobsQuery.isLoading ? (
-              <div className="py-16 text-center text-sm text-[#667553]">
-                正在加载训练任务列表...
-              </div>
-            ) : jobsQuery.error ? (
-              <div className="py-16 text-center text-sm text-[#9b3d20]">
-                {jobsQuery.error.message}
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="mt-3 rounded-[28px] border border-dashed border-[#d8e4ca] bg-[#f7fbf1] px-6 py-12 text-center">
-                <p className="text-lg font-semibold tracking-[-0.03em] text-[#1f2616]">
-                  还没有训练任务
-                </p>
-                <p className="mt-2 text-sm leading-6 text-[#667553]">
-                  先创建一个任务，把模型、数据集和 GPU 配额记录进去。
-                </p>
-                <div className="mt-5">
-                  <Button
-                    className="rounded-full bg-[#22301b] px-4 text-white hover:bg-[#162013]"
-                    onClick={() => setIsCreateOpen(true)}
-                  >
-                    <PlusIcon data-icon="inline-start" />
-                    创建第一个任务
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-3 space-y-3">
-                {jobs.map((job) => {
-                  const isStarting =
-                    startJob.isPending && startJob.variables?.jobId === job.id;
-                  const isStopping =
-                    stopJob.isPending && stopJob.variables?.jobId === job.id;
-                  const isDeleting =
-                    deleteJob.isPending && deleteJob.variables?.jobId === job.id;
-                  const status: keyof typeof trainingJobStatusLabels =
-                    job.status as keyof typeof trainingJobStatusLabels;
-                  const canStart =
-                    status === "draft" ||
-                    status === "stopped" ||
-                    status === "failed";
+      {feedback ? (
+        <Alert variant={feedback.tone === "success" ? "default" : "destructive"}>
+          <AlertTitle>{feedback.tone === "success" ? "操作完成" : "操作失败"}</AlertTitle>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
-                  return (
-                    <div
-                      key={job.id}
-                      className="rounded-[24px] border border-[#e3ebd8] bg-white px-4 py-4 shadow-[0_14px_40px_rgba(72,101,54,0.06)]"
-                    >
-                      <div className="grid gap-4 md:grid-cols-[minmax(0,1.25fr)_120px_minmax(0,1fr)_130px_130px_220px] md:items-center">
-                        <div>
-                          <p className="text-lg font-semibold tracking-[-0.03em] text-[#15210f]">
-                            {job.title}
-                          </p>
-                          <p className="mt-1 text-sm text-[#365028]">
-                            {trainingJobTypeLabels[job.jobType]}
-                            {" · "}
+      <ModuleSection
+        title="任务列表"
+        description="查看运行态、优先级、数据集和动作入口。错误信息会直接内嵌在任务行里。"
+        action={
+          <Badge variant="outline" className="border-border/80 bg-background/60">
+            已完成 {completedCount}
+          </Badge>
+        }
+      >
+        {jobsQuery.isLoading ? <LoadingRows /> : null}
+
+        {!jobsQuery.isLoading && jobs.length === 0 ? (
+          <ModuleEmptyState
+            title="还没有训练任务"
+            description="先创建一个任务，把模型、数据集和 GPU 配额记录进去。"
+            action={
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <PlusIcon data-icon="inline-start" />
+                创建第一个任务
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!jobsQuery.isLoading && jobs.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>任务</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>模型 / 数据集</TableHead>
+                <TableHead>资源</TableHead>
+                <TableHead>时间</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {jobs.map((job) => {
+                const isStarting =
+                  startJob.isPending && startJob.variables?.jobId === job.id;
+                const isStopping =
+                  stopJob.isPending && stopJob.variables?.jobId === job.id;
+                const isDeleting =
+                  deleteJob.isPending && deleteJob.variables?.jobId === job.id;
+                const status: keyof typeof trainingJobStatusLabels =
+                  job.status as keyof typeof trainingJobStatusLabels;
+                const canStart =
+                  status === "draft" ||
+                  status === "stopped" ||
+                  status === "failed";
+
+                return (
+                  <TableRow key={job.id} className="border-border/70">
+                    <TableCell className="align-top">
+                      <div className="flex max-w-[26rem] flex-col gap-2">
+                        <div className="flex flex-col gap-1">
+                          <p className="font-medium text-foreground">{job.title}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {trainingJobTypeLabels[job.jobType]} ·{" "}
                             <span className={priorityTone(job.priority)}>
                               {priorityLabels[job.priority]}优先级
                             </span>
                           </p>
-                          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#62714f]">
-                            {job.objective}
-                          </p>
-                          {job.runtimeJobName ? (
-                            <p className="mt-3 text-xs leading-5 text-[#6d7d5a]">
-                              K8s Job: {job.runtimeNamespace ?? "default"}/
-                              {job.runtimeJobName}
-                            </p>
-                          ) : null}
-                          {job.artifactPath ? (
-                            <p className="mt-1 text-xs leading-5 text-[#6d7d5a]">
-                              产物目录: {job.artifactPath}
-                            </p>
-                          ) : null}
-                          {job.lastError ? (
-                            <p className="mt-3 rounded-2xl border border-[#efd0cb] bg-[#fff6f3] px-3 py-2 text-xs leading-5 text-[#9b3d20]">
-                              {job.lastError}
-                            </p>
-                          ) : null}
                         </div>
-
-                        <div>
-                          <p className="text-[11px] tracking-[0.22em] text-[#8da07e] uppercase md:hidden">
-                            状态
+                        <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">
+                          {job.objective}
+                        </p>
+                        {job.runtimeJobName ? (
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            K8s Job: {job.runtimeNamespace ?? "default"}/
+                            {job.runtimeJobName}
                           </p>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(status)}`}
-                          >
-                            {trainingJobStatusLabels[status]}
-                          </span>
-                        </div>
-
-                        <div>
-                          <p className="text-[11px] tracking-[0.22em] text-[#8da07e] uppercase md:hidden">
-                            模型 / 数据集
+                        ) : null}
+                        {job.artifactPath ? (
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            产物目录: {job.artifactPath}
                           </p>
-                          <p className="text-sm font-medium text-[#203017]">
-                            {job.baseModel}
-                          </p>
-                          <p className="mt-1 text-sm text-[#62714f]">
-                            {job.datasetName}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-[11px] tracking-[0.22em] text-[#8da07e] uppercase md:hidden">
-                            资源
-                          </p>
-                          <p className="text-sm font-medium text-[#203017]">
-                            {job.gpuCount} GPU
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-[11px] tracking-[0.22em] text-[#8da07e] uppercase md:hidden">
-                            时间
-                          </p>
-                          <p className="text-sm font-medium text-[#203017]">
-                            {formatTime(job.updatedAt ?? job.createdAt)}
-                          </p>
-                          <p className="mt-1 text-sm text-[#62714f]">
-                            启动: {formatTime(job.startedAt)}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {canStart ? (
-                            <Button
-                              variant="outline"
-                              className="h-9 rounded-full border-[#c9d8b7] bg-[#f4f8ee] px-4 text-[#22301b] hover:bg-white"
-                              disabled={isStarting || isStopping || isDeleting}
-                              onClick={() => startJob.mutate({ jobId: job.id })}
-                            >
-                              <PlayIcon className="size-4" />
-                              {isStarting ? "启动中" : "启动"}
-                            </Button>
-                          ) : null}
-
-                          {job.status === "running" ? (
-                            <Button
-                              variant="outline"
-                              className="h-9 rounded-full border-[#d7cfbe] bg-[#fbf7ef] px-4 text-[#6b4b18] hover:bg-white"
-                              disabled={isStarting || isStopping || isDeleting}
-                              onClick={() => stopJob.mutate({ jobId: job.id })}
-                            >
-                              <SquareIcon className="size-4" />
-                              {isStopping ? "停止中" : "停止"}
-                            </Button>
-                          ) : null}
-
+                        ) : null}
+                        {job.lastError ? (
+                          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+                            {job.lastError}
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <Badge
+                        variant="outline"
+                        className={cn("rounded-full", statusTone(status))}
+                      >
+                        {trainingJobStatusLabels[status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium text-foreground">
+                          {job.baseModel}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {job.datasetName}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top font-medium text-foreground">
+                      {job.gpuCount} GPU
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-1 text-sm">
+                        <span className="font-medium text-foreground">
+                          {formatTime(job.updatedAt ?? job.createdAt)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          启动: {formatTime(job.startedAt)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex justify-end gap-2">
+                        {canStart ? (
                           <Button
                             variant="outline"
-                            className="h-9 rounded-full border-[#e7cfc7] bg-[#fff7f4] px-3 text-[#9b3d20] hover:bg-white"
-                            disabled={
-                              job.status === "running" ||
-                              isStarting ||
-                              isStopping ||
-                              isDeleting
-                            }
-                            onClick={() => {
-                              if (
-                                !window.confirm(`确认删除训练任务「${job.title}」吗？`)
-                              ) {
-                                return;
-                              }
-
-                              deleteJob.mutate({ jobId: job.id });
-                            }}
+                            className="rounded-full"
+                            disabled={isStarting || isStopping || isDeleting}
+                            onClick={() => startJob.mutate({ jobId: job.id })}
                           >
-                            <Trash2Icon className="size-4" />
-                            {isDeleting ? "删除中" : "删除"}
+                            {isStarting ? (
+                              <LoaderCircleIcon
+                                className="animate-spin"
+                                data-icon="inline-start"
+                              />
+                            ) : (
+                              <PlayIcon data-icon="inline-start" />
+                            )}
+                            {isStarting ? "启动中" : "启动"}
                           </Button>
-                        </div>
+                        ) : null}
+
+                        {job.status === "running" ? (
+                          <Button
+                            variant="outline"
+                            className="rounded-full"
+                            disabled={isStarting || isStopping || isDeleting}
+                            onClick={() => stopJob.mutate({ jobId: job.id })}
+                          >
+                            {isStopping ? (
+                              <LoaderCircleIcon
+                                className="animate-spin"
+                                data-icon="inline-start"
+                              />
+                            ) : (
+                              <SquareIcon data-icon="inline-start" />
+                            )}
+                            {isStopping ? "停止中" : "停止"}
+                          </Button>
+                        ) : null}
+
+                        <Button
+                          variant="destructive"
+                          className="rounded-full"
+                          disabled={
+                            job.status === "running" ||
+                            isStarting ||
+                            isStopping ||
+                            isDeleting
+                          }
+                          onClick={() => {
+                            if (!window.confirm(`确认删除训练任务「${job.title}」吗？`)) {
+                              return;
+                            }
+
+                            deleteJob.mutate({ jobId: job.id });
+                          }}
+                        >
+                          {isDeleting ? (
+                            <LoaderCircleIcon
+                              className="animate-spin"
+                              data-icon="inline-start"
+                            />
+                          ) : (
+                            <Trash2Icon data-icon="inline-start" />
+                          )}
+                          {isDeleting ? "删除中" : "删除"}
+                        </Button>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        ) : null}
+      </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-[720px] rounded-[30px] border border-[#dfe8d4] bg-[#fbfdf8] p-0 text-[#1f2616]">
-          <DialogHeader className="border-b border-[#e7eedf] px-6 py-5">
-            <DialogTitle className="text-2xl tracking-[-0.04em] text-[#1a2413]">
+        <DialogContent className="max-w-[720px] border-border/70 bg-background/95 p-0 backdrop-blur-xl text-foreground">
+          <DialogHeader className="border-b border-border/70 px-6 py-5">
+            <DialogTitle className="text-2xl tracking-[-0.04em]">
               创建训练任务
             </DialogTitle>
-            <DialogDescription className="text-sm leading-6 text-[#667553]">
+            <DialogDescription className="text-sm leading-6 text-muted-foreground">
               当前启动后会提交到 Kubernetes，使用 Unsloth 容器执行。数据集可填写
               Hugging Face 数据集名，或挂载卷里的文件路径。
             </DialogDescription>
@@ -446,7 +520,6 @@ export function TrainingShell() {
           <div className="grid gap-4 px-6 py-5">
             <Field label="任务标题">
               <Input
-                className="h-11 rounded-2xl border-[#d5e1c8] bg-white px-4"
                 value={draft.title}
                 onChange={(event) =>
                   setDraft((current) => ({
@@ -460,7 +533,7 @@ export function TrainingShell() {
 
             <Field label="训练目标">
               <Textarea
-                className="min-h-28 resize-none rounded-2xl border-[#d5e1c8] bg-white px-4 py-3"
+                className="min-h-28 resize-none"
                 value={draft.objective}
                 onChange={(event) =>
                   setDraft((current) => ({
@@ -483,7 +556,7 @@ export function TrainingShell() {
                     }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-full rounded-2xl border-[#d5e1c8] bg-white px-4">
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择训练类型" />
                   </SelectTrigger>
                   <SelectContent>
@@ -508,7 +581,7 @@ export function TrainingShell() {
                     }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-full rounded-2xl border-[#d5e1c8] bg-white px-4">
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择优先级" />
                   </SelectTrigger>
                   <SelectContent>
@@ -528,7 +601,6 @@ export function TrainingShell() {
                   type="number"
                   min={1}
                   max={64}
-                  className="h-11 rounded-2xl border-[#d5e1c8] bg-white px-4"
                   value={draft.gpuCount}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -544,7 +616,6 @@ export function TrainingShell() {
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="基础模型">
                 <Input
-                  className="h-11 rounded-2xl border-[#d5e1c8] bg-white px-4"
                   value={draft.baseModel}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -558,7 +629,6 @@ export function TrainingShell() {
 
               <Field label="数据集">
                 <Input
-                  className="h-11 rounded-2xl border-[#d5e1c8] bg-white px-4"
                   value={draft.datasetName}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -566,22 +636,17 @@ export function TrainingShell() {
                       datasetName: event.target.value,
                     }))
                   }
-                  placeholder="customer-support-v4"
+                  placeholder="例如：cola/support-v2 或 /workspace/datasets/support.jsonl"
                 />
               </Field>
             </div>
           </div>
 
-          <DialogFooter className="rounded-b-[30px] border-t border-[#e7eedf] bg-[#f6faef] px-6 py-4">
-            <Button
-              variant="outline"
-              className="rounded-full border-[#d1ddc3] bg-white px-4 text-[#294021] hover:bg-white"
-              onClick={() => setIsCreateOpen(false)}
-            >
+          <DialogFooter className="border-t border-border/70 bg-muted/30 px-6 py-4">
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>
             <Button
-              className="rounded-full bg-[#22301b] px-5 text-white hover:bg-[#162013]"
               disabled={!canSubmit || createJob.isPending}
               onClick={() =>
                 createJob.mutate({
@@ -595,12 +660,19 @@ export function TrainingShell() {
                 })
               }
             >
-              <PlusIcon data-icon="inline-start" />
-              {createJob.isPending ? "创建中" : "创建任务"}
+              {createJob.isPending ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
+              {createJob.isPending ? "创建中" : "创建训练任务"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ModulePageShell>
   );
 }

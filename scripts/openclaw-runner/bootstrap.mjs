@@ -9,6 +9,9 @@ const apiBaseUrl =
   process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "OpenClaw Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
+const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "docker";
+const runtimeLabel =
+  runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "host.docker.internal";
 const image =
   process.env.COLA_RUNNER_IMAGE ?? process.env.OPENCLAW_IMAGE ?? "unknown-image";
@@ -265,6 +268,7 @@ async function registerRunner(healthSummary, status = "online") {
     resourcePool,
     status,
     engine: "openclaw",
+    runtime: runnerRuntime,
     host: runnerHost,
     healthSummary,
     containerName,
@@ -284,6 +288,7 @@ async function sendHeartbeat(status, healthSummary) {
     name: runnerName,
     resourcePool,
     engine: "openclaw",
+    runtime: runnerRuntime,
     healthSummary,
     host: runnerHost,
     containerName,
@@ -367,22 +372,23 @@ async function startHeartbeatLoop() {
       await sendHeartbeat(
         currentStatus,
         currentStatus === "online"
-          ? "Docker OpenClaw runner 心跳正常"
+          ? `${runtimeLabel} OpenClaw runner 心跳正常`
           : currentStatus === "busy"
-            ? "Docker OpenClaw runner 正在执行任务"
+            ? `${runtimeLabel} OpenClaw runner 正在执行任务`
             : currentStatus === "unhealthy"
-              ? "Docker OpenClaw runner 处于异常状态"
-              : "Docker OpenClaw runner 处于维护状态",
+              ? `${runtimeLabel} OpenClaw runner 处于异常状态`
+              : `${runtimeLabel} OpenClaw runner 处于维护状态`,
       );
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message.includes("未找到目标 Docker runner。")
+        (error.message.includes("未找到目标 Docker runner。") ||
+          error.message.includes("未找到目标 runner。"))
       ) {
         try {
           await logLine("runner record is missing, re-registering before next heartbeat");
           await registerRunner(
-            "Docker OpenClaw runner 已重新注册，恢复心跳",
+            `${runtimeLabel} OpenClaw runner 已重新注册，恢复心跳`,
             currentStatus,
           );
         } catch (registerError) {
@@ -588,7 +594,7 @@ async function runBootCommand() {
 
 async function main() {
   await ensureLogDir();
-  await logLine("starting Docker OpenClaw bootstrap");
+  await logLine(`starting ${runtimeLabel} OpenClaw bootstrap`);
 
   const probe = await probeOpenClaw();
   await registerRunner(probe.summary, probe.status);

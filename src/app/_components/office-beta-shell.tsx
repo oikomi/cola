@@ -11,6 +11,7 @@ import {
   RefreshCcwIcon,
   ShieldAlertIcon,
   SparklesIcon,
+  Trash2Icon,
   UserRoundPlusIcon,
   UsersIcon,
 } from "lucide-react";
@@ -1894,6 +1895,20 @@ export function OfficeBetaShell({ snapshot }: Props) {
       setFeedback(error.message);
     },
   });
+  const deleteAgent = api.office.deleteAgent.useMutation({
+    onSuccess: (result) => {
+      setFeedback(result.message);
+      startTransition(() => {
+        if (selectedAgentIdRef.current === result.agentId) {
+          setSelectedAgentId(null);
+        }
+      });
+      void utils.office.getSnapshot.invalidate();
+    },
+    onError: (error) => {
+      setFeedback(error.message);
+    },
+  });
   const liveSnapshot = snapshotQuery.data ?? snapshot;
 
   liveSnapshotRef.current = liveSnapshot;
@@ -2280,6 +2295,26 @@ export function OfficeBetaShell({ snapshot }: Props) {
     });
   };
 
+  const handleDeleteAgent = async () => {
+    if (!selectedAgent) return;
+
+    if (liveSnapshot.readOnlyReason) {
+      setFeedback(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        `确认删除人物 ${selectedAgent.name}？这会同时清理关联 runner 资源。`,
+      );
+      if (!confirmed) return;
+    }
+
+    await deleteAgent.mutateAsync({
+      agentId: selectedAgent.id,
+    });
+  };
+
   const openNativeWorkspace = async () => {
     if (!selectedAgent || typeof window === "undefined") return;
 
@@ -2324,11 +2359,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
     : null;
 
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,#f5e5c8_0%,#e9d2ac_100%)] text-[#1f1711]">
-      <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
+    <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,rgba(107,138,173,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(255,210,155,0.18),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_42%,#edf2f7_100%)] text-foreground">
+      <div className="mx-auto max-w-[1640px] px-4 py-4 md:px-6 md:py-6">
         <ProductAreaHeader />
 
-        <div className="relative overflow-hidden rounded-[28px] border border-white/40 bg-[radial-gradient(circle_at_top,rgba(255,249,238,0.72),rgba(255,242,220,0.36)),linear-gradient(180deg,rgba(255,248,235,0.85),rgba(230,206,166,0.42))] p-3 shadow-[0_26px_90px_rgba(98,67,33,0.16)] md:p-4">
+        <div className="relative overflow-hidden rounded-[28px] border border-border/70 bg-background/78 p-3 shadow-[0_26px_90px_rgba(15,23,42,0.1)] backdrop-blur-xl md:p-4">
           <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-[10px] tracking-[0.34em] text-[#a78560] uppercase">
@@ -2524,6 +2559,19 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <RefreshCcwIcon className="size-4" />
                     控制台
                   </Link>
+                  <Button
+                    variant="outline"
+                    className="rounded-full border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                    disabled={deleteAgent.isPending}
+                    onClick={() => void handleDeleteAgent()}
+                  >
+                    {deleteAgent.isPending ? (
+                      <LoaderCircleIcon className="animate-spin" />
+                    ) : (
+                      <Trash2Icon />
+                    )}
+                    删除
+                  </Button>
                 </div>
               </div>
             ) : (

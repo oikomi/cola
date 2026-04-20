@@ -13,6 +13,7 @@ const createWorkspaceInput = z.object({
   cpu: z.string().trim().min(1).max(20),
   memoryGi: z.number().int().positive().max(2048),
   gpu: z.number().int().nonnegative().max(16),
+  resolution: z.string().trim().min(9).max(20),
 });
 
 const deleteWorkspaceInput = z.object({

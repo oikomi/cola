@@ -14,6 +14,9 @@ import {
   dockerRunnerEngineLabels,
   dockerRunnerEngineValues,
   type DockerRunnerEngine,
+  runnerRuntimeLabels,
+  runnerRuntimeValues,
+  type RunnerRuntime,
 } from "@/server/office/catalog";
 import type {
   HeartbeatInput,
@@ -49,6 +52,17 @@ function resolveDockerRunnerEngine(engine: unknown): DockerRunnerEngine {
   return "openclaw";
 }
 
+function resolveRunnerRuntime(runtime: unknown): RunnerRuntime {
+  if (
+    typeof runtime === "string" &&
+    runnerRuntimeValues.includes(runtime as RunnerRuntime)
+  ) {
+    return runtime as RunnerRuntime;
+  }
+
+  return "docker";
+}
+
 function linkedAgentMetadata(metadata: unknown) {
   const record = isPlainRecord(metadata) ? metadata : null;
 
@@ -64,6 +78,7 @@ async function syncLinkedAgentReadiness(
   database: Database,
   metadata: unknown,
   engineLabel: string,
+  runtimeLabel: string,
   deviceStatus: RegisterDockerRunnerInput["status"] | HeartbeatInput["status"],
   healthSummary: string,
   now: Date,
@@ -100,7 +115,7 @@ async function syncLinkedAgentReadiness(
       .update(agents)
       .set({
         status: "waiting_device",
-        focus: `${displayName} runner 容器已启动，等待 ${engineLabel} 完成注册`,
+        focus: `${displayName} runner 已在 ${runtimeLabel} 中启动，等待 ${engineLabel} 完成注册`,
         updatedAt: now,
       })
       .where(eq(agents.id, agentId));
@@ -114,7 +129,7 @@ async function syncLinkedAgentReadiness(
         status: "blocked",
         focus:
           healthSummary ||
-          `${displayName} runner 就绪检查失败，需要处理 Docker / ${engineLabel} 配置`,
+          `${displayName} runner 就绪检查失败，需要处理 ${runtimeLabel} / ${engineLabel} 配置`,
         updatedAt: now,
       })
       .where(eq(agents.id, agentId));
@@ -128,6 +143,8 @@ export async function registerDockerRunner(
   const now = new Date();
   const engine = resolveDockerRunnerEngine(input.engine);
   const engineLabel = dockerRunnerEngineLabels[engine];
+  const runtime = resolveRunnerRuntime(input.runtime);
+  const runtimeLabel = runnerRuntimeLabels[runtime];
   const status = input.status ?? "online";
   const [existing] = await database
     .select()
@@ -141,9 +158,10 @@ export async function registerDockerRunner(
     .limit(1);
 
   const metadataPatch = {
-    runtime: "docker",
+    runtime,
     engine,
-    healthSummary: input.healthSummary ?? "Docker runner 已注册，等待任务。",
+    healthSummary:
+      input.healthSummary ?? `${runtimeLabel} runner 已注册，等待任务。`,
     ...(input.containerName ? { containerName: input.containerName } : {}),
     ...(input.image ? { image: input.image } : {}),
   };
@@ -167,6 +185,7 @@ export async function registerDockerRunner(
       database,
       mergedMetadata,
       engineLabel,
+      runtimeLabel,
       status,
       metadataPatch.healthSummary,
       now,
@@ -182,7 +201,7 @@ export async function registerDockerRunner(
           : status === "maintenance"
             ? "warning"
             : "info",
-      title: `Docker ${engineLabel} runner 已重新注册：${existing.name}`,
+      title: `${runtimeLabel} ${engineLabel} runner 已重新注册：${existing.name}`,
       description: metadataPatch.healthSummary,
       occurredAt: now,
     });
@@ -207,7 +226,7 @@ export async function registerDockerRunner(
   if (!created) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "Docker runner 注册失败。",
+      message: `${runtimeLabel} runner 注册失败。`,
     });
   }
 
@@ -221,7 +240,7 @@ export async function registerDockerRunner(
         : status === "maintenance"
           ? "warning"
           : "info",
-    title: `Docker ${engineLabel} runner 已注册：${created.name}`,
+    title: `${runtimeLabel} ${engineLabel} runner 已注册：${created.name}`,
     description: metadataPatch.healthSummary,
     occurredAt: now,
   });
@@ -264,7 +283,7 @@ export async function heartbeatRunner(
     if (!device) {
       throw new TRPCError({
         code: "NOT_FOUND",
-        message: "未找到目标 Docker runner。",
+        message: "未找到目标 runner。",
       });
     }
   }
@@ -277,11 +296,13 @@ export async function heartbeatRunner(
     input.engine ?? currentMetadata?.engine,
   );
   const engineLabel = dockerRunnerEngineLabels[engine];
+  const runtime = resolveRunnerRuntime(input.runtime ?? currentMetadata?.runtime);
+  const runtimeLabel = runnerRuntimeLabels[runtime];
   const metadataPatch = {
-    runtime: "docker",
+    runtime,
     engine,
     healthSummary:
-      input.healthSummary ?? "Docker runner 心跳正常，等待下一次调度。",
+      input.healthSummary ?? `${runtimeLabel} runner 心跳正常，等待下一次调度。`,
     ...(input.containerName ? { containerName: input.containerName } : {}),
     ...(input.image ? { image: input.image } : {}),
   };
@@ -303,6 +324,7 @@ export async function heartbeatRunner(
       database,
       mergeMetadata(device.metadata, metadataPatch),
       engineLabel,
+      runtimeLabel,
       input.status,
       metadataPatch.healthSummary,
       now,
@@ -320,7 +342,7 @@ export async function heartbeatRunner(
           : input.status === "maintenance"
             ? "warning"
             : "info",
-      title: `Docker ${engineLabel} runner 状态变更：${device.name}`,
+      title: `${runtimeLabel} ${engineLabel} runner 状态变更：${device.name}`,
       description: `设备状态已从 ${previousStatus} 更新为 ${input.status}。`,
       occurredAt: now,
     });
@@ -345,7 +367,7 @@ export async function reportRunnerSession(
     if (!device) {
       throw new TRPCError({
         code: "NOT_FOUND",
-        message: "未找到目标 Docker runner。",
+        message: "未找到目标 runner。",
       });
     }
 
@@ -488,7 +510,7 @@ export async function reportRunnerSession(
       entityType: "execution_session",
       entityId: session.id,
       severity: input.status === "failed" ? "critical" : "info",
-      title: `Docker runner 已回报执行会话：${device.name}`,
+      title: `Runner 已回报执行会话：${device.name}`,
       description: `任务「${task.title}」当前会话状态为 ${input.status}。`,
       occurredAt: now,
     });
@@ -518,7 +540,7 @@ export async function pullNextTaskForRunner(
   if (!device) {
     throw new TRPCError({
       code: "NOT_FOUND",
-      message: "未找到目标 Docker runner。",
+      message: "未找到目标 runner。",
     });
   }
 
@@ -571,7 +593,7 @@ export async function pullNextTaskForRunner(
     .update(agents)
     .set({
       status: "executing",
-      focus: `Docker runner 已认领任务：${nextTask.title}`,
+      focus: `Runner 已认领任务：${nextTask.title}`,
       updatedAt: now,
     })
     .where(eq(agents.id, agentId));
@@ -581,7 +603,7 @@ export async function pullNextTaskForRunner(
     entityType: "task",
     entityId: nextTask.id,
     severity: "info",
-    title: `任务已被 Docker runner 认领：${nextTask.title}`,
+    title: `任务已被 runner 认领：${nextTask.title}`,
     description: `${device.name} 已开始执行 ${nextTask.title}。`,
     occurredAt: now,
   });

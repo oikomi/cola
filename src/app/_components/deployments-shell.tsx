@@ -13,9 +13,17 @@ import {
   RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
+import {
+  ModuleEmptyState,
+  ModuleHero,
+  ModuleMetricCard,
+  ModulePageShell,
+  ModuleSection,
+} from "@/app/_components/module-shell";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -35,6 +43,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
@@ -71,61 +88,35 @@ const defaultDraft: DraftState = {
 function statusTone(status: DeploymentRow["status"]) {
   switch (status) {
     case "serving":
-      return "bg-[#edf9f3] text-[#0f6a3c]";
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "starting":
-      return "bg-[#fff4dd] text-[#8b5b10]";
+      return "border-amber-200 bg-amber-50 text-amber-700";
     case "draft":
-      return "bg-[#fff1e8] text-[#9a4b19]";
+      return "border-sky-200 bg-sky-50 text-sky-700";
     case "paused":
-      return "bg-[#fff8dc] text-[#8a5c14]";
+      return "border-stone-200 bg-stone-100 text-stone-700";
     case "failed":
-      return "bg-[#fff1ef] text-[#a63f2b]";
+      return "border-rose-200 bg-rose-50 text-rose-700";
     default:
-      return "bg-[#f4f5f7] text-[#344054]";
+      return "border-border bg-muted text-muted-foreground";
   }
 }
 
 function Field(props: {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
   hint?: string;
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-xs font-medium tracking-[0.18em] text-[#8d6453] uppercase">
+      <span className="text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-xs text-[#8a6b5d]">{props.hint}</span>
+        <span className="text-xs text-muted-foreground">{props.hint}</span>
       ) : null}
     </label>
-  );
-}
-
-function MetricCard(props: {
-  label: string;
-  value: string;
-  description: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <article className="rounded-[26px] border border-[#ead8cd] bg-white/88 p-5 shadow-[0_18px_60px_rgba(92,57,44,0.08)]">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] tracking-[0.24em] text-[#8f6656] uppercase">
-            {props.label}
-          </p>
-          <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-[#221814]">
-            {props.value}
-          </p>
-        </div>
-        <div className="flex size-11 items-center justify-center rounded-[18px] bg-[#f8efe9] text-[#5d372a]">
-          {props.icon}
-        </div>
-      </div>
-      <p className="mt-4 text-sm leading-6 text-[#6d5549]">{props.description}</p>
-    </article>
   );
 }
 
@@ -135,6 +126,45 @@ function resourceLabel(row: DeploymentRow) {
 
 function nodeLabel(row: DeploymentRow) {
   return row.nodeNames.length > 0 ? row.nodeNames.join(", ") : "未调度";
+}
+
+function LoadingRows() {
+  return (
+    <div className="grid gap-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={`deployment-skeleton-${index}`}
+          className="rounded-3xl border border-border/70 bg-background/70 p-4"
+        >
+          <div className="grid gap-3 md:grid-cols-[1.2fr_110px_1fr_180px_1fr_140px_260px] md:items-center">
+            <div className="grid gap-2">
+              <Skeleton className="h-6 w-44" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-36" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <Skeleton className="h-5 w-24" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-16 rounded-full" />
+              <Skeleton className="h-9 w-16 rounded-full" />
+              <Skeleton className="h-9 w-16 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function DeploymentsShell() {
@@ -147,7 +177,7 @@ export function DeploymentsShell() {
   const [draft, setDraft] = useState<DraftState>(defaultDraft);
 
   const deploymentsQuery = api.deployments.list.useQuery(undefined, {
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
 
   const createDeployment = api.deployments.create.useMutation({
@@ -243,200 +273,139 @@ export function DeploymentsShell() {
   };
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,rgba(252,187,151,0.2),transparent_24%),linear-gradient(180deg,#fbf4ef_0%,#f4ede8_46%,#ece4dc_100%)] text-[#221814]">
-      <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
-        <ProductAreaHeader />
+    <ModulePageShell>
+      <ProductAreaHeader />
 
-        <section className="mt-6 overflow-hidden rounded-[34px] border border-[#ead7cc] bg-[linear-gradient(135deg,#261813_0%,#3d241e_50%,#6f473a_100%)] text-[#fff3ec] shadow-[0_34px_120px_rgba(82,48,36,0.2)]">
-          <div className="grid gap-8 px-6 py-7 md:px-8 md:py-9 xl:grid-cols-[minmax(0,1.04fr)_360px]">
-            <div className="space-y-5">
-              <Badge className="border-0 bg-white/10 text-white hover:bg-white/10">
-                Kubernetes Inference
-              </Badge>
-              <div className="space-y-3">
-                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.06em] md:text-5xl">
-                  推理部署直接落到 K8s，支持 vLLM、llama.cpp 和 SGLang。
-                </h1>
-                <p className="max-w-3xl text-base leading-8 text-white/74">
-                  控制面当前运行在 K8s master 节点上，所以入口统一经 master
-                  的 NodePort 暴露；真正的推理 Pod 会优先调度到非 master 的
-                  worker 节点，避免和 Web 抢资源。
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  size="lg"
-                  className="rounded-full bg-white px-5 text-[#2b1b16] hover:bg-[#fff4ef]"
-                  disabled={!available}
-                  onClick={() => setIsCreateOpen(true)}
-                >
-                  <PlusIcon data-icon="inline-start" />
-                  创建推理部署
-                </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="rounded-full border-white/20 bg-white/8 px-5 text-white hover:bg-white/12"
-                  onClick={() => void deploymentsQuery.refetch()}
-                >
-                  <RefreshCwIcon
-                    data-icon="inline-start"
-                    className={
-                      deploymentsQuery.isFetching ? "animate-spin" : undefined
-                    }
-                  />
-                  刷新列表
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 self-stretch sm:grid-cols-2 xl:grid-cols-1">
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
-                <p className="text-[11px] tracking-[0.28em] text-white/48 uppercase">
-                  K8s 连接
-                </p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">
-                  {available ? "OK" : "DOWN"}
-                </p>
-                <p className="mt-2 text-sm text-white/62">
-                  {available ? "控制面可直接访问集群" : "请先检查 master 上的 kubeconfig"}
-                </p>
-              </div>
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
-                <p className="text-[11px] tracking-[0.28em] text-white/48 uppercase">
-                  服务中
-                </p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">
-                  {servingCount}
-                </p>
-                <p className="mt-2 text-sm text-white/62">
-                  在线承接流量的推理部署
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="部署总数"
-            value={String(rows.length)}
-            description="运行时列表直接来自当前集群中的 inference Deployment。"
-            icon={<BlocksIcon className="size-5" />}
-          />
-          <MetricCard
-            label="启动中"
-            value={String(startingCount)}
-            description="Pod 已提交到 K8s，但副本还没有全部 Ready。"
-            icon={<ActivityIcon className="size-5" />}
-          />
-          <MetricCard
-            label="已暂停"
-            value={String(pausedCount)}
-            description="Deployment 还在，但副本数已经缩到 0。"
-            icon={<PauseCircleIcon className="size-5" />}
-          />
-          <MetricCard
-            label="活跃 GPU"
-            value={String(activeGpuCount)}
-            description="按服务中和启动中的部署累计 GPU 配额。"
-            icon={<CpuIcon className="size-5" />}
-          />
-        </section>
-
-        <section className="mt-6 rounded-[32px] border border-[#ead8cd] bg-white/88 shadow-[0_24px_90px_rgba(92,57,44,0.08)]">
-          <div className="flex flex-col gap-4 border-b border-[#eee0d7] px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">
-            <div className="flex items-start gap-4">
-              <div className="flex size-12 items-center justify-center rounded-[18px] bg-[#4a2c22] text-white">
-                <BrainCircuitIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-[11px] tracking-[0.3em] text-[#8f6656] uppercase">
-                  Runtime List
-                </p>
-                <h2 className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-[#221814]">
-                  推理服务列表
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-[#6d5549]">
-                  创建的是 K8s Deployment + NodePort Service，后续动作只有上线、暂停、删除。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge
-                className={cn(
-                  "border-0 hover:bg-inherit",
-                  available
-                    ? "bg-[#f7ece5] text-[#835646]"
-                    : "bg-[#fff1f2] text-[#b42318]",
-                )}
-              >
-                {available ? "K8s 已连接" : "K8s 不可用"}
-              </Badge>
-              <Badge className="border-0 bg-[#fbf3ec] text-[#a1684d] hover:bg-[#fbf3ec]">
-                master 入口转发
-              </Badge>
-              <Button
-                className="h-10 rounded-full bg-[#4a2c22] px-4 text-white hover:bg-[#391f18]"
-                disabled={!available}
-                onClick={() => setIsCreateOpen(true)}
-              >
-                <PlusIcon data-icon="inline-start" />
-                创建推理部署
-              </Button>
-            </div>
-          </div>
-
-          {capabilityReason ? (
-            <div className="border-b border-[#f0d8d8] bg-[#fff8f8] px-5 py-4 text-sm leading-6 text-[#8f2d2d] md:px-6">
-              {capabilityReason}
-            </div>
-          ) : null}
-
-          {feedback ? (
-            <div
+      <ModuleHero
+        eyebrow="Kubernetes Inference"
+        title="推理部署平台"
+        description="统一编排 vLLM、llama.cpp 和 SGLang 运行时，把资源规格、节点分布、入口地址和状态切换收敛到单一控制面。"
+        icon={BrainCircuitIcon}
+        badges={
+          <>
+            <Badge
+              variant="outline"
               className={cn(
-                "border-b px-5 py-4 text-sm leading-6 md:px-6",
-                feedback.tone === "success"
-                  ? "border-[#eee0d7] bg-[#fbf5ef] text-[#59392d]"
-                  : "border-[#f0d8d8] bg-[#fff8f8] text-[#8f2d2d]",
+                available
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-rose-200 bg-rose-50 text-rose-700",
               )}
             >
-              {feedback.message}
-            </div>
-          ) : null}
+              {available ? "K8s 已连接" : "K8s 不可用"}
+            </Badge>
+            <Badge variant="outline" className="border-border/80 bg-background/60">
+              master NodePort 入口
+            </Badge>
+          </>
+        }
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="lg"
+              className="rounded-full"
+              onClick={() => void deploymentsQuery.refetch()}
+            >
+              <RefreshCwIcon
+                className={cn(
+                  deploymentsQuery.isFetching ? "animate-spin" : undefined,
+                )}
+                data-icon="inline-start"
+              />
+              刷新列表
+            </Button>
+            <Button
+              size="lg"
+              className="rounded-full"
+              disabled={!available}
+              onClick={() => setIsCreateOpen(true)}
+            >
+              <PlusIcon data-icon="inline-start" />
+              创建推理部署
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <ModuleMetricCard
+            label="部署总数"
+            value={String(rows.length)}
+            description="当前集群中被控制面纳管的全部推理运行时。"
+            icon={BlocksIcon}
+          />
+          <ModuleMetricCard
+            label="服务中"
+            value={String(servingCount)}
+            description="已准备好承接线上流量的推理部署。"
+            icon={ActivityIcon}
+          />
+          <ModuleMetricCard
+            label="已暂停"
+            value={String(pausedCount)}
+            description="Deployment 还在，但副本已经缩容到 0。"
+            icon={PauseCircleIcon}
+          />
+          <ModuleMetricCard
+            label="活跃 GPU"
+            value={String(activeGpuCount)}
+            description="按服务中和启动中的副本累计 GPU 配额。"
+            icon={CpuIcon}
+          />
+        </div>
+      </ModuleHero>
 
-          <div className="px-5 py-5 md:px-6">
-            <div className="hidden rounded-[20px] border border-[#eee4dd] bg-[#f9f3ee] px-4 py-3 text-[11px] font-medium tracking-[0.18em] text-[#8d6c5d] uppercase md:grid md:grid-cols-[minmax(0,1.15fr)_120px_minmax(0,1fr)_180px_minmax(0,1fr)_120px_220px] md:items-center md:gap-4">
-              <span>部署</span>
-              <span>状态</span>
-              <span>Runtime / 模型</span>
-              <span>资源 / 节点</span>
-              <span>入口</span>
-              <span>更新时间</span>
-              <span>操作</span>
-            </div>
+      {capabilityReason ? (
+        <Alert variant="destructive">
+          <AlertTitle>Kubernetes 访问异常</AlertTitle>
+          <AlertDescription>{capabilityReason}</AlertDescription>
+        </Alert>
+      ) : null}
 
-            <div className="mt-3 space-y-3">
-              {deploymentsQuery.isLoading ? (
-                <div className="rounded-[24px] border border-[#ead8cd] bg-white px-4 py-8 text-center text-sm text-[#7d6559]">
-                  <LoaderCircleIcon className="mx-auto mb-3 animate-spin" />
-                  正在读取推理部署列表...
-                </div>
-              ) : null}
+      {feedback ? (
+        <Alert variant={feedback.tone === "success" ? "default" : "destructive"}>
+          <AlertTitle>{feedback.tone === "success" ? "操作完成" : "操作失败"}</AlertTitle>
+          <AlertDescription>{feedback.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
-              {!deploymentsQuery.isLoading && rows.length === 0 ? (
-                <div className="rounded-[24px] border border-dashed border-[#ead8cd] bg-[#fbf6f2] px-4 py-8 text-center">
-                  <p className="text-base font-medium text-[#221814]">
-                    还没有推理部署
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#6d5549]">
-                    先选择一个 runtime，把模型、镜像和资源规格沉淀成 K8s 部署。
-                  </p>
-                </div>
-              ) : null}
+      <ModuleSection
+        title="运行时列表"
+        description="查看模型引用、节点落点、外部入口与副本状态，并在同一行完成上线、暂停或删除。"
+        action={
+          <Badge variant="outline" className="border-border/80 bg-background/60">
+            启动中 {startingCount}
+          </Badge>
+        }
+      >
+        {deploymentsQuery.isLoading ? <LoadingRows /> : null}
 
+        {!deploymentsQuery.isLoading && rows.length === 0 ? (
+          <ModuleEmptyState
+            title="还没有推理部署"
+            description="先选择一个 runtime，把模型、镜像和资源规格固化成可上线的 K8s 部署。"
+            action={
+              <Button disabled={!available} onClick={() => setIsCreateOpen(true)}>
+                <PlusIcon data-icon="inline-start" />
+                创建第一个部署
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!deploymentsQuery.isLoading && rows.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>部署</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>Runtime / 模型</TableHead>
+                <TableHead>资源 / 节点</TableHead>
+                <TableHead>入口</TableHead>
+                <TableHead>更新时间</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((row) => {
                 const isStarting =
                   startDeployment.isPending && startDeployment.variables?.name === row.name;
@@ -448,99 +417,73 @@ export function DeploymentsShell() {
                 const canStop = ["serving", "starting"].includes(row.status);
 
                 return (
-                  <div
-                    key={row.id}
-                    className="rounded-[24px] border border-[#eee2da] bg-white px-4 py-4 shadow-[0_14px_40px_rgba(92,57,44,0.06)]"
-                  >
-                    <div className="grid gap-4 md:grid-cols-[minmax(0,1.15fr)_120px_minmax(0,1fr)_180px_minmax(0,1fr)_120px_220px] md:items-center">
-                      <div>
-                        <p className="text-lg font-semibold tracking-[-0.03em] text-[#221814]">
-                          {row.name}
-                        </p>
-                        <p className="mt-1 text-sm text-[#835646]">
+                  <TableRow key={row.id} className="border-border/70">
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-1">
+                        <p className="font-medium text-foreground">{row.name}</p>
+                        <p className="text-sm text-muted-foreground">
                           {row.readyReplicas}/{row.desiredReplicas} Ready 副本
                         </p>
                       </div>
-
-                      <div>
-                        <p className="text-[11px] tracking-[0.22em] text-[#a08173] uppercase md:hidden">
-                          状态
-                        </p>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(row.status)}`}
-                        >
-                          {inferenceDeploymentStatusLabels[row.status]}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <Badge
+                        variant="outline"
+                        className={cn("rounded-full", statusTone(row.status))}
+                      >
+                        {inferenceDeploymentStatusLabels[row.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex max-w-[24rem] flex-col gap-1">
+                        <span className="font-medium text-foreground">
+                          {inferenceDeploymentEngineLabels[row.engine]}
+                        </span>
+                        <span className="break-all text-sm text-muted-foreground">
+                          {row.modelRef}
+                        </span>
+                        <span className="break-all text-xs text-muted-foreground/85">
+                          {row.image}
                         </span>
                       </div>
-
-                      <div>
-                        <p className="text-[11px] tracking-[0.22em] text-[#a08173] uppercase md:hidden">
-                          Runtime / 模型
-                        </p>
-                        <p className="text-sm font-medium text-[#2d1c16]">
-                          {inferenceDeploymentEngineLabels[row.engine]}
-                        </p>
-                        <p className="mt-1 break-all text-sm text-[#6d5549]">
-                          {row.modelRef}
-                        </p>
-                        <p className="mt-1 break-all text-xs text-[#9b7d70]">
-                          {row.image}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="text-[11px] tracking-[0.22em] text-[#a08173] uppercase md:hidden">
-                          资源 / 节点
-                        </p>
-                        <p className="text-sm font-medium text-[#2d1c16]">
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium text-foreground">
                           {resourceLabel(row)}
-                        </p>
-                        <p className="mt-1 text-sm text-[#6d5549]">
+                        </span>
+                        <span className="text-sm text-muted-foreground">
                           {nodeLabel(row)}
-                        </p>
+                        </span>
                       </div>
-
-                      <div>
-                        <p className="text-[11px] tracking-[0.22em] text-[#a08173] uppercase md:hidden">
-                          入口
-                        </p>
-                        <p className="text-sm font-medium text-[#2d1c16]">
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium text-foreground">
                           {row.nodePort ? `:${row.nodePort}` : "-"}
-                        </p>
-                        <p className="mt-1 break-all text-sm text-[#6d5549]">
+                        </span>
+                        <span className="break-all text-sm text-muted-foreground">
                           {row.endpoint ?? "-"}
-                        </p>
+                        </span>
                       </div>
-
-                      <div>
-                        <p className="text-[11px] tracking-[0.22em] text-[#a08173] uppercase md:hidden">
-                          更新时间
-                        </p>
-                        <p className="text-sm font-medium text-[#2d1c16]">
-                          {row.updatedAt ?? "-"}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
+                    </TableCell>
+                    <TableCell className="align-top text-muted-foreground">
+                      {row.updatedAt ?? "-"}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex justify-end gap-2">
                         {row.endpoint ? (
                           <a
                             href={row.endpoint}
                             target="_blank"
                             rel="noreferrer"
-                            className={cn(
-                              buttonVariants({ variant: "outline" }),
-                              "h-9 rounded-full border-[#e4d1c6] bg-[#fbf5ef] px-4 text-[#4a2c22] hover:bg-white",
-                            )}
+                            className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
                           >
-                            <GlobeIcon className="size-4" />
+                            <GlobeIcon data-icon="inline-start" />
                             API
                           </a>
                         ) : (
-                          <Button
-                            variant="outline"
-                            className="h-9 rounded-full border-[#e4d1c6] bg-[#fbf5ef] px-4 text-[#4a2c22] hover:bg-white"
-                            disabled
-                          >
+                          <Button variant="outline" className="rounded-full" disabled>
                             API
                           </Button>
                         )}
@@ -548,14 +491,19 @@ export function DeploymentsShell() {
                         {canStart ? (
                           <Button
                             variant="outline"
-                            className="h-9 rounded-full border-[#d7e4d2] bg-[#f4fbf1] px-4 text-[#1f5f3a] hover:bg-white"
+                            className="rounded-full"
                             disabled={isStarting || isStopping || isDeleting}
-                            onClick={() => void startDeployment.mutateAsync({ name: row.name })}
+                            onClick={() =>
+                              void startDeployment.mutateAsync({ name: row.name })
+                            }
                           >
                             {isStarting ? (
-                              <LoaderCircleIcon className="animate-spin" />
+                              <LoaderCircleIcon
+                                className="animate-spin"
+                                data-icon="inline-start"
+                              />
                             ) : (
-                              <PlayIcon className="size-4" />
+                              <PlayIcon data-icon="inline-start" />
                             )}
                             上线
                           </Button>
@@ -564,49 +512,57 @@ export function DeploymentsShell() {
                         {canStop ? (
                           <Button
                             variant="outline"
-                            className="h-9 rounded-full border-[#e8dcc0] bg-[#fff7e9] px-4 text-[#8a5c14] hover:bg-white"
+                            className="rounded-full"
                             disabled={isStarting || isStopping || isDeleting}
-                            onClick={() => void stopDeployment.mutateAsync({ name: row.name })}
+                            onClick={() =>
+                              void stopDeployment.mutateAsync({ name: row.name })
+                            }
                           >
                             {isStopping ? (
-                              <LoaderCircleIcon className="animate-spin" />
+                              <LoaderCircleIcon
+                                className="animate-spin"
+                                data-icon="inline-start"
+                              />
                             ) : (
-                              <PauseCircleIcon className="size-4" />
+                              <PauseCircleIcon data-icon="inline-start" />
                             )}
                             暂停
                           </Button>
                         ) : null}
 
                         <Button
-                          variant="outline"
-                          className="h-9 rounded-full border-[#e7cfc7] bg-[#fff7f4] px-3 text-[#9b3d20] hover:bg-white"
+                          variant="destructive"
+                          className="rounded-full"
                           disabled={isStarting || isStopping || isDeleting}
                           onClick={() => void handleDelete(row.name)}
                         >
                           {isDeleting ? (
-                            <LoaderCircleIcon className="animate-spin" />
+                            <LoaderCircleIcon
+                              className="animate-spin"
+                              data-icon="inline-start"
+                            />
                           ) : (
-                            <Trash2Icon className="size-4" />
+                            <Trash2Icon data-icon="inline-start" />
                           )}
                           删除
                         </Button>
                       </div>
-                    </div>
-                  </div>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </div>
-          </div>
-        </section>
-      </div>
+            </TableBody>
+          </Table>
+        ) : null}
+      </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-w-[760px] rounded-[30px] border border-[#eadcd2] bg-[#fdfaf7] p-0 text-[#221814]">
-          <DialogHeader className="border-b border-[#eee1d8] px-6 py-5">
-            <DialogTitle className="text-2xl tracking-[-0.04em] text-[#221814]">
+        <DialogContent className="max-w-[760px] border-border/70 bg-background/95 p-0 text-foreground backdrop-blur-xl">
+          <DialogHeader className="border-b border-border/70 px-6 py-5">
+            <DialogTitle className="text-2xl tracking-[-0.04em]">
               创建推理部署
             </DialogTitle>
-            <DialogDescription className="text-sm leading-6 text-[#7a6054]">
+            <DialogDescription className="text-sm leading-6 text-muted-foreground">
               运行时会部署成 K8s Deployment，创建后默认先停留在草稿状态，点击上线再扩成目标副本。
             </DialogDescription>
           </DialogHeader>
@@ -615,7 +571,6 @@ export function DeploymentsShell() {
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
               <Field label="部署名称">
                 <Input
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.name}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -643,7 +598,7 @@ export function DeploymentsShell() {
                     }));
                   }}
                 >
-                  <SelectTrigger className="h-11 w-full rounded-2xl border-[#e5d5ca] bg-white px-4">
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择 runtime" />
                   </SelectTrigger>
                   <SelectContent>
@@ -659,17 +614,16 @@ export function DeploymentsShell() {
               </Field>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid gap-4 md:grid-cols-2">
               <Field
                 label="模型引用"
                 hint={
                   draft.engine === "llama.cpp"
-                    ? "llama.cpp 建议填写 GGUF 文件路径；非绝对路径会自动映射到 /models 下。"
+                    ? "llama.cpp 建议填写 GGUF 文件路径；非绝对路径会自动映射到 /models。"
                     : "vLLM / SGLang 直接填写 Hugging Face 模型 ID 或本地模型路径。"
                 }
               >
                 <Input
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.modelRef}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -687,7 +641,6 @@ export function DeploymentsShell() {
 
               <Field label="运行镜像">
                 <Input
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.image}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -703,7 +656,6 @@ export function DeploymentsShell() {
             <div className="grid gap-4 md:grid-cols-4">
               <Field label="CPU">
                 <Input
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.cpu}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -720,7 +672,6 @@ export function DeploymentsShell() {
                   type="number"
                   min={1}
                   max={2048}
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.memoryGi}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -740,12 +691,15 @@ export function DeploymentsShell() {
                   type="number"
                   min={engineNeedsGpu ? 1 : 0}
                   max={16}
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.gpuCount}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
                       gpuCount: event.target.value,
+                      image: defaultInferenceImage(
+                        current.engine,
+                        Number.parseInt(event.target.value, 10) || 0,
+                      ),
                     }))
                   }
                   placeholder={engineNeedsGpu ? "1" : "0"}
@@ -757,7 +711,6 @@ export function DeploymentsShell() {
                   type="number"
                   min={1}
                   max={16}
-                  className="h-11 rounded-2xl border-[#e5d5ca] bg-white px-4"
                   value={draft.replicaCount}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -772,36 +725,34 @@ export function DeploymentsShell() {
 
             <Field label="调度说明">
               <Textarea
-                className="min-h-24 resize-none rounded-2xl border-[#e5d5ca] bg-white px-4 py-3"
-                value={`当前 Web 控制面位于 K8s master 节点，推理 Pod 会优先调度到非 master worker；服务入口统一走 master NodePort。`}
+                className="min-h-24 resize-none"
+                value="当前 Web 控制面位于 K8s master 节点，推理 Pod 会优先调度到非 master worker；服务入口统一走 master NodePort。"
                 readOnly
               />
             </Field>
           </div>
 
-          <DialogFooter className="rounded-b-[30px] border-t border-[#eee1d8] bg-[#faf3ee] px-6 py-4">
-            <Button
-              variant="outline"
-              className="rounded-full border-[#e0d0c5] bg-white px-4 text-[#4a2c22] hover:bg-white"
-              onClick={() => setIsCreateOpen(false)}
-            >
+          <DialogFooter className="border-t border-border/70 bg-muted/30 px-6 py-4">
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>
             <Button
-              className="rounded-full bg-[#4a2c22] px-5 text-white hover:bg-[#391f18]"
               disabled={!canSubmit || createDeployment.isPending}
               onClick={() => void handleCreate()}
             >
               {createDeployment.isPending ? (
-                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
               ) : (
                 <PlusIcon data-icon="inline-start" />
               )}
-              创建部署
+              {createDeployment.isPending ? "创建中" : "创建推理部署"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ModulePageShell>
   );
 }

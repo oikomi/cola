@@ -44,6 +44,7 @@ export const priorityValues = ["low", "medium", "high", "critical"] as const;
 export const riskLevelValues = ["low", "medium", "high"] as const;
 
 export const dockerRunnerEngineValues = ["openclaw", "hermes-agent"] as const;
+export const runnerRuntimeValues = ["docker", "kubernetes"] as const;
 
 export const deviceTypeValues = [
   "mac_mini",
@@ -102,6 +103,7 @@ export type TaskStatus = (typeof taskStatusValues)[number];
 export type Priority = (typeof priorityValues)[number];
 export type RiskLevel = (typeof riskLevelValues)[number];
 export type DockerRunnerEngine = (typeof dockerRunnerEngineValues)[number];
+export type RunnerRuntime = (typeof runnerRuntimeValues)[number];
 export type DeviceType = (typeof deviceTypeValues)[number];
 export type DeviceStatus = (typeof deviceStatusValues)[number];
 export type SessionStatus = (typeof sessionStatusValues)[number];
@@ -174,6 +176,11 @@ export const deviceTypeLabels: Record<DeviceType, string> = {
 export const dockerRunnerEngineLabels: Record<DockerRunnerEngine, string> = {
   openclaw: "OpenClaw",
   "hermes-agent": "Hermes Agent",
+};
+
+export const runnerRuntimeLabels: Record<RunnerRuntime, string> = {
+  docker: "Docker",
+  kubernetes: "Kubernetes",
 };
 
 export const dockerRunnerDeviceTypeByEngine: Record<

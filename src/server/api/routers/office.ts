@@ -34,7 +34,12 @@ import {
   zoneValues,
   zoneWorkstationLimitByZone,
 } from "@/server/office/catalog";
-import { provisionDockerRunner } from "@/server/office/provision-docker-runner";
+import {
+  getRunnerRuntime,
+  cleanupRunner,
+  provisionRunner,
+  runnerRuntimeLabel,
+} from "@/server/office/provision-runner";
 import { getOfficeSnapshot } from "@/server/office/snapshot";
 
 const execFileAsync = promisify(execFile);
@@ -43,6 +48,10 @@ const createAgentInput = z.object({
   name: z.string().trim().min(2).max(120),
   role: z.enum(agentRoleValues),
   engine: z.enum(dockerRunnerEngineValues).default("openclaw"),
+});
+
+const deleteAgentInput = z.object({
+  agentId: z.string().uuid(),
 });
 
 const addWorkstationInput = z.object({
@@ -157,6 +166,15 @@ function roleLabel(role: (typeof agentRoleValues)[number]) {
   }
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function linkedAgentIdFromDeviceMetadata(metadata: unknown) {
+  if (!isPlainRecord(metadata)) return null;
+  return typeof metadata.agentId === "string" ? metadata.agentId : null;
+}
+
 async function resolveFreshDashboardUrl(
   database: Database,
   agentId: string,
@@ -211,6 +229,12 @@ async function resolveDeviceDashboardUrl(
     typeof metadata.agentId === "string"
       ? metadata.agentId
       : null;
+  const runtime =
+    metadata &&
+    "runtime" in metadata &&
+    typeof metadata.runtime === "string"
+      ? metadata.runtime
+      : "docker";
 
   const templateUrl =
     agentId &&
@@ -224,7 +248,7 @@ async function resolveDeviceDashboardUrl(
         })
       : null;
 
-  if (templateUrl && engine !== "openclaw") {
+  if (templateUrl && (engine !== "openclaw" || runtime === "kubernetes")) {
     return templateUrl;
   }
 
@@ -292,6 +316,8 @@ async function markProvisionFailed(
   database: Database,
   input: BackgroundProvisionInput,
   engineLabel: string,
+  runtimeLabel: string,
+  runtime: string,
   host: string,
   image: string,
   errorMessage: string,
@@ -306,10 +332,10 @@ async function markProvisionFailed(
       metadata: {
         agentId: input.agentId,
         agentName: input.agentName,
-        runtime: "docker",
+        runtime,
         engine: input.engine,
         image,
-        healthSummary: "Docker runner 拉起失败，角色已创建但进入阻塞态。",
+        healthSummary: `${runtimeLabel} runner 拉起失败，角色已创建但进入阻塞态。`,
         errorMessage,
       },
       lastHeartbeatAt: null,
@@ -321,7 +347,7 @@ async function markProvisionFailed(
     .update(agents)
     .set({
       status: "blocked",
-      focus: `${input.agentName} runner 拉起失败，需要处理 Docker / ${engineLabel} 配置`,
+      focus: `${input.agentName} runner 拉起失败，需要处理 ${runtimeLabel} / ${engineLabel} 配置`,
       updatedAt: now,
     })
     .where(eq(agents.id, input.agentId));
@@ -331,7 +357,7 @@ async function markProvisionFailed(
     entityType: "device",
     entityId: input.deviceId,
     severity: "critical",
-    title: `Docker ${engineLabel} runner 启动失败：${input.agentName}`,
+    title: `${runtimeLabel} ${engineLabel} runner 启动失败：${input.agentName}`,
     description: errorMessage,
     occurredAt: now,
   });
@@ -339,9 +365,11 @@ async function markProvisionFailed(
 
 async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput) {
   const engineLabel = dockerRunnerEngineLabels[input.engine];
+  const runtime = getRunnerRuntime();
+  const runtimeLabel = runnerRuntimeLabel(runtime);
 
   try {
-    const provision = await provisionDockerRunner({
+    const provision = await provisionRunner({
       agentId: input.agentId,
       agentName: input.agentName,
       runnerName: input.deviceName,
@@ -355,6 +383,8 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
         db,
         input,
         engineLabel,
+        runtimeLabel,
+        runtime,
         provision.host,
         provision.image,
         provision.errorMessage ?? provision.healthSummary,
@@ -382,12 +412,12 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
           metadata: {
             agentId: input.agentId,
             agentName: input.agentName,
-            runtime: "docker",
+            runtime: provision.runtime,
             engine: input.engine,
-            containerName: provision.containerName,
             image: provision.image,
             nativeDashboardUrl: provision.nativeDashboardUrl,
-            healthSummary: `${input.roleLabel} runner 容器已启动，等待 ${engineLabel} 自注册。`,
+            healthSummary: `${input.roleLabel} runner 已在 ${runnerRuntimeLabel(provision.runtime)} 中启动，等待 ${engineLabel} 自注册。`,
+            ...(provision.metadata ?? {}),
           },
           updatedAt: now,
         })
@@ -398,7 +428,7 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
       await db
         .update(agents)
         .set({
-          focus: `${input.agentName} runner 容器已启动，等待 ${engineLabel} 完成注册`,
+          focus: `${input.agentName} runner 已在 ${runnerRuntimeLabel(provision.runtime)} 中启动，等待 ${engineLabel} 完成注册`,
           updatedAt: now,
         })
         .where(eq(agents.id, input.agentId));
@@ -409,8 +439,8 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
       entityType: "device",
       entityId: input.deviceId,
       severity: "info",
-      title: `Docker ${engineLabel} runner 已启动：${input.agentName}`,
-      description: `${input.roleLabel} runner 容器已启动，等待 ${engineLabel} 自注册。`,
+      title: `${runnerRuntimeLabel(provision.runtime)} ${engineLabel} runner 已启动：${input.agentName}`,
+      description: `${input.roleLabel} runner 已在 ${runnerRuntimeLabel(provision.runtime)} 中启动，等待 ${engineLabel} 自注册。`,
       occurredAt: now,
     });
   } catch (error) {
@@ -418,9 +448,11 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
       db,
       input,
       engineLabel,
-      "host.docker.internal",
+      runtimeLabel,
+      runtime,
+      runtime === "kubernetes" ? "kubernetes" : "host.docker.internal",
       "",
-      error instanceof Error ? error.message : "未知 Docker 启动错误",
+      error instanceof Error ? error.message : `未知 ${runtimeLabel} 启动错误`,
     );
   }
 }
@@ -459,6 +491,8 @@ export const officeRouter = createTRPCRouter({
       const resourcePool = resourcePoolForRole(input.role);
       const roleText = roleLabel(input.role);
       const engineLabel = dockerRunnerEngineLabels[input.engine];
+      const runtime = getRunnerRuntime();
+      const runtimeLabel = runnerRuntimeLabel(runtime);
       const runnerName = `${input.name} Runner`;
 
       const { createdAgent, createdDevice } = await ctx.db.transaction(
@@ -496,7 +530,7 @@ export const officeRouter = createTRPCRouter({
               roleType: input.role,
               status: "waiting_device",
               zoneId,
-              focus: `正在为 ${input.name} 拉起 Docker ${engineLabel} runner`,
+              focus: `正在为 ${input.name} 拉起 ${runtimeLabel} ${engineLabel} runner`,
               createdAt: now,
             })
             .returning();
@@ -518,9 +552,9 @@ export const officeRouter = createTRPCRouter({
               metadata: {
                 agentId: createdAgent.id,
                 agentName: input.name,
-                runtime: "docker",
+                runtime,
                 engine: input.engine,
-                healthSummary: `正在为 ${input.name} 创建 Docker runner`,
+                healthSummary: `正在为 ${input.name} 创建 ${runtimeLabel} runner`,
               },
               createdAt: now,
             })
@@ -539,7 +573,7 @@ export const officeRouter = createTRPCRouter({
             entityId: createdAgent.id,
             severity: "info",
             title: `新增角色：${input.name}`,
-            description: `${roleText}角色已创建，开始拉起 Docker ${engineLabel} runner。`,
+            description: `${roleText}角色已创建，开始拉起 ${runtimeLabel} ${engineLabel} runner。`,
             occurredAt: now,
           });
 
@@ -563,7 +597,93 @@ export const officeRouter = createTRPCRouter({
         agentId: createdAgent.id,
         deviceId: createdDevice.id,
         queued: true,
-        message: `${input.name} 已创建，并已触发 Docker ${engineLabel} runner 拉起流程。`,
+        message: `${input.name} 已创建，并已触发 ${runtimeLabel} ${engineLabel} runner 拉起流程。`,
+      };
+    }),
+
+  deleteAgent: publicProcedure
+    .input(deleteAgentInput)
+    .mutation(async ({ ctx, input }) => {
+      const [agent] = await ctx.db
+        .select()
+        .from(agents)
+        .where(eq(agents.id, input.agentId))
+        .limit(1);
+
+      if (!agent) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "未找到目标人物。",
+        });
+      }
+
+      const activeTasks = await ctx.db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.currentAgentId, agent.id));
+
+      const blockingTask = activeTasks.find(
+        (task) => !["completed", "failed", "canceled"].includes(task.status),
+      );
+      if (blockingTask) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `人物仍有未结束任务：${blockingTask.title}。请先处理任务再删除。`,
+        });
+      }
+
+      const pendingApprovals = await ctx.db
+        .select()
+        .from(approvals)
+        .where(eq(approvals.requestedByAgentId, agent.id));
+
+      const blockingApproval = pendingApprovals.find(
+        (approval) => approval.status === "pending",
+      );
+      if (blockingApproval) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `人物仍有待审批事项：${blockingApproval.title}。请先处理审批再删除。`,
+        });
+      }
+
+      const allDevices = await ctx.db.select().from(devices);
+      const linkedDevice =
+        allDevices.find(
+          (device) => linkedAgentIdFromDeviceMetadata(device.metadata) === agent.id,
+        ) ??
+        allDevices.find((device) => device.name === `${agent.name} Runner`) ??
+        null;
+
+      if (linkedDevice) {
+        await cleanupRunner(linkedDevice);
+      }
+
+      await ctx.db.transaction(async (tx) => {
+        if (linkedDevice) {
+          await tx.delete(devices).where(eq(devices.id, linkedDevice.id));
+        }
+
+        await tx.delete(agents).where(eq(agents.id, agent.id));
+
+        await tx.insert(events).values({
+          eventType: "agent.deleted",
+          entityType: "agent",
+          entityId: agent.id,
+          severity: "warning",
+          title: `人物已删除：${agent.name}`,
+          description: linkedDevice
+            ? `${agent.name} 及其 runner 资源已清理。`
+            : `${agent.name} 已删除。`,
+          occurredAt: new Date(),
+        });
+      });
+
+      return {
+        agentId: agent.id,
+        message: linkedDevice
+          ? `${agent.name} 已删除，关联 runner 资源已清理。`
+          : `${agent.name} 已删除。`,
       };
     }),
 

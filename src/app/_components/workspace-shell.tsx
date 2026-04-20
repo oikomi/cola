@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ActivityIcon,
+  GlobeIcon,
   LoaderCircleIcon,
   MonitorSmartphoneIcon,
   PlusIcon,
@@ -8,7 +10,15 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import {
+  ModuleEmptyState,
+  ModuleHero,
+  ModuleMetricCard,
+  ModulePageShell,
+  ModuleSection,
+} from "@/app/_components/module-shell";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -20,10 +30,35 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { api, type RouterOutputs } from "@/trpc/react";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { api, type RouterOutputs } from "@/trpc/react";
 
 type WorkspaceRow = RouterOutputs["workspace"]["list"]["items"][number];
+
+const WORKSPACE_STATUS_POLL_INTERVAL_MS = 5000;
+const CUSTOM_RESOLUTION_VALUE = "__custom__";
+const RESOLUTION_PRESETS = [
+  "1366x768x24",
+  "1600x900x24",
+  "1920x1080x24",
+] as const;
 
 function FormField({
   label,
@@ -34,7 +69,7 @@ function FormField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[11px] font-medium tracking-[0.28em] text-[#6f83a3] uppercase">
+      <span className="text-muted-foreground text-[11px] font-medium tracking-[0.28em] uppercase">
         {label}
       </span>
       {children}
@@ -45,13 +80,13 @@ function FormField({
 function statusTone(status: WorkspaceRow["status"]) {
   switch (status) {
     case "running":
-      return "bg-[#edf9f3] text-[#0f6a3c]";
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "starting":
-      return "bg-[#fff4dd] text-[#8b5b10]";
+      return "border-amber-200 bg-amber-50 text-amber-700";
     case "error":
-      return "bg-[#fff1f2] text-[#b42318]";
+      return "border-rose-200 bg-rose-50 text-rose-700";
     default:
-      return "bg-[#f5f5f4] text-[#44403c]";
+      return "border-border bg-muted text-muted-foreground";
   }
 }
 
@@ -72,6 +107,37 @@ function specLabel(workspace: WorkspaceRow) {
   return `${workspace.gpu} GPU · ${workspace.cpu} CPU · ${workspace.memory}`;
 }
 
+function LoadingRows() {
+  return (
+    <div className="grid gap-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={`workspace-skeleton-${index}`}
+          className="border-border/70 bg-background/70 rounded-3xl border p-4"
+        >
+          <div className="grid gap-3 md:grid-cols-[1.2fr_120px_180px_1fr_140px_220px] md:items-center">
+            <div className="grid gap-2">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <Skeleton className="h-6 w-20 rounded-full" />
+            <Skeleton className="h-5 w-36" />
+            <div className="grid gap-2">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <Skeleton className="h-5 w-24" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-20 rounded-full" />
+              <Skeleton className="h-9 w-20 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function WorkspaceShell() {
   const utils = api.useUtils();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -81,10 +147,14 @@ export function WorkspaceShell() {
     cpu: "4",
     memoryGi: "16",
     gpu: "0",
+    resolution: "1600x900x24",
+    resolutionPreset: "1600x900x24",
   });
 
   const workspaceQuery = api.workspace.list.useQuery(undefined, {
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchInterval: WORKSPACE_STATUS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
 
   const createWorkspace = api.workspace.create.useMutation({
@@ -97,6 +167,8 @@ export function WorkspaceShell() {
         cpu: "4",
         memoryGi: "16",
         gpu: "0",
+        resolution: "1600x900x24",
+        resolutionPreset: "1600x900x24",
       });
     },
     onError: (error) => setFeedback(error.message),
@@ -113,6 +185,15 @@ export function WorkspaceShell() {
   const rows = workspaceQuery.data?.items ?? [];
   const capabilityReason = workspaceQuery.data?.reason ?? null;
   const available = workspaceQuery.data?.available ?? true;
+  const runningCount = rows.filter(
+    (workspace) => workspace.status === "running",
+  ).length;
+  const startingCount = rows.filter(
+    (workspace) => workspace.status === "starting",
+  ).length;
+  const readyCount = rows.filter((workspace) =>
+    Boolean(workspace.loginUrl),
+  ).length;
 
   const handleCreate = async () => {
     const memoryGi = Number.parseInt(draft.memoryGi, 10);
@@ -123,6 +204,7 @@ export function WorkspaceShell() {
       cpu: draft.cpu,
       memoryGi,
       gpu,
+      resolution: draft.resolution,
     });
   };
 
@@ -136,149 +218,179 @@ export function WorkspaceShell() {
   };
 
   return (
-    <div className="min-h-dvh bg-[linear-gradient(180deg,#f5f8ff_0%,#edf2fc_44%,#e8edf8_100%)] text-[#142033]">
-      <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
-        <ProductAreaHeader />
+    <ModulePageShell>
+      <ProductAreaHeader />
 
-        <section className="mt-6 rounded-[32px] border border-[#d8e3f5] bg-white/88 shadow-[0_24px_90px_rgba(59,87,126,0.12)]">
-          <div className="flex flex-col gap-4 border-b border-[#e3ebf8] px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">
-            <div className="flex items-start gap-4">
-              <div className="flex size-12 items-center justify-center rounded-[18px] bg-[#173255] text-white">
-                <MonitorSmartphoneIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-[11px] tracking-[0.3em] text-[#7385a3] uppercase">
-                  Remote Desktop
-                </p>
-                <h1 className="mt-1 text-3xl font-semibold tracking-[-0.05em] text-[#152133]">
-                  远程桌面列表
-                </h1>
-                <p className="mt-2 text-sm leading-6 text-[#5b6d89]">
-                  页面只保留简单 list 和三类动作：创建、删除、登录。
-                </p>
-              </div>
-            </div>
+      <ModuleHero
+        eyebrow="Remote Desktop"
+        title="远程桌面"
+        description="统一管理远程工作区、节点分配、访问入口和启动状态。列表状态会自动轮询刷新，不再依赖手动刷新页面。"
+        icon={MonitorSmartphoneIcon}
+        badges={
+          <>
+            <Badge
+              variant="outline"
+              className={cn(
+                available
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-rose-200 bg-rose-50 text-rose-700",
+              )}
+            >
+              {available ? "K8s 已连接" : "K8s 不可用"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
+              {workspaceQuery.isFetching && !workspaceQuery.isLoading ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : null}
+              {workspaceQuery.isFetching && !workspaceQuery.isLoading
+                ? "状态刷新中"
+                : `自动刷新 · ${WORKSPACE_STATUS_POLL_INTERVAL_MS / 1000}s`}
+            </Badge>
+          </>
+        }
+        actions={
+          <Button
+            size="lg"
+            className="rounded-full"
+            disabled={!available}
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <PlusIcon data-icon="inline-start" />
+            创建远程桌面
+          </Button>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-3">
+          <ModuleMetricCard
+            label="工作区总数"
+            value={String(rows.length)}
+            description="当前纳入远程桌面控制面的全部 workspace。"
+            icon={MonitorSmartphoneIcon}
+          />
+          <ModuleMetricCard
+            label="运行中"
+            value={String(runningCount)}
+            description="已经拿到访问入口，可以直接登录的工作区。"
+            icon={ActivityIcon}
+          />
+          <ModuleMetricCard
+            label="待就绪"
+            value={String(startingCount)}
+            description="容器正在拉起或探针尚未完成。"
+            icon={GlobeIcon}
+          />
+        </div>
+      </ModuleHero>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge
-                className={cn(
-                  "border-0 hover:bg-inherit",
-                  available
-                    ? "bg-[#eef4ff] text-[#32527a]"
-                    : "bg-[#fff1f2] text-[#b42318]",
-                )}
-              >
-                {available ? "K8s 已连接" : "K8s 不可用"}
-              </Badge>
+      {capabilityReason ? (
+        <Alert variant="destructive">
+          <AlertTitle>Kubernetes 访问异常</AlertTitle>
+          <AlertDescription>{capabilityReason}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {feedback ? (
+        <Alert>
+          <AlertTitle>执行结果</AlertTitle>
+          <AlertDescription>{feedback}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <ModuleSection
+        title="Workspace 列表"
+        description="按统一表格查看状态、资源规格、节点地址和访问入口。"
+        action={
+          <Badge
+            variant="outline"
+            className="border-border/80 bg-background/60"
+          >
+            登录就绪 {readyCount}
+          </Badge>
+        }
+      >
+        {workspaceQuery.isLoading ? <LoadingRows /> : null}
+
+        {!workspaceQuery.isLoading && rows.length === 0 ? (
+          <ModuleEmptyState
+            title="还没有远程桌面"
+            description="先创建一个 workspace，再在这里统一查看状态、登录入口和节点落点。"
+            action={
               <Button
-                className="h-10 rounded-full bg-[#173255] px-4 text-white hover:bg-[#10233b]"
                 disabled={!available}
                 onClick={() => setIsCreateOpen(true)}
               >
                 <PlusIcon data-icon="inline-start" />
-                创建远程桌面
+                创建第一个远程桌面
               </Button>
-            </div>
-          </div>
+            }
+          />
+        ) : null}
 
-          {capabilityReason ? (
-            <div className="border-b border-[#f0d8d8] bg-[#fff8f8] px-5 py-4 text-sm leading-6 text-[#8f2d2d] md:px-6">
-              {capabilityReason}
-            </div>
-          ) : null}
-
-          {feedback ? (
-            <div className="border-b border-[#e3ebf8] bg-[#f8fbff] px-5 py-4 text-sm leading-6 text-[#38506f] md:px-6">
-              {feedback}
-            </div>
-          ) : null}
-
-          <div className="px-5 py-5 md:px-6">
-            <div className="hidden rounded-[20px] border border-[#e7edf8] bg-[#f6f9ff] px-4 py-3 text-[11px] font-medium tracking-[0.18em] text-[#71839f] uppercase md:grid md:grid-cols-[minmax(0,1.2fr)_160px_180px_minmax(0,1fr)_120px_220px] md:items-center md:gap-4">
-              <span>名称</span>
-              <span>状态</span>
-              <span>规格</span>
-              <span>节点 / 地址</span>
-              <span>更新时间</span>
-              <span>操作</span>
-            </div>
-
-            <div className="mt-3 space-y-3">
-              {workspaceQuery.isLoading ? (
-                <div className="rounded-[24px] border border-[#e3ebf8] bg-white px-4 py-8 text-center text-sm text-[#5f7594]">
-                  <LoaderCircleIcon className="mx-auto mb-3 animate-spin" />
-                  正在读取远程桌面列表...
-                </div>
-              ) : null}
-
-              {!workspaceQuery.isLoading && rows.length === 0 ? (
-                <div className="rounded-[24px] border border-dashed border-[#d9e4f5] bg-[#f8fbff] px-4 py-8 text-center">
-                  <p className="text-base font-medium text-[#1d314d]">
-                    还没有远程桌面
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#62738d]">
-                    先创建一个远程桌面，再进行登录或删除。
-                  </p>
-                </div>
-              ) : null}
-
+        {!workspaceQuery.isLoading && rows.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>名称</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>规格</TableHead>
+                <TableHead>节点 / 地址</TableHead>
+                <TableHead>更新时间</TableHead>
+                <TableHead className="text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((workspace) => (
-                <div
-                  key={workspace.id}
-                  className="rounded-[24px] border border-[#e3ebf8] bg-white px-4 py-4 shadow-[0_14px_40px_rgba(72,101,140,0.06)]"
-                >
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_160px_180px_minmax(0,1fr)_120px_220px] md:items-center">
-                    <div>
-                      <p className="text-lg font-semibold tracking-[-0.03em] text-[#152133]">
+                <TableRow key={workspace.id} className="border-border/70">
+                  <TableCell className="align-top">
+                    <div className="flex flex-col gap-1">
+                      <p className="text-foreground font-medium">
                         {workspace.name}
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-[#62738d]">
+                      <p className="text-muted-foreground text-sm">
                         Workspace ID: {workspace.id}
                       </p>
                     </div>
-
-                    <div>
-                      <p className="text-[11px] tracking-[0.22em] text-[#8da0bc] uppercase md:hidden">
-                        状态
-                      </p>
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(workspace.status)}`}
-                      >
-                        {statusLabel(workspace.status)}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "rounded-full",
+                        statusTone(workspace.status),
+                      )}
+                    >
+                      {statusLabel(workspace.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-foreground align-top font-medium">
+                    <div className="flex flex-col gap-1">
+                      <span>{specLabel(workspace)}</span>
+                      <span className="text-muted-foreground text-sm font-normal">
+                        {workspace.resolution}
                       </span>
                     </div>
-
-                    <div>
-                      <p className="text-[11px] tracking-[0.22em] text-[#8da0bc] uppercase md:hidden">
-                        规格
-                      </p>
-                      <p className="text-sm font-medium text-[#20324c]">
-                        {specLabel(workspace)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-[11px] tracking-[0.22em] text-[#8da0bc] uppercase md:hidden">
-                        节点 / 地址
-                      </p>
-                      <p className="text-sm font-medium text-[#20324c]">
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-foreground font-medium">
                         {workspace.nodeName ?? "-"}
-                      </p>
-                      <p className="mt-1 text-sm break-all text-[#62738d]">
+                      </span>
+                      <span className="text-muted-foreground text-sm break-all">
                         {workspace.endpoint ?? "-"}
-                      </p>
+                      </span>
                     </div>
-
-                    <div>
-                      <p className="text-[11px] tracking-[0.22em] text-[#8da0bc] uppercase md:hidden">
-                        更新时间
-                      </p>
-                      <p className="text-sm font-medium text-[#20324c]">
-                        {workspace.updatedAt ?? "-"}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
+                  </TableCell>
+                  <TableCell className="text-muted-foreground align-top">
+                    {workspace.updatedAt ?? "-"}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex justify-end gap-2">
                       {workspace.loginUrl ? (
                         <a
                           href={workspace.loginUrl}
@@ -286,7 +398,7 @@ export function WorkspaceShell() {
                           rel="noreferrer"
                           className={cn(
                             buttonVariants({ variant: "outline" }),
-                            "h-9 rounded-full border-[#c9d7ee] bg-[#f8fbff] px-4 text-[#173255] hover:bg-white",
+                            "rounded-full",
                           )}
                         >
                           登录
@@ -294,129 +406,175 @@ export function WorkspaceShell() {
                       ) : (
                         <Button
                           variant="outline"
-                          className="h-9 rounded-full border-[#c9d7ee] bg-[#f8fbff] px-4 text-[#173255] hover:bg-white"
+                          className="rounded-full"
                           disabled
                         >
                           登录
                         </Button>
                       )}
                       <Button
-                        variant="outline"
-                        className="h-9 rounded-full border-[#e7cfc7] bg-[#fff7f4] px-3 text-[#9b3d20] hover:bg-white"
+                        variant="destructive"
+                        className="rounded-full"
                         disabled={deleteWorkspace.isPending}
                         onClick={() => void handleDelete(workspace.name)}
                       >
                         {deleteWorkspace.isPending ? (
-                          <LoaderCircleIcon className="animate-spin" />
+                          <LoaderCircleIcon
+                            className="animate-spin"
+                            data-icon="inline-start"
+                          />
                         ) : (
-                          <Trash2Icon className="size-4" />
+                          <Trash2Icon data-icon="inline-start" />
                         )}
                         删除
                       </Button>
                     </div>
-                  </div>
-                </div>
+                  </TableCell>
+                </TableRow>
               ))}
-            </div>
-          </div>
-        </section>
+            </TableBody>
+          </Table>
+        ) : null}
+      </ModuleSection>
 
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogContent className="border-[#d8e3f5] bg-[#f9fbff] sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>创建远程桌面</DialogTitle>
-              <DialogDescription>
-                直接指定 CPU、Memory、GPU，然后在 Kubernetes 中创建远程桌面。
-              </DialogDescription>
-            </DialogHeader>
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="border-border/70 bg-background/95 backdrop-blur-xl sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>创建远程桌面</DialogTitle>
+            <DialogDescription>
+              指定 CPU、Memory、GPU 和分辨率后，系统会在 Kubernetes
+              中创建新的远程工作区。
+            </DialogDescription>
+          </DialogHeader>
 
-            <div className="grid gap-4">
-              <FormField label="名称">
+          <div className="grid gap-4">
+            <FormField label="名称">
+              <Input
+                placeholder="例如：alice 或 ml-batch-01"
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    name: event.target.value.trim().toLowerCase(),
+                  }))
+                }
+              />
+            </FormField>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <FormField label="CPU">
                 <Input
-                  className="bg-white"
-                  placeholder="例如：alice 或 ml-batch-01"
-                  value={draft.name}
+                  inputMode="decimal"
+                  value={draft.cpu}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      name: event.target.value.trim().toLowerCase(),
+                      cpu: event.target.value,
                     }))
                   }
                 />
               </FormField>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField label="CPU">
-                  <Input
-                    className="bg-white"
-                    inputMode="decimal"
-                    value={draft.cpu}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        cpu: event.target.value,
-                      }))
-                    }
-                  />
-                </FormField>
+              <FormField label="Memory Gi">
+                <Input
+                  inputMode="numeric"
+                  value={draft.memoryGi}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      memoryGi: event.target.value,
+                    }))
+                  }
+                />
+              </FormField>
 
-                <FormField label="Memory Gi">
-                  <Input
-                    className="bg-white"
-                    inputMode="numeric"
-                    value={draft.memoryGi}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        memoryGi: event.target.value,
-                      }))
-                    }
-                  />
-                </FormField>
+              <FormField label="GPU">
+                <Input
+                  inputMode="numeric"
+                  value={draft.gpu}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      gpu: event.target.value,
+                    }))
+                  }
+                />
+              </FormField>
 
-                <FormField label="GPU">
-                  <Input
-                    className="bg-white"
-                    inputMode="numeric"
-                    value={draft.gpu}
-                    onChange={(event) =>
+              <FormField label="Resolution">
+                <div className="grid gap-2">
+                  <Select
+                    value={draft.resolutionPreset}
+                    onValueChange={(value) => {
+                      if (!value) return;
+
                       setDraft((current) => ({
                         ...current,
-                        gpu: event.target.value,
-                      }))
-                    }
-                  />
-                </FormField>
-              </div>
+                        resolutionPreset: value,
+                        resolution:
+                          value === CUSTOM_RESOLUTION_VALUE
+                            ? current.resolution
+                            : value,
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="选择分辨率" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {RESOLUTION_PRESETS.map((resolution) => (
+                          <SelectItem key={resolution} value={resolution}>
+                            {resolution}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={CUSTOM_RESOLUTION_VALUE}>
+                          自定义
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+
+                  {draft.resolutionPreset === CUSTOM_RESOLUTION_VALUE ? (
+                    <Input
+                      placeholder="例如：1728x1117x24"
+                      value={draft.resolution}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          resolution: event.target.value,
+                        }))
+                      }
+                    />
+                  ) : null}
+                </div>
+              </FormField>
             </div>
+          </div>
 
-            <DialogFooter className="bg-[#f3f7ff]">
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                取消
-              </Button>
-              <Button
-                className="bg-[#173255] text-white hover:bg-[#10233b]"
-                disabled={
-                  createWorkspace.isPending ||
-                  !available ||
-                  draft.name.length < 2
-                }
-                onClick={() => void handleCreate()}
-              >
-                {createWorkspace.isPending ? (
-                  <LoaderCircleIcon
-                    className="animate-spin"
-                    data-icon="inline-start"
-                  />
-                ) : (
-                  <PlusIcon data-icon="inline-start" />
-                )}
-                创建远程桌面
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+              取消
+            </Button>
+            <Button
+              disabled={
+                createWorkspace.isPending || !available || draft.name.length < 2
+              }
+              onClick={() => void handleCreate()}
+            >
+              {createWorkspace.isPending ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
+              创建远程桌面
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </ModulePageShell>
   );
 }

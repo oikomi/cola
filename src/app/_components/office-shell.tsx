@@ -125,7 +125,7 @@ const eventTone = {
 } as const;
 
 const panelClass =
-  "overflow-hidden rounded-[30px] border border-black/8 bg-white/95 shadow-[0_24px_80px_rgba(25,18,12,0.08)]";
+  "overflow-hidden rounded-[30px] border border-border/70 bg-background/78 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl";
 
 function engineTone(engine: DockerRunnerEngine | null | undefined) {
   if (engine === "hermes-agent") {
@@ -528,14 +528,14 @@ export function OfficeShell({ snapshot }: Props) {
   };
 
   return (
-    <div className="min-h-dvh overflow-x-hidden bg-[#f5f1e9] text-[#17120d] xl:h-dvh xl:overflow-hidden">
-      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(255,215,159,0.32),transparent_28%),radial-gradient(circle_at_top_right,rgba(144,174,222,0.2),transparent_26%),linear-gradient(180deg,#f7f4ef_0%,#f2ede5_46%,#ebe2d5_100%)]" />
+    <div className="min-h-dvh overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(107,138,173,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(255,210,155,0.18),transparent_22%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_42%,#edf2f7_100%)] text-foreground xl:h-dvh xl:overflow-hidden">
+      <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(148,163,184,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(245,158,11,0.12),transparent_24%)]" />
 
-      <main className="mx-auto flex max-w-[1520px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+      <main className="mx-auto flex max-w-[1640px] flex-col gap-6 px-4 py-5 md:px-6 md:py-6 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
         <ProductAreaHeader />
 
-        <section className="relative overflow-hidden rounded-[36px] bg-[#17120d] text-[#f7efe3] shadow-[0_36px_120px_rgba(23,18,13,0.22)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,188,88,0.24),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(131,161,217,0.24),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+        <section className="relative overflow-hidden rounded-[36px] border border-white/10 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(30,41,59,0.96))] text-slate-50 shadow-[0_36px_120px_rgba(15,23,42,0.2)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(148,163,184,0.22),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(245,158,11,0.16),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
           <div className="relative grid gap-10 px-6 py-7 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
             <div className="space-y-6">
               <div className="flex flex-wrap items-center gap-3">

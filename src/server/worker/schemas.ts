@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   dockerRunnerEngineValues,
   deviceStatusValues,
+  runnerRuntimeValues,
   sessionStatusValues,
 } from "@/server/office/catalog";
 
@@ -12,6 +13,7 @@ export const registerDockerRunnerInputSchema = z.object({
   status: z.enum(deviceStatusValues).optional(),
   engine: z.enum(dockerRunnerEngineValues).optional(),
   host: z.string().trim().max(255).optional(),
+  runtime: z.enum(runnerRuntimeValues).optional(),
   healthSummary: z.string().trim().max(255).optional(),
   containerName: z.string().trim().max(120).optional(),
   image: z.string().trim().max(255).optional(),
@@ -23,6 +25,7 @@ export const heartbeatInputSchema = z.object({
   name: z.string().trim().min(3).max(120).optional(),
   resourcePool: z.string().trim().min(2).max(120).optional(),
   engine: z.enum(dockerRunnerEngineValues).optional(),
+  runtime: z.enum(runnerRuntimeValues).optional(),
   healthSummary: z.string().trim().max(255).optional(),
   host: z.string().trim().max(255).optional(),
   containerName: z.string().trim().max(120).optional(),

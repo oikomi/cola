@@ -4,7 +4,7 @@ set -euo pipefail
 
 export HOME=/home/worker
 export DISPLAY="${DISPLAY:-:1}"
-export RESOLUTION="${RESOLUTION:-1920x1080x24}"
+export RESOLUTION="${RESOLUTION:-1600x900x24}"
 export NOVNC_PORT="${NOVNC_PORT:-6080}"
 export VNC_PORT="${VNC_PORT:-5901}"
 export VNC_DISABLE_PASSWORD="${VNC_DISABLE_PASSWORD:-0}"

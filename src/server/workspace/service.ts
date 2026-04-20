@@ -59,6 +59,7 @@ export type WorkspaceItem = {
   cpu: string;
   memory: string;
   gpu: number;
+  resolution: string;
   nodeName: string | null;
   nodeIp: string | null;
   endpoint: string | null;
@@ -77,6 +78,7 @@ export type CreateWorkspaceInput = {
   cpu: string;
   memoryGi: number;
   gpu: number;
+  resolution: string;
 };
 
 function readJsonFile<T>(filePath: string): T {
@@ -187,6 +189,28 @@ function normalizeGpu(input: number) {
   }
 
   return input;
+}
+
+function normalizeResolution(input: string) {
+  const value = input.trim().toLowerCase();
+  const match = value.match(/^(\d{3,5})x(\d{3,5})x(\d{1,2})$/);
+  if (!match) {
+    throw new Error("分辨率必须是 WxHxD 格式，例如 1600x900x24。");
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  const depth = Number(match[3]);
+
+  if (width < 800 || height < 600) {
+    throw new Error("分辨率不能低于 800x600。");
+  }
+
+  if (![16, 24, 32].includes(depth)) {
+    throw new Error("色深只支持 16、24 或 32。");
+  }
+
+  return `${width}x${height}x${depth}`;
 }
 
 function isReady(node: V1Node) {
@@ -333,10 +357,14 @@ function buildLoginUrl(params: {
   service?: V1Service | null;
   nodeIp?: string | null;
 }) {
+  const quality = process.env.REMOTE_WORKSPACE_NOVNC_QUALITY ?? "9";
+  const compression = process.env.REMOTE_WORKSPACE_NOVNC_COMPRESSION ?? "0";
+  const query = `vnc.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
+
   const host = params.ingress?.spec?.rules?.[0]?.host;
   if (host) {
     const secure = (params.ingress?.spec?.tls?.length ?? 0) > 0;
-    return `${secure ? "https" : "http"}://${host}/`;
+    return `${secure ? "https" : "http"}://${host}/${query}`;
   }
 
   const nodePort = params.service?.spec?.ports?.find(
@@ -345,7 +373,7 @@ function buildLoginUrl(params: {
 
   if (!params.nodeIp || typeof nodePort !== "number") return null;
 
-  return `http://${params.nodeIp}:${nodePort}/vnc.html?autoconnect=1&resize=remote`;
+  return `http://${params.nodeIp}:${nodePort}/${query}`;
 }
 
 function workspaceStatus(deployment: V1Deployment) {
@@ -443,6 +471,7 @@ function buildWorkspaceDeployment(input: {
   cpu: string;
   memory: string;
   gpu: number;
+  resolution: string;
 }) {
   const workspaceRoot =
     process.env.REMOTE_WORKSPACE_ROOT ?? "/var/lib/remote-work/workspaces";
@@ -490,8 +519,7 @@ function buildWorkspaceDeployment(input: {
                 { name: "DISPLAY", value: ":1" },
                 {
                   name: "RESOLUTION",
-                  value:
-                    process.env.REMOTE_WORKSPACE_RESOLUTION ?? "1920x1080x24",
+                  value: input.resolution,
                 },
                 { name: "NOVNC_PORT", value: "6080" },
                 { name: "VNC_PORT", value: "5901" },
@@ -649,6 +677,10 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
       const container = deployment.spec?.template?.spec?.containers?.[0];
       const limits =
         container?.resources?.limits ?? container?.resources?.requests ?? {};
+      const resolution =
+        container?.env?.find((entry) => entry.name === "RESOLUTION")?.value ??
+        process.env.REMOTE_WORKSPACE_RESOLUTION ??
+        "1600x900x24";
       const updatedSource =
         deployment.status?.conditions
           ?.map((condition) => condition.lastTransitionTime)
@@ -667,6 +699,7 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
           limits.memory ?? container?.resources?.requests?.memory ?? "0Gi",
         ),
         gpu: Number(limits["nvidia.com/gpu"] ?? 0) || 0,
+        resolution,
         nodeName,
         nodeIp,
         endpoint:
@@ -701,6 +734,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
   const cpu = normalizeCpu(input.cpu);
   const memory = normalizeMemoryGi(input.memoryGi);
   const gpu = normalizeGpu(input.gpu);
+  const resolution = normalizeResolution(input.resolution);
 
   await ensureNamespace(ctx.coreApi, namespace);
 
@@ -735,6 +769,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
       cpu,
       memory,
       gpu,
+      resolution,
     }),
   });
 

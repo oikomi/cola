@@ -8,6 +8,9 @@ const apiBaseUrl =
   process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "Hermes Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
+const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "docker";
+const runtimeLabel =
+  runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "host.docker.internal";
 const image = process.env.HERMES_AGENT_IMAGE ?? "unknown-image";
 const containerName =
@@ -211,6 +214,7 @@ async function registerRunner(healthSummary, status = "online") {
     resourcePool,
     status,
     engine: "hermes-agent",
+    runtime: runnerRuntime,
     host: runnerHost,
     healthSummary,
     containerName,
@@ -230,6 +234,7 @@ async function sendHeartbeat(status, healthSummary) {
     name: runnerName,
     resourcePool,
     engine: "hermes-agent",
+    runtime: runnerRuntime,
     healthSummary,
     host: runnerHost,
     containerName,
@@ -314,22 +319,23 @@ async function startHeartbeatLoop() {
       await sendHeartbeat(
         currentStatus,
         currentStatus === "online"
-          ? "Docker Hermes Agent runner 心跳正常"
+          ? `${runtimeLabel} Hermes Agent runner 心跳正常`
           : currentStatus === "busy"
-            ? "Docker Hermes Agent runner 正在执行任务"
+            ? `${runtimeLabel} Hermes Agent runner 正在执行任务`
             : currentStatus === "unhealthy"
-              ? "Docker Hermes Agent runner 处于异常状态"
-              : "Docker Hermes Agent runner 处于维护状态",
+              ? `${runtimeLabel} Hermes Agent runner 处于异常状态`
+              : `${runtimeLabel} Hermes Agent runner 处于维护状态`,
       );
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message.includes("未找到目标 Docker runner。")
+        (error.message.includes("未找到目标 Docker runner。") ||
+          error.message.includes("未找到目标 runner。"))
       ) {
         try {
           await logLine("runner record is missing, re-registering before next heartbeat");
           await registerRunner(
-            "Docker Hermes Agent runner 已重新注册，恢复心跳",
+            `${runtimeLabel} Hermes Agent runner 已重新注册，恢复心跳`,
             currentStatus,
           );
         } catch (registerError) {
@@ -529,7 +535,7 @@ async function runBootCommand() {
 
 async function main() {
   await ensureLogDir();
-  await logLine("starting Docker Hermes Agent bootstrap");
+  await logLine(`starting ${runtimeLabel} Hermes Agent bootstrap`);
 
   const probe = await probeHermes();
   await registerRunner(probe.summary, probe.status);

@@ -30,7 +30,7 @@ Options:
   --image <image>               Override image ref
   --gpu <count>                 GPU count, default 0
   --node-port <port>            Use a fixed NodePort
-  --resolution <WxHxD>          Default 1920x1080x24
+  --resolution <WxHxD>          Default 1600x900x24
   --ingress-host <host>         Create an Ingress for the workspace
   --tls-secret <name>           TLS secret for Ingress
   --cpu-request <value>         Default 2
@@ -106,7 +106,7 @@ workspace_create() {
   local image=""
   local gpu_count="0"
   local node_port=""
-  local resolution="1920x1080x24"
+  local resolution="1600x900x24"
   local ingress_host=""
   local tls_secret=""
   local cpu_request="2"
