@@ -66,7 +66,11 @@ run_ezdown_bootstrap_only() {
     set +e
     sudo bash -lc "
       set -euo pipefail
-      source ./ezdown
+      EZDOWN_FUNCTIONS=\$(mktemp)
+      sed '/^main \"\\\$@\"\$/d' ./ezdown > \"\$EZDOWN_FUNCTIONS\"
+      # shellcheck source=/dev/null
+      source \"\$EZDOWN_FUNCTIONS\"
+      rm -f \"\$EZDOWN_FUNCTIONS\"
       BASE=/etc/kubeasz
       IMAGES=()
       imageDir=\$BASE/down
