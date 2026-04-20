@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd docker
 require_cmd node
@@ -54,12 +54,8 @@ if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
   die "没有找到 arch=$LOCAL_ARCH 的目标节点，无法分发镜像。"
 fi
 
-for node_name in "${TARGET_NODES[@]}"; do
-  print_step "分发镜像到 $node_name"
-  remote_scp "$ARCHIVE_PATH" "$node_name" "/tmp/$(basename "$ARCHIVE_PATH")"
-  remote_sudo_ssh "$node_name" \
-    "gzip -dc /tmp/$(basename "$ARCHIVE_PATH") | ctr -n k8s.io images import - && rm -f /tmp/$(basename "$ARCHIVE_PATH")"
-done
+print_step "分发镜像到 ${#TARGET_NODES[@]} 个 arch=$LOCAL_ARCH 节点"
+load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" "${TARGET_NODES[@]}"
 
 printf '%s\n' "$IMAGE_REF" > "$RUNTIME_DIR/latest-image.txt"
 

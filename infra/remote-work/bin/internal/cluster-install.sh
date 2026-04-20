@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd node
@@ -12,7 +12,7 @@ ensure_ansible_available
 
 CLUSTER_NAME="$(cluster_name)"
 
-[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/00-bootstrap-kubeasz.sh"
+[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
 BOOTSTRAP_HOSTS="$GENERATED_DIR/hosts-bootstrap"
 BOOTSTRAP_SUMMARY="$GENERATED_DIR/cluster-summary-bootstrap.json"
 BOOTSTRAP_NODE_LIST=()
@@ -79,4 +79,4 @@ print_step "开始安装 Kubernetes 集群"
   run_kubeasz_ezctl setup "$CLUSTER_NAME" all
 )
 
-echo "集群安装完成。下一步执行: ./bin/20-enable-gpu.sh"
+echo "集群安装完成。下一步执行: ./bin/cluster.sh gpu enable"

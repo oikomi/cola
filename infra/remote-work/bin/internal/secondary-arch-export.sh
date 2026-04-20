@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd tar
@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./bin/70-export-secondary-arch-bundle.sh [--output /path/to/bundle.tar.gz]
+Usage: ./bin/cluster.sh secondary-arch export [--output /path/to/bundle.tar.gz]
 
 Create a kubeasz seed bundle for a secondary-architecture deployment host.
 The bundle contains /etc/kubeasz except arch-specific bin/down payloads.
@@ -43,5 +43,4 @@ sudo tar \
 
 echo "Bundle created at: $OUTPUT_PATH"
 echo "把这个文件复制到次级架构部署机后，可执行:"
-echo "./bin/71-import-secondary-arch-bundle.sh --bundle $OUTPUT_PATH"
-
+echo "./bin/cluster.sh secondary-arch import --bundle $OUTPUT_PATH"

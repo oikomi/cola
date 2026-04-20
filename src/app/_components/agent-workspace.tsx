@@ -36,7 +36,7 @@ type Props = {
 };
 
 const panelClass =
-  "overflow-hidden rounded-[30px] border border-black/8 bg-white/80 shadow-[0_24px_80px_rgba(24,19,14,0.1)] backdrop-blur-xl";
+  "overflow-hidden rounded-[30px] border border-black/8 bg-white/95 shadow-[0_24px_80px_rgba(24,19,14,0.1)]";
 
 const roleIcons = {
   product: SparklesIcon,

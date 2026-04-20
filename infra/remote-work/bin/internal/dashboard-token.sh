@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd python3
@@ -15,7 +15,7 @@ WAIT_INTERVAL_SECONDS=3
 
 usage() {
   cat <<'EOF'
-Usage: ./bin/81-get-k8s-dashboard-token.sh [options]
+Usage: ./bin/cluster.sh dashboard token [options]
 
 Print the long-lived bearer token stored in the Kubernetes Dashboard admin secret.
 

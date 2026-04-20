@@ -12,13 +12,15 @@
 - `192.168.5.22`：`rw-node-022`，`amd64`，`master + etcd + worker`
 - `192.168.5.178`：`rw-gpu-178`，`Jetson AGX / arm64`，建议作为二阶段加入的 `worker + gpu`
 
-仓库默认 `cluster/nodes.json` 只预置首轮引导节点 `rw-node-022`。后续增加同架构节点时，直接使用 `bin/60-add-node.sh`；如果要加入 Jetson 这类异构 `arm64` 节点，走本文后面的“混合架构接入”流程。
+仓库默认 `cluster/nodes.json` 只预置首轮引导节点 `rw-node-022`。后续增加同架构节点时，直接使用 `./bin/cluster.sh cluster add-node`；如果要加入 Jetson 这类异构 `arm64` 节点，走本文后面的“混合架构接入”流程。
 
 ## 目录结构
 
 ```text
 infra/remote-work
 ├── bin
+│   ├── cluster.sh        # 用户入口
+│   └── internal          # 内部实现脚本
 ├── cluster
 ├── images/remote-workspace
 ├── manifests
@@ -29,11 +31,73 @@ infra/remote-work
 
 - 本地部署机能 SSH 到所有服务器
 - 本地部署机需要可用的 `sudo`
-- `00-bootstrap-kubeasz.sh` 需要：`git`、`node`、`curl` 或 `wget`
-- `10-install-cluster.sh` 与 `60-add-node.sh` 会自动准备一套独立的现代版 Ansible 运行时
-- `30-build-and-load-image.sh` 额外需要：`docker`
+- `./bin/cluster.sh cluster bootstrap` 需要：`git`、`node`、`curl` 或 `wget`
+- `./bin/cluster.sh cluster install` 与 `./bin/cluster.sh cluster add-node` 会自动准备一套独立的现代版 Ansible 运行时
+- `./bin/cluster.sh image build-and-load` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
+
+## 用户入口
+
+用户侧只需要记一个入口：
+
+```bash
+./bin/cluster.sh <group> <action> [options]
+```
+
+旧的编号脚本已经下沉到 `bin/internal/`，作为实现细节保留，不再作为外部调用入口。`./bin/remote-work.sh` 仍可用，但只作为兼容别名转发到 `./bin/cluster.sh`。
+
+常用命令：
+
+- `./bin/cluster.sh cluster bootstrap`
+- `./bin/cluster.sh cluster install`
+- `./bin/cluster.sh gpu enable`
+- `./bin/cluster.sh image build-and-load`
+- `./bin/cluster.sh stack up`
+- `./bin/cluster.sh dashboard deploy`
+- `./bin/cluster.sh dashboard port-forward`
+
+如果你只是想把基础设施一次拉起来，可以直接执行：
+
+```bash
+./bin/cluster.sh stack up
+```
+
+它等价于依次执行：
+
+- `./bin/cluster.sh cluster bootstrap`
+- `./bin/cluster.sh cluster install`
+- `./bin/cluster.sh gpu enable`
+- `./bin/cluster.sh image build-and-load`
+- `./bin/cluster.sh dashboard deploy`
+- `./bin/cluster.sh dashboard port-forward`
+
+常用可选项：
+
+- `--with-images`：传给 `cluster bootstrap`
+- `--skip-dashboard`：跳过 Dashboard 安装与 port-forward
+- `--skip-port-forward`：安装 Dashboard，但不启动 port-forward
+- `--port-forward-foreground`：以前台模式运行 Dashboard port-forward
+
+## 工作区业务入口
+
+工作区创建和删除不再挂在 infra CLI 下，统一改为业务脚本：
+
+```bash
+./scripts/workspace.sh <command> [options]
+```
+
+常用命令：
+
+- `./scripts/workspace.sh create --name alice --gpu 1`
+- `./scripts/workspace.sh delete --name alice`
+
+兼容性说明：
+
+- `./bin/cluster.sh workspace create`
+- `./bin/cluster.sh workspace delete`
+
+这两个旧入口仍会跳转到 `./scripts/workspace.sh`，但不再作为主入口展示。
 
 ## 1. 调整机器清单
 
@@ -77,7 +141,7 @@ infra/remote-work
 
 ```bash
 cd infra/remote-work
-./bin/00-bootstrap-kubeasz.sh
+./bin/cluster.sh cluster bootstrap
 ```
 
 这个脚本会：
@@ -94,13 +158,13 @@ cd infra/remote-work
 如果你确实想在 bootstrap 阶段顺手预热 kubeasz 默认镜像，再显式执行：
 
 ```bash
-./bin/00-bootstrap-kubeasz.sh --with-images
+./bin/cluster.sh cluster bootstrap --with-images
 ```
 
 ## 3. 安装集群
 
 ```bash
-./bin/10-install-cluster.sh
+./bin/cluster.sh cluster install
 ```
 
 首轮安装只会纳入与当前部署机同架构的节点。
@@ -109,7 +173,7 @@ cd infra/remote-work
 ## 4. 启用 GPU 支持
 
 ```bash
-./bin/20-enable-gpu.sh
+./bin/cluster.sh gpu enable
 ```
 
 这个脚本会：
@@ -124,7 +188,7 @@ cd infra/remote-work
 ## 5. 构建并分发 noVNC 工作区镜像
 
 ```bash
-./bin/30-build-and-load-image.sh
+./bin/cluster.sh image build-and-load
 ```
 
 默认镜像名会写入 `runtime/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
@@ -134,7 +198,7 @@ cd infra/remote-work
 如果你希望有一个图形化集群管理入口，可以部署 Kubernetes Dashboard：
 
 ```bash
-./bin/80-deploy-k8s-dashboard.sh
+./bin/cluster.sh dashboard deploy
 ```
 
 默认行为：
@@ -147,7 +211,7 @@ cd infra/remote-work
 按官方文档方式启动 `port-forward`：
 
 ```bash
-./bin/82-port-forward-k8s-dashboard.sh
+./bin/cluster.sh dashboard port-forward
 ```
 
 默认行为：
@@ -165,15 +229,15 @@ https://<部署机IP>:8443/
 常用控制命令：
 
 ```bash
-./bin/82-port-forward-k8s-dashboard.sh --status
-./bin/82-port-forward-k8s-dashboard.sh --stop
-./bin/82-port-forward-k8s-dashboard.sh --foreground
+./bin/cluster.sh dashboard port-forward --status
+./bin/cluster.sh dashboard port-forward --stop
+./bin/cluster.sh dashboard port-forward --foreground
 ```
 
 获取登录 Token：
 
 ```bash
-./bin/81-get-k8s-dashboard-token.sh
+./bin/cluster.sh dashboard token
 ```
 
 这个 token 不是默认 `24h` 临时 token，而是从 `admin-user-token` Secret 里读取的长期 token。
@@ -182,12 +246,12 @@ https://<部署机IP>:8443/
 
 - 这里按 Kubernetes 官方文档推荐的方式接入：Helm 安装 + `port-forward`
 - 不再默认改成 `NodePort`
-- 如果当前网络环境下 Dashboard Pod 拉镜像失败，可先执行 `./bin/83-prepull-k8s-dashboard-images.sh` 再重跑安装
+- 如果当前网络环境下 Dashboard Pod 拉镜像失败，可先执行 `./bin/cluster.sh dashboard prepull-images` 再重跑安装
 
 ## 7. 创建一个远程工作区
 
 ```bash
-./bin/50-create-workspace.sh \
+./scripts/workspace.sh create \
   --name alice \
   --gpu 1
 ```
@@ -224,13 +288,13 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ## 8. 删除工作区
 
 ```bash
-./bin/51-delete-workspace.sh --name alice
+./scripts/workspace.sh delete --name alice
 ```
 
 如果还要连宿主机持久目录一起删掉：
 
 ```bash
-./bin/51-delete-workspace.sh --name alice --node rw-gpu-178 --purge-data
+./scripts/workspace.sh delete --name alice --node rw-gpu-178 --purge-data
 ```
 
 ## 9. 新增节点
@@ -238,7 +302,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 新增普通工作节点：
 
 ```bash
-./bin/60-add-node.sh \
+./bin/cluster.sh cluster add-node \
   --name rw-node-023 \
   --ip 192.168.5.23 \
   --ssh-user root \
@@ -249,7 +313,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 新增 GPU 节点：
 
 ```bash
-./bin/60-add-node.sh \
+./bin/cluster.sh cluster add-node \
   --name rw-gpu-024 \
   --ip 192.168.5.24 \
   --ssh-user root \
@@ -259,7 +323,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 这个脚本当前只支持扩容 `worker` / `worker,gpu` 节点，不负责把新机器升级成 `master` 或 `etcd`。这样更稳，也更贴合“后续任意增加 node 服务器”的常见路径。
 
-如果节点架构与当前部署机不一致，`60-add-node.sh` 会直接拒绝执行，并提示你改到同架构部署机上继续。
+如果节点架构与当前部署机不一致，`cluster add-node` 会直接拒绝执行，并提示你改到同架构部署机上继续。
 
 ## 10. 混合架构接入
 
@@ -270,7 +334,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 推荐流程：
 
-1. 在 `amd64` 部署机上完成 `00` 和 `10`，只拉起 `rw-node-022`
+1. 在 `amd64` 部署机上完成 `cluster bootstrap` 和 `cluster install`，只拉起 `rw-node-022`
 2. 在 `amd64` 部署机上导出 kubeasz seed bundle
 3. 把 bundle 和仓库拷到 Jetson 这台 `arm64` 机器
 4. 在 Jetson 上导入 bundle、补齐 `arm64` 二进制，并执行 `add-node`
@@ -278,13 +342,13 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 导出 bundle：
 
 ```bash
-./bin/70-export-secondary-arch-bundle.sh
+./bin/cluster.sh secondary-arch export
 ```
 
 在 Jetson 上导入并直接加入节点：
 
 ```bash
-./bin/71-import-secondary-arch-bundle.sh \
+./bin/cluster.sh secondary-arch import \
   --bundle /path/to/remote-work-kubeasz-seed.tar.gz \
   --name rw-gpu-178 \
   --ip 192.168.5.178 \
@@ -301,25 +365,25 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 销毁当前 `remote-work` 集群，并清理本机运行态：
 
 ```bash
-./bin/99-clean-all.sh --yes
+./bin/cluster.sh cluster clean --yes
 ```
 
 如果还要顺手清每台节点上的工作区持久目录：
 
 ```bash
-./bin/99-clean-all.sh --yes --purge-remote-data
+./bin/cluster.sh cluster clean --yes --purge-remote-data
 ```
 
 如果只想删集群，但保留本地 `runtime/` 缓存：
 
 ```bash
-./bin/99-clean-all.sh --yes --keep-local-cache
+./bin/cluster.sh cluster clean --yes --keep-local-cache
 ```
 
 ## 12. 已知边界
 
 - 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点
-- `bin/20-enable-gpu.sh` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
+- `gpu enable` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
 - 混合架构场景下，主集群初始化和次级架构 `add-node` 必须在对应架构的部署机上执行
 - 这套脚本没有在当前仓库 CI 中接真实服务器执行，交付的是静态校验通过的部署资产

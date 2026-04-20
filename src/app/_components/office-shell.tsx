@@ -124,7 +124,7 @@ const eventTone = {
 } as const;
 
 const panelClass =
-  "overflow-hidden rounded-[30px] border border-black/8 bg-white/78 shadow-[0_24px_80px_rgba(25,18,12,0.08)] backdrop-blur-xl";
+  "overflow-hidden rounded-[30px] border border-black/8 bg-white/95 shadow-[0_24px_80px_rgba(25,18,12,0.08)]";
 
 function engineTone(engine: DockerRunnerEngine | null | undefined) {
   if (engine === "hermes-agent") {

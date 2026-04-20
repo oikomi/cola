@@ -47,7 +47,9 @@ switch (command) {
 
   case "gpuNodeNames":
     printLines(
-      nodes.filter((node) => node.roles.includes("gpu")).map((node) => node.name),
+      nodes
+        .filter((node) => node.roles.includes("gpu"))
+        .map((node) => node.name),
     );
     break;
 

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd tar
@@ -53,11 +53,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./bin/71-import-secondary-arch-bundle.sh --bundle /path/to/seed.tar.gz [node args]
+Usage: ./bin/cluster.sh secondary-arch import --bundle /path/to/seed.tar.gz [node args]
 
 Restore the kubeasz seed bundle on a secondary-architecture deployment host,
-bootstrap local-arch binaries via 00-bootstrap-kubeasz.sh, and optionally add
-the listed node immediately using 60-add-node.sh.
+bootstrap local-arch binaries via 'cluster bootstrap', and optionally add
+the listed node immediately using 'cluster add-node'.
 EOF
       exit 0
       ;;
@@ -74,7 +74,7 @@ print_step "导入 secondary-arch kubeasz bundle"
 sudo tar -xzf "$BUNDLE_PATH" -C /
 
 print_step "在当前架构上补齐 kubeasz 二进制与镜像缓存"
-"$ROOT_DIR/bin/00-bootstrap-kubeasz.sh"
+"$ROOT_DIR/bin/cluster.sh" cluster bootstrap
 
 if [[ -n "$NODE_NAME" || -n "$NODE_IP" || -n "$SSH_USER" || -n "$SSH_PASSWORD" || -n "$ROLES" ]]; then
   for value_name in NODE_NAME NODE_IP SSH_USER SSH_PASSWORD ROLES; do
@@ -86,7 +86,7 @@ if [[ -n "$NODE_NAME" || -n "$NODE_IP" || -n "$SSH_USER" || -n "$SSH_PASSWORD" |
   fi
 
   print_step "在次级架构部署机上执行 add-node"
-  "$ROOT_DIR/bin/60-add-node.sh" \
+  "$ROOT_DIR/bin/cluster.sh" cluster add-node \
     --name "$NODE_NAME" \
     --ip "$NODE_IP" \
     --ssh-user "$SSH_USER" \

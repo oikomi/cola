@@ -101,6 +101,75 @@ const ROLE_COLORS: Record<AgentRole, number> = {
   procurement: 0xff8d61,
 };
 
+const ROLE_LABEL_STYLES: Record<
+  AgentRole,
+  {
+    fill: number;
+    text: string;
+  }
+> = {
+  ceo_office: { fill: 0xd0b58c, text: "#2d1a0e" },
+  product: { fill: 0xffcf70, text: "#3e2305" },
+  engineering: { fill: 0x90d3ff, text: "#0d2b41" },
+  operations: { fill: 0xc6a3ff, text: "#311748" },
+  hr: { fill: 0xffadc4, text: "#4b1026" },
+  procurement: { fill: 0xffb18a, text: "#52200f" },
+};
+
+const ZONE_BADGE_STYLES: Record<
+  ZoneKey,
+  {
+    surface: number;
+    border: number;
+    ribbon: number;
+    title: number;
+    meta: string;
+  }
+> = {
+  command: {
+    surface: 0xfff1e4,
+    border: 0x947159,
+    ribbon: 0x6f5642,
+    title: 0x311b0f,
+    meta: "#805f4c",
+  },
+  product: {
+    surface: 0xfff1df,
+    border: 0xc58a57,
+    ribbon: 0xd1965f,
+    title: 0x351b0d,
+    meta: "#966849",
+  },
+  engineering: {
+    surface: 0xf2fbf6,
+    border: 0x4d8f7c,
+    ribbon: 0x5da391,
+    title: 0x173129,
+    meta: "#4e7468",
+  },
+  growth: {
+    surface: 0xfff6df,
+    border: 0xcd9647,
+    ribbon: 0xdfad5d,
+    title: 0x3b240b,
+    meta: "#8d6841",
+  },
+  people: {
+    surface: 0xf5efff,
+    border: 0x9078ba,
+    ribbon: 0xa58fd1,
+    title: 0x2b1f40,
+    meta: "#6b5782",
+  },
+  vendor: {
+    surface: 0xffeee7,
+    border: 0xc78068,
+    ribbon: 0xd58c73,
+    title: 0x3e1f14,
+    meta: "#8b5d4a",
+  },
+};
+
 const STATUS_GLOWS: Record<OfficeAgent["status"], number> = {
   idle: 0xf5d28a,
   planning: 0xecc870,
@@ -267,6 +336,11 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function getCanvasResolution() {
+  if (typeof window === "undefined") return 1;
+  return clamp(window.devicePixelRatio || 1, 1, 2);
+}
+
 function FormField({
   label,
   children,
@@ -353,7 +427,10 @@ function createText(
   return node;
 }
 
-function drawPolygon(graphics: PIXI.Graphics, points: Array<{ x: number; y: number }>) {
+function drawPolygon(
+  graphics: PIXI.Graphics,
+  points: Array<{ x: number; y: number }>,
+) {
   graphics.moveTo(points[0]!.x, points[0]!.y);
 
   for (const point of points.slice(1)) {
@@ -458,11 +535,19 @@ function addWorkstationFurniture(
 
   switch (zoneId) {
     case "command":
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 1.08, 0.56, 18, {
-        top: 0x283240,
-        left: 0x161d27,
-        right: 0x202a35,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        1.08,
+        0.56,
+        18,
+        {
+          top: 0x283240,
+          left: 0x161d27,
+          right: 0x202a35,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.2,
@@ -480,11 +565,19 @@ function addWorkstationFurniture(
       break;
 
     case "product": {
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 1.18, 0.64, 18, {
-        top: 0xb78767,
-        left: 0x96694e,
-        right: 0x845a42,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        1.18,
+        0.64,
+        18,
+        {
+          top: 0xb78767,
+          left: 0x96694e,
+          right: 0x845a42,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.18,
@@ -493,11 +586,17 @@ function addWorkstationFurniture(
         isoToScreen(workstation.deskX + 0.38, workstation.deskY + 0.28).y,
       );
       const note = new PIXI.Graphics();
-      const notePos = isoToScreen(workstation.deskX + 0.84, workstation.deskY + 0.24);
+      const notePos = isoToScreen(
+        workstation.deskX + 0.84,
+        workstation.deskY + 0.24,
+      );
       note.beginFill(index % 2 === 0 ? 0xffcb6d : 0xff93ac, 0.94);
       note.drawRoundedRect(notePos.x - 5, notePos.y - 10, 10, 8, 2);
       note.endFill();
-      note.zIndex = isoToScreen(workstation.deskX + 0.88, workstation.deskY + 0.28).y;
+      note.zIndex = isoToScreen(
+        workstation.deskX + 0.88,
+        workstation.deskY + 0.28,
+      ).y;
       layer.addChild(note);
       chair.beginFill(0x8b6f79, 0.95);
       chair.drawRoundedRect(chairPos.x - 9, chairPos.y - 8, 15, 14, 4);
@@ -509,11 +608,19 @@ function addWorkstationFurniture(
     }
 
     case "engineering":
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 0.88, 0.52, 18, {
-        top: 0x7d5b45,
-        left: 0x654837,
-        right: 0x5a4031,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        0.88,
+        0.52,
+        18,
+        {
+          top: 0x7d5b45,
+          left: 0x654837,
+          right: 0x5a4031,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.12,
@@ -531,11 +638,19 @@ function addWorkstationFurniture(
       break;
 
     case "growth": {
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 0.96, 0.52, 18, {
-        top: 0x967055,
-        left: 0x79583f,
-        right: 0x6c4f39,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        0.96,
+        0.52,
+        18,
+        {
+          top: 0x967055,
+          left: 0x79583f,
+          right: 0x6c4f39,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.16,
@@ -544,7 +659,10 @@ function addWorkstationFurniture(
         isoToScreen(workstation.deskX + 0.3, workstation.deskY + 0.24).y,
       );
       const mat = new PIXI.Graphics();
-      const matPos = isoToScreen(workstation.deskX + 0.9, workstation.deskY + 0.95);
+      const matPos = isoToScreen(
+        workstation.deskX + 0.9,
+        workstation.deskY + 0.95,
+      );
       mat.beginFill(0xffdf84, 0.38);
       mat.drawEllipse(matPos.x, matPos.y, 22, 12);
       mat.endFill();
@@ -560,11 +678,19 @@ function addWorkstationFurniture(
     }
 
     case "people":
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 1.28, 0.48, 18, {
-        top: 0xb58a6c,
-        left: 0x946d54,
-        right: 0x835f49,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        1.28,
+        0.48,
+        18,
+        {
+          top: 0xb58a6c,
+          left: 0x946d54,
+          right: 0x835f49,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.18,
@@ -581,11 +707,19 @@ function addWorkstationFurniture(
       break;
 
     case "vendor":
-      drawIsoBox(deskContainer, workstation.deskX, workstation.deskY, 1.05, 0.6, 18, {
-        top: 0xc28c62,
-        left: 0xa06f4b,
-        right: 0x8f6242,
-      });
+      drawIsoBox(
+        deskContainer,
+        workstation.deskX,
+        workstation.deskY,
+        1.05,
+        0.6,
+        18,
+        {
+          top: 0xc28c62,
+          left: 0xa06f4b,
+          right: 0x8f6242,
+        },
+      );
       addMonitorStack(
         layer,
         workstation.deskX + 0.16,
@@ -594,11 +728,17 @@ function addWorkstationFurniture(
         isoToScreen(workstation.deskX + 0.3, workstation.deskY + 0.28).y,
       );
       const parcel = new PIXI.Graphics();
-      const parcelPos = isoToScreen(workstation.deskX + 0.82, workstation.deskY + 0.32);
+      const parcelPos = isoToScreen(
+        workstation.deskX + 0.82,
+        workstation.deskY + 0.32,
+      );
       parcel.beginFill(0xd4af85, 0.95);
       parcel.drawRoundedRect(parcelPos.x - 6, parcelPos.y - 9, 11, 8, 2);
       parcel.endFill();
-      parcel.zIndex = isoToScreen(workstation.deskX + 0.85, workstation.deskY + 0.36).y;
+      parcel.zIndex = isoToScreen(
+        workstation.deskX + 0.85,
+        workstation.deskY + 0.36,
+      ).y;
       layer.addChild(parcel);
       chair.beginFill(0x917079, 0.96);
       chair.drawRoundedRect(chairPos.x - 8, chairPos.y - 8, 14, 14, 4);
@@ -670,7 +810,10 @@ function addSelectedWorkstationGlow(
   layer: PIXI.Container,
   workstation: ZoneWorkstation,
 ) {
-  const pos = isoToScreen(workstation.personX - 0.08, workstation.personY + 0.02);
+  const pos = isoToScreen(
+    workstation.personX - 0.08,
+    workstation.personY + 0.02,
+  );
   const glow = new PIXI.Graphics();
   glow.beginFill(0xffe19b, 0.24);
   glow.drawEllipse(pos.x, pos.y + 6, 22, 10);
@@ -692,7 +835,12 @@ function addDeskCluster(
   const rug = new PIXI.Graphics();
   rug.beginFill(zone.rugTint, active ? 0.34 : 0.22);
   const anchorScreen = isoToScreen(zone.anchor.x, zone.anchor.y);
-  rug.drawEllipse(anchorScreen.x, anchorScreen.y + 8, zoneId === "engineering" ? 160 : 96, zoneId === "engineering" ? 82 : 50);
+  rug.drawEllipse(
+    anchorScreen.x,
+    anchorScreen.y + 8,
+    zoneId === "engineering" ? 160 : 96,
+    zoneId === "engineering" ? 82 : 50,
+  );
   rug.endFill();
   rug.zIndex = anchorScreen.y - 10;
   layer.addChild(rug);
@@ -710,17 +858,36 @@ function addZoneDecor(
   switch (zone.decor) {
     case "command": {
       const console = new PIXI.Container();
-      drawIsoBox(console, zone.anchor.x - 1.2, zone.anchor.y - 1.55, 1.1, 0.68, 44, {
-        top: 0x161d28,
-        left: 0x0d131a,
-        right: 0x202b36,
-      });
-      drawIsoBox(console, zone.anchor.x - 0.65, zone.anchor.y - 1.28, 0.4, 0.22, 56, {
-        top: 0x46d6ff,
-        left: 0x2b87a4,
-        right: 0x3bb9d9,
-      });
-      console.zIndex = isoToScreen(zone.anchor.x - 0.15, zone.anchor.y - 0.95).y;
+      drawIsoBox(
+        console,
+        zone.anchor.x - 1.2,
+        zone.anchor.y - 1.55,
+        1.1,
+        0.68,
+        44,
+        {
+          top: 0x161d28,
+          left: 0x0d131a,
+          right: 0x202b36,
+        },
+      );
+      drawIsoBox(
+        console,
+        zone.anchor.x - 0.65,
+        zone.anchor.y - 1.28,
+        0.4,
+        0.22,
+        56,
+        {
+          top: 0x46d6ff,
+          left: 0x2b87a4,
+          right: 0x3bb9d9,
+        },
+      );
+      console.zIndex = isoToScreen(
+        zone.anchor.x - 0.15,
+        zone.anchor.y - 0.95,
+      ).y;
       layer.addChild(console);
       break;
     }
@@ -742,20 +909,36 @@ function addZoneDecor(
     }
     case "engineering": {
       const rackA = new PIXI.Container();
-      drawIsoBox(rackA, zone.anchor.x + 1.9, zone.anchor.y + 0.8, 0.55, 0.7, 86, {
-        top: 0x34414d,
-        left: 0x1e262d,
-        right: 0x28323d,
-      });
+      drawIsoBox(
+        rackA,
+        zone.anchor.x + 1.9,
+        zone.anchor.y + 0.8,
+        0.55,
+        0.7,
+        86,
+        {
+          top: 0x34414d,
+          left: 0x1e262d,
+          right: 0x28323d,
+        },
+      );
       rackA.zIndex = isoToScreen(zone.anchor.x + 2.35, zone.anchor.y + 1.5).y;
       layer.addChild(rackA);
 
       const rackB = new PIXI.Container();
-      drawIsoBox(rackB, zone.anchor.x + 2.7, zone.anchor.y + 1.25, 0.55, 0.7, 96, {
-        top: 0x414e5d,
-        left: 0x2a313a,
-        right: 0x313b46,
-      });
+      drawIsoBox(
+        rackB,
+        zone.anchor.x + 2.7,
+        zone.anchor.y + 1.25,
+        0.55,
+        0.7,
+        96,
+        {
+          top: 0x414e5d,
+          left: 0x2a313a,
+          right: 0x313b46,
+        },
+      );
       rackB.zIndex = isoToScreen(zone.anchor.x + 3.15, zone.anchor.y + 1.95).y;
       layer.addChild(rackB);
       break;
@@ -772,22 +955,38 @@ function addZoneDecor(
     }
     case "people": {
       const couch = new PIXI.Container();
-      drawIsoBox(couch, zone.anchor.x - 0.85, zone.anchor.y + 1.05, 1.42, 0.55, 24, {
-        top: 0xb29cd6,
-        left: 0x8f78b1,
-        right: 0x786390,
-      });
+      drawIsoBox(
+        couch,
+        zone.anchor.x - 0.85,
+        zone.anchor.y + 1.05,
+        1.42,
+        0.55,
+        24,
+        {
+          top: 0xb29cd6,
+          left: 0x8f78b1,
+          right: 0x786390,
+        },
+      );
       couch.zIndex = isoToScreen(zone.anchor.x + 0.2, zone.anchor.y + 1.6).y;
       layer.addChild(couch);
       break;
     }
     case "vendor": {
       const crates = new PIXI.Container();
-      drawIsoBox(crates, zone.anchor.x + 1.15, zone.anchor.y - 0.4, 0.8, 0.6, 24, {
-        top: 0xcf9565,
-        left: 0xa3704b,
-        right: 0x8d5f3d,
-      });
+      drawIsoBox(
+        crates,
+        zone.anchor.x + 1.15,
+        zone.anchor.y - 0.4,
+        0.8,
+        0.6,
+        24,
+        {
+          top: 0xcf9565,
+          left: 0xa3704b,
+          right: 0x8d5f3d,
+        },
+      );
       drawIsoBox(crates, zone.anchor.x + 1.9, zone.anchor.y, 0.52, 0.52, 18, {
         top: 0xe0b486,
         left: 0xbd9068,
@@ -985,7 +1184,10 @@ function getAgentWorldPosition(
   for (const [stationIndex, station] of workstations.entries()) {
     if (usedWorkstations.has(stationIndex)) continue;
 
-    const distance = Math.hypot(station.personX - hint.x, station.personY - hint.y);
+    const distance = Math.hypot(
+      station.personX - hint.x,
+      station.personY - hint.y,
+    );
     if (distance < closestDistance) {
       closestDistance = distance;
       pickedStation = station;
@@ -1005,9 +1207,13 @@ function getAgentWorldPosition(
     const offset = AGENT_LAYOUT_OFFSETS[index % AGENT_LAYOUT_OFFSETS.length]!;
     const extraOrbit = Math.floor(index / AGENT_LAYOUT_OFFSETS.length) * 0.42;
     worldX =
-      hint.x * 0.72 + zone.anchor.x * 0.28 + offset.x * (0.36 + extraOrbit * 0.14);
+      hint.x * 0.72 +
+      zone.anchor.x * 0.28 +
+      offset.x * (0.36 + extraOrbit * 0.14);
     worldY =
-      hint.y * 0.72 + zone.anchor.y * 0.28 + offset.y * (0.36 + extraOrbit * 0.14);
+      hint.y * 0.72 +
+      zone.anchor.y * 0.28 +
+      offset.y * (0.36 + extraOrbit * 0.14);
   }
 
   const screen = isoToScreen(worldX, worldY);
@@ -1044,32 +1250,80 @@ function createAgentLabel(
 
   const label = new PIXI.Container();
   const emphasized = selected || hovered;
-  const baseText = showExpandedName
-    ? compactLabelText(agent.name, emphasized ? 18 : 10)
-    : compactLabelText(agent.name, 2);
-  const labelText = baseText;
-  const width = Math.max(64, labelText.length * (emphasized ? 14 : 12) + 40);
+  const palette = ROLE_LABEL_STYLES[agent.role];
+  const roleText = createText(
+    roleLabels[agent.role],
+    {
+      fill: palette.text,
+      fontSize: 9,
+      fontWeight: "800",
+      letterSpacing: 0.3,
+    },
+    0,
+    0.5,
+  );
+  const nameText = createText(
+    showExpandedName
+      ? compactLabelText(agent.name, emphasized ? 16 : 12)
+      : compactLabelText(agent.name, 4),
+    {
+      fill: "#fff8ef",
+      fontSize: emphasized ? 12 : 11,
+      fontWeight: "700",
+    },
+    0,
+    0.5,
+  );
+  const roleWidth = Math.max(38, roleText.width + 18);
+  const width = Math.max(92, roleWidth + nameText.width + 40);
+  const height = 30;
+
+  const shadow = new PIXI.Graphics();
+  shadow.beginFill(0x0f0b09, emphasized ? 0.22 : 0.16);
+  shadow.drawRoundedRect(-width / 2 + 2, -height / 2 + 3, width, height, 10);
+  shadow.endFill();
 
   const background = new PIXI.Graphics();
-  background.beginFill(0x161310, selected ? 0.98 : hovered ? 0.94 : 0.88);
-  background.drawRoundedRect(-width / 2, -18, width, 28, 8);
+  background.lineStyle(1.5, palette.fill, selected ? 0.34 : 0.22);
+  background.beginFill(0x1c150f, selected ? 0.97 : hovered ? 0.94 : 0.9);
+  background.drawRoundedRect(-width / 2, -height / 2, width, height, 10);
   background.endFill();
 
-  const dot = new PIXI.Graphics();
-  dot.beginFill(selected ? 0xffdf84 : hovered ? 0xffcf6b : 0xf0b64b);
-  dot.drawCircle(width / 2 - 14, -4, 4);
-  dot.endFill();
+  const roleChip = new PIXI.Graphics();
+  roleChip.beginFill(palette.fill, 0.98);
+  roleChip.drawRoundedRect(-width / 2 + 6, -11, roleWidth, 22, 8);
+  roleChip.endFill();
 
-  const text = createText(labelText, {
-    fill: "#fff7ea",
-    fontSize: emphasized ? 12 : 11,
-    fontWeight: "700",
-  }, 0.5, 0.5);
-  text.position.set(0, -4);
+  const divider = new PIXI.Graphics();
+  divider.beginFill(0xffffff, 0.08);
+  divider.drawRoundedRect(-width / 2 + roleWidth + 14, -8, 1.5, 16, 1);
+  divider.endFill();
+
+  const statusHalo = new PIXI.Graphics();
+  statusHalo.beginFill(STATUS_GLOWS[agent.status], selected ? 0.22 : 0.15);
+  statusHalo.drawCircle(width / 2 - 12, 0, 7);
+  statusHalo.endFill();
+
+  const statusDot = new PIXI.Graphics();
+  statusDot.beginFill(STATUS_GLOWS[agent.status], 0.98);
+  statusDot.drawCircle(width / 2 - 12, 0, 4);
+  statusDot.endFill();
+
+  roleText.position.set(-width / 2 + 15, 0);
+  nameText.position.set(-width / 2 + roleWidth + 22, 0);
 
   label.position.set(0, -54 - (laneIndex % 3) * 9 - (selected ? 6 : 0));
   label.alpha = emphasized ? 1 : 0.92;
-  label.addChild(background, dot, text);
+  label.addChild(
+    shadow,
+    background,
+    roleChip,
+    divider,
+    statusHalo,
+    statusDot,
+    roleText,
+    nameText,
+  );
 
   return label;
 }
@@ -1080,27 +1334,58 @@ function createZoneBadge(
   active: boolean,
 ) {
   const badge = new PIXI.Container();
-  const width = Math.max(88, zone.label.length * 18 + 44);
+  const palette = ZONE_BADGE_STYLES[zone.id];
+  const title = createText(
+    zone.label,
+    {
+      fill: palette.title,
+      fontSize: zone.id === "engineering" ? 14 : 13,
+      fontWeight: "800",
+    },
+    0.5,
+    0.5,
+  );
+  const eyebrow = createText(
+    "分区",
+    {
+      fill: "#fffaf3",
+      fontSize: 9,
+      fontWeight: "800",
+      letterSpacing: 1.5,
+    },
+    0.5,
+    0.5,
+  );
+  const width = Math.max(104, title.width + 34);
+  const height = 42;
+  const ribbonWidth = Math.max(40, eyebrow.width + 18);
+
+  const shadow = new PIXI.Graphics();
+  shadow.beginFill(0x694834, active ? 0.14 : 0.1);
+  shadow.drawRoundedRect(-width / 2 + 2, -height / 2 + 4, width, height, 14);
+  shadow.endFill();
 
   const background = new PIXI.Graphics();
-  background.beginFill(0x17130f, active ? 0.98 : 0.92);
-  background.drawRoundedRect(-width / 2, -15, width, 30, 8);
+  background.lineStyle(2, palette.border, active ? 0.78 : 0.54);
+  background.beginFill(palette.surface, active ? 0.98 : 0.93);
+  background.drawRoundedRect(-width / 2, -height / 2, width, height, 14);
   background.endFill();
 
-  const dot = new PIXI.Graphics();
-  dot.beginFill(active ? 0xffde84 : 0xf0b64b);
-  dot.drawCircle(width / 2 - 15, 0, 4);
-  dot.endFill();
+  const ribbon = new PIXI.Graphics();
+  ribbon.beginFill(palette.ribbon, active ? 0.98 : 0.92);
+  ribbon.drawRoundedRect(-ribbonWidth / 2, -height / 2 + 6, ribbonWidth, 15, 8);
+  ribbon.endFill();
 
-  const text = createText(zone.label, {
-    fill: "#fff4df",
-    fontSize: zone.id === "engineering" ? 14 : 12,
-    fontWeight: "800",
-  }, 0.5, 0.5);
-  text.position.set(0, 0);
+  const accentLine = new PIXI.Graphics();
+  accentLine.beginFill(palette.border, active ? 0.26 : 0.16);
+  accentLine.drawRoundedRect(-width / 2 + 10, height / 2 - 8, width - 20, 3, 2);
+  accentLine.endFill();
 
-  badge.position.set(anchor.x, anchor.y - 58);
-  badge.addChild(background, dot, text);
+  eyebrow.position.set(0, -height / 2 + 13.5);
+  title.position.set(0, 6);
+
+  badge.position.set(anchor.x, anchor.y - 66);
+  badge.addChild(shadow, background, ribbon, accentLine, eyebrow, title);
   badge.zIndex = anchor.y + 26;
   return badge;
 }
@@ -1239,10 +1524,16 @@ function drawOfficeScene(
 
   addSceneDecor(objectLayer);
   const selectedZoneId =
-    snapshot.agents.find((agent) => agent.id === selectedAgentId)?.zoneId ?? null;
+    snapshot.agents.find((agent) => agent.id === selectedAgentId)?.zoneId ??
+    null;
 
   for (const zone of snapshot.zones) {
-    addZoneGround(objectLayer, zone.id, ZONE_SCENE[zone.id].anchor, selectedZoneId === zone.id);
+    addZoneGround(
+      objectLayer,
+      zone.id,
+      ZONE_SCENE[zone.id].anchor,
+      selectedZoneId === zone.id,
+    );
     addDeskCluster(
       objectLayer,
       ZONE_SCENE[zone.id],
@@ -1265,11 +1556,12 @@ function drawOfficeScene(
         (agent) => agent.id === selectedAgentId && agent.zoneId === zone.id,
       ),
     );
+    const zonePalette = ZONE_BADGE_STYLES[zone.id];
 
     const zoneMeta = createText(
       `${zone.activeCount}/${zone.headcount} 人 · ${zone.workstationCapacity}/${zone.workstationMax} 位`,
       {
-        fill: "#6c5640",
+        fill: zonePalette.meta,
         fontSize: 12,
         fontWeight: "700",
       },
@@ -1315,7 +1607,8 @@ function drawOfficeScene(
       );
       const selected = selectedAgentId === agent.id;
       const hovered = hoveredAgentId === agent.id;
-      const showExpandedName = selected || hovered || (selectedZoneId === zone.id && index === 0);
+      const showExpandedName =
+        selected || hovered || (selectedZoneId === zone.id && index === 0);
 
       if (selected) {
         selectedPosition = position;
@@ -1335,7 +1628,10 @@ function drawOfficeScene(
       const entity = new PIXI.Container();
 
       const halo = new PIXI.Graphics();
-      halo.beginFill(STATUS_GLOWS[agent.status], selected ? 0.26 : hovered ? 0.18 : 0.1);
+      halo.beginFill(
+        STATUS_GLOWS[agent.status],
+        selected ? 0.26 : hovered ? 0.18 : 0.1,
+      );
       halo.drawEllipse(0, 8, selected ? 28 : 22, selected ? 14 : 10);
       halo.endFill();
 
@@ -1350,7 +1646,10 @@ function drawOfficeScene(
       body.endFill();
 
       const jacket = new PIXI.Graphics();
-      jacket.beginFill(agent.engine === "hermes-agent" ? 0x1d4f91 : 0x1a1f2d, 0.92);
+      jacket.beginFill(
+        agent.engine === "hermes-agent" ? 0x1d4f91 : 0x1a1f2d,
+        0.92,
+      );
       jacket.drawRoundedRect(-6, -17, 12, 13, 4);
       jacket.endFill();
 
@@ -1400,7 +1699,10 @@ function drawOfficeScene(
       pin.endFill();
 
       const engineChip = new PIXI.Graphics();
-      engineChip.beginFill(agent.engine === "hermes-agent" ? 0x7fb3ff : 0x7ce8d0, 0.95);
+      engineChip.beginFill(
+        agent.engine === "hermes-agent" ? 0x7fb3ff : 0x7ce8d0,
+        0.95,
+      );
       engineChip.drawRoundedRect(-10, -39, 8, 4, 2);
       engineChip.endFill();
 
@@ -1409,11 +1711,16 @@ function drawOfficeScene(
       statusChip.drawRoundedRect(3, -39, 8, 4, 2);
       statusChip.endFill();
 
-      const icon = createText(agent.name.slice(0, 1), {
-        fill: "#fff7ea",
-        fontSize: 10,
-        fontWeight: "800",
-      }, 0.5, 0.5);
+      const icon = createText(
+        agent.name.slice(0, 1),
+        {
+          fill: "#fff7ea",
+          fontSize: 10,
+          fontWeight: "800",
+        },
+        0.5,
+        0.5,
+      );
       icon.position.set(0, -8);
 
       entity.addChild(
@@ -1462,7 +1769,9 @@ function drawOfficeScene(
           x: position.screenX,
           y: position.screenY,
         });
-      tweenRegistry.current.push(movementTimeline as unknown as gsap.core.Tween);
+      tweenRegistry.current.push(
+        movementTimeline as unknown as gsap.core.Tween,
+      );
 
       if (selected) {
         tweenRegistry.current.push(
@@ -1532,14 +1841,17 @@ export function OfficeBetaShell({ snapshot }: Props) {
     role: "engineering",
     engine: "openclaw",
   });
-  const [workstationZoneId, setWorkstationZoneId] = useState<ZoneKey>("engineering");
+  const [workstationZoneId, setWorkstationZoneId] =
+    useState<ZoneKey>("engineering");
 
   const selectedAgentId = useOfficeBetaStore((state) => state.selectedAgentId);
   const hoveredAgentId = useOfficeBetaStore((state) => state.hoveredAgentId);
   const setSelectedAgentId = useOfficeBetaStore(
     (state) => state.setSelectedAgentId,
   );
-  const setHoveredAgentId = useOfficeBetaStore((state) => state.setHoveredAgentId);
+  const setHoveredAgentId = useOfficeBetaStore(
+    (state) => state.setHoveredAgentId,
+  );
   const selectedAgentIdRef = useRef<string | null>(null);
   const hoveredAgentIdRef = useRef<string | null>(null);
   const pendingSelectedAgentIdRef = useRef<string | null>(null);
@@ -1623,7 +1935,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
       return;
     }
 
-    setWorkstationZoneId(selectedAgent?.zoneId ?? liveSnapshot.zones[0]?.id ?? "engineering");
+    setWorkstationZoneId(
+      selectedAgent?.zoneId ?? liveSnapshot.zones[0]?.id ?? "engineering",
+    );
   }, [liveSnapshot.zones, selectedAgent, workstationZoneId]);
 
   useEffect(() => {
@@ -1651,10 +1965,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
     let app: PIXI.Application | null = null;
 
     const setup = async () => {
+      const resolution = getCanvasResolution();
       app = new PIXI.Application();
       await app.init({
         antialias: true,
+        autoDensity: true,
         backgroundAlpha: 0,
+        resolution,
         resizeTo: host,
       });
 
@@ -1860,12 +2177,17 @@ export function OfficeBetaShell({ snapshot }: Props) {
   }, [utils.office.getSnapshot]);
 
   const selectedDevice = selectedAgent
-    ? (liveSnapshot.devices.find((device) => device.id === selectedAgent.deviceId) ??
-      null)
+    ? (liveSnapshot.devices.find(
+        (device) => device.id === selectedAgent.deviceId,
+      ) ?? null)
     : null;
   const selectedTask = selectedAgent
-    ? (liveSnapshot.tasks.find((task) => task.id === selectedAgent.currentTaskId) ??
-      liveSnapshot.tasks.find((task) => task.ownerAgentId === selectedAgent.id) ??
+    ? (liveSnapshot.tasks.find(
+        (task) => task.id === selectedAgent.currentTaskId,
+      ) ??
+      liveSnapshot.tasks.find(
+        (task) => task.ownerAgentId === selectedAgent.id,
+      ) ??
       null)
     : null;
   const selectedWorkstationZone =
@@ -1894,7 +2216,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
     {
       label: "执行中",
       value: String(
-        liveSnapshot.agents.filter((agent) => agent.status === "executing").length,
+        liveSnapshot.agents.filter((agent) => agent.status === "executing")
+          .length,
       ),
       tone: "default" as const,
     },
@@ -1909,7 +2232,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
       label: "待办",
       value: String(
         liveSnapshot.tasks.filter((task) =>
-          ["created", "queued", "assigned", "in_progress"].includes(task.status),
+          ["created", "queued", "assigned", "in_progress"].includes(
+            task.status,
+          ),
         ).length,
       ),
       tone: "default" as const,
@@ -1993,7 +2318,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
     openedWindow.location.replace(nativeUrl);
   };
 
-  const SelectedRoleIcon = selectedAgent ? ROLE_ICONS[selectedAgent.role] : null;
+  const SelectedRoleIcon = selectedAgent
+    ? ROLE_ICONS[selectedAgent.role]
+    : null;
 
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,#f5e5c8_0%,#e9d2ac_100%)] text-[#1f1711]">
@@ -2008,7 +2335,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 Office Beta
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-6 text-[#6d5544]">
-                等距办公室场景以真实 office snapshot 驱动。点击人物聚焦，顶部可直接添加工位和人物，左下角保留当前人物摘要，复杂编排仍可切到控制台。
+                等距办公室场景以真实 office snapshot
+                驱动。点击人物聚焦，顶部可直接添加工位和人物，左下角保留当前人物摘要，复杂编排仍可切到控制台。
               </p>
             </div>
 
@@ -2029,7 +2357,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 disabled={Boolean(liveSnapshot.readOnlyReason)}
                 onClick={() => {
                   setWorkstationZoneId(
-                    selectedAgent?.zoneId ?? liveSnapshot.zones[0]?.id ?? "engineering",
+                    selectedAgent?.zoneId ??
+                      liveSnapshot.zones[0]?.id ??
+                      "engineering",
                   );
                   setIsAddWorkstationOpen(true);
                 }}
@@ -2066,7 +2396,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   statCardClass(card.tone),
                 )}
               >
-                <p className="text-[10px] tracking-[0.24em] uppercase text-current/50">
+                <p className="text-[10px] tracking-[0.24em] text-current/50 uppercase">
                   {card.label}
                 </p>
                 <p className="mt-1 text-2xl font-semibold tracking-[-0.05em]">
@@ -2084,7 +2414,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,245,225,0.18),transparent_40%)]" />
 
-            <div className="absolute left-4 top-4 rounded-[24px] bg-white/88 px-4 py-3 shadow-[0_20px_40px_rgba(69,45,24,0.12)] backdrop-blur">
+            <div className="absolute top-4 left-4 rounded-[24px] border border-white/70 bg-[#fffaf2] px-4 py-3 shadow-[0_20px_40px_rgba(69,45,24,0.12)]">
               <p className="text-[11px] tracking-[0.24em] text-[#9c7a5b] uppercase">
                 最新快照
               </p>
@@ -2099,18 +2429,24 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
 
             {selectedAgent ? (
-              <div className="absolute bottom-4 left-4 w-[min(100%,320px)] rounded-[26px] border border-white/60 bg-white/92 p-4 shadow-[0_24px_60px_rgba(64,42,21,0.16)] backdrop-blur md:p-5">
+              <div className="absolute bottom-4 left-4 w-[min(100%,320px)] rounded-[26px] border border-white/70 bg-[#fffaf4] p-4 shadow-[0_24px_60px_rgba(64,42,21,0.16)] md:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-2xl font-semibold tracking-[-0.05em] text-[#24170d]">
                       {selectedAgent.name}
                     </p>
                     <div className="mt-1 flex items-center gap-2 text-sm text-[#6d5544]">
-                      {SelectedRoleIcon ? <SelectedRoleIcon className="size-4" /> : null}
+                      {SelectedRoleIcon ? (
+                        <SelectedRoleIcon className="size-4" />
+                      ) : null}
                       <span>{roleLabels[selectedAgent.role]}</span>
                       <span className="text-[#b99b7c]">/</span>
                       <span>
-                        {dockerRunnerEngineLabels[selectedAgent.engine ?? "openclaw"]}
+                        {
+                          dockerRunnerEngineLabels[
+                            selectedAgent.engine ?? "openclaw"
+                          ]
+                        }
                       </span>
                     </div>
                   </div>
@@ -2147,7 +2483,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       引擎
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
-                      {dockerRunnerEngineLabels[selectedAgent.engine ?? "openclaw"]}
+                      {
+                        dockerRunnerEngineLabels[
+                          selectedAgent.engine ?? "openclaw"
+                        ]
+                      }
                     </p>
                   </div>
                   <div>
@@ -2187,12 +2527,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </div>
             )}
 
-            <div className="absolute bottom-4 right-4 max-w-[320px] rounded-[24px] border border-white/55 bg-black/76 px-4 py-3 text-[#fff3df] shadow-[0_20px_44px_rgba(31,19,9,0.28)] backdrop-blur">
+            <div className="absolute right-4 bottom-4 max-w-[320px] rounded-[24px] border border-[#4a372a] bg-[#2a2018]/94 px-4 py-3 text-[#fff3df] shadow-[0_20px_44px_rgba(31,19,9,0.28)]">
               <p className="text-[11px] tracking-[0.28em] text-[#cfb797] uppercase">
                 Scene Notes
               </p>
               <p className="mt-2 text-sm leading-6 text-[#f5e4c7]">
-                办公室空间和人物热区都由 snapshot 驱动。拖动画布可漫游，滚轮可缩放；顶部可扩容工位和创建人物，审批和任务编排仍保留在控制台页面。
+                办公室空间和人物热区都由 snapshot
+                驱动。拖动画布可漫游，滚轮可缩放；顶部可扩容工位和创建人物，审批和任务编排仍保留在控制台页面。
               </p>
             </div>
           </div>
@@ -2209,7 +2550,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
           ) : null}
 
-          <Dialog open={isAddWorkstationOpen} onOpenChange={setIsAddWorkstationOpen}>
+          <Dialog
+            open={isAddWorkstationOpen}
+            onOpenChange={setIsAddWorkstationOpen}
+          >
             <DialogContent className="border-[#dcc3a2] bg-[#fffaf2] sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>添加工位</DialogTitle>
@@ -2306,7 +2650,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
               <DialogHeader>
                 <DialogTitle>添加人物</DialogTitle>
                 <DialogDescription>
-                  创建人物会立即落库并触发对应 Runner 拉起流程，成功后场景会自动选中它。
+                  创建人物会立即落库并触发对应 Runner
+                  拉起流程，成功后场景会自动选中它。
                 </DialogDescription>
               </DialogHeader>
 
@@ -2387,7 +2732,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     {ROLE_HINTS[agentDraft.role]}
                   </p>
                   <p className="mt-2 text-xs leading-5 text-[#8b735f]">
-                    默认会绑定 {dockerRunnerEngineLabels[agentDraft.engine]}，并按角色进入
+                    默认会绑定 {dockerRunnerEngineLabels[agentDraft.engine]}
+                    ，并按角色进入
                     {zoneLabels[zoneForRole(agentDraft.role)]}。
                   </p>
                 </div>

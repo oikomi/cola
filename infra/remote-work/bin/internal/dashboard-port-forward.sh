@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 
@@ -20,7 +20,7 @@ LOG_FILE="$RUNTIME_DIR/k8s-dashboard-port-forward.log"
 
 usage() {
   cat <<'EOF'
-Usage: ./bin/82-port-forward-k8s-dashboard.sh [options]
+Usage: ./bin/cluster.sh dashboard port-forward [options]
 
 Start a port-forward for the Kubernetes Dashboard Kong proxy service.
 Default behavior: bind 0.0.0.0:8443 and run in the background.

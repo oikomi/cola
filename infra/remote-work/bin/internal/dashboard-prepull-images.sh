@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd docker
 require_cmd node
@@ -38,12 +38,8 @@ for image_ref in "${IMAGES[@]}"; do
   docker pull "$image_ref"
   docker save "$image_ref" | gzip > "$image_file"
 
-  for node_name in "${TARGET_NODES[@]}"; do
-    print_step "分发 $image_ref 到 $node_name"
-    remote_scp "$image_file" "$node_name" "/tmp/$(basename "$image_file")"
-    remote_sudo_ssh "$node_name" \
-      "gzip -dc /tmp/$(basename "$image_file") | ctr -n k8s.io images import - && rm -f /tmp/$(basename "$image_file")"
-  done
+  print_step "分发 $image_ref 到 ${#TARGET_NODES[@]} 个节点"
+  load_compressed_image_archive_into_nodes "$image_file" "${TARGET_NODES[@]}"
 done
 
 if sudo test -f "$(cluster_kubeconfig_path)"; then

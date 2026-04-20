@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd node
@@ -14,7 +14,7 @@ AUTO_YES=0
 
 usage() {
   cat <<'EOF'
-Usage: ./bin/99-clean-all.sh [options]
+Usage: ./bin/cluster.sh cluster clean [options]
 
 Destroy the current remote-work deployment and clean local state.
 By default it will:

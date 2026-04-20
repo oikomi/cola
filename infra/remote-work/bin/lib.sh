@@ -166,6 +166,54 @@ ensure_runtime_dirs() {
   mkdir -p "$GENERATED_DIR" "$WORKSPACE_DIR"
 }
 
+json_read_props() {
+  local json_input="$1"
+  shift
+
+  [[ $# -gt 0 ]] || return 0
+
+  printf '%s' "$json_input" | node --input-type=module -e '
+    let source = "";
+    process.stdin.on("data", (chunk) => {
+      source += chunk;
+    });
+    process.stdin.on("end", () => {
+      const data = JSON.parse(source);
+      for (const key of process.argv.slice(1)) {
+        const value = data[key];
+        if (value === true) {
+          console.log("1");
+        } else if (value === false || value == null) {
+          console.log("");
+        } else if (typeof value === "object") {
+          console.log(JSON.stringify(value));
+        } else {
+          console.log(String(value));
+        }
+      }
+    });
+  ' "$@"
+}
+
+load_compressed_image_archive_into_nodes() {
+  local archive_path="$1"
+  shift
+
+  [[ -f "$archive_path" ]] || die "找不到镜像归档: $archive_path"
+  [[ $# -gt 0 ]] || die "未提供目标节点，无法导入镜像归档。"
+
+  local archive_name
+  local node_name
+
+  archive_name="$(basename "$archive_path")"
+
+  for node_name in "$@"; do
+    remote_scp "$archive_path" "$node_name" "/tmp/$archive_name"
+    remote_sudo_ssh "$node_name" \
+      "gzip -dc /tmp/$archive_name | ctr -n k8s.io images import - && rm -f /tmp/$archive_name"
+  done
+}
+
 cluster_kubeconfig_path() {
   printf '%s\n' "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/kubectl.kubeconfig"
 }

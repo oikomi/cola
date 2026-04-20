@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd git
 require_cmd node
@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./bin/00-bootstrap-kubeasz.sh [--with-images]
+Usage: ./bin/cluster.sh cluster bootstrap [--with-images]
 
 Default behavior:
   - prepare kubeasz binaries and /etc/kubeasz cluster assets
@@ -238,4 +238,4 @@ print_step "渲染并同步 inventory"
 render_cluster_inventory
 copy_hosts_into_kubeasz
 
-echo "kubeasz 已准备完成。下一步执行: ./bin/10-install-cluster.sh"
+echo "kubeasz 已准备完成。下一步执行: ./bin/cluster.sh cluster install"

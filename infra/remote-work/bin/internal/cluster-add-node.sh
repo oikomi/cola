@@ -2,7 +2,30 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: ./bin/cluster.sh cluster add-node [options]
+
+Options:
+  --name <name>              Node name, required
+  --ip <ip>                  Node IP, required
+  --ssh-user <user>          SSH user, required
+  --ssh-password <password>  SSH password, required
+  --ssh-port <port>          SSH port, default 22
+  --roles <roles>            worker or worker,gpu
+  --arch <arch>              Default local arch
+  -h, --help                 Show help
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
 require_cmd node
 require_cmd sudo
@@ -46,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       ARCH="$2"
       shift 2
       ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
       die "未知参数: $1"
       ;;
@@ -61,7 +88,7 @@ if [[ -z "$ARCH" ]]; then
 fi
 
 if [[ "$ARCH" != "$(local_arch)" ]]; then
-  die "当前部署机架构是 $(local_arch)，但你要添加的节点声明为 $ARCH。请在同架构部署机上执行 60-add-node，或先用 70-export-secondary-arch-bundle.sh 在目标架构部署机上继续。"
+  die "当前部署机架构是 $(local_arch)，但你要添加的节点声明为 $ARCH。请在同架构部署机上执行 ./bin/cluster.sh cluster add-node，或先用 ./bin/cluster.sh secondary-arch export 在目标架构部署机上继续。"
 fi
 
 if [[ ",$ROLES," == *",master,"* || ",$ROLES," == *",etcd,"* ]]; then
@@ -72,7 +99,7 @@ if [[ ",$ROLES," != *",worker,"* ]]; then
   die "--roles 至少需要包含 worker"
 fi
 
-[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/00-bootstrap-kubeasz.sh"
+[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
 
 print_step "通过 kubeasz 加入 worker 节点"
 (
@@ -106,7 +133,7 @@ kubectl_remote "label node $NAME $(workspace_label_key)=true --overwrite"
 
 if [[ ",$ROLES," == *",gpu,"* ]]; then
   print_step "为新增 GPU 节点启用 NVIDIA runtime"
-  "$ROOT_DIR/bin/20-enable-gpu.sh" --node "$NAME" --skip-manifests
+  "$ROOT_DIR/bin/cluster.sh" gpu enable --node "$NAME" --skip-manifests
   kubectl_remote "label node $NAME $(gpu_label_key)=true --overwrite"
 fi
 

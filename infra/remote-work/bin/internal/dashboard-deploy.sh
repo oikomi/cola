@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd node
@@ -17,7 +17,7 @@ WAIT_INTERVAL_SECONDS=10
 
 usage() {
   cat <<'EOF'
-Usage: ./bin/80-deploy-k8s-dashboard.sh [options]
+Usage: ./bin/cluster.sh dashboard deploy [options]
 
 Install Kubernetes Dashboard via the official Helm chart, create an admin user,
 and expose the Kong proxy service for browser access.
@@ -123,7 +123,7 @@ wait_for_dashboard_ready() {
     print_step "Dashboard 超时未就绪，输出诊断信息"
     print_dashboard_diagnostics
     echo
-    echo "如果 Pod 处于 ImagePullBackOff，可先执行：./bin/83-prepull-k8s-dashboard-images.sh"
+    echo "如果 Pod 处于 ImagePullBackOff，可先执行：./bin/cluster.sh dashboard prepull-images"
     die "Kubernetes Dashboard 在 ${WAIT_TIMEOUT_SECONDS}s 内未就绪。"
   fi
 }
@@ -166,9 +166,9 @@ wait_for_dashboard_ready
 
 echo
 echo "已按 Kubernetes 官方文档方式安装 Dashboard。"
-echo "访问方式：./bin/82-port-forward-k8s-dashboard.sh"
+echo "访问方式：./bin/cluster.sh dashboard port-forward"
 echo "默认会后台监听：0.0.0.0:8443"
 echo "浏览器地址：https://<部署机IP>:8443/"
 if [[ "$SKIP_ADMIN_USER" -eq 0 ]]; then
-  echo "获取登录 Token：./bin/81-get-k8s-dashboard-token.sh"
+  echo "获取登录 Token：./bin/cluster.sh dashboard token"
 fi

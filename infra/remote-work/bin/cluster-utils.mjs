@@ -173,5 +173,7 @@ export function firstMaster(nodes) {
 }
 
 export function nodesForArch(nodes, arch) {
-  return nodes.filter((node) => normalizeArch(node.arch) === normalizeArch(arch));
+  return nodes.filter(
+    (node) => normalizeArch(node.arch) === normalizeArch(arch),
+  );
 }
