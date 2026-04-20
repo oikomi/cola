@@ -11,6 +11,7 @@ require_cmd scp
 
 TARGET_NODE=""
 SKIP_MANIFESTS=0
+AUTO_DISCOVERED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,7 +38,18 @@ mapfile -t GPU_NODES < <(
 )
 
 if [[ "${#GPU_NODES[@]}" -eq 0 ]]; then
-  echo "没有定义 GPU 节点，跳过。"
+  print_step "cluster/nodes.json 未显式标记 gpu 角色，开始自动探测"
+  mapfile -t ALL_NODES < <(cluster_query nodeNames)
+  for node_name in "${ALL_NODES[@]}"; do
+    if remote_ssh "$node_name" "command -v nvidia-smi >/dev/null 2>&1"; then
+      GPU_NODES+=("$node_name")
+    fi
+  done
+  AUTO_DISCOVERED=1
+fi
+
+if [[ "${#GPU_NODES[@]}" -eq 0 ]]; then
+  echo "没有检测到可用 GPU 节点，跳过。"
   exit 0
 fi
 
@@ -96,7 +108,7 @@ mapfile -t ALL_NODES < <(cluster_query nodeNames)
 for node_name in "${ALL_NODES[@]}"; do
   if kubectl_remote "get node $node_name >/dev/null 2>&1"; then
     kubectl_remote "label node $node_name $(workspace_label_key)=true --overwrite"
-    if node_has_role "$node_name" gpu; then
+    if printf '%s\n' "${GPU_NODES[@]}" | grep -qx "$node_name"; then
       kubectl_remote "label node $node_name $(gpu_label_key)=true --overwrite"
     fi
   else
@@ -110,6 +122,12 @@ if [[ "$SKIP_MANIFESTS" -eq 0 ]]; then
   kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-runtimeclass.yaml"
   kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-device-plugin.yaml"
   kubectl_remote "rollout status daemonset/nvidia-device-plugin-daemonset -n kube-system --timeout=180s"
+fi
+
+if [[ "$AUTO_DISCOVERED" -eq 1 ]]; then
+  echo
+  echo "已根据 nvidia-smi 自动识别 GPU 节点：$(printf '%s ' "${GPU_NODES[@]}")"
+  echo "建议后续把这些节点在 cluster/nodes.json 中补上 gpu 角色。"
 fi
 
 echo "GPU 能力已启用。下一步执行: ./bin/30-build-and-load-image.sh"
