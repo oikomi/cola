@@ -10,6 +10,7 @@ NAMESPACE="kubernetes-dashboard"
 SERVICE_NAME="kubernetes-dashboard-kong-proxy"
 LOCAL_PORT="8443"
 REMOTE_PORT="443"
+ADDRESS="127.0.0.1"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,7 @@ Options:
   --service <name>       Service name, default kubernetes-dashboard-kong-proxy
   --local-port <port>    Local bind port, default 8443
   --remote-port <port>   Remote service port, default 443
+  --address <addr>       Bind address, default 127.0.0.1; use 0.0.0.0 for LAN access
   -h, --help             Show help
 EOF
 }
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       REMOTE_PORT="$2"
       shift 2
       ;;
+    --address)
+      ADDRESS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -55,4 +61,5 @@ while [[ $# -gt 0 ]]; do
 done
 
 run_cluster_kubectl -n "$NAMESPACE" get service "$SERVICE_NAME" >/dev/null
-run_cluster_kubectl -n "$NAMESPACE" port-forward "svc/${SERVICE_NAME}" "${LOCAL_PORT}:${REMOTE_PORT}"
+echo "Port-forward listening on ${ADDRESS}:${LOCAL_PORT} -> svc/${SERVICE_NAME}:${REMOTE_PORT}"
+run_cluster_kubectl -n "$NAMESPACE" port-forward --address "$ADDRESS" "svc/${SERVICE_NAME}" "${LOCAL_PORT}:${REMOTE_PORT}"

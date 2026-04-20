@@ -156,6 +156,18 @@ cd infra/remote-work
 https://localhost:8443/
 ```
 
+如果要从局域网其他机器访问当前部署机，可以显式绑定：
+
+```bash
+./bin/82-port-forward-k8s-dashboard.sh --address 0.0.0.0
+```
+
+然后从浏览器访问：
+
+```text
+https://<部署机IP>:8443/
+```
+
 获取登录 Token：
 
 ```bash
