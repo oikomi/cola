@@ -8,18 +8,18 @@ require_cmd sudo
 
 NAMESPACE="kubernetes-dashboard"
 SERVICE_ACCOUNT="admin-user"
-DURATION="24h"
+SECRET_NAME="admin-user-token"
 
 usage() {
   cat <<'EOF'
 Usage: ./bin/81-get-k8s-dashboard-token.sh [options]
 
-Print a bearer token for the Kubernetes Dashboard admin service account.
+Print the long-lived bearer token stored in the Kubernetes Dashboard admin secret.
 
 Options:
   --namespace <name>         Namespace, default kubernetes-dashboard
   --service-account <name>   ServiceAccount, default admin-user
-  --duration <dur>           Token duration, default 24h
+  --secret <name>            Secret name, default admin-user-token
   -h, --help                 Show help
 EOF
 }
@@ -34,8 +34,8 @@ while [[ $# -gt 0 ]]; do
       SERVICE_ACCOUNT="$2"
       shift 2
       ;;
-    --duration)
-      DURATION="$2"
+    --secret)
+      SECRET_NAME="$2"
       shift 2
       ;;
     -h|--help)
@@ -49,5 +49,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 run_cluster_kubectl -n "$NAMESPACE" get serviceaccount "$SERVICE_ACCOUNT" >/dev/null
-run_cluster_kubectl create token "$SERVICE_ACCOUNT" -n "$NAMESPACE" --duration "$DURATION"
+run_cluster_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" >/dev/null
+TOKEN="$(
+  run_cluster_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o jsonpath='{.data.token}' | \
+    python3 - <<'PY'
+import base64
+import sys
 
+data = sys.stdin.read().strip()
+if not data:
+    raise SystemExit(1)
+print(base64.b64decode(data).decode())
+PY
+)"
+
+if [[ -z "$TOKEN" ]]; then
+  die "Secret $SECRET_NAME 还没有被 Kubernetes 填充 token。可稍等片刻后重试，或重新执行 ./bin/80-deploy-k8s-dashboard.sh。"
+fi
+
+printf '%s\n' "$TOKEN"

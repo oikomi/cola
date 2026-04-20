@@ -141,7 +141,7 @@ cd infra/remote-work
 
 - 通过官方 Helm chart 安装 `kubernetes-dashboard`
 - 保持官方 chart 的默认 `ClusterIP`
-- 创建一个 `admin-user` ServiceAccount
+- 创建一个 `admin-user` ServiceAccount 和长期保存的 `admin-user-token` Secret
 - 如果官方 Helm repo 在当前网络环境里返回 `404` 或不可达，会自动回退到官方 GitHub release 的 `.tgz` chart 包
 
 按官方文档方式本地转发访问：
@@ -161,6 +161,8 @@ https://localhost:8443/
 ```bash
 ./bin/81-get-k8s-dashboard-token.sh
 ```
+
+这个 token 不是默认 `24h` 临时 token，而是从 `admin-user-token` Secret 里读取的长期 token。
 
 说明：
 
