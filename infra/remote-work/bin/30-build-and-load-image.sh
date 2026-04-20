@@ -38,6 +38,7 @@ ensure_runtime_dirs
 
 IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
 ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
+LOCAL_ARCH="$(local_arch)"
 
 print_step "构建镜像 $IMAGE_REF"
 docker build \
@@ -48,8 +49,12 @@ docker build \
 print_step "导出镜像"
 docker save "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
 
-mapfile -t ALL_NODES < <(cluster_query nodeNames)
-for node_name in "${ALL_NODES[@]}"; do
+mapfile -t TARGET_NODES < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
+if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
+  die "没有找到 arch=$LOCAL_ARCH 的目标节点，无法分发镜像。"
+fi
+
+for node_name in "${TARGET_NODES[@]}"; do
   print_step "分发镜像到 $node_name"
   remote_scp "$ARCHIVE_PATH" "$node_name" "/tmp/$(basename "$ARCHIVE_PATH")"
   remote_ssh "$node_name" \
@@ -58,5 +63,4 @@ done
 
 printf '%s\n' "$IMAGE_REF" > "$RUNTIME_DIR/latest-image.txt"
 
-echo "镜像已导入全部节点，默认镜像已写入 runtime/latest-image.txt"
-
+echo "镜像已导入 arch=$LOCAL_ARCH 的节点，默认镜像已写入 runtime/latest-image.txt"

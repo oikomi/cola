@@ -7,12 +7,12 @@
 3. 构建一个基于 Ubuntu + XFCE + x11vnc + noVNC 的远程桌面镜像
 4. 通过脚本在指定节点上创建独立工作区，每个工作区都有自己的 NodePort、密码和宿主机持久目录
 
-当前默认拓扑：
+推荐拓扑：
 
-- `192.168.5.178`：`rw-gpu-178`，`master + etcd + worker + gpu`
-- `192.168.5.22`：`rw-node-022`，`worker`
+- `192.168.5.22`：`rw-node-022`，`amd64`，`master + etcd + worker`
+- `192.168.5.178`：`rw-gpu-178`，`Jetson AGX / arm64`，建议作为二阶段加入的 `worker + gpu`
 
-后续增加新机器时，直接使用 `bin/60-add-node.sh` 加入为新的 `worker` 或 `worker,gpu` 节点即可。
+仓库默认 `cluster/nodes.json` 只预置首轮引导节点 `rw-node-022`。后续增加同架构节点时，直接使用 `bin/60-add-node.sh`；如果要加入 Jetson 这类异构 `arm64` 节点，走本文后面的“混合架构接入”流程。
 
 ## 目录结构
 
@@ -50,6 +50,7 @@ infra/remote-work
 - `sshPassword`
 - `sshPort`
 - `roles`
+- `arch`
 
 `roles` 当前支持：
 
@@ -57,6 +58,11 @@ infra/remote-work
 - `etcd`
 - `worker`
 - `gpu`
+
+`arch` 当前支持：
+
+- `amd64`
+- `arm64`
 
 `cluster/config.json` 里的 `kubernetesVersion` 最稳妥的写法，是与当前 kubeasz `ezdown` 中的 `K8S_BIN_VER` 保持一致。
 例如当前仓库固定的 kubeasz `3.6.8`，默认对应的是 `v1.34.1`。
@@ -91,7 +97,8 @@ cd infra/remote-work
 ./bin/10-install-cluster.sh
 ```
 
-执行完成后，控制平面会落在 `rw-gpu-178`，`rw-node-022` 会作为工作节点加入。
+首轮安装只会纳入与当前部署机同架构的节点。
+按当前默认配置，从 `192.168.5.22` 这台 `amd64` 部署机执行时，会先拉起一个单节点控制面：`rw-node-022`。
 
 ## 4. 启用 GPU 支持
 
@@ -185,7 +192,44 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 这个脚本当前只支持扩容 `worker` / `worker,gpu` 节点，不负责把新机器升级成 `master` 或 `etcd`。这样更稳，也更贴合“后续任意增加 node 服务器”的常见路径。
 
-## 9. 一键清理
+如果节点架构与当前部署机不一致，`60-add-node.sh` 会直接拒绝执行，并提示你改到同架构部署机上继续。
+
+## 9. 混合架构接入
+
+以当前场景为例：
+
+- 主部署机：`192.168.5.22`，`amd64`
+- 次级节点：`192.168.5.178`，Jetson AGX，`arm64`
+
+推荐流程：
+
+1. 在 `amd64` 部署机上完成 `00` 和 `10`，只拉起 `rw-node-022`
+2. 在 `amd64` 部署机上导出 kubeasz seed bundle
+3. 把 bundle 和仓库拷到 Jetson 这台 `arm64` 机器
+4. 在 Jetson 上导入 bundle、补齐 `arm64` 二进制，并执行 `add-node`
+
+导出 bundle：
+
+```bash
+./bin/70-export-secondary-arch-bundle.sh
+```
+
+在 Jetson 上导入并直接加入节点：
+
+```bash
+./bin/71-import-secondary-arch-bundle.sh \
+  --bundle /path/to/remote-work-kubeasz-seed.tar.gz \
+  --name rw-gpu-178 \
+  --ip 192.168.5.178 \
+  --ssh-user nvidia \
+  --ssh-password 'nvidia' \
+  --roles worker,gpu \
+  --arch arm64
+```
+
+这个流程本质上对应 kubeasz 官方 `docs/setup/mix_arch.md` 的“双部署机”模式，只是把步骤收成了仓库脚本。
+
+## 10. 一键清理
 
 销毁当前 `remote-work` 集群，并清理本机运行态：
 
@@ -205,9 +249,10 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ./bin/99-clean-all.sh --yes --keep-local-cache
 ```
 
-## 10. 已知边界
+## 11. 已知边界
 
 - 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点
 - `bin/20-enable-gpu.sh` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
+- 混合架构场景下，主集群初始化和次级架构 `add-node` 必须在对应架构的部署机上执行
 - 这套脚本没有在当前仓库 CI 中接真实服务器执行，交付的是静态校验通过的部署资产

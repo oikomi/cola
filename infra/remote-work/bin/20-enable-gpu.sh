@@ -94,9 +94,13 @@ done
 print_step "给节点打标签"
 mapfile -t ALL_NODES < <(cluster_query nodeNames)
 for node_name in "${ALL_NODES[@]}"; do
-  kubectl_remote "label node $node_name $(workspace_label_key)=true --overwrite"
-  if node_has_role "$node_name" gpu; then
-    kubectl_remote "label node $node_name $(gpu_label_key)=true --overwrite"
+  if kubectl_remote "get node $node_name >/dev/null 2>&1"; then
+    kubectl_remote "label node $node_name $(workspace_label_key)=true --overwrite"
+    if node_has_role "$node_name" gpu; then
+      kubectl_remote "label node $node_name $(gpu_label_key)=true --overwrite"
+    fi
+  else
+    echo "节点 $node_name 还未加入 Kubernetes，先跳过标签。"
   fi
 done
 

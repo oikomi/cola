@@ -14,6 +14,7 @@ SSH_USER=""
 SSH_PASSWORD=""
 SSH_PORT="22"
 ROLES=""
+ARCH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       ROLES="$2"
       shift 2
       ;;
+    --arch)
+      ARCH="$2"
+      shift 2
+      ;;
     *)
       die "未知参数: $1"
       ;;
@@ -50,6 +55,14 @@ done
 for value_name in NAME IP SSH_USER SSH_PASSWORD ROLES; do
   [[ -n "${!value_name}" ]] || die "缺少必要参数: ${value_name}"
 done
+
+if [[ -z "$ARCH" ]]; then
+  ARCH="$(local_arch)"
+fi
+
+if [[ "$ARCH" != "$(local_arch)" ]]; then
+  die "当前部署机架构是 $(local_arch)，但你要添加的节点声明为 $ARCH。请在同架构部署机上执行 60-add-node，或先用 70-export-secondary-arch-bundle.sh 在目标架构部署机上继续。"
+fi
 
 if [[ ",$ROLES," == *",master,"* || ",$ROLES," == *",etcd,"* ]]; then
   die "当前脚本只支持扩容 worker / worker,gpu 节点，不支持直接扩容 master/etcd。"
@@ -83,9 +96,10 @@ node "$ROOT_DIR/bin/update-node-list.mjs" \
   --ssh-user "$SSH_USER" \
   --ssh-password "$SSH_PASSWORD" \
   --ssh-port "$SSH_PORT" \
-  --roles "$ROLES"
+  --roles "$ROLES" \
+  --arch "$ARCH"
 
-render_cluster_inventory
+render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
 copy_hosts_into_kubeasz
 
 kubectl_remote "label node $NAME $(workspace_label_key)=true --overwrite"

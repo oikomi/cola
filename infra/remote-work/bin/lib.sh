@@ -113,6 +113,12 @@ run_kubeasz_ezctl() {
   sudo env PATH="$(ansible_env_path)" "$KUBEASZ_DIR/ezctl" "$@"
 }
 
+run_ansible_ad_hoc() {
+  ensure_ansible_available
+  patch_kubeasz_compatibility
+  sudo env PATH="$(ansible_env_path)" "$ANSIBLE_BIN_DIR/ansible" "$@"
+}
+
 patch_kubeasz_compatibility() {
   sudo python3 - <<'PY'
 from pathlib import Path
@@ -147,6 +153,10 @@ ensure_runtime_dirs() {
 
 cluster_name() {
   cluster_query clusterName
+}
+
+local_arch() {
+  cluster_query localArch
 }
 
 kubernetes_version() {
@@ -252,7 +262,7 @@ kubectl_apply_file() {
 
 render_cluster_inventory() {
   ensure_runtime_dirs
-  node "$RENDER_CLUSTER_SCRIPT"
+  node "$RENDER_CLUSTER_SCRIPT" "$@"
 }
 
 cluster_exists_in_kubeasz() {
@@ -275,9 +285,14 @@ confirm_or_exit() {
 }
 
 copy_hosts_into_kubeasz() {
+  copy_hosts_file_into_kubeasz "$GENERATED_DIR/hosts"
+}
+
+copy_hosts_file_into_kubeasz() {
+  local source_file="$1"
   local target_dir="$KUBEASZ_BASE_DIR/clusters/$(cluster_name)"
   sudo mkdir -p "$target_dir"
-  sudo install -m 0644 "$GENERATED_DIR/hosts" "$target_dir/hosts"
+  sudo install -m 0644 "$source_file" "$target_dir/hosts"
 }
 
 print_step() {

@@ -13,6 +13,24 @@ export const KUBEASZ_DIR = path.join(RUNTIME_DIR, "kubeasz");
 export const configPath = path.join(CLUSTER_DIR, "config.json");
 export const nodesPath = path.join(CLUSTER_DIR, "nodes.json");
 
+export function normalizeArch(value) {
+  switch (value) {
+    case "x86_64":
+    case "amd64":
+    case "x64":
+      return "amd64";
+    case "aarch64":
+    case "arm64":
+      return "arm64";
+    default:
+      return value;
+  }
+}
+
+export function localArch() {
+  return normalizeArch(process.arch);
+}
+
 export function ensureRuntimeDirs() {
   fs.mkdirSync(GENERATED_DIR, { recursive: true });
   fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
@@ -56,6 +74,7 @@ export function validateClusterData(config, nodes) {
   }
 
   const allowedRoles = new Set(["master", "etcd", "worker", "gpu"]);
+  const allowedArchs = new Set(["amd64", "arm64"]);
   const seenNames = new Set();
   const seenIps = new Set();
 
@@ -64,7 +83,7 @@ export function validateClusterData(config, nodes) {
       throw new Error("cluster/nodes.json 中的节点项必须是 JSON object。");
     }
 
-    const { name, ip, sshUser, sshPassword, sshPort, roles } = node;
+    const { name, ip, sshUser, sshPassword, sshPort, roles, arch } = node;
     if (!name || typeof name !== "string") {
       throw new Error("每个节点都必须有字符串类型的 name。");
     }
@@ -90,6 +109,12 @@ export function validateClusterData(config, nodes) {
     }
     if (!Array.isArray(roles) || roles.length === 0) {
       throw new Error(`节点 ${name} 至少需要一个 role。`);
+    }
+    if (!arch || typeof arch !== "string") {
+      throw new Error(`节点 ${name} 缺少 arch，必须显式写成 amd64 或 arm64。`);
+    }
+    if (!allowedArchs.has(normalizeArch(arch))) {
+      throw new Error(`节点 ${name} 的 arch 不支持: ${arch}`);
     }
 
     for (const role of roles) {
@@ -147,3 +172,6 @@ export function firstMaster(nodes) {
   return master;
 }
 
+export function nodesForArch(nodes, arch) {
+  return nodes.filter((node) => normalizeArch(node.arch) === normalizeArch(arch));
+}

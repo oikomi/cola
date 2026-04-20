@@ -22,7 +22,7 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv);
 
-for (const key of ["name", "ip", "ssh-user", "ssh-password", "roles"]) {
+for (const key of ["name", "ip", "ssh-user", "ssh-password", "roles", "arch"]) {
   if (!args[key]) {
     throw new Error(`缺少必要参数 --${key}`);
   }
@@ -56,6 +56,7 @@ const updated = [
     sshPassword: args["ssh-password"],
     sshPort,
     roles,
+    arch: args.arch,
   },
 ];
 
@@ -64,4 +65,3 @@ writeJson(nodesPath, updated);
 console.log(
   `Added node ${args.name} (${args.ip}) to cluster/nodes.json for cluster ${config.clusterName}`,
 );
-

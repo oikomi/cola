@@ -1,4 +1,11 @@
-import { findNode, firstMaster, readClusterData } from "./cluster-utils.mjs";
+import {
+  findNode,
+  firstMaster,
+  localArch,
+  normalizeArch,
+  nodesForArch,
+  readClusterData,
+} from "./cluster-utils.mjs";
 
 const { config, nodes } = readClusterData();
 const command = process.argv[2];
@@ -26,8 +33,16 @@ switch (command) {
     console.log(config[command]);
     break;
 
+  case "localArch":
+    console.log(localArch());
+    break;
+
   case "nodeNames":
     printLines(nodes.map((node) => node.name));
+    break;
+
+  case "nodeNamesByArch":
+    printLines(nodesForArch(nodes, needle).map((node) => node.name));
     break;
 
   case "gpuNodeNames":
@@ -84,8 +99,11 @@ switch (command) {
     console.log(findNode(nodes, needle).roles.join(","));
     break;
 
+  case "nodeArch":
+    console.log(normalizeArch(findNode(nodes, needle).arch));
+    break;
+
   default:
     console.error(`不支持的 query 命令: ${command}`);
     process.exit(1);
 }
-
