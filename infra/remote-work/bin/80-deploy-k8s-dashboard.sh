@@ -156,13 +156,13 @@ fi
 
 run_cluster_helm "${helm_args[@]}"
 
-print_step "等待 Dashboard Deployment 就绪"
-wait_for_dashboard_ready
-
 if [[ "$SKIP_ADMIN_USER" -eq 0 ]]; then
   print_step "创建 Dashboard 管理员账号"
   run_cluster_kubectl apply -f "$ROOT_DIR/manifests/dashboard/admin-user.yaml"
 fi
+
+print_step "等待 Dashboard Deployment 就绪"
+wait_for_dashboard_ready
 
 echo
 echo "已按 Kubernetes 官方文档方式安装 Dashboard。"

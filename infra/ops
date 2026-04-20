@@ -1,0 +1,6 @@
+
+
+sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeasz/bin/kubectl get nodes -owide
+
+
+sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeasz/bin/kubectl get pods -owide --all-namespaces
