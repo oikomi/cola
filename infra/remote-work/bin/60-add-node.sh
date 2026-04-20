@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd node
 require_cmd sudo
-ensure_ansible_available()
+ensure_ansible_available
 
 NAME=""
 IP=""

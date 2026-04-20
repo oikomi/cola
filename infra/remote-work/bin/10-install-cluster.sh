@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd node
-ensure_ansible_available()
+ensure_ansible_available
 
 CLUSTER_NAME="$(cluster_name)"
 
