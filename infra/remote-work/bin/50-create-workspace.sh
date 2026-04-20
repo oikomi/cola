@@ -5,6 +5,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 require_cmd node
+require_cmd sudo
 require_cmd sshpass
 require_cmd scp
 require_cmd ssh
@@ -94,7 +95,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$NAME" ]] || die "--name 必填"
-[[ -n "$NODE_NAME" ]] || die "--node 必填"
 [[ -n "$PASSWORD" ]] || die "--password 必填"
 
 if [[ -z "$IMAGE" ]]; then
@@ -103,11 +103,45 @@ if [[ -z "$IMAGE" ]]; then
   IMAGE="$(tr -d '\n' < "$RUNTIME_DIR/latest-image.txt")"
 fi
 
+print_step "选择目标节点"
+CLUSTER_NODES_JSON="$(mktemp)"
+DEPLOYMENTS_JSON="$(mktemp)"
+cleanup_selection_temp() {
+  rm -f "$CLUSTER_NODES_JSON" "$DEPLOYMENTS_JSON"
+}
+trap cleanup_selection_temp EXIT
+
+run_cluster_kubectl get nodes -o json > "$CLUSTER_NODES_JSON"
+if run_cluster_kubectl get namespace "$(workspace_namespace)" >/dev/null 2>&1; then
+  run_cluster_kubectl get deployments -n "$(workspace_namespace)" -o json > "$DEPLOYMENTS_JSON"
+else
+  printf '%s\n' '{"items":[]}' > "$DEPLOYMENTS_JSON"
+fi
+
+selection_cmd=(
+  node "$ROOT_DIR/bin/select-workspace-node.mjs"
+  --nodes-json "$ROOT_DIR/cluster/nodes.json"
+  --cluster-nodes-json "$CLUSTER_NODES_JSON"
+  --deployments-json "$DEPLOYMENTS_JSON"
+  --gpu "$GPU_COUNT"
+  --gpu-label-key "$(gpu_label_key)"
+  --workspace-label-key "$(workspace_label_key)"
+)
+
+if [[ -n "$NODE_NAME" ]]; then
+  selection_cmd+=(--requested-node "$NODE_NAME")
+fi
+
+SELECTION_JSON="$("${selection_cmd[@]}")"
+NODE_NAME="$(printf '%s' "$SELECTION_JSON" | node --input-type=module -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(JSON.parse(s).nodeName));')"
+ALLOW_GPU_NODE="$(printf '%s' "$SELECTION_JSON" | node --input-type=module -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(JSON.parse(s).allowGpuNode ? "1" : "0"));')"
+SELECTION_REASON="$(printf '%s' "$SELECTION_JSON" | node --input-type=module -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(JSON.parse(s).reason));')"
+printf '%s\n' "$SELECTION_REASON"
+
 if [[ -z "$NODE_PORT" ]]; then
   print_step "自动分配 NodePort"
   USED_PORTS="$(
-    remote_ssh "$(first_master_name)" \
-      "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl get svc -n $(workspace_namespace) -o json 2>/dev/null || true" \
+    (run_cluster_kubectl get svc -n "$(workspace_namespace)" -o json 2>/dev/null || true) \
       | node --input-type=module -e '
         let source = "";
         process.stdin.on("data", (chunk) => { source += chunk; });
@@ -156,6 +190,10 @@ render_cmd=(
   --timezone "$TIMEZONE"
   --workspace-root "$WORKSPACE_ROOT"
 )
+
+if [[ "$ALLOW_GPU_NODE" == "1" ]]; then
+  render_cmd+=(--allow-gpu-node "1")
+fi
 
 if [[ -n "$INGRESS_HOST" ]]; then
   render_cmd+=(--ingress-host "$INGRESS_HOST")

@@ -52,7 +52,11 @@ const gpu = Number(args.gpu ?? "0");
 if (!Number.isInteger(gpu) || gpu < 0) {
   throw new Error("--gpu 必须是大于等于 0 的整数");
 }
-if (gpu > 0 && !targetNode.roles.includes("gpu")) {
+if (
+  gpu > 0 &&
+  !targetNode.roles.includes("gpu") &&
+  args["allow-gpu-node"] !== "1"
+) {
   throw new Error(`节点 ${targetNode.name} 不是 GPU 节点，不能申请 GPU 资源。`);
 }
 

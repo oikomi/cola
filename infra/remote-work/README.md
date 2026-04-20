@@ -189,7 +189,6 @@ https://<部署机IP>:8443/
 ```bash
 ./bin/50-create-workspace.sh \
   --name alice \
-  --node rw-gpu-178 \
   --password 'ChangeMe-123!' \
   --gpu 1
 ```
@@ -197,7 +196,7 @@ https://<部署机IP>:8443/
 常用参数：
 
 - `--name`：工作区名字
-- `--node`：目标节点名，必须是 `nodes.json` 里的 `name`
+- `--node`：可选。显式指定目标节点名，必须是 `nodes.json` 里的 `name`
 - `--password`：VNC 密码
 - `--gpu`：默认 `0`，设为 `1` 后会为 Pod 申请一张 GPU 并启用 `runtimeClassName: nvidia`
 - `--resolution`：默认 `1920x1080x24`
@@ -205,9 +204,17 @@ https://<部署机IP>:8443/
 
 脚本会自动：
 
+- 如果未传 `--node`，从 Ready 节点里自动选择一台合适机器
 - 选择未占用的 NodePort
 - 生成 Secret / Deployment / Service / Ingress
 - 把用户目录持久化到目标节点的 `/var/lib/remote-work/workspaces/<name>/`
+
+自动选节点规则：
+
+- `--gpu 1` 时优先挑选可提供 GPU 的 Ready 节点
+- 非 GPU 工作区时在 Ready worker 节点中选择
+- 如果已经打了 `remote-work/workspace=true` 标签，会优先从已打标签节点里选
+- 多台候选节点时，优先选现有工作区数量最少的一组，再在其中随机选一台
 
 如果没有配置 Ingress，访问地址形如：
 
