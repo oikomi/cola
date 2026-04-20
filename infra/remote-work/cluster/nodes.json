@@ -7,5 +7,15 @@
     "sshPort": 22,
     "roles": ["master", "etcd", "worker"],
     "arch": "amd64"
+  },
+
+  {
+    "name": "nvidia-desktop",
+    "ip": "192.168.5.32",
+    "sshUser": "nvidia",
+    "sshPassword": "nvidia",
+    "sshPort": 22,
+    "roles": ["worker"],
+    "arch": "amd64"
   }
 ]
