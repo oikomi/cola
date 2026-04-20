@@ -40,6 +40,20 @@ require_any_cmd() {
   [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
 }
 
+normalize_arch_sh() {
+  case "$1" in
+    x86_64|amd64|x64)
+      printf '%s\n' "amd64"
+      ;;
+    aarch64|arm64)
+      printf '%s\n' "arm64"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
 install_python_venv_support() {
   require_cmd python3
   require_cmd sudo
@@ -262,12 +276,24 @@ node_roles() {
   cluster_query nodeRoles "$1"
 }
 
+node_arch() {
+  cluster_query nodeArch "$1"
+}
+
 node_has_role() {
   local node_name="$1"
   local target_role="$2"
   local roles
   roles="$(node_roles "$node_name")"
   [[ ",$roles," == *",$target_role,"* ]]
+}
+
+probe_remote_node_arch() {
+  local node_name="$1"
+  local raw
+  raw="$(remote_ssh "$node_name" "uname -m" | tr -d '\r' | tail -n 1)"
+  [[ -n "$raw" ]] || die "无法探测节点 $node_name 的架构。"
+  normalize_arch_sh "$raw"
 }
 
 remote_ssh() {

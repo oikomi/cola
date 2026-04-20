@@ -10,10 +10,10 @@
   },
 
   {
-    "name": "nvidia-desktop",
-    "ip": "192.168.5.32",
-    "sshUser": "nvidia",
-    "sshPassword": "nvidia",
+    "name": "4090",
+    "ip": "192.168.5.232",
+    "sshUser": "dell",
+    "sshPassword": "123456",
     "sshPort": 22,
     "roles": ["worker"],
     "arch": "amd64"

@@ -19,6 +19,7 @@ function parseArgs(argv) {
     mode: "full",
     out: null,
     targetArch: null,
+    includeNodes: null,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
@@ -47,6 +48,18 @@ function parseArgs(argv) {
         throw new Error("--target-arch 缺少值");
       }
       parsed.targetArch = value;
+      index += 1;
+      continue;
+    }
+    if (token === "--include-nodes") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error("--include-nodes 缺少值");
+      }
+      parsed.includeNodes = value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
       index += 1;
       continue;
     }
@@ -145,8 +158,17 @@ function resolveChronyHosts() {
 }
 
 const effectiveArch = args.targetArch ?? localArch();
-const targetNodes =
-  args.mode === "bootstrap" ? nodesForArch(nodes, effectiveArch) : nodes;
+const targetNodes = args.includeNodes
+  ? args.includeNodes.map((name) => {
+      const matched = nodes.find((node) => node.name === name);
+      if (!matched) {
+        throw new Error(`--include-nodes 指定了不存在的节点: ${name}`);
+      }
+      return matched;
+    })
+  : args.mode === "bootstrap"
+    ? nodesForArch(nodes, effectiveArch)
+    : nodes;
 
 if (targetNodes.length === 0) {
   throw new Error(
