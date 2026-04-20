@@ -1,5 +1,6 @@
 import { officeRouter } from "@/server/api/routers/office";
 import { postRouter } from "@/server/api/routers/post";
+import { trainingRouter } from "@/server/api/routers/training";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 import { workerRouter } from "@/server/api/routers/worker";
 
@@ -11,6 +12,7 @@ import { workerRouter } from "@/server/api/routers/worker";
 export const appRouter = createTRPCRouter({
   office: officeRouter,
   post: postRouter,
+  training: trainingRouter,
   worker: workerRouter,
 });
 

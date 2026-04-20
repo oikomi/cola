@@ -17,28 +17,26 @@ export const PRODUCT_AREAS: Array<{
     href: "/",
     title: "虚拟 Office",
     description:
-      "空间化编排、人物协作与任务流转，OpenClaw / Hermes 按 K8s workspace 范式接入。",
+      "空间化展示人物、任务、设备与事件状态，OpenClaw / Hermes 在模块内以 K8s 方式部署。",
   },
   {
     key: "workspace",
     href: "/workspace",
     title: "远程桌面",
     description:
-      "统一承载 remote workspace、浏览器桌面、Ingress 地址与节点级 GPU 会话。",
+      "独立管理 remote workspace、浏览器桌面、Ingress 地址与节点级 GPU 会话。",
   },
   {
     key: "training",
     href: "/training",
     title: "训练平台",
-    description:
-      "管理训练作业、数据集与实验轨迹，把 GPU 训练链路收拢到同一层入口。",
+    description: "独立管理训练作业、数据集、实验轨迹与训练产物。",
   },
   {
     key: "deployments",
     href: "/deployments",
     title: "推理部署平台",
-    description:
-      "管理推理服务、版本灰度、流量切换与回滚，把上线面从 Office 中拆出。",
+    description: "独立管理推理服务、版本灰度、流量切换、发布与回滚。",
   },
 ];
 
@@ -55,15 +53,17 @@ export const k8sWorkspaceSurfaceLabels: Record<DockerRunnerEngine, string> = {
 export function productAreaForPath(
   pathname: string | null | undefined,
 ): ProductAreaKey {
-  if (!pathname || pathname === "/" || pathname.startsWith("/control")) {
-    return "office";
-  }
-
   if (
-    pathname.startsWith("/workspace") ||
+    !pathname ||
+    pathname === "/" ||
+    pathname.startsWith("/control") ||
     pathname.startsWith("/openclaw") ||
     pathname.startsWith("/hermes")
   ) {
+    return "office";
+  }
+
+  if (pathname.startsWith("/workspace")) {
     return "workspace";
   }
 

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ArrowUpRightIcon,
   BlocksIcon,
   BrainCircuitIcon,
   Building2Icon,
@@ -29,84 +28,66 @@ export function ProductAreaHeader() {
   const activeArea = productAreaForPath(pathname);
 
   return (
-    <header className="rounded-[28px] border border-white/55 bg-[radial-gradient(circle_at_top_left,rgba(255,251,244,0.98),rgba(255,244,223,0.92)_42%,rgba(248,228,195,0.86))] p-4 shadow-[0_24px_80px_rgba(78,55,28,0.12)] md:p-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-4xl">
-          <p className="text-[10px] tracking-[0.34em] text-[#9d7b58] uppercase">
-            Cola Platform
-          </p>
-          <p className="mt-2 text-lg font-semibold tracking-[-0.04em] text-[#26190f] md:text-xl">
-            四个功能区统一入口
-          </p>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6d5544]">
-            Virtual Office、Workspace、Training 和 Inference Deploy
-            共享同一层导航。 Office 中的 OpenClaw / Hermes 入口也按 workspace
-            方式对齐为 K8s 工作区。
-          </p>
+    <header className="rounded-[24px] border border-white/55 bg-[linear-gradient(180deg,rgba(255,251,244,0.94),rgba(251,241,221,0.88))] px-4 py-3 shadow-[0_18px_60px_rgba(78,55,28,0.1)] md:px-5">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-[16px] bg-[#20160f] px-3 py-2 text-[#fff8ef] shadow-[0_10px_24px_rgba(32,22,15,0.16)]">
+            <p className="text-[10px] tracking-[0.28em] text-white/56 uppercase">
+              Cola
+            </p>
+            <p className="text-sm font-semibold tracking-[-0.03em]">Modules</p>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[#26190f]">功能菜单栏</p>
+            <p className="text-xs leading-5 text-[#7b624d]">
+              四个模块独立，通过菜单切换入口。
+            </p>
+          </div>
         </div>
 
-        <div className="inline-flex w-fit items-center rounded-full border border-[#e3c59c] bg-white/72 px-3 py-1.5 text-[11px] font-medium tracking-[0.24em] text-[#8c673f] uppercase">
-          4 Functional Areas
-        </div>
-      </div>
+        <nav className="flex flex-wrap gap-2">
+          {PRODUCT_AREAS.map((area) => {
+            const Icon = areaIcons[area.key];
+            const active = area.key === activeArea;
 
-      <nav className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {PRODUCT_AREAS.map((area) => {
-          const Icon = areaIcons[area.key];
-          const active = area.key === activeArea;
-
-          return (
-            <Link
-              key={area.key}
-              href={area.href}
-              className={cn(
-                "group rounded-[22px] border px-4 py-4 transition-all duration-200",
-                active
-                  ? "border-[#c9924b] bg-[#1f170f] text-[#fff7ed] shadow-[0_18px_40px_rgba(62,39,16,0.18)]"
-                  : "border-[#ead8bf] bg-white/72 text-[#22170f] hover:-translate-y-0.5 hover:border-[#d8b27a] hover:bg-white",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div
+            return (
+              <Link
+                key={area.key}
+                href={area.href}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition-all duration-200",
+                  active
+                    ? "border-[#c9924b] bg-[#1f170f] text-[#fff7ed] shadow-[0_12px_28px_rgba(62,39,16,0.16)]"
+                    : "border-[#ead8bf] bg-white/72 text-[#22170f] hover:border-[#d8b27a] hover:bg-white",
+                )}
+                aria-current={active ? "page" : undefined}
+              >
+                <span
                   className={cn(
-                    "flex size-11 items-center justify-center rounded-[16px]",
+                    "flex size-8 items-center justify-center rounded-full",
                     active
                       ? "bg-white/10 text-[#ffd79d]"
                       : "bg-[#f4e5d0] text-[#8a5d2a]",
                   )}
                 >
-                  <Icon className="size-5" />
-                </div>
-
-                {active ? (
-                  <span className="rounded-full border border-white/10 bg-white/8 px-2.5 py-1 text-[11px] font-medium text-white/82">
-                    当前区域
-                  </span>
-                ) : (
-                  <ArrowUpRightIcon className="size-4 text-[#9d7750] transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                )}
-              </div>
-
-              <p
-                className={cn(
-                  "mt-4 text-base font-semibold tracking-[-0.03em]",
-                  active ? "text-white" : "text-[#26190f]",
-                )}
-              >
-                {area.title}
-              </p>
-              <p
-                className={cn(
-                  "mt-1 text-sm leading-6",
-                  active ? "text-white/72" : "text-[#6d5544]",
-                )}
-              >
-                {area.description}
-              </p>
-            </Link>
-          );
-        })}
-      </nav>
+                  <Icon className="size-4" />
+                </span>
+                <span>{area.title}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] tracking-[0.18em] uppercase",
+                    active
+                      ? "bg-white/10 text-white/76"
+                      : "bg-[#f7ecdc] text-[#8f6b47]",
+                  )}
+                >
+                  {active ? "Current" : "Module"}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     </header>
   );
 }

@@ -15,6 +15,10 @@ import {
   taskTypeValues,
   zoneValues,
 } from "@/server/office/catalog";
+import {
+  trainingJobStatusValues,
+  trainingJobTypeValues,
+} from "@/server/training/catalog";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -31,6 +35,14 @@ export const taskTypeEnum = pgEnum("cola_task_type", taskTypeValues);
 export const taskStatusEnum = pgEnum("cola_task_status", taskStatusValues);
 export const priorityEnum = pgEnum("cola_priority", priorityValues);
 export const riskLevelEnum = pgEnum("cola_risk_level", riskLevelValues);
+export const trainingJobTypeEnum = pgEnum(
+  "cola_training_job_type",
+  trainingJobTypeValues,
+);
+export const trainingJobStatusEnum = pgEnum(
+  "cola_training_job_status",
+  trainingJobStatusValues,
+);
 export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
 export const deviceStatusEnum = pgEnum("cola_device_status", deviceStatusValues);
 export const sessionStatusEnum = pgEnum(
@@ -114,6 +126,33 @@ export const tasks = createTable(
     index("task_agent_idx").on(t.currentAgentId),
     index("task_zone_idx").on(t.zoneId),
     index("task_risk_idx").on(t.riskLevel),
+  ],
+);
+
+export const trainingJobs = createTable(
+  "training_job",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    title: d.varchar({ length: 160 }).notNull(),
+    jobType: trainingJobTypeEnum().notNull(),
+    status: trainingJobStatusEnum().notNull().default("draft"),
+    priority: priorityEnum().notNull().default("medium"),
+    baseModel: d.varchar({ length: 120 }).notNull(),
+    datasetName: d.varchar({ length: 120 }).notNull(),
+    objective: d.text().notNull(),
+    gpuCount: d.integer().notNull().default(1),
+    startedAt: d.timestamp({ withTimezone: true }),
+    finishedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("training_job_status_idx").on(t.status),
+    index("training_job_priority_idx").on(t.priority),
+    index("training_job_created_idx").on(t.createdAt),
   ],
 );
 

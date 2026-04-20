@@ -34,7 +34,9 @@ build_workspace_image() {
     return 0
   fi
 
-  if grep -q "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/" "$build_log"; then
+  if grep -Eq \
+    "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/|snapshot .* does not exist|failed to read dockerfile: snapshot .* not found|failed to solve: .*snapshot .* not found" \
+    "$build_log"; then
     print_step "检测到 Docker BuildKit snapshot 状态异常，回退到 legacy builder 重试"
     DOCKER_BUILDKIT=0 docker build \
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
