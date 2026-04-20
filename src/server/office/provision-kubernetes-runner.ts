@@ -24,10 +24,20 @@ import type {
   ProvisionDockerRunnerResult as ProvisionRunnerResult,
 } from "@/server/office/provision-docker-runner";
 
+const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
+const CLUSTER_CONFIG_PATH = path.join(
+  REMOTE_WORK_DIR,
+  "cluster",
+  "config.json",
+);
 const OPENCLAW_NODE_PORT_START = 31180;
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
+
+type ClusterConfig = {
+  controllerIp?: string;
+};
 
 type KubeClients = {
   appsApi: AppsV1Api;
@@ -235,13 +245,24 @@ function defaultApiBaseUrl() {
   const configured =
     process.env.COLA_K8S_API_BASE_URL ?? process.env.COLA_API_BASE_URL;
 
-  if (!configured) {
-    throw new Error(
-      "Kubernetes runner 需要可被 pod 访问的 Cola API 地址，请设置 COLA_K8S_API_BASE_URL 或 COLA_API_BASE_URL。",
-    );
+  if (configured) {
+    return configured;
   }
 
-  return configured;
+  if (existsSync(CLUSTER_CONFIG_PATH)) {
+    const clusterConfig = JSON.parse(
+      readFileSync(CLUSTER_CONFIG_PATH, "utf8"),
+    ) as ClusterConfig;
+    const controllerIp = clusterConfig.controllerIp?.trim();
+
+    if (controllerIp) {
+      return `http://${controllerIp}:${process.env.PORT ?? "50038"}`;
+    }
+  }
+
+  throw new Error(
+    "Kubernetes runner 需要可被 pod 访问的 Cola API 地址。请设置 COLA_K8S_API_BASE_URL / COLA_API_BASE_URL，或补齐 infra/remote-work/cluster/config.json 中的 controllerIp。",
+  );
 }
 
 async function getReservedNodePorts(coreApi: CoreV1Api) {

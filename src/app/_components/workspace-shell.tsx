@@ -442,7 +442,7 @@ export function WorkspaceShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 bg-background/95 backdrop-blur-xl sm:max-w-lg">
+        <DialogContent className="border-border/70 bg-background/95 backdrop-blur-xl sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>创建远程桌面</DialogTitle>
             <DialogDescription>
@@ -465,7 +465,7 @@ export function WorkspaceShell() {
               />
             </FormField>
 
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.8fr)_minmax(0,1.35fr)] md:items-start">
               <FormField label="CPU">
                 <Input
                   inputMode="decimal"
@@ -505,7 +505,7 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="Resolution">
+              <FormField label="分辨率">
                 <div className="grid gap-2">
                   <Select
                     value={draft.resolutionPreset}
@@ -522,7 +522,7 @@ export function WorkspaceShell() {
                       }));
                     }}
                   >
-                    <SelectTrigger className="w-full bg-white">
+                    <SelectTrigger className="w-full min-w-0 bg-white">
                       <SelectValue placeholder="选择分辨率" />
                     </SelectTrigger>
                     <SelectContent>
