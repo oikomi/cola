@@ -38,7 +38,9 @@ export default async function WorkspacePage() {
 
               <div className="flex flex-wrap gap-3 text-sm text-white/76">
                 <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5">
-                  `./scripts/workspace.sh create`
+                  <code className="font-mono text-[13px]">
+                    ./scripts/workspace.sh create
+                  </code>
                 </span>
                 <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5">
                   Deployment + Service + Ingress
@@ -89,22 +91,31 @@ export default async function WorkspacePage() {
                 <div className="rounded-[22px] bg-[#f4f7fd] px-4 py-4">
                   <p className="text-sm font-medium text-[#152133]">创建</p>
                   <p className="mt-2 text-sm leading-6 text-[#5b6d89]">
-                    使用 `./scripts/workspace.sh create` 生成
-                    Deployment、Service、 Secret 和可选 Ingress。
+                    使用{" "}
+                    <code className="font-mono text-[13px]">
+                      ./scripts/workspace.sh create
+                    </code>{" "}
+                    生成 Deployment、Service、Secret 和可选 Ingress。
                   </p>
                 </div>
                 <div className="rounded-[22px] bg-[#f4f7fd] px-4 py-4">
                   <p className="text-sm font-medium text-[#152133]">放置</p>
                   <p className="mt-2 text-sm leading-6 text-[#5b6d89]">
-                    依赖 `remote-work/workspace=true` 标签与 Ready
-                    节点选择策略，把工作区落到合适节点。
+                    依赖{" "}
+                    <code className="font-mono text-[13px]">
+                      remote-work/workspace=true
+                    </code>{" "}
+                    标签与 Ready 节点选择策略，把工作区落到合适节点。
                   </p>
                 </div>
                 <div className="rounded-[22px] bg-[#f4f7fd] px-4 py-4">
                   <p className="text-sm font-medium text-[#152133]">回收</p>
                   <p className="mt-2 text-sm leading-6 text-[#5b6d89]">
-                    使用 `./scripts/workspace.sh delete` 清理 K8s 资源，并可选
-                    purge 节点数据。
+                    使用{" "}
+                    <code className="font-mono text-[13px]">
+                      ./scripts/workspace.sh delete
+                    </code>{" "}
+                    清理 K8s 资源，并可选 purge 节点数据。
                   </p>
                 </div>
               </div>
@@ -154,9 +165,12 @@ export default async function WorkspacePage() {
             </h2>
             <div className="mt-5 space-y-4 text-sm leading-7 text-[#596c87]">
               <p>
-                工作区文件持久化在
-                `/var/lib/remote-work/workspaces/&lt;name&gt;/`，
-                容器内统一挂载到 `/workspace`。
+                工作区文件持久化在{" "}
+                <code className="font-mono text-[13px]">
+                  /var/lib/remote-work/workspaces/&lt;name&gt;/
+                </code>
+                ，容器内统一挂载到{" "}
+                <code className="font-mono text-[13px]">/workspace</code>。
               </p>
               <p>
                 Ingress、公开访问域名和 GPU 节点标签都在 workspace

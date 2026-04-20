@@ -85,6 +85,17 @@ print_dashboard_diagnostics() {
   echo
   echo "--- deployment describe ---"
   run_cluster_kubectl -n "$NAMESPACE" describe deployments || true
+  echo
+  PODS="$(run_cluster_kubectl -n "$NAMESPACE" get pods -o name 2>/dev/null || true)"
+  if [[ -n "$PODS" ]]; then
+    echo "--- pod describe ---"
+    while IFS= read -r pod_name; do
+      [[ -n "$pod_name" ]] || continue
+      echo "### $pod_name ###"
+      run_cluster_kubectl -n "$NAMESPACE" describe "$pod_name" || true
+      echo
+    done <<<"$PODS"
+  fi
 }
 
 wait_for_dashboard_ready() {
