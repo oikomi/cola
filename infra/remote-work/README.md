@@ -142,6 +142,7 @@ cd infra/remote-work
 - 通过官方 Helm chart 安装 `kubernetes-dashboard`
 - 保持官方 chart 的默认 `ClusterIP`
 - 创建一个 `admin-user` ServiceAccount
+- 如果官方 Helm repo 在当前网络环境里返回 `404` 或不可达，会自动回退到官方 GitHub release 的 `.tgz` chart 包
 
 按官方文档方式本地转发访问：
 
