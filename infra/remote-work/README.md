@@ -65,6 +65,9 @@ sudo apt-get install -y ansible
 - `worker`
 - `gpu`
 
+`cluster/config.json` 里的 `kubernetesVersion` 最稳妥的写法，是与当前 kubeasz `ezdown` 中的 `K8S_BIN_VER` 保持一致。
+例如当前仓库固定的 kubeasz `3.6.8`，默认对应的是 `v1.34.1`。
+
 ## 2. 下载 kubeasz 并渲染集群 inventory
 
 ```bash
@@ -78,6 +81,7 @@ cd infra/remote-work
 - 预下载 Docker 静态包，并在清华镜像 403 时自动 fallback 到官方地址
 - 通过 `sudo ./ezdown -D -k <k8s version>` 初始化 `/etc/kubeasz`
 - 在不依赖本机 Ansible 的前提下初始化 cluster 目录
+- 如果你配置的 `kubernetesVersion` 对应镜像 tag 不存在，会自动回退到 kubeasz 自带版本
 - 根据 `cluster/nodes.json` 生成 kubeasz `hosts` 文件
 
 ## 3. 安装集群

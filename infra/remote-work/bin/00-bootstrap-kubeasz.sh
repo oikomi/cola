@@ -16,6 +16,20 @@ KUBE_VERSION="$(kubernetes_version)"
 KUBEASZ_REPO_URL="$(cluster_query kubeaszRepoUrl)"
 CLUSTER_NAME="$(cluster_name)"
 
+run_ezdown_download_all() {
+  local kube_version="$1"
+  local log_file="$RUNTIME_DIR/ezdown-${kube_version}.log"
+  local status
+
+  (
+    cd "$KUBEASZ_DIR"
+    set +e
+    sudo ./ezdown -D -k "$kube_version" 2>&1 | tee "$log_file"
+    status=${PIPESTATUS[0]}
+    exit "$status"
+  )
+}
+
 download_with_fallback() {
   local target_file="$1"
   shift
@@ -132,10 +146,20 @@ chmod +x "$KUBEASZ_DIR/ezdown" "$KUBEASZ_DIR/ezctl"
 prepare_kubeasz_docker_bundle
 
 print_step "下载 kubeasz 依赖"
-(
-  cd "$KUBEASZ_DIR"
-  sudo ./ezdown -D -k "$KUBE_VERSION"
-)
+KUBEASZ_BUNDLED_KUBE_VERSION="$(kubeasz_bundled_kubernetes_version)"
+if ! run_ezdown_download_all "$KUBE_VERSION"; then
+  if [[ "$KUBE_VERSION" != "$KUBEASZ_BUNDLED_KUBE_VERSION" ]] && \
+    grep -q "kubeasz-k8s-bin:${KUBE_VERSION}.*not found" "$RUNTIME_DIR/ezdown-${KUBE_VERSION}.log"; then
+    echo
+    echo "WARN: kubeasz 3.6.8 当前无法下载 Kubernetes 二进制镜像 ${KUBE_VERSION}。"
+    echo "WARN: 自动回退到 kubeasz 自带版本 ${KUBEASZ_BUNDLED_KUBE_VERSION}。"
+    echo "WARN: 建议把 cluster/config.json 中的 kubernetesVersion 改成 ${KUBEASZ_BUNDLED_KUBE_VERSION#v}。"
+    run_ezdown_download_all "$KUBEASZ_BUNDLED_KUBE_VERSION" || \
+      die "回退到 kubeasz 自带 Kubernetes 版本 ${KUBEASZ_BUNDLED_KUBE_VERSION} 仍然失败，请检查 $RUNTIME_DIR/ezdown-${KUBEASZ_BUNDLED_KUBE_VERSION}.log"
+  else
+    die "ezdown 执行失败，请检查日志: $RUNTIME_DIR/ezdown-${KUBE_VERSION}.log"
+  fi
+fi
 
 init_cluster_dir_without_ansible
 

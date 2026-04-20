@@ -59,6 +59,14 @@ kubernetes_version() {
   fi
 }
 
+kubeasz_bundled_kubernetes_version() {
+  [[ -f "$KUBEASZ_DIR/ezdown" ]] || die "找不到 $KUBEASZ_DIR/ezdown，无法解析 kubeasz 自带 Kubernetes 版本"
+  local version
+  version="$(sed -n 's/^K8S_BIN_VER=//p' "$KUBEASZ_DIR/ezdown" | head -n 1)"
+  [[ -n "$version" ]] || die "无法从 $KUBEASZ_DIR/ezdown 解析 K8S_BIN_VER"
+  printf '%s\n' "$version"
+}
+
 workspace_namespace() {
   cluster_query workspaceNamespace
 }
