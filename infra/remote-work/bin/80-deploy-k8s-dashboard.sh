@@ -167,7 +167,8 @@ wait_for_dashboard_ready
 echo
 echo "已按 Kubernetes 官方文档方式安装 Dashboard。"
 echo "访问方式：./bin/82-port-forward-k8s-dashboard.sh"
-echo "浏览器地址：https://localhost:8443/"
+echo "默认会后台监听：0.0.0.0:8443"
+echo "浏览器地址：https://<部署机IP>:8443/"
 if [[ "$SKIP_ADMIN_USER" -eq 0 ]]; then
   echo "获取登录 Token：./bin/81-get-k8s-dashboard-token.sh"
 fi

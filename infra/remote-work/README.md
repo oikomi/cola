@@ -144,28 +144,30 @@ cd infra/remote-work
 - 创建一个 `admin-user` ServiceAccount 和长期保存的 `admin-user-token` Secret
 - 如果官方 Helm repo 在当前网络环境里返回 `404` 或不可达，会自动回退到官方 GitHub release 的 `.tgz` chart 包
 
-按官方文档方式本地转发访问：
+按官方文档方式启动 `port-forward`：
 
 ```bash
 ./bin/82-port-forward-k8s-dashboard.sh
 ```
 
+默认行为：
+
+- 监听 `0.0.0.0:8443`
+- 在后台运行
+- 日志写到 `runtime/k8s-dashboard-port-forward.log`
+
 浏览器地址：
 
 ```text
-https://localhost:8443/
+https://<部署机IP>:8443/
 ```
 
-如果要从局域网其他机器访问当前部署机，可以显式绑定：
+常用控制命令：
 
 ```bash
-./bin/82-port-forward-k8s-dashboard.sh --address 0.0.0.0
-```
-
-然后从浏览器访问：
-
-```text
-https://<部署机IP>:8443/
+./bin/82-port-forward-k8s-dashboard.sh --status
+./bin/82-port-forward-k8s-dashboard.sh --stop
+./bin/82-port-forward-k8s-dashboard.sh --foreground
 ```
 
 获取登录 Token：
