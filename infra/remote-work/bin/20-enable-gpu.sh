@@ -131,7 +131,7 @@ if not config.exists():
     raise SystemExit(0)
 
 text = config.read_text()
-target = 'imports = ["/etc/containerd/conf.d/*.toml"]'
+target = "imports = [\"/etc/containerd/conf.d/*.toml\"]"
 
 if target in text:
     raise SystemExit(0)
