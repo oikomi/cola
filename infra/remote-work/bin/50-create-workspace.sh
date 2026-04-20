@@ -25,6 +25,33 @@ MEMORY_REQUEST="4Gi"
 MEMORY_LIMIT="8Gi"
 TIMEZONE="Asia/Shanghai"
 WORKSPACE_ROOT="/var/lib/remote-work/workspaces"
+ROLLOUT_TIMEOUT="180s"
+
+print_workspace_diagnostics() {
+  echo
+  echo "--- workspace deployment ---"
+  run_cluster_kubectl -n "$(workspace_namespace)" get deployment "workspace-$NAME" -o wide || true
+  echo
+  echo "--- workspace pods ---"
+  run_cluster_kubectl -n "$(workspace_namespace)" get pods -l "remote-work/name=$NAME" -o wide || true
+  echo
+  echo "--- workspace services ---"
+  run_cluster_kubectl -n "$(workspace_namespace)" get svc "workspace-$NAME-svc" -o wide || true
+  echo
+  echo "--- recent namespace events ---"
+  run_cluster_kubectl -n "$(workspace_namespace)" get events --sort-by=.lastTimestamp | tail -n 50 || true
+  echo
+  PODS="$(run_cluster_kubectl -n "$(workspace_namespace)" get pods -l "remote-work/name=$NAME" -o name 2>/dev/null || true)"
+  if [[ -n "$PODS" ]]; then
+    echo "--- workspace pod describe ---"
+    while IFS= read -r pod_name; do
+      [[ -n "$pod_name" ]] || continue
+      echo "### $pod_name ###"
+      run_cluster_kubectl -n "$(workspace_namespace)" describe "$pod_name" || true
+      echo
+    done <<<"$PODS"
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,6 +113,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --workspace-root)
       WORKSPACE_ROOT="$2"
+      shift 2
+      ;;
+    --rollout-timeout)
+      ROLLOUT_TIMEOUT="$2"
       shift 2
       ;;
     *)
@@ -207,7 +238,11 @@ MANIFEST_PATH="$("${render_cmd[@]}")"
 
 print_step "应用工作区清单"
 kubectl_apply_file "$MANIFEST_PATH"
-kubectl_remote "rollout status deployment/workspace-$NAME -n $(workspace_namespace) --timeout=180s"
+if ! run_cluster_kubectl -n "$(workspace_namespace)" rollout status "deployment/workspace-$NAME" --timeout="$ROLLOUT_TIMEOUT"; then
+  print_step "workspace rollout 超时，输出诊断信息"
+  print_workspace_diagnostics
+  die "workspace-$NAME 在 $ROLLOUT_TIMEOUT 内未就绪。"
+fi
 
 NODE_IP="$(node_ip "$NODE_NAME")"
 if [[ -n "$INGRESS_HOST" ]]; then
