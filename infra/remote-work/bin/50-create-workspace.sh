@@ -126,8 +126,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$NAME" ]] || die "--name 必填"
-[[ -n "$PASSWORD" ]] || die "--password 必填"
-
 if [[ -z "$IMAGE" ]]; then
   [[ -f "$RUNTIME_DIR/latest-image.txt" ]] || \
     die "未指定 --image，且 runtime/latest-image.txt 不存在，请先执行 ./bin/30-build-and-load-image.sh"
@@ -209,7 +207,6 @@ render_cmd=(
   node "$ROOT_DIR/bin/render-workspace.mjs"
   --name "$NAME"
   --node "$NODE_NAME"
-  --password "$PASSWORD"
   --image "$IMAGE"
   --gpu "$GPU_COUNT"
   --node-port "$NODE_PORT"
@@ -221,6 +218,12 @@ render_cmd=(
   --timezone "$TIMEZONE"
   --workspace-root "$WORKSPACE_ROOT"
 )
+
+if [[ -n "$PASSWORD" ]]; then
+  render_cmd+=(--password "$PASSWORD")
+else
+  render_cmd+=(--disable-password "1")
+fi
 
 if [[ "$ALLOW_GPU_NODE" == "1" ]]; then
   render_cmd+=(--allow-gpu-node "1")

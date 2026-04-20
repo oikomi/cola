@@ -32,7 +32,7 @@ function yamlQuote(value) {
 
 const args = parseArgs(process.argv);
 
-for (const key of ["name", "node", "password", "image", "node-port"]) {
+for (const key of ["name", "node", "image", "node-port"]) {
   if (!args[key]) {
     throw new Error(`缺少必要参数 --${key}`);
   }
@@ -77,20 +77,25 @@ const secretName = `${deploymentName}-secret`;
 const serviceName = `${deploymentName}-svc`;
 const ingressName = `${deploymentName}-ing`;
 const basePath = path.posix.join(workspaceRoot, args.name);
+const disablePassword = args["disable-password"] === "1";
 
 const manifest = [
-  `apiVersion: v1`,
-  `kind: Secret`,
-  `metadata:`,
-  `  name: ${secretName}`,
-  `  namespace: ${config.workspaceNamespace}`,
-  `  labels:`,
-  `    app.kubernetes.io/name: remote-workspace`,
-  `    remote-work/name: ${args.name}`,
-  `type: Opaque`,
-  `stringData:`,
-  `  VNC_PASSWORD: ${yamlQuote(args.password)}`,
-  `---`,
+  ...(!disablePassword
+    ? [
+        `apiVersion: v1`,
+        `kind: Secret`,
+        `metadata:`,
+        `  name: ${secretName}`,
+        `  namespace: ${config.workspaceNamespace}`,
+        `  labels:`,
+        `    app.kubernetes.io/name: remote-workspace`,
+        `    remote-work/name: ${args.name}`,
+        `type: Opaque`,
+        `stringData:`,
+        `  VNC_PASSWORD: ${yamlQuote(args.password ?? "")}`,
+        `---`,
+      ]
+    : []),
   `apiVersion: apps/v1`,
   `kind: Deployment`,
   `metadata:`,
@@ -131,11 +136,17 @@ const manifest = [
   `              value: '6080'`,
   `            - name: VNC_PORT`,
   `              value: '5901'`,
-  `            - name: VNC_PASSWORD`,
-  `              valueFrom:`,
-  `                secretKeyRef:`,
-  `                  name: ${secretName}`,
-  `                  key: VNC_PASSWORD`,
+  `            - name: VNC_DISABLE_PASSWORD`,
+  `              value: ${disablePassword ? "'1'" : "'0'"}`,
+  ...(!disablePassword
+    ? [
+        `            - name: VNC_PASSWORD`,
+        `              valueFrom:`,
+        `                secretKeyRef:`,
+        `                  name: ${secretName}`,
+        `                  key: VNC_PASSWORD`,
+      ]
+    : []),
   `          readinessProbe:`,
   `            httpGet:`,
   `              path: /vnc.html`,

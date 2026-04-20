@@ -189,7 +189,6 @@ https://<部署机IP>:8443/
 ```bash
 ./bin/50-create-workspace.sh \
   --name alice \
-  --password 'ChangeMe-123!' \
   --gpu 1
 ```
 
@@ -197,7 +196,7 @@ https://<部署机IP>:8443/
 
 - `--name`：工作区名字
 - `--node`：可选。显式指定目标节点名，必须是 `nodes.json` 里的 `name`
-- `--password`：VNC 密码
+- `--password`：可选。传入时启用 VNC 密码；默认免密码访问
 - `--gpu`：默认 `0`，设为 `1` 后会为 Pod 申请一张 GPU 并启用 `runtimeClassName: nvidia`
 - `--resolution`：默认 `1920x1080x24`
 - `--ingress-host`：可选，若集群已经有 ingress-nginx，可为工作区额外生成 Ingress
