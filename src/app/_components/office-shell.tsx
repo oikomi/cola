@@ -23,6 +23,8 @@ import {
   useState,
 } from "react";
 
+import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +42,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   agentRoleValues,
   agentStatusLabels,
-  dockerRunnerEngineLabels,
   dockerRunnerEngineValues,
   priorityLabels,
   riskLevelLabels,
@@ -178,7 +179,9 @@ function SectionTitle({
       <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
         {title}
       </h2>
-      <p className="max-w-2xl text-sm leading-6 text-[#6f5f52]">{description}</p>
+      <p className="max-w-2xl text-sm leading-6 text-[#6f5f52]">
+        {description}
+      </p>
     </div>
   );
 }
@@ -285,7 +288,9 @@ export function OfficeShell({ snapshot }: Props) {
   const normalizedSearch = deferredSearch.trim().toLowerCase();
 
   useEffect(() => {
-    if (!liveSnapshot.agents.some((agent) => agent.id === taskDraft.ownerAgentId)) {
+    if (
+      !liveSnapshot.agents.some((agent) => agent.id === taskDraft.ownerAgentId)
+    ) {
       setTaskDraft((current) => ({
         ...current,
         ownerAgentId: liveSnapshot.agents[0]?.id ?? "",
@@ -307,9 +312,12 @@ export function OfficeShell({ snapshot }: Props) {
   useEffect(() => {
     if (!feedback) return;
 
-    const timeout = window.setTimeout(() => {
-      setFeedback(null);
-    }, feedback.tone === "error" ? 5200 : 3200);
+    const timeout = window.setTimeout(
+      () => {
+        setFeedback(null);
+      },
+      feedback.tone === "error" ? 5200 : 3200,
+    );
 
     return () => window.clearTimeout(timeout);
   }, [feedback]);
@@ -402,7 +410,11 @@ export function OfficeShell({ snapshot }: Props) {
     .filter((agent) => {
       if (!normalizedSearch) return true;
 
-      return [agent.name, roleLabels[agent.role], dockerRunnerEngineLabels[agent.engine ?? "openclaw"]]
+      return [
+        agent.name,
+        roleLabels[agent.role],
+        k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"],
+      ]
         .join(" ")
         .toLowerCase()
         .includes(normalizedSearch);
@@ -418,7 +430,8 @@ export function OfficeShell({ snapshot }: Props) {
   }
 
   const tasks = [...liveSnapshot.tasks].sort((left, right) => {
-    const statusDelta = taskStatusOrder[left.status] - taskStatusOrder[right.status];
+    const statusDelta =
+      taskStatusOrder[left.status] - taskStatusOrder[right.status];
     if (statusDelta !== 0) return statusDelta;
     return left.title.localeCompare(right.title, "zh-CN");
   });
@@ -430,15 +443,21 @@ export function OfficeShell({ snapshot }: Props) {
     (agent) => agent.engine === "hermes-agent",
   ).length;
   const activeTaskCount = liveSnapshot.tasks.filter((task) =>
-    ["created", "queued", "assigned", "in_progress", "pending_approval"].includes(
-      task.status,
-    ),
+    [
+      "created",
+      "queued",
+      "assigned",
+      "in_progress",
+      "pending_approval",
+    ].includes(task.status),
   ).length;
   const highlightedAgent =
-    liveSnapshot.agents.find((agent) => agent.id === highlightedAgentId) ?? null;
+    liveSnapshot.agents.find((agent) => agent.id === highlightedAgentId) ??
+    null;
   const highlightedDevice = highlightedAgent
-    ? (liveSnapshot.devices.find((device) => device.id === highlightedAgent.deviceId) ??
-      null)
+    ? (liveSnapshot.devices.find(
+        (device) => device.id === highlightedAgent.deviceId,
+      ) ?? null)
     : null;
   const highlightedTasks = highlightedAgent
     ? tasks.filter((task) => task.ownerAgentId === highlightedAgent.id)
@@ -458,7 +477,9 @@ export function OfficeShell({ snapshot }: Props) {
     : null;
   const HighlightedRoleIcon = highlightedRoleIcon;
   const highlightedTone = engineTone(highlightedAgent?.engine);
-  const openNativeWorkspace = async (agent: OfficeSnapshot["agents"][number]) => {
+  const openNativeWorkspace = async (
+    agent: OfficeSnapshot["agents"][number],
+  ) => {
     setHighlightedAgentId(agent.id);
 
     if (typeof window === "undefined") return;
@@ -471,7 +492,8 @@ export function OfficeShell({ snapshot }: Props) {
     }
 
     const linkedDevice =
-      liveSnapshot.devices.find((device) => device.id === agent.deviceId) ?? null;
+      liveSnapshot.devices.find((device) => device.id === agent.deviceId) ??
+      null;
     let nativeUrl = linkedDevice?.nativeDashboardUrl ?? null;
 
     try {
@@ -496,7 +518,7 @@ export function OfficeShell({ snapshot }: Props) {
     if (!nativeUrl) {
       openedWindow.close();
       pushFeedback(
-        `${dockerRunnerEngineLabels[agent.engine ?? "openclaw"]} 原生页面地址未配置。`,
+        `${k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"]} 工作区地址未配置。`,
         "error",
       );
       return;
@@ -510,6 +532,8 @@ export function OfficeShell({ snapshot }: Props) {
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(255,215,159,0.32),transparent_28%),radial-gradient(circle_at_top_right,rgba(144,174,222,0.2),transparent_26%),linear-gradient(180deg,#f7f4ef_0%,#f2ede5_46%,#ebe2d5_100%)]" />
 
       <main className="mx-auto flex max-w-[1520px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+        <ProductAreaHeader />
+
         <section className="relative overflow-hidden rounded-[36px] bg-[#17120d] text-[#f7efe3] shadow-[0_36px_120px_rgba(23,18,13,0.22)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,188,88,0.24),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(131,161,217,0.24),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
           <div className="relative grid gap-10 px-6 py-7 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
@@ -545,7 +569,8 @@ export function OfficeShell({ snapshot }: Props) {
                 </h1>
                 <p className="max-w-3xl text-base leading-8 text-white/72 md:text-lg">
                   新增人物后，列表会立即显示当前全部人物；点击任意人物会新开窗口打开它对应的
-                  OpenClaw 或 Hermes 原生页面，当前页右侧继续保留系统摘要和执行状态。
+                  OpenClaw / Hermes K8s
+                  workspace，当前页右侧继续保留系统摘要和执行状态。
                 </p>
               </div>
 
@@ -602,21 +627,23 @@ export function OfficeShell({ snapshot }: Props) {
                     引擎分布
                   </p>
                   <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
-                    OpenClaw {openclawCount}
+                    OpenClaw K8s {openclawCount}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-white/60">
-                    默认执行引擎，适合通用型任务调度与持续轮询。
+                    默认执行引擎，按 workspace 方式部署到
+                    k8s，适合通用型任务调度与持续轮询。
                   </p>
                 </div>
-                <div className="border-t border-white/10 pt-4 sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0">
+                <div className="border-t border-white/10 pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4">
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     第二执行面
                   </p>
                   <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
-                    Hermes {hermesCount}
+                    Hermes K8s {hermesCount}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-white/60">
-                    作为补充运行面接入，人物卡会按实际引擎打开对应原生页面。
+                    作为补充运行面接入，人物卡会按实际引擎打开对应的 k8s
+                    workspace。
                   </p>
                 </div>
               </div>
@@ -629,7 +656,7 @@ export function OfficeShell({ snapshot }: Props) {
                   {generatedAt}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white/60">
-                  当前控制台和弹出的原生页面共享同一套人物与任务状态。
+                  当前控制台和弹出的工作区共享同一套人物与任务状态。
                 </p>
               </div>
             </div>
@@ -721,7 +748,7 @@ export function OfficeShell({ snapshot }: Props) {
                     <SelectGroup>
                       {dockerRunnerEngineValues.map((engine) => (
                         <SelectItem key={engine} value={engine}>
-                          {dockerRunnerEngineLabels[engine]}
+                          {k8sWorkspaceEngineLabels[engine]}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -742,7 +769,10 @@ export function OfficeShell({ snapshot }: Props) {
                 }
                 onClick={() => {
                   if (isReadOnlyFallback) {
-                    pushFeedback("数据库不可用，当前模式下不能创建人物。", "error");
+                    pushFeedback(
+                      "数据库不可用，当前模式下不能创建人物。",
+                      "error",
+                    );
                     return;
                   }
 
@@ -754,7 +784,9 @@ export function OfficeShell({ snapshot }: Props) {
                 ) : (
                   <UserRoundPlusIcon />
                 )}
-                {createAgent.isPending ? "正在创建人物..." : "创建人物并拉起 Runner"}
+                {createAgent.isPending
+                  ? "正在创建人物..."
+                  : "创建人物并拉起 Runner"}
               </Button>
             </div>
           </div>
@@ -810,7 +842,7 @@ export function OfficeShell({ snapshot }: Props) {
                       title: event.target.value,
                     }))
                   }
-                  placeholder="例如：整理 OpenClaw 接入发布清单"
+                  placeholder="例如：整理 OpenClaw K8s 工作区发布清单"
                 />
               </FormField>
 
@@ -869,11 +901,13 @@ export function OfficeShell({ snapshot }: Props) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {Object.entries(priorityLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
+                        {Object.entries(priorityLabels).map(
+                          ([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ),
+                        )}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -894,11 +928,13 @@ export function OfficeShell({ snapshot }: Props) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {Object.entries(riskLevelLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
+                        {Object.entries(riskLevelLabels).map(
+                          ([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ),
+                        )}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -916,7 +952,10 @@ export function OfficeShell({ snapshot }: Props) {
                 }
                 onClick={() => {
                   if (isReadOnlyFallback) {
-                    pushFeedback("数据库不可用，当前模式下不能下发任务。", "error");
+                    pushFeedback(
+                      "数据库不可用，当前模式下不能下发任务。",
+                      "error",
+                    );
                     return;
                   }
 
@@ -938,7 +977,7 @@ export function OfficeShell({ snapshot }: Props) {
               <SectionTitle
                 eyebrow="System Pulse"
                 title="当前运行面"
-                description="当前页负责编排与状态，人物卡点击后会新窗口打开原生 OpenClaw / Hermes 页面。"
+                description="当前页负责编排与状态，人物卡点击后会新窗口打开对应的 OpenClaw / Hermes K8s workspace。"
               />
             </div>
 
@@ -952,7 +991,8 @@ export function OfficeShell({ snapshot }: Props) {
                     {highlightedAgent?.name ?? "还没有人物"}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
-                    {highlightedAgent?.focus ?? "创建人物后，这里会显示当前焦点。"}
+                    {highlightedAgent?.focus ??
+                      "创建人物后，这里会显示当前焦点。"}
                   </p>
                 </div>
 
@@ -1026,7 +1066,7 @@ export function OfficeShell({ snapshot }: Props) {
               <SectionTitle
                 eyebrow="People"
                 title="当前所有人物"
-                description="点击人物卡片会新开窗口进入对应原生页面，当前页仍保留系统级摘要。"
+                description="点击人物卡片会新开窗口进入对应工作区，当前页仍保留系统级摘要。"
               />
 
               <div className="w-full sm:max-w-xs">
@@ -1046,7 +1086,7 @@ export function OfficeShell({ snapshot }: Props) {
               {agents.length === 0 ? (
                 <EmptyBlock
                   title="还没有可展示的人物"
-                  description="先创建人物，列表会自动出现，之后可直接打开对应原生页面。"
+                  description="先创建人物，列表会自动出现，之后可直接打开对应工作区。"
                 />
               ) : (
                 agents.map((agent) => {
@@ -1065,7 +1105,7 @@ export function OfficeShell({ snapshot }: Props) {
                       onMouseEnter={() => setHighlightedAgentId(agent.id)}
                       onFocus={() => setHighlightedAgentId(agent.id)}
                       className={cn(
-                        "group block w-full rounded-[28px] border px-5 py-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_60px_rgba(32,24,18,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b98a45]/40",
+                        "group block w-full rounded-[28px] border px-5 py-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_60px_rgba(32,24,18,0.12)] focus-visible:ring-2 focus-visible:ring-[#b98a45]/40 focus-visible:outline-none",
                         surfaceClassForEngine(agent.engine, isHighlighted),
                       )}
                     >
@@ -1080,7 +1120,10 @@ export function OfficeShell({ snapshot }: Props) {
                                 <h3 className="text-xl font-semibold tracking-[-0.04em] text-[#17120d]">
                                   {agent.name}
                                 </h3>
-                                <Badge variant="outline" className="bg-white/70">
+                                <Badge
+                                  variant="outline"
+                                  className="bg-white/70"
+                                >
                                   <RoleIcon />
                                   {roleLabels[agent.role]}
                                 </Badge>
@@ -1092,7 +1135,11 @@ export function OfficeShell({ snapshot }: Props) {
                                       : "bg-[#fff0d7] text-[#8f5e11]",
                                   )}
                                 >
-                                  {dockerRunnerEngineLabels[agent.engine ?? "openclaw"]}
+                                  {
+                                    k8sWorkspaceEngineLabels[
+                                      agent.engine ?? "openclaw"
+                                    ]
+                                  }
                                 </Badge>
                               </div>
                               <p className="max-w-3xl text-sm leading-6 text-[#66584b]">
@@ -1102,7 +1149,7 @@ export function OfficeShell({ snapshot }: Props) {
                           </div>
 
                           <div className="flex items-center gap-2 text-sm text-[#5f5347]">
-                            <span>新开原生页</span>
+                            <span>进入工作区</span>
                             <ArrowRightIcon className="size-4 transition-transform duration-200 group-hover:translate-x-1" />
                           </div>
                         </div>
@@ -1134,13 +1181,13 @@ export function OfficeShell({ snapshot }: Props) {
                           </div>
                           <div>
                             <p className="text-[11px] tracking-[0.28em] text-[#8b735d] uppercase">
-                              原生页面
+                              工作区
                             </p>
                             <p className="mt-2 font-medium text-[#17120d]">
                               {(device?.nativeDashboardUrl ??
-                                (agent.engine === "hermes-agent"
-                                  ? process.env.NEXT_PUBLIC_HERMES_NATIVE_URL
-                                  : process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL))
+                              (agent.engine === "hermes-agent"
+                                ? process.env.NEXT_PUBLIC_HERMES_NATIVE_URL
+                                : process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL))
                                 ? "已配置"
                                 : "待配置"}
                             </p>
@@ -1160,7 +1207,7 @@ export function OfficeShell({ snapshot }: Props) {
                 <SectionTitle
                   eyebrow="Focused Workspace"
                   title="当前人物摘要"
-                  description="点击左侧人物会新开原生页面，当前页右侧保留该人物的任务、设备和执行摘要。"
+                  description="点击左侧人物会新开工作区，当前页右侧保留该人物的任务、设备和执行摘要。"
                 />
               </div>
 
@@ -1188,11 +1235,22 @@ export function OfficeShell({ snapshot }: Props) {
                               <h3 className="text-2xl font-semibold tracking-[-0.05em] text-white">
                                 {highlightedAgent.name}
                               </h3>
-                              <Badge className={cn("border-0", highlightedTone.badge)}>
-                                {dockerRunnerEngineLabels[highlightedAgent.engine ?? "openclaw"]}
+                              <Badge
+                                className={cn(
+                                  "border-0",
+                                  highlightedTone.badge,
+                                )}
+                              >
+                                {
+                                  k8sWorkspaceEngineLabels[
+                                    highlightedAgent.engine ?? "openclaw"
+                                  ]
+                                }
                               </Badge>
                               <Badge className="bg-white/10 text-white hover:bg-white/10">
-                                {HighlightedRoleIcon ? <HighlightedRoleIcon /> : null}
+                                {HighlightedRoleIcon ? (
+                                  <HighlightedRoleIcon />
+                                ) : null}
                                 {roleLabels[highlightedAgent.role]}
                               </Badge>
                             </div>
@@ -1254,7 +1312,8 @@ export function OfficeShell({ snapshot }: Props) {
                             设备健康
                           </p>
                           <p className="mt-2 text-sm leading-6 text-[#17120d]">
-                            {highlightedDevice?.healthSummary ?? "Runner 还在初始化"}
+                            {highlightedDevice?.healthSummary ??
+                              "Runner 还在初始化"}
                           </p>
                         </div>
 
@@ -1269,8 +1328,8 @@ export function OfficeShell({ snapshot }: Props) {
                           </p>
                           <p className="mt-2 text-sm leading-6 text-[#17120d]">
                             {highlightedAgent.engine === "hermes-agent"
-                              ? "Hermes Agent 单页面上下文"
-                              : "OpenClaw 单页面上下文"}
+                              ? "Hermes K8s workspace 上下文"
+                              : "OpenClaw K8s workspace 上下文"}
                           </p>
                         </div>
 
@@ -1289,19 +1348,21 @@ export function OfficeShell({ snapshot }: Props) {
                             </p>
                           ) : (
                             <div className="mt-3 space-y-3">
-                              {highlightedApprovals.slice(0, 3).map((approval) => (
-                                <div
-                                  key={approval.id}
-                                  className="rounded-[18px] bg-white/70 px-4 py-3"
-                                >
-                                  <p className="text-sm font-medium text-[#17120d]">
-                                    {approval.title}
-                                  </p>
-                                  <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
-                                    {approval.summary}
-                                  </p>
-                                </div>
-                              ))}
+                              {highlightedApprovals
+                                .slice(0, 3)
+                                .map((approval) => (
+                                  <div
+                                    key={approval.id}
+                                    className="rounded-[18px] bg-white/70 px-4 py-3"
+                                  >
+                                    <p className="text-sm font-medium text-[#17120d]">
+                                      {approval.title}
+                                    </p>
+                                    <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
+                                      {approval.summary}
+                                    </p>
+                                  </div>
+                                ))}
                             </div>
                           )}
                         </div>
@@ -1376,9 +1437,13 @@ export function OfficeShell({ snapshot }: Props) {
                                   className="rounded-[20px] bg-[#faf7f2] px-4 py-4"
                                 >
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <Badge variant="outline">{report.status}</Badge>
+                                    <Badge variant="outline">
+                                      {report.status}
+                                    </Badge>
                                     {report.completedAt ? (
-                                      <Badge variant="outline">{report.completedAt}</Badge>
+                                      <Badge variant="outline">
+                                        {report.completedAt}
+                                      </Badge>
                                     ) : null}
                                   </div>
                                   <p className="mt-3 text-base font-semibold text-[#17120d]">

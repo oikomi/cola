@@ -5,7 +5,7 @@
     "sshUser": "charles",
     "sshPassword": "123",
     "sshPort": 22,
-    "roles": ["master", "etcd", "worker"],
+    "roles": ["master", "etcd", "worker", "gpu"],
     "arch": "amd64"
   },
 
@@ -15,7 +15,7 @@
     "sshUser": "dell",
     "sshPassword": "123456",
     "sshPort": 22,
-    "roles": ["worker"],
+    "roles": ["worker", "gpu"],
     "arch": "amd64"
   }
 ]

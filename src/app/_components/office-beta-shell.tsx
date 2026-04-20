@@ -19,6 +19,7 @@ import * as PIXI from "pixi.js";
 import { gsap } from "gsap";
 import { startTransition, useEffect, useRef, useState } from "react";
 
+import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
 import { cn } from "@/lib/utils";
@@ -45,7 +47,6 @@ import {
   agentRoleValues,
   agentStatusLabels,
   dockerRunnerEngineValues,
-  dockerRunnerEngineLabels,
   roleLabels,
   zoneLabels,
   type AgentRole,
@@ -2311,7 +2312,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
     if (!nativeUrl) {
       openedWindow.close();
-      setFeedback("当前人物的原生页面地址未配置。");
+      setFeedback("当前人物的工作区地址未配置。");
       return;
     }
 
@@ -2325,8 +2326,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
   return (
     <div className="min-h-dvh bg-[linear-gradient(180deg,#f5e5c8_0%,#e9d2ac_100%)] text-[#1f1711]">
       <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
+        <ProductAreaHeader />
+
         <div className="relative overflow-hidden rounded-[28px] border border-white/40 bg-[radial-gradient(circle_at_top,rgba(255,249,238,0.72),rgba(255,242,220,0.36)),linear-gradient(180deg,rgba(255,248,235,0.85),rgba(230,206,166,0.42))] p-3 shadow-[0_26px_90px_rgba(98,67,33,0.16)] md:p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-[10px] tracking-[0.34em] text-[#a78560] uppercase">
                 Experimental
@@ -2336,7 +2339,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-6 text-[#6d5544]">
                 等距办公室场景以真实 office snapshot
-                驱动。点击人物聚焦，顶部可直接添加工位和人物，左下角保留当前人物摘要，复杂编排仍可切到控制台。
+                驱动。人物继续在办公室里编排， 但 OpenClaw / Hermes
+                的执行入口已经按 workspace 范式对齐到 K8s
+                工作区，顶部仍可直接添加工位和人物。
               </p>
             </div>
 
@@ -2443,7 +2448,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       <span className="text-[#b99b7c]">/</span>
                       <span>
                         {
-                          dockerRunnerEngineLabels[
+                          k8sWorkspaceEngineLabels[
                             selectedAgent.engine ?? "openclaw"
                           ]
                         }
@@ -2484,7 +2489,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
                       {
-                        dockerRunnerEngineLabels[
+                        k8sWorkspaceEngineLabels[
                           selectedAgent.engine ?? "openclaw"
                         ]
                       }
@@ -2510,7 +2515,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     onClick={() => void openNativeWorkspace()}
                   >
                     <ExternalLinkIcon />
-                    进入原生页
+                    进入工作区
                   </Button>
                   <Link
                     href="/control"
@@ -2533,7 +2538,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </p>
               <p className="mt-2 text-sm leading-6 text-[#f5e4c7]">
                 办公室空间和人物热区都由 snapshot
-                驱动。拖动画布可漫游，滚轮可缩放；顶部可扩容工位和创建人物，审批和任务编排仍保留在控制台页面。
+                驱动。拖动画布可漫游，滚轮可缩放； 人物点击后会进入对应的 K8s
+                workspace，审批和任务编排仍保留在控制台页面。
               </p>
             </div>
           </div>
@@ -2716,7 +2722,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       <SelectGroup>
                         {dockerRunnerEngineValues.map((engine) => (
                           <SelectItem key={engine} value={engine}>
-                            {dockerRunnerEngineLabels[engine]}
+                            {k8sWorkspaceEngineLabels[engine]}
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -2732,8 +2738,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     {ROLE_HINTS[agentDraft.role]}
                   </p>
                   <p className="mt-2 text-xs leading-5 text-[#8b735f]">
-                    默认会绑定 {dockerRunnerEngineLabels[agentDraft.engine]}
-                    ，并按角色进入
+                    默认会绑定 {k8sWorkspaceEngineLabels[agentDraft.engine]}{" "}
+                    工作区，并按角色进入
                     {zoneLabels[zoneForRole(agentDraft.role)]}。
                   </p>
                 </div>

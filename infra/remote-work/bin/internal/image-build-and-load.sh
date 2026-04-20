@@ -14,6 +14,38 @@ IMAGE_NAME="remote-workspace"
 IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
 NOVNC_VERSION="v1.6.0"
 
+build_workspace_image() {
+  local image_ref="$1"
+  local build_log
+  local status
+
+  build_log="$(mktemp)"
+  trap 'rm -f "$build_log"' RETURN
+
+  set +e
+  docker build \
+    --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+    -t "$image_ref" \
+    "$ROOT_DIR/images/remote-workspace" 2>&1 | tee "$build_log"
+  status=${PIPESTATUS[0]}
+  set -e
+
+  if [[ "$status" -eq 0 ]]; then
+    return 0
+  fi
+
+  if grep -q "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/" "$build_log"; then
+    print_step "检测到 Docker BuildKit snapshot 状态异常，回退到 legacy builder 重试"
+    DOCKER_BUILDKIT=0 docker build \
+      --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+      -t "$image_ref" \
+      "$ROOT_DIR/images/remote-workspace"
+    return 0
+  fi
+
+  return "$status"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --image-name)
@@ -41,10 +73,7 @@ ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
 LOCAL_ARCH="$(local_arch)"
 
 print_step "构建镜像 $IMAGE_REF"
-docker build \
-  --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
-  -t "$IMAGE_REF" \
-  "$ROOT_DIR/images/remote-workspace"
+build_workspace_image "$IMAGE_REF"
 
 print_step "导出镜像"
 docker save "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"

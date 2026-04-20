@@ -39,9 +39,9 @@ export function ProductAreaHeader() {
             四个功能区统一入口
           </p>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#6d5544]">
-            Virtual Office、Workspace、Training 和 Inference Deploy 共享同一层导航。
-            Office 中的 OpenClaw / Hermes 入口也按 workspace 方式对齐为 K8s
-            工作区。
+            Virtual Office、Workspace、Training 和 Inference Deploy
+            共享同一层导航。 Office 中的 OpenClaw / Hermes 入口也按 workspace
+            方式对齐为 K8s 工作区。
           </p>
         </div>
 
@@ -83,7 +83,7 @@ export function ProductAreaHeader() {
                     当前区域
                   </span>
                 ) : (
-                  <ArrowUpRightIcon className="size-4 text-[#9d7750] transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                  <ArrowUpRightIcon className="size-4 text-[#9d7750] transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 )}
               </div>
 

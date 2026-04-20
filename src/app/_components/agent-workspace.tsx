@@ -14,12 +14,13 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Badge } from "@/components/ui/badge";
+import { k8sWorkspaceSurfaceLabels } from "@/lib/product-areas";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
 import {
   agentStatusLabels,
-  dockerRunnerEngineLabels,
   roleLabels,
   taskStatusLabels,
   zoneLabels,
@@ -114,10 +115,14 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
 
   const liveSnapshot = snapshotQuery.data ?? snapshot;
   const agent = liveSnapshot.agents.find((item) => item.id === agentId) ?? null;
-  const device = liveSnapshot.devices.find((item) => item.id === agent?.deviceId) ?? null;
+  const device =
+    liveSnapshot.devices.find((item) => item.id === agent?.deviceId) ?? null;
   const tasks = liveSnapshot.tasks
     .filter((task) => task.ownerAgentId === agentId)
-    .sort((left, right) => taskStatusOrder[left.status] - taskStatusOrder[right.status]);
+    .sort(
+      (left, right) =>
+        taskStatusOrder[left.status] - taskStatusOrder[right.status],
+    );
   const approvals = liveSnapshot.approvals.filter(
     (approval) => approval.requestedByAgentId === agentId,
   );
@@ -164,7 +169,11 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
   if (!agent) {
     return (
       <div className="min-h-dvh bg-[#f5f1e9] px-4 py-8 text-[#17120d] md:px-8">
-        <main className="mx-auto max-w-4xl rounded-[32px] border border-black/8 bg-white/82 px-6 py-8 shadow-[0_24px_80px_rgba(24,19,14,0.1)]">
+        <div className="mx-auto max-w-[1460px]">
+          <ProductAreaHeader />
+        </div>
+
+        <main className="mx-auto mt-6 max-w-4xl rounded-[32px] border border-black/8 bg-white/82 px-6 py-8 shadow-[0_24px_80px_rgba(24,19,14,0.1)]">
           <Link
             href="/"
             className="inline-flex items-center gap-2 text-sm text-[#6f5f52] transition-colors hover:text-[#17120d]"
@@ -187,22 +196,20 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
   const theme =
     engine === "hermes-agent"
       ? {
-          page:
-            "bg-[radial-gradient(circle_at_top_left,rgba(149,179,231,0.24),transparent_28%),linear-gradient(180deg,#f4f7fc_0%,#eef3fb_45%,#e7edf8_100%)]",
+          page: "bg-[radial-gradient(circle_at_top_left,rgba(149,179,231,0.24),transparent_28%),linear-gradient(180deg,#f4f7fc_0%,#eef3fb_45%,#e7edf8_100%)]",
           hero: "bg-[#111827] text-[#eff6ff]",
           badge: "bg-[#dbeafe] text-[#1d4ed8]",
-          summary: "Hermes Agent 运行页",
+          summary: "Hermes K8s Workspace",
           description:
-            "当前人物绑定 Hermes Agent。这里集中展示设备、任务和最近执行结果。",
+            "当前人物绑定 Hermes K8s workspace。这里集中展示设备、任务和最近执行结果。",
         }
       : {
-          page:
-            "bg-[radial-gradient(circle_at_top_left,rgba(255,206,138,0.26),transparent_28%),linear-gradient(180deg,#f9f5ef_0%,#f5efe6_45%,#ede2d4_100%)]",
+          page: "bg-[radial-gradient(circle_at_top_left,rgba(255,206,138,0.26),transparent_28%),linear-gradient(180deg,#f9f5ef_0%,#f5efe6_45%,#ede2d4_100%)]",
           hero: "bg-[#1f170f] text-[#fff7ed]",
           badge: "bg-[#ffedd5] text-[#c2410c]",
-          summary: "OpenClaw 运行页",
+          summary: "OpenClaw K8s Workspace",
           description:
-            "当前人物绑定 OpenClaw。这里集中展示设备、任务和最近执行结果。",
+            "当前人物绑定 OpenClaw K8s workspace。这里集中展示设备、任务和最近执行结果。",
         };
 
   return (
@@ -213,6 +220,8 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
       )}
     >
       <main className="mx-auto flex max-w-[1460px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8 xl:h-full xl:overflow-y-auto xl:[scrollbar-width:none] xl:[&::-webkit-scrollbar]:hidden">
+        <ProductAreaHeader />
+
         <section
           className={cn(
             "relative overflow-hidden rounded-[36px] shadow-[0_36px_120px_rgba(23,18,13,0.18)]",
@@ -262,7 +271,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                       {agent.name}
                     </h1>
                     <Badge className={cn("border-0", theme.badge)}>
-                      {dockerRunnerEngineLabels[engine]}
+                      {k8sWorkspaceSurfaceLabels[engine]}
                     </Badge>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm text-white/72">
@@ -289,7 +298,9 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   当前焦点
                 </p>
-                <p className="mt-3 text-base leading-7 text-white/82">{agent.focus}</p>
+                <p className="mt-3 text-base leading-7 text-white/82">
+                  {agent.focus}
+                </p>
               </div>
 
               <div className="grid gap-4 rounded-[28px] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-3 xl:grid-cols-1">
@@ -365,7 +376,8 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                     当前路由
                   </p>
                   <p className="mt-2 font-medium text-[#17120d]">
-                    /{engine === "hermes-agent" ? "hermes" : "openclaw"}/{agent.id}
+                    /{engine === "hermes-agent" ? "hermes" : "openclaw"}/
+                    {agent.id}
                   </p>
                 </div>
                 <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
@@ -520,7 +532,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               Artifact
                             </p>
-                            <p className="mt-2 break-all font-mono text-xs text-[#17120d]">
+                            <p className="mt-2 font-mono text-xs break-all text-[#17120d]">
                               {report.artifactPath}
                             </p>
                           </div>
@@ -530,7 +542,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               Log
                             </p>
-                            <p className="mt-2 break-all font-mono text-xs text-[#17120d]">
+                            <p className="mt-2 font-mono text-xs break-all text-[#17120d]">
                               {report.logPath}
                             </p>
                           </div>
