@@ -46,6 +46,10 @@ function renderVarsGroup(title, vars) {
   ].join("\n");
 }
 
+function iniDoubleQuote(value) {
+  return `"${String(value).replaceAll('"', '\\"')}"`;
+}
+
 async function detectControllerIp(targetIp) {
   if (typeof config.controllerIp === "string" && config.controllerIp.length > 0) {
     return config.controllerIp;
@@ -124,20 +128,20 @@ const hostsLines = [
     chronyHosts,
   ),
   renderVarsGroup("all:vars", {
-    SECURE_PORT: shellQuote("6443"),
-    CONTAINER_RUNTIME: shellQuote("containerd"),
-    CLUSTER_NETWORK: shellQuote("calico"),
-    PROXY_MODE: shellQuote("ipvs"),
-    SERVICE_CIDR: shellQuote("10.68.0.0/16"),
-    CLUSTER_CIDR: shellQuote("172.20.0.0/16"),
-    NODE_PORT_RANGE: shellQuote("30000-32767"),
-    CLUSTER_DNS_DOMAIN: shellQuote("cluster.local"),
-    bin_dir: shellQuote("/opt/kube/bin"),
-    base_dir: shellQuote("/etc/kubeasz"),
-    cluster_dir: shellQuote(`{{ base_dir }}/clusters/${config.clusterName}`),
-    ca_dir: shellQuote("/etc/kubernetes/ssl"),
-    k8s_nodename: shellQuote(""),
-    local_registry_host: shellQuote(controllerIp),
+    SECURE_PORT: iniDoubleQuote("6443"),
+    CONTAINER_RUNTIME: iniDoubleQuote("containerd"),
+    CLUSTER_NETWORK: iniDoubleQuote("calico"),
+    PROXY_MODE: iniDoubleQuote("ipvs"),
+    SERVICE_CIDR: iniDoubleQuote("10.68.0.0/16"),
+    CLUSTER_CIDR: iniDoubleQuote("172.20.0.0/16"),
+    NODE_PORT_RANGE: iniDoubleQuote("30000-32767"),
+    CLUSTER_DNS_DOMAIN: iniDoubleQuote("cluster.local"),
+    bin_dir: iniDoubleQuote("/opt/kube/bin"),
+    base_dir: iniDoubleQuote("/etc/kubeasz"),
+    cluster_dir: iniDoubleQuote(`{{ base_dir }}/clusters/${config.clusterName}`),
+    ca_dir: iniDoubleQuote("/etc/kubernetes/ssl"),
+    k8s_nodename: iniDoubleQuote(""),
+    local_registry_host: iniDoubleQuote(controllerIp),
     ansible_python_interpreter: "/usr/bin/python3",
   }),
 ].join("\n");
