@@ -1,7 +1,7 @@
 {
   "clusterName": "remote-work",
   "kubeaszVersion": "3.6.8",
-  "kubernetesVersion": "1.34.7",
+  "kubernetesVersion": "1.34.3",
   "kubeaszRepoUrl": "https://github.com/easzlab/kubeasz.git",
   "workspaceNamespace": "remote-work",
   "workspaceLabelKey": "remote-work/workspace",
