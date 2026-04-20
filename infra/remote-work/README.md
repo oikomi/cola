@@ -123,7 +123,44 @@ cd infra/remote-work
 
 默认镜像名会写入 `runtime/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
 
-## 6. 创建一个远程工作区
+## 6. 部署 Kubernetes Dashboard
+
+如果你希望有一个图形化集群管理入口，可以部署 Kubernetes Dashboard：
+
+```bash
+./bin/80-deploy-k8s-dashboard.sh
+```
+
+默认行为：
+
+- 通过官方 Helm chart 安装 `kubernetes-dashboard`
+- 保持官方 chart 的默认 `ClusterIP`
+- 创建一个 `admin-user` ServiceAccount
+
+按官方文档方式本地转发访问：
+
+```bash
+./bin/82-port-forward-k8s-dashboard.sh
+```
+
+浏览器地址：
+
+```text
+https://localhost:8443/
+```
+
+获取登录 Token：
+
+```bash
+./bin/81-get-k8s-dashboard-token.sh
+```
+
+说明：
+
+- 这里按 Kubernetes 官方文档推荐的方式接入：Helm 安装 + `port-forward`
+- 不再默认改成 `NodePort`
+
+## 7. 创建一个远程工作区
 
 ```bash
 ./bin/50-create-workspace.sh \
@@ -154,7 +191,7 @@ cd infra/remote-work
 http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ```
 
-## 7. 删除工作区
+## 8. 删除工作区
 
 ```bash
 ./bin/51-delete-workspace.sh --name alice
@@ -166,7 +203,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ./bin/51-delete-workspace.sh --name alice --node rw-gpu-178 --purge-data
 ```
 
-## 8. 新增节点
+## 9. 新增节点
 
 新增普通工作节点：
 
@@ -194,7 +231,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 如果节点架构与当前部署机不一致，`60-add-node.sh` 会直接拒绝执行，并提示你改到同架构部署机上继续。
 
-## 9. 混合架构接入
+## 10. 混合架构接入
 
 以当前场景为例：
 
@@ -229,7 +266,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 这个流程本质上对应 kubeasz 官方 `docs/setup/mix_arch.md` 的“双部署机”模式，只是把步骤收成了仓库脚本。
 
-## 10. 一键清理
+## 11. 一键清理
 
 销毁当前 `remote-work` 集群，并清理本机运行态：
 
@@ -249,7 +286,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ./bin/99-clean-all.sh --yes --keep-local-cache
 ```
 
-## 11. 已知边界
+## 12. 已知边界
 
 - 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点

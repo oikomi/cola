@@ -10,6 +10,7 @@ KUBEASZ_DIR="$RUNTIME_DIR/kubeasz"
 KUBEASZ_BASE_DIR="/etc/kubeasz"
 ANSIBLE_VENV_DIR="$RUNTIME_DIR/ansible-venv"
 ANSIBLE_BIN_DIR="$ANSIBLE_VENV_DIR/bin"
+HELM_RUNTIME_DIR="$RUNTIME_DIR/helm"
 QUERY_SCRIPT="$ROOT_DIR/bin/query-cluster.mjs"
 RENDER_CLUSTER_SCRIPT="$ROOT_DIR/bin/render-cluster.mjs"
 
@@ -149,6 +150,54 @@ cluster_query() {
 
 ensure_runtime_dirs() {
   mkdir -p "$GENERATED_DIR" "$WORKSPACE_DIR"
+}
+
+cluster_kubeconfig_path() {
+  printf '%s\n' "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/kubectl.kubeconfig"
+}
+
+kubectl_bin_path() {
+  if sudo test -x "$KUBEASZ_BASE_DIR/bin/kubectl"; then
+    printf '%s\n' "$KUBEASZ_BASE_DIR/bin/kubectl"
+    return 0
+  fi
+  command -v kubectl >/dev/null 2>&1 || die "缺少 kubectl，且 /etc/kubeasz/bin/kubectl 不存在。"
+  command -v kubectl
+}
+
+helm_bin_path() {
+  if sudo test -x "$KUBEASZ_BASE_DIR/bin/helm"; then
+    printf '%s\n' "$KUBEASZ_BASE_DIR/bin/helm"
+    return 0
+  fi
+  command -v helm >/dev/null 2>&1 || die "缺少 helm，且 /etc/kubeasz/bin/helm 不存在。"
+  command -v helm
+}
+
+ensure_helm_runtime_dirs() {
+  mkdir -p "$HELM_RUNTIME_DIR/config" "$HELM_RUNTIME_DIR/cache" "$HELM_RUNTIME_DIR/data"
+}
+
+run_cluster_kubectl() {
+  local kubeconfig
+  local kubectl_bin
+  kubeconfig="$(cluster_kubeconfig_path)"
+  kubectl_bin="$(kubectl_bin_path)"
+  sudo env KUBECONFIG="$kubeconfig" "$kubectl_bin" "$@"
+}
+
+run_cluster_helm() {
+  local kubeconfig
+  local helm_bin
+  kubeconfig="$(cluster_kubeconfig_path)"
+  helm_bin="$(helm_bin_path)"
+  ensure_helm_runtime_dirs
+  sudo env \
+    KUBECONFIG="$kubeconfig" \
+    HELM_CONFIG_HOME="$HELM_RUNTIME_DIR/config" \
+    HELM_CACHE_HOME="$HELM_RUNTIME_DIR/cache" \
+    HELM_DATA_HOME="$HELM_RUNTIME_DIR/data" \
+    "$helm_bin" "$@"
 }
 
 cluster_name() {
