@@ -9,6 +9,7 @@ require_cmd node
 require_cmd sshpass
 require_cmd scp
 require_cmd ssh
+require_cmd sudo
 
 TAG_SET="${1:-7.14.0}"
 RUNTIME_DIR_IMAGES="$RUNTIME_DIR/dashboard-images"
@@ -22,11 +23,11 @@ if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
 fi
 
 IMAGES=(
-  "docker.io/kubernetesui/dashboard-api:1.12.0"
-  "docker.io/kubernetesui/dashboard-auth:1.2.4"
-  "docker.io/kubernetesui/dashboard-web:1.6.2"
+  "docker.io/kubernetesui/dashboard-api:1.14.0"
+  "docker.io/kubernetesui/dashboard-auth:1.4.0"
+  "docker.io/kubernetesui/dashboard-web:1.7.0"
   "docker.io/kubernetesui/dashboard-metrics-scraper:1.2.2"
-  "docker.io/library/kong:3.8"
+  "docker.io/library/kong:3.9"
 )
 
 for image_ref in "${IMAGES[@]}"; do
@@ -44,5 +45,10 @@ for image_ref in "${IMAGES[@]}"; do
       "gzip -dc /tmp/$(basename "$image_file") | ctr -n k8s.io images import - && rm -f /tmp/$(basename "$image_file")"
   done
 done
+
+if sudo test -f "$(cluster_kubeconfig_path)"; then
+  print_step "重启 Kubernetes Dashboard Pod 以重新拉起容器"
+  run_cluster_kubectl -n kubernetes-dashboard delete pod --all --ignore-not-found || true
+fi
 
 echo "Dashboard 相关镜像已导入 arch=$LOCAL_ARCH 的节点。"
