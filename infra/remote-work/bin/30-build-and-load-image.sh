@@ -57,8 +57,8 @@ fi
 for node_name in "${TARGET_NODES[@]}"; do
   print_step "分发镜像到 $node_name"
   remote_scp "$ARCHIVE_PATH" "$node_name" "/tmp/$(basename "$ARCHIVE_PATH")"
-  remote_ssh "$node_name" \
-    "gzip -dc /tmp/$(basename "$ARCHIVE_PATH") | sudo ctr -n k8s.io images import - && rm -f /tmp/$(basename "$ARCHIVE_PATH")"
+  remote_sudo_ssh "$node_name" \
+    "gzip -dc /tmp/$(basename "$ARCHIVE_PATH") | ctr -n k8s.io images import - && rm -f /tmp/$(basename "$ARCHIVE_PATH")"
 done
 
 printf '%s\n' "$IMAGE_REF" > "$RUNTIME_DIR/latest-image.txt"

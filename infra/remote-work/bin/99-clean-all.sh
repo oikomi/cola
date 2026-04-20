@@ -93,7 +93,7 @@ if [[ "$PURGE_REMOTE_DATA" -eq 1 ]]; then
   mapfile -t ALL_NODES < <(cluster_query nodeNames)
   for node_name in "${ALL_NODES[@]}"; do
     echo "Cleaning remote workspace data on $node_name ..."
-    remote_ssh "$node_name" "sudo rm -rf /var/lib/remote-work/workspaces"
+    remote_sudo_ssh "$node_name" "rm -rf /var/lib/remote-work/workspaces"
   done
 fi
 

@@ -42,8 +42,7 @@ kubectl_remote "delete ingress workspace-$NAME-ing -n $(workspace_namespace) --i
 if [[ "$PURGE_DATA" -eq 1 ]]; then
   [[ -n "$NODE_NAME" ]] || die "使用 --purge-data 时必须同时传 --node"
   print_step "清理宿主机目录"
-  remote_ssh "$NODE_NAME" "sudo rm -rf /var/lib/remote-work/workspaces/$NAME"
+  remote_sudo_ssh "$NODE_NAME" "rm -rf /var/lib/remote-work/workspaces/$NAME"
 fi
 
 echo "工作区 $NAME 已删除。"
-
