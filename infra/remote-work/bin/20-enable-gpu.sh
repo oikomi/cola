@@ -12,6 +12,30 @@ require_cmd scp
 TARGET_NODE=""
 SKIP_MANIFESTS=0
 AUTO_DISCOVERED=0
+ROLLOUT_TIMEOUT="300s"
+
+print_gpu_diagnostics() {
+  echo
+  echo "--- nvidia-device-plugin pods ---"
+  kubectl_remote "get pods -n kube-system -l app.kubernetes.io/name=nvidia-device-plugin -o wide || true"
+  echo
+  echo "--- nvidia-device-plugin daemonset ---"
+  kubectl_remote "describe ds nvidia-device-plugin-daemonset -n kube-system || true"
+  echo
+  echo "--- recent kube-system events ---"
+  kubectl_remote "get events -n kube-system --sort-by=.lastTimestamp | tail -n 50 || true"
+  echo
+  echo "--- nvidia-device-plugin pod describe ---"
+  PODS="$(kubectl_remote "get pods -n kube-system -l app.kubernetes.io/name=nvidia-device-plugin -o name || true")"
+  if [[ -n "$PODS" ]]; then
+    while IFS= read -r pod_name; do
+      [[ -n "$pod_name" ]] || continue
+      echo "### $pod_name ###"
+      kubectl_remote "describe -n kube-system $pod_name || true"
+      echo
+    done <<<"$PODS"
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +46,10 @@ while [[ $# -gt 0 ]]; do
     --skip-manifests)
       SKIP_MANIFESTS=1
       shift
+      ;;
+    --rollout-timeout)
+      ROLLOUT_TIMEOUT="$2"
+      shift 2
       ;;
     *)
       die "未知参数: $1"
@@ -117,7 +145,11 @@ if [[ "$SKIP_MANIFESTS" -eq 0 ]]; then
   kubectl_apply_file "$ROOT_DIR/manifests/base/namespace.yaml"
   kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-runtimeclass.yaml"
   kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-device-plugin.yaml"
-  kubectl_remote "rollout status daemonset/nvidia-device-plugin-daemonset -n kube-system --timeout=180s"
+  if ! kubectl_remote "rollout status daemonset/nvidia-device-plugin-daemonset -n kube-system --timeout=$ROLLOUT_TIMEOUT"; then
+    print_step "nvidia-device-plugin 启动超时，输出诊断信息"
+    print_gpu_diagnostics
+    die "nvidia-device-plugin-daemonset 在 $ROLLOUT_TIMEOUT 内未就绪。"
+  fi
 fi
 
 if [[ "$AUTO_DISCOVERED" -eq 1 ]]; then
