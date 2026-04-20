@@ -39,6 +39,30 @@ require_any_cmd() {
   [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
 }
 
+install_python_venv_support() {
+  require_cmd python3
+  require_cmd sudo
+  require_any_cmd apt-get dnf yum
+
+  if command -v apt-get >/dev/null 2>&1; then
+    local py_venv_pkg
+    local py_minor_pkg
+    py_minor_pkg="$(
+      python3 - <<'PY'
+import sys
+print(f"python{sys.version_info.major}.{sys.version_info.minor}-venv")
+PY
+    )"
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip || \
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$py_minor_pkg" python3-pip
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y python3 python3-pip
+  else
+    sudo yum install -y python3 python3-pip
+  fi
+}
+
 ensure_ansible_available() {
   require_cmd python3
   require_cmd sudo
@@ -62,20 +86,16 @@ PY
 
   print_step "准备独立的 Ansible 运行时"
 
-  if ! python3 -m venv --help >/dev/null 2>&1; then
-    require_any_cmd apt-get dnf yum
-    if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get update
-      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip
-    elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y python3 python3-pip
-    else
-      sudo yum install -y python3 python3-pip
-    fi
+  rm -rf "$ANSIBLE_VENV_DIR"
+
+  if ! python3 -m venv "$ANSIBLE_VENV_DIR" >/dev/null 2>&1; then
+    print_step "当前 Python 缺少 venv/ensurepip，开始补装依赖"
+    install_python_venv_support
+    rm -rf "$ANSIBLE_VENV_DIR"
+    python3 -m venv "$ANSIBLE_VENV_DIR" || \
+      die "创建虚拟环境失败，请先确认本机 Python 支持 venv 和 ensurepip。"
   fi
 
-  rm -rf "$ANSIBLE_VENV_DIR"
-  python3 -m venv "$ANSIBLE_VENV_DIR"
   "$ANSIBLE_BIN_DIR/pip" install --upgrade pip setuptools wheel
   "$ANSIBLE_BIN_DIR/pip" install "ansible>=9,<11" netaddr jmespath packaging
 
