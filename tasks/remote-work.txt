@@ -1,0 +1,14 @@
+
+
+我需要实现一套远程工作环境，我有几台nvidia显卡的服务器。
+
+技术栈
+- 远程桌面使用 https://github.com/novnc/novnc
+- k8s部署采用  https://github.com/easzlab/kubeasz
+
+现在有两台机器
+- 192.168.5.178  nvidia/nvidia
+- 192.168.5.22   charles/123
+
+
+你需要生成一套完整部署的脚本（单独新建一个文件夹）   同时后续可以任意增加node服务器

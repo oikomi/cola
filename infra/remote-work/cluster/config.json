@@ -1,0 +1,10 @@
+{
+  "clusterName": "remote-work",
+  "kubeaszVersion": "3.6.8",
+  "kubernetesVersion": "1.34.1",
+  "kubeaszRepoUrl": "https://github.com/easzlab/kubeasz.git",
+  "workspaceNamespace": "remote-work",
+  "workspaceLabelKey": "remote-work/workspace",
+  "gpuLabelKey": "remote-work/gpu"
+}
+

@@ -136,7 +136,10 @@ export function resolveBrowserNativeWorkspaceHref({
   }
 
   if (templateUrl) return templateUrl;
-  if (!nativeUrl) return null;
+  if (!nativeUrl) {
+    const fallbackPath = agentWorkspaceHref(agentId, engine);
+    return origin ? new URL(fallbackPath, origin).toString() : fallbackPath;
+  }
 
   const resolved = new URL(nativeUrl, origin ?? "http://localhost");
 

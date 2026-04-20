@@ -1,10 +1,16 @@
 # Virtual Office 多角色 Agent 系统 PRD
 
+## 0. 文档状态
+
+- 更新时间：2026-04-17
+- 文档类型：产品愿景与范围文档
+- 与当前仓库关系：当前 `cola` 仓库已经实现其中一部分 MVP 能力，但还没有覆盖本文描述的全部角色范围、流程复杂度和治理深度；具体落地边界以 `docs/virtual-office-mvp-implementation-plan.md` 为准
+
 ## 1. 文档信息
 
 - 文档名称：Virtual Office 多角色 Agent 系统 PRD
-- 文档状态：草案
-- 更新时间：2026-04-15
+- 文档状态：愿景草案
+- 更新时间：2026-04-17
 - 语言：中文
 - 关联文档：
   - `docs/ai-native-company-prd.md`

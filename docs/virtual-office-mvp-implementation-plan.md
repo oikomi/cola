@@ -1,298 +1,225 @@
 # Cola Virtual Office MVP 实施计划
 
-## 1. 文档目的
+## 0. 文档状态
 
-本文件用于把 `Virtual Office 多角色 Agent 系统` 的概念设计收敛为当前仓库可执行的 MVP 路径，明确本期范围、代码边界、交付顺序和后续扩展方向。
+- 更新时间：2026-04-17
+- 文档定位：当前仓库已落地 MVP 的实现对照与下一步推进顺序
+- 说明：本文件描述的是已经存在于仓库里的实现边界，不再把仓库当作“尚未开始改造”的空模板
 
-## 2. 当前仓库现状
+## 1. 当前 MVP 摘要
 
-当前 `cola` 仓库基于 Next.js + tRPC + Drizzle + PostgreSQL 的最小模板，适合作为 Virtual Office MVP 的控制面起点，但距离完整系统仍有明显缺口：
+当前 `cola` 仓库已经完成了 Virtual Office 的第一条可运行闭环：
 
-- 还没有 Virtual Office 的业务实体
-- 还没有任务、角色、设备的真实数据模型
-- 还没有审批和审计的后端闭环
-- 还没有实时通信层
+- 前端有两个入口：`/` 的等距办公室主视图，以及 `/control` 的控制台视图
+- 数据模型已经覆盖角色、任务、设备、执行会话、审批、事件和工位配置
+- `office` router 已支持创建角色、扩容工位、创建任务、推进任务、发起审批、处理审批和刷新原生工作区地址
+- `worker` router 与 `/api/worker/*` 路由已经支持 runner 注册、心跳、拉任务和会话回报
+- 新增人物时会异步拉起 Docker OpenClaw / Hermes runner
+- `/api/office/stream` 已通过 SSE 让前端自动刷新快照
+- 前端可查看最近一次执行结果回放
 
-本次改造的目标不是一步到位，而是把最重要的基础层先立起来。
+## 2. 已落地能力
 
-## 3. 本期目标
+### 2.1 页面与交互
 
-本期 MVP 聚焦以下三件事：
+- `/`：`OfficeBetaShell`，等距办公室主视图
+- `/control`：`OfficeShell`，传统控制台视图
+- `/openclaw/[agentId]`：OpenClaw 角色工作区
+- `/hermes/[agentId]`：Hermes 角色工作区
 
-- 用统一数据结构描述角色、任务、设备、审批和事件
-- 用首页把 Virtual Office 的核心信息结构可视化
-- 为后续接入真实数据库、真实 worker 和实时事件流预留稳定接口
+当前主视图已经支持：
 
-当前阶段已经额外完成：
+- 创建人物并选择执行引擎
+- 按办公区扩容工位
+- 给角色派发任务
+- 推进任务状态
+- 发起和处理审批
+- 通过 SSE 自动刷新界面
 
-- Drizzle migration 已生成并成功执行
-- 本地 Docker Postgres 已完成 Virtual Office 初始 seed
-- `office` router 已切到“优先读真实数据库，异常时回退样例快照”
-- 首页已接入任务创建、任务状态推进、审批创建与审批处理
-- 前端已重构为单页面 office 主场景，并使用 `shadcn/ui`
-- 新增人物已接入 `createAgent`，会先落库，再在后台尝试拉起 Docker OpenClaw runner
-- 已接入 SSE 实时流，单页面可自动刷新 office 快照
-- 已支持人物 inspector 查看最近一次执行结果回放
+### 2.2 数据模型
 
-## 4. 本期范围
+已在 `src/server/db/schema.ts` 中落地：
 
-### 4.1 已纳入
+- `cola_agent`
+- `cola_zone_setting`
+- `cola_task`
+- `cola_device`
+- `cola_execution_session`
+- `cola_approval`
+- `cola_event`
 
-- 数据枚举与共享类型
-- Drizzle schema 扩展
-- Drizzle migration
-- 初始 seed 脚本
-- `office` tRPC router
-- 基于真实快照数据的单页面 office 首页
-- 实施计划文档
+这些表由以下 migration 支撑：
 
-### 4.2 未纳入
-
-- WebSocket 实时状态推送
-- 登录、权限和组织隔离
-- 更细粒度的审计与回放
-
-## 5. 已落地代码范围
-
-### 5.1 共享定义
-
-- `src/server/office/catalog.ts`
-- `src/server/office/types.ts`
-- `src/server/office/sample-data.ts`
-
-用途：
-
-- 统一 Agent、任务、设备、审批、事件等枚举与中文标签
-- 定义首页和 API 共用的 `OfficeSnapshot` 数据结构
-- 提供不依赖数据库的安全样例数据
-
-### 5.2 数据模型
-
-- `src/server/db/schema.ts`
 - `drizzle/0000_flawless_miracleman.sql`
+- `drizzle/0001_unusual_ben_urich.sql`
+- `drizzle/0002_bright_sif.sql`
+- `drizzle/0003_tidy_zone_settings.sql`
 
-已加入表设计：
+### 2.3 服务与接口
 
-- `agents`
-- `tasks`
-- `devices`
-- `executionSessions`
-- `approvals`
-- `events`
+当前 API 入口分为两层：
 
-这些表已经完成第一版 migration，并已写入初始 Virtual Office 数据。
+- tRPC：`src/server/api/routers/office.ts`、`src/server/api/routers/worker.ts`
+- REST 包装路由：`src/app/api/worker/*`、`src/app/api/office/stream/route.ts`
 
-### 5.3 API 层
+`office` 当前已提供：
 
-- `src/server/api/routers/office.ts`
-- `src/server/api/root.ts`
-- `src/server/api/routers/worker.ts`
+- `getSnapshot`
+- `getAgentById`
+- `getTaskById`
+- `getNativeDashboardUrl`
+- `createAgent`
+- `addWorkstation`
+- `createTask`
+- `updateTaskStatus`
+- `requestApproval`
+- `resolveApproval`
 
-当前提供：
+`worker` 当前已提供：
 
-- `office.getSnapshot`
-- `office.getAgentById`
-- `office.getTaskById`
-- `office.createTask`
-- `office.updateTaskStatus`
-- `office.requestApproval`
-- `office.resolveApproval`
-- `office.createAgent`
-- `worker.registerDockerRunner`
-- `worker.heartbeat`
-- `worker.pullNextTask`
-- `worker.reportSession`
+- `registerDockerRunner`
+- `heartbeat`
+- `pullNextTask`
+- `reportSession`
 
-设计原则：
+### 2.4 Docker 执行层
 
-- 先保证结构稳定
-- 优先使用真实数据库
-- 在本地未迁移或数据库异常时仍能回退样例快照
+当前仓库已经不是“只有 mock worker”的阶段，而是真实接入了两种 Docker runner：
 
-### 5.4 前端展示层
+- `openclaw`
+- `hermes-agent`
 
-- `src/app/page.tsx`
-- `src/app/layout.tsx`
-- `src/styles/globals.css`
-- `src/app/_components/office-shell.tsx`
+关键文件：
 
-当前首页已经从模板页替换为：
+- `src/server/office/provision-docker-runner.ts`
+- `scripts/openclaw-runner/bootstrap.mjs`
+- `scripts/hermes-runner/bootstrap.mjs`
+- `docker/openclaw-runner.compose.yml`
+- `docker/hermes-runner.compose.yml`
 
-- 顶部轻量控制条与状态指标
-- office 主场景
-- 人物选中高亮与 inspector
-- 新增人物 Dialog
-- 下发任务 Dialog
-- 移动端 Sheet 总控面板
-- SSE 实时状态刷新
-- 最近一次执行结果回放
+当前链路支持：
 
-其中单页面控制面已经支持：
+- 后台异步拉起容器
+- 设备注册与心跳
+- 任务轮询和自动认领
+- 执行会话状态回报
+- 最近一次执行结果在前端回放
 
-- 创建任务
-- 更新任务状态
-- 发起审批
-- 批准或驳回审批
-- 新增角色并异步 provision Docker OpenClaw runner
+## 3. 现阶段架构选择
 
-### 5.5 初始化与种子脚本
+### 3.1 为什么仍使用“快照 + SSE 刷新”
 
-- `scripts/seed-virtual-office.mjs`
-- `package.json` 中的 `db:seed:office`
-- `package.json` 中的 `db:setup:office`
+当前实现不是 WebSocket 推部分字段，而是：
 
-当前可直接使用：
+- 服务端生成完整 office 快照
+- `/api/office/stream` 推送版本变化
+- 客户端收到后失效并重拉 `office.getSnapshot`
 
-- 启动本地数据库容器
-- 执行 migration
-- 注入初始 Virtual Office 种子数据
+这套设计当前的优点是：
 
-## 6. 本期架构选择说明
+- 前后端数据模型一致，调试成本低
+- 不需要在多个页面维护复杂的增量合并逻辑
+- 对 MVP 来说已经足够实时
 
-## 6.1 为什么保留样例快照回退机制
+### 3.2 为什么保留数据库异常时的只读回退
 
-原因：
+当前系统在数据库不可用时不会直接让首页崩掉，而是返回只读空快照并明确写出原因。这样做是为了：
 
-- 本地开发环境不一定总是有数据库
-- 新环境初始化前仍需要可展示的安全默认态
-- 页面结构和 API 契约需要在异常情况下保持可用
+- 保持页面结构可用
+- 让前端和演示环境在数据库故障时仍能启动
+- 让 `restart.sh` 的自动修复和故障提示更清晰
 
-这意味着当前系统是“优先真实数据，异常时回退样例快照”，而不是完全依赖演示数据。
+### 3.3 为什么先支持两种 runner，而不是先做复杂编排
 
-## 6.2 为什么先建 schema 再建 worker
+当前仓库的重点不是多 Agent 自动拆解，而是先把“角色创建 -> runner 接入 -> 任务执行 -> 结果回传”的最小闭环跑通。这个顺序更合理，因为：
 
-如果没有统一的数据结构，后续接 Docker OpenClaw worker 会出现：
+- 执行层不稳定时，编排层无法验证真实价值
+- 任务和会话的状态机需要先被真实 runner 驱动一遍
+- 前端工作区和设备状态需要有真实数据才能收敛
 
-- 状态字段不统一
-- 任务和会话无法关联
-- 审计和事件回放无法落地
-- 前后端各自定义一套模型
+## 4. 已完成与未完成
 
-所以本期优先把数据库边界和 API 快照做对。
+### 4.1 已完成
 
-## 7. 下一阶段实施顺序
+- 角色、任务、设备、审批、事件、工位配置的数据模型
+- 单页办公室主视图与控制台视图
+- 任务与审批的最小写操作闭环
+- OpenClaw / Hermes Docker runner 接入
+- SSE 驱动的实时刷新
+- 原生工作区地址模板与内置工作区页面
 
-## Phase 1：任务与审批写入能力
+### 4.2 未完成
 
-状态：已完成第一版
+- 登录、权限、组织隔离
+- Worker 鉴权与签名校验
+- 多角色自动编排和 handoff 记录表
+- 独立对象存储和可检索执行产物索引
+- 更完整的人工接管、中断和重试控制
+- 自动化测试覆盖与 CI 护栏
 
-目标：
+## 5. 推荐的下一步顺序
 
-- 让系统从“只读看板”升级为“可操作控制面”
-
-任务：
-
-- 新增任务创建 mutation
-- 新增任务状态流转 mutation
-- 新增审批创建与批准 mutation
-- 记录操作审计日志
-
-完成标准：
-
-- 可以在系统里创建任务、推进任务、产生审批
-
-当前结果：
-
-- 首页指挥台已经具备最小写操作闭环
-- 写操作会同步落库并生成事件记录
-- 页面刷新后能看到真实数据库状态变化
-
-## Phase 2：设备接入
-
-状态：已完成最小骨架
+### Phase 1：Worker 安全与身份校验
 
 目标：
 
-- 让 Virtual Office 不只显示状态，而是具备真实执行能力
+- 让 `/api/worker/*` 不再完全匿名
 
-任务：
+建议内容：
 
-- 定义 Docker OpenClaw worker 协议
-- 建立设备注册和心跳机制
-- 建立执行会话创建与结束机制
-- 上传日志、截图和产物
+- 为 runner 注册和 heartbeat 增加签名或 token
+- 区分“人物创建出来的设备记录”和“真正合法的 runner”
+- 明确失败重试与吊销策略
 
-完成标准：
-
-- 至少 1 个真实 Docker OpenClaw runner 可以接入并执行一类任务
-
-当前结果：
-
-- 新增人物时请求会立即返回，后台继续 `docker pull` + `docker run` OpenClaw runner
-- 已提供 worker 注册、心跳和会话回报接口
-- 已提供任务拉取协议和容器内 bootstrap 脚本
-- 已支持挂载 `~/.codex/config.toml` 与 `~/.codex/auth.json` 的设计
-- 已本地验证“新增人物 -> runner 注册 -> 自动认领任务 -> 执行成功 -> 回报 session”闭环
-
-## Phase 3：实时化
-
-状态：已完成第一版
+### Phase 2：任务调度与状态机收敛
 
 目标：
 
-- 从静态刷新视图升级为实时办公室控制台
+- 让多个 runner 并发执行时状态更稳定
 
-任务：
+建议内容：
 
-- 建立 WebSocket 事件流
-- 推送角色状态、设备状态、审批状态和任务状态变化
-- 支持页面实时刷新和局部状态更新
+- 收敛任务领取规则
+- 明确设备繁忙、任务超时、失败重试的状态推进
+- 为 handoff 与 orchestration 预留独立实体
 
-完成标准：
-
-- 首页状态变化可以在不刷新的情况下实时反映
-
-当前结果：
-
-- 已提供 `/api/office/stream` SSE 接口
-- 前端单页通过 EventSource 自动失效并刷新 office 快照
-- 任务、审批、设备和执行结果更新会自动反映到页面
-
-## Phase 4：治理与接管
+### Phase 3：执行产物与回放增强
 
 目标：
 
-- 让高风险角色和设备执行真正可控
+- 让执行记录可追溯，而不是只依赖工作目录文件
 
-任务：
+建议内容：
 
-- 建立人工接管入口
-- 建立审批执行闭环
-- 建立会话审计和历史回放
-- 加入权限与角色隔离
+- 独立保存日志与结果产物
+- 在 session 里区分 stdout、stderr、artifact、summary
+- 提供按任务和按设备查询的历史回放
 
-完成标准：
+### Phase 4：人工接管与治理
 
-- 高风险任务可以被批准、驳回、接管和回放
+目标：
 
-## 8. 推荐优先级
+- 让高风险动作真正可控
 
-如果只做最短路径，我建议下一步按这个顺序继续：
+建议内容：
 
-1. 先做实时事件流
-2. 再补人工接管和治理闭环
-3. 然后做登录、权限和组织隔离
-4. 最后补任务结果回放和资产索引
+- 增加人工接管入口
+- 增加会话终止、重试、重新分派操作
+- 把审批和执行会话更紧密地串起来
 
-原因：
+## 6. 本地运行建议
 
-- 真实数据层已经具备最小闭环
-- 任务与审批已经可写
-- 现在已经具备最小执行闭环
-- 当前真正的缺口是“可实时”和“可治理”
+当前最稳定的一条本地路径是：
 
-## 9. 风险提示
+1. `cp .env.example .env`
+2. `npm install`
+3. `./start-database.sh`
+4. `npm run db:setup:office`
+5. `./restart.sh -f`
+6. 在首页创建一个 OpenClaw 或 Hermes 人物，并观察其 runner 状态
 
-- 如果过早接设备而不先收敛数据结构，后续重构成本会很高
-- 如果只做炫酷地图而没有任务写入与审批闭环，系统会停留在 demo 层
-- 如果高风险动作没有审计和人工接管，HR / 采购 / 发布等流程无法上线
+如果需要重建演示环境：
 
-## 10. 建议的下一个实际动作
-
-从工程推进角度，最合理的下一步是：
-
-- 给首页加上真实事件推送
-- 增加人工接管入口和执行会话控制
-- 增加任务执行结果的历史回放与产物索引
-
-完成这一步之后，Virtual Office 就会从“数据库驱动的空间化控制台”迈向“真实可执行的多 Agent 系统”。
+```bash
+./reset-database.sh --seed-office
+```

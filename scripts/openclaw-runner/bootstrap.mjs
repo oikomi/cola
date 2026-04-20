@@ -43,6 +43,13 @@ const logDir = process.env.OPENCLAW_LOG_DIR ?? "/workspace/.openclaw-runner";
 const sessionLogPath = path.join(logDir, "bootstrap.log");
 const generatedOpenClawConfigPath =
   process.env.OPENCLAW_GENERATED_CONFIG_PATH ?? "/tmp/openclaw.generated.json";
+const openClawStateDir =
+  process.env.OPENCLAW_STATE_DIR ?? path.join(homedir(), ".openclaw");
+const openClawMainAgentDir = path.join(openClawStateDir, "agents", "main", "agent");
+const openClawAuthProfilesPath = path.join(
+  openClawMainAgentDir,
+  "auth-profiles.json",
+);
 
 let deviceId = "";
 let sessionId = "";
@@ -130,8 +137,52 @@ function loadCodexModelConfig() {
     providerId,
     model,
     reasoningEffort,
+    apiKey,
     config: openClawConfig,
   };
+}
+
+async function ensureOpenClawAuthProfiles(modelConfig) {
+  await mkdir(openClawMainAgentDir, { recursive: true });
+
+  let authProfiles = {
+    version: 1,
+    profiles: {},
+  };
+
+  if (existsSync(openClawAuthProfilesPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(openClawAuthProfilesPath, "utf8"));
+      if (parsed && typeof parsed === "object") {
+        authProfiles = {
+          version:
+            typeof parsed.version === "number" && Number.isFinite(parsed.version)
+              ? parsed.version
+              : 1,
+          profiles:
+            parsed.profiles && typeof parsed.profiles === "object"
+              ? parsed.profiles
+              : {},
+        };
+      }
+    } catch {
+      authProfiles = {
+        version: 1,
+        profiles: {},
+      };
+    }
+  }
+
+  authProfiles.profiles[`${modelConfig.providerId}:default`] = {
+    type: "api_key",
+    provider: modelConfig.providerId,
+    key: modelConfig.apiKey,
+  };
+
+  await writeFile(
+    openClawAuthProfilesPath,
+    JSON.stringify(authProfiles, null, 2),
+  );
 }
 
 function sleep(ms) {
@@ -289,6 +340,7 @@ async function probeOpenClaw() {
   try {
     const modelConfig = loadCodexModelConfig();
     resolvedModelRef = `${modelConfig.providerId}/${modelConfig.model}`;
+    await ensureOpenClawAuthProfiles(modelConfig);
     await writeFile(
       generatedOpenClawConfigPath,
       JSON.stringify(modelConfig.config, null, 2),

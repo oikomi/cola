@@ -1,5 +1,11 @@
 # Virtual Office 多角色 Agent 系统技术架构
 
+## 0. 文档状态
+
+- 更新时间：2026-04-17
+- 文档类型：目标架构文档
+- 与当前仓库关系：本文描述目标形态，同时已经按当前实现补充了“已落地 vs. 规划中”的边界；当前仓库的实时层仍以 SSE 为主，编排层和治理层只完成了最小骨架
+
 ## 1. 文档目的
 
 本文件定义 Virtual Office 多角色 Agent 系统的技术实现方式，重点回答以下问题：
@@ -36,8 +42,8 @@
 
 ### 4.2 实时协同层
 
-- WebSocket 推送角色状态、任务状态、设备状态和事件
-- 将后端状态变化实时映射到前端空间界面
+- 当前实现：SSE 推送 office 版本变化，前端收到后重拉快照
+- 后续可演进为 WebSocket 或更细粒度的增量推送
 
 ### 4.3 应用服务层
 
@@ -63,9 +69,9 @@
 ### 4.6 数据与治理层
 
 - PostgreSQL
-- Redis / 队列
-- 对象存储
-- 日志与审计系统
+- 本地工作目录中的日志与执行产物
+- 审批、事件与执行会话构成的最小审计链路
+- Redis / 队列、对象存储和独立日志系统仍属于后续演进项
 
 ## 5. 推荐技术栈
 
@@ -74,8 +80,8 @@
 - 前端：Next.js App Router + React 19
 - 数据访问：tRPC + TanStack Query
 - 数据库：PostgreSQL + Drizzle ORM
-- 实时层：WebSocket
-- 任务队列：Redis + BullMQ 或自定义 Postgres queue
+- 实时层：当前使用 SSE；如果后续出现更高频的局部更新需求，再升级到 WebSocket
+- 任务队列：当前由 runner 主动轮询 `/api/worker/tasks/next`；后续可引入 Postgres queue 或 Redis/BullMQ
 - 地图渲染：Canvas / PixiJS
 - Worker：Node.js daemon
 - 自动化执行：Playwright + Shell + 受控本地脚本
@@ -179,10 +185,20 @@
 - `parent_task_id`
 - `input_payload`
 - `output_payload`
+- `summary`
 - `created_at`
 - `updated_at`
 
-## 8.3 task_handoffs
+## 8.3 zone_settings
+
+- `zone_id`
+- `workstation_capacity`
+- `created_at`
+- `updated_at`
+
+## 8.4 task_handoffs
+
+说明：这是目标模型，当前仓库尚未落地独立的 handoff 表。
 
 - `id`
 - `task_id`
@@ -191,7 +207,7 @@
 - `summary`
 - `created_at`
 
-## 8.4 devices
+## 8.5 devices
 
 - `id`
 - `name`
@@ -202,7 +218,7 @@
 - `last_heartbeat_at`
 - `metadata`
 
-## 8.5 execution_sessions
+## 8.6 execution_sessions
 
 - `id`
 - `task_id`
@@ -214,7 +230,7 @@
 - `log_path`
 - `artifact_path`
 
-## 8.6 approvals
+## 8.7 approvals
 
 - `id`
 - `task_id`
@@ -226,7 +242,7 @@
 - `created_at`
 - `resolved_at`
 
-## 8.7 events
+## 8.8 events
 
 - `id`
 - `event_type`
@@ -284,11 +300,10 @@
 ## 11.1 页面结构
 
 - `/`：虚拟办公室主视图
-- `/control-center`：指挥中心
-- `/tasks/[id]`：任务详情
-- `/agents/[id]`：角色详情
-- `/devices/[id]`：设备详情
-- `/approvals`：审批中心
+- `/control`：控制台视图
+- `/openclaw/[agentId]`：OpenClaw 角色工作区
+- `/hermes/[agentId]`：Hermes 角色工作区
+- 任务、设备、审批详情当前主要以内联面板和工作区视图承载，而不是单独详情页
 
 ## 11.2 UI 分层
 
@@ -304,9 +319,15 @@
 
 ## 12. 实时通信设计
 
-推荐单向事件推送为主，命令请求为辅。
+推荐单向事件推送为主，命令请求为辅。当前仓库已经落地的是 SSE 版本，事件内容很轻，只负责通知客户端重新拉快照。
 
-### WebSocket 推送事件示例
+### 当前 SSE 事件
+
+- `snapshot`
+- `heartbeat`
+- `error`
+
+### 后续可扩展的增量事件示例
 
 - `agent.status.changed`
 - `task.updated`
@@ -402,37 +423,37 @@
 - 历史回放视图
 - 按任务和设备的过滤查询
 
-## 18. 当前仓库的落地建议
+## 18. 当前仓库的落地情况
 
-基于当前仓库已有 Next.js、tRPC、React Query、Drizzle 的基础，MVP 可按以下顺序实现：
+基于当前仓库现状，以下几步已经基本完成：
 
 ### Step 1：数据模型
 
-- 新增 `agents`、`tasks`、`devices`、`execution_sessions`、`events` 表
-- 提供基础 seed 数据
+- 已落地 `agents`、`tasks`、`devices`、`execution_sessions`、`approvals`、`events`、`zone_settings`
+- 已提供 migration 与办公室 seed 数据
 
 ### Step 2：任务与角色 API
 
-- 创建任务
-- 查询角色列表
-- 查询任务列表
-- 更新任务状态
+- 已支持创建人物、扩容工位、创建任务、更新任务状态、发起审批、处理审批
+- 已提供 worker 注册、心跳、拉任务和 session 回报接口
 
 ### Step 3：虚拟办公室首页
 
-- 基于固定地图渲染角色
-- 接入实时状态数据
-- 点击角色显示侧边抽屉
+- `/` 已切到等距办公室主视图
+- `/control` 保留列表式控制台
+- 已通过 SSE 驱动实时刷新
+- 已支持角色工作区与最近一次执行结果回放
 
 ### Step 4：设备接入
 
-- 先用模拟 worker
-- 再接入真实 Docker OpenClaw Worker
+- 已接入真实 Docker OpenClaw runner
+- 已接入真实 Docker Hermes runner
+- 当前仍缺少 worker 鉴权与更复杂的调度治理
 
 ### Step 5：审批与接管
 
-- 加入审批表和审批 UI
-- 加入人工接管入口
+- 审批表和审批 UI 已落地
+- 人工接管入口仍是后续项
 
 ## 19. MVP 范围建议
 
