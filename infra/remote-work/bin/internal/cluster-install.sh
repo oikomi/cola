@@ -79,4 +79,7 @@ print_step "开始安装 Kubernetes 集群"
   run_kubeasz_ezctl setup "$CLUSTER_NAME" all
 )
 
+print_step "同步用户可读 kubeconfig"
+sync_user_kubeconfig
+
 echo "集群安装完成。下一步执行: ./bin/cluster.sh gpu enable"

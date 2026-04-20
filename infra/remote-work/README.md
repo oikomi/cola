@@ -170,6 +170,11 @@ cd infra/remote-work
 首轮安装只会纳入与当前部署机同架构的节点。
 按当前默认配置，从 `192.168.5.22` 这台 `amd64` 部署机执行时，会先拉起一个单节点控制面：`rw-node-022`。
 
+安装完成后，脚本会自动：
+
+- 同步一份用户可读的 kubeconfig 到 `~/.kube/<clusterName>.config`
+- 让 `/etc/kubeasz/clusters/<clusterName>/kubectl.kubeconfig` 对当前用户组可读
+
 ## 4. 启用 GPU 支持
 
 ```bash

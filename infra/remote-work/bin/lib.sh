@@ -218,6 +218,73 @@ cluster_kubeconfig_path() {
   printf '%s\n' "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/kubectl.kubeconfig"
 }
 
+invoking_user_name() {
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    printf '%s\n' "$SUDO_USER"
+    return 0
+  fi
+
+  id -un
+}
+
+invoking_user_group() {
+  local user_name
+  user_name="$(invoking_user_name)"
+  id -gn "$user_name"
+}
+
+invoking_user_home_dir() {
+  local user_name
+  user_name="$(invoking_user_name)"
+
+  python3 - "$user_name" <<'PY'
+import pwd
+import sys
+
+print(pwd.getpwnam(sys.argv[1]).pw_dir)
+PY
+}
+
+user_kubeconfig_path() {
+  local home_dir
+  home_dir="$(invoking_user_home_dir)"
+  printf '%s\n' "$home_dir/.kube/$(cluster_name).config"
+}
+
+sync_user_kubeconfig() {
+  local source_kubeconfig
+  local user_name
+  local group_name
+  local target_kubeconfig
+  local target_dir
+  local tmp_kubeconfig
+  local kubectl_bin
+
+  source_kubeconfig="$(cluster_kubeconfig_path)"
+  if ! sudo test -f "$source_kubeconfig"; then
+    echo "WARN: kubeconfig 尚未生成，跳过用户态 kubeconfig 同步。"
+    return 0
+  fi
+
+  user_name="$(invoking_user_name)"
+  group_name="$(invoking_user_group)"
+  target_kubeconfig="$(user_kubeconfig_path)"
+  target_dir="$(dirname "$target_kubeconfig")"
+  kubectl_bin="$(kubectl_bin_path)"
+  tmp_kubeconfig="$(mktemp)"
+
+  sudo env KUBECONFIG="$source_kubeconfig" "$kubectl_bin" config view --raw --flatten > "$tmp_kubeconfig"
+  sudo install -d -o "$user_name" -g "$group_name" -m 0700 "$target_dir"
+  sudo install -o "$user_name" -g "$group_name" -m 0600 "$tmp_kubeconfig" "$target_kubeconfig"
+  rm -f "$tmp_kubeconfig"
+
+  sudo chgrp "$group_name" "$source_kubeconfig"
+  sudo chmod 0640 "$source_kubeconfig"
+
+  echo "已同步用户 kubeconfig: $target_kubeconfig"
+  echo "已允许当前用户组读取: $source_kubeconfig"
+}
+
 kubectl_bin_path() {
   if sudo test -x "$KUBEASZ_BASE_DIR/bin/kubectl"; then
     printf '%s\n' "$KUBEASZ_BASE_DIR/bin/kubectl"
