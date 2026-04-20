@@ -7,6 +7,12 @@ export const trainingJobTypeValues = [
   "pretrain",
 ] as const;
 
+export const trainingK8sSupportedJobTypes = [
+  "sft",
+  "lora",
+  "pretrain",
+] as const;
+
 export const trainingJobStatusValues = [
   "draft",
   "running",

@@ -14,6 +14,8 @@ REPO_URL="https://kubernetes.github.io/dashboard/"
 SKIP_ADMIN_USER=0
 WAIT_TIMEOUT_SECONDS=300
 WAIT_INTERVAL_SECONDS=10
+AUTO_PREPULL_ON_IMAGE_PULL_FAILURE=1
+PREPULL_ATTEMPTED=0
 
 usage() {
   cat <<'EOF'
@@ -29,6 +31,7 @@ Options:
   --repo-url <url>          Helm repo URL, default https://kubernetes.github.io/dashboard/
   --wait-timeout <sec>      Wait timeout in seconds, default 300
   --skip-admin-user         Do not create the sample admin user
+  --no-auto-prepull         Do not auto-run 'dashboard prepull-images' on ImagePullBackOff
   -h, --help                Show help
 EOF
 }
@@ -57,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-admin-user)
       SKIP_ADMIN_USER=1
+      shift
+      ;;
+    --no-auto-prepull)
+      AUTO_PREPULL_ON_IMAGE_PULL_FAILURE=0
       shift
       ;;
     -h|--help)
@@ -98,6 +105,35 @@ print_dashboard_diagnostics() {
   fi
 }
 
+dashboard_pods_have_image_pull_errors() {
+  run_cluster_kubectl -n "$NAMESPACE" get pods -o json | \
+    node --input-type=module -e '
+      let source = "";
+      process.stdin.on("data", (chunk) => { source += chunk; });
+      process.stdin.on("end", () => {
+        const reasons = new Set(["ErrImagePull", "ImagePullBackOff"]);
+        const data = JSON.parse(source);
+        const hasError = (data.items ?? []).some((pod) => {
+          const statuses = [
+            ...(pod.status?.containerStatuses ?? []),
+            ...(pod.status?.initContainerStatuses ?? []),
+          ];
+          return statuses.some((status) =>
+            reasons.has(status?.state?.waiting?.reason ?? ""),
+          );
+        });
+        process.exit(hasError ? 0 : 1);
+      });
+    '
+}
+
+can_auto_prepull_images() {
+  command -v docker >/dev/null 2>&1 && \
+    command -v sshpass >/dev/null 2>&1 && \
+    command -v scp >/dev/null 2>&1 && \
+    command -v ssh >/dev/null 2>&1
+}
+
 wait_for_dashboard_ready() {
   local elapsed=0
   local all_ready=0
@@ -105,6 +141,20 @@ wait_for_dashboard_ready() {
   while (( elapsed < WAIT_TIMEOUT_SECONDS )); do
     echo "Waiting for dashboard readiness: ${elapsed}s/${WAIT_TIMEOUT_SECONDS}s"
     run_cluster_kubectl -n "$NAMESPACE" get pods -o wide || true
+
+    if [[ "$AUTO_PREPULL_ON_IMAGE_PULL_FAILURE" -eq 1 && "$PREPULL_ATTEMPTED" -eq 0 ]] && \
+      dashboard_pods_have_image_pull_errors; then
+      PREPULL_ATTEMPTED=1
+      if can_auto_prepull_images; then
+        print_step "检测到 Dashboard 镜像拉取失败，自动预拉镜像后重试"
+        "$ROOT_DIR/bin/cluster.sh" dashboard prepull-images
+        sleep "$WAIT_INTERVAL_SECONDS"
+        elapsed=$((elapsed + WAIT_INTERVAL_SECONDS))
+        continue
+      fi
+
+      echo "WARN: 检测到 Dashboard Pod 处于 ImagePullBackOff，但当前环境缺少 docker/sshpass/scp/ssh，无法自动预拉镜像。"
+    fi
 
     if run_cluster_kubectl -n "$NAMESPACE" get deployments -o json | \
       node --input-type=module -e '

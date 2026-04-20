@@ -2,12 +2,8 @@
 
 import {
   BrainCircuitIcon,
-  CpuIcon,
-  FolderGit2Icon,
-  GaugeIcon,
   PlayIcon,
   PlusIcon,
-  RefreshCwIcon,
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -116,32 +112,6 @@ function Field(props: {
   );
 }
 
-function MetricCard(props: {
-  label: string;
-  value: string;
-  description: string;
-  icon: ReactNode;
-}) {
-  return (
-    <article className="rounded-[26px] border border-[#d8e4ca] bg-white/88 p-5 shadow-[0_18px_60px_rgba(74,101,54,0.08)]">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] tracking-[0.24em] text-[#7b8d61] uppercase">
-            {props.label}
-          </p>
-          <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-[#1f2616]">
-            {props.value}
-          </p>
-        </div>
-        <div className="flex size-11 items-center justify-center rounded-[18px] bg-[#eef5e4] text-[#2d4620]">
-          {props.icon}
-        </div>
-      </div>
-      <p className="mt-4 text-sm leading-6 text-[#60704f]">{props.description}</p>
-    </article>
-  );
-}
-
 export function TrainingShell() {
   const utils = api.useUtils();
   const jobsQuery = api.training.listJobs.useQuery(undefined, {
@@ -197,12 +167,6 @@ export function TrainingShell() {
   });
 
   const jobs = jobsQuery.data ?? [];
-  const runningCount = jobs.filter((job) => job.status === "running").length;
-  const draftCount = jobs.filter((job) => job.status === "draft").length;
-  const failedCount = jobs.filter((job) => job.status === "failed").length;
-  const activeGpuCount = jobs
-    .filter((job) => job.status === "running")
-    .reduce((total, job) => total + job.gpuCount, 0);
   const parsedGpuCount = Number(draft.gpuCount);
   const canSubmit =
     draft.title.trim().length >= 3 &&
@@ -217,95 +181,6 @@ export function TrainingShell() {
     <div className="min-h-dvh bg-[radial-gradient(circle_at_top_left,rgba(183,216,148,0.24),transparent_24%),linear-gradient(180deg,#f6f8ef_0%,#eef3e6_46%,#e5ebdb_100%)] text-[#1f2616]">
       <div className="mx-auto max-w-[1520px] px-3 py-3 md:px-5 md:py-4">
         <ProductAreaHeader />
-
-        <section className="mt-6 overflow-hidden rounded-[34px] border border-[#dbe5cb] bg-[linear-gradient(135deg,#23301a_0%,#324426_54%,#4f6942_100%)] text-[#f4f8ee] shadow-[0_34px_120px_rgba(64,86,46,0.2)]">
-          <div className="grid gap-8 px-6 py-7 md:px-8 md:py-9 xl:grid-cols-[minmax(0,1.04fr)_360px]">
-            <div className="space-y-5">
-              <Badge className="border-0 bg-white/10 text-white hover:bg-white/10">
-                Training Platform
-              </Badge>
-              <div className="space-y-3">
-                <h1 className="max-w-4xl text-4xl font-semibold tracking-[-0.06em] md:text-5xl">
-                  训练任务现在就是一张清晰的列表，不再挂在 Office 卡片里。
-                </h1>
-                <p className="max-w-3xl text-base leading-8 text-white/74">
-                  当前页直接管理训练任务的创建、启动、停止和删除，先把调度入口拉平。
-                  后面再把真实的 queue、日志和 checkpoint 编排接进来。
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  size="lg"
-                  className="rounded-full bg-white px-5 text-[#23301a] hover:bg-[#f3f7ec]"
-                  onClick={() => setIsCreateOpen(true)}
-                >
-                  <PlusIcon data-icon="inline-start" />
-                  创建训练任务
-                </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="rounded-full border-white/20 bg-white/8 px-5 text-white hover:bg-white/12"
-                  onClick={() => void jobsQuery.refetch()}
-                >
-                  <RefreshCwIcon
-                    data-icon="inline-start"
-                    className={jobsQuery.isFetching ? "animate-spin" : undefined}
-                  />
-                  刷新列表
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 self-stretch sm:grid-cols-2 xl:grid-cols-1">
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
-                <p className="text-[11px] tracking-[0.28em] text-white/48 uppercase">
-                  当前运行
-                </p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">
-                  {runningCount}
-                </p>
-                <p className="mt-2 text-sm text-white/62">正在占用 GPU 的训练任务</p>
-              </div>
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
-                <p className="text-[11px] tracking-[0.28em] text-white/48 uppercase">
-                  GPU 占用
-                </p>
-                <p className="mt-3 text-3xl font-semibold tracking-[-0.05em] text-white">
-                  {activeGpuCount}
-                </p>
-                <p className="mt-2 text-sm text-white/62">按运行中任务累计</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="任务总数"
-            value={String(jobs.length)}
-            description="所有训练任务都会集中在这一张列表里。"
-            icon={<BrainCircuitIcon className="size-5" />}
-          />
-          <MetricCard
-            label="运行中"
-            value={String(runningCount)}
-            description="启动后会直接切到运行中，方便先把操作面跑通。"
-            icon={<GaugeIcon className="size-5" />}
-          />
-          <MetricCard
-            label="草稿"
-            value={String(draftCount)}
-            description="还没启动的配置会保留在草稿状态。"
-            icon={<FolderGit2Icon className="size-5" />}
-          />
-          <MetricCard
-            label="失败"
-            value={String(failedCount)}
-            description="失败任务可以后续继续扩展成重试和日志排查入口。"
-            icon={<CpuIcon className="size-5" />}
-          />
-        </section>
 
         <section className="mt-6 rounded-[32px] border border-[#d8e4ca] bg-white/88 shadow-[0_24px_90px_rgba(74,101,54,0.12)]">
           <div className="flex flex-col gap-4 border-b border-[#e2ebd6] px-5 py-5 md:flex-row md:items-center md:justify-between md:px-6">

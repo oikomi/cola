@@ -13,6 +13,11 @@ import {
   trainingJobTypeLabels,
   trainingJobTypeValues,
 } from "@/server/training/catalog";
+import {
+  stopTrainingJobRun,
+  submitTrainingJob,
+  syncTrainingJobs,
+} from "@/server/training/service";
 
 const createTrainingJobInput = z.object({
   title: z.string().trim().min(3).max(160),
@@ -30,10 +35,12 @@ const trainingJobActionInput = z.object({
 
 export const trainingRouter = createTRPCRouter({
   listJobs: publicProcedure.query(async ({ ctx }) => {
-    return ctx.db
+    const jobs = await ctx.db
       .select()
       .from(trainingJobs)
       .orderBy(desc(trainingJobs.createdAt));
+
+    return syncTrainingJobs(jobs);
   }),
 
   createJob: publicProcedure
@@ -86,59 +93,89 @@ export const trainingRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
 
-      return ctx.db.transaction(async (tx) => {
-        const [job] = await tx
-          .select()
-          .from(trainingJobs)
-          .where(eq(trainingJobs.id, input.jobId))
-          .limit(1);
+      const [job] = await ctx.db
+        .select()
+        .from(trainingJobs)
+        .where(eq(trainingJobs.id, input.jobId))
+        .limit(1);
 
-        if (!job) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "未找到训练任务。",
-          });
-        }
-
-        if (job.status === "running") {
-          return {
-            jobId: job.id,
-            message: "训练任务已经在运行中。",
-          };
-        }
-
-        if (job.status === "completed") {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "已完成的训练任务不能直接再次启动。",
-          });
-        }
-
-        await tx
-          .update(trainingJobs)
-          .set({
-            status: "running",
-            startedAt: now,
-            finishedAt: null,
-            updatedAt: now,
-          })
-          .where(eq(trainingJobs.id, job.id));
-
-        await tx.insert(events).values({
-          eventType: "training.job.started",
-          entityType: "training_job",
-          entityId: job.id,
-          severity: "info",
-          title: `训练任务已启动：${job.title}`,
-          description: `${trainingJobStatusLabels.running} · ${job.gpuCount} GPU`,
-          occurredAt: now,
+      if (!job) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "未找到训练任务。",
         });
+      }
 
+      if (job.status === "running") {
         return {
           jobId: job.id,
-          message: "训练任务已启动。",
+          message: "训练任务已经在运行中。",
         };
-      });
+      }
+
+      if (job.status === "completed") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "已完成的训练任务不能直接再次启动。",
+        });
+      }
+
+      let runtime;
+      try {
+        runtime = await submitTrainingJob(job);
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error
+              ? error.message
+              : "训练任务提交到 Kubernetes 失败。",
+        });
+      }
+
+      try {
+        return await ctx.db.transaction(async (tx) => {
+          await tx
+            .update(trainingJobs)
+            .set({
+              status: "running",
+              startedAt: now,
+              finishedAt: null,
+              runtimeNamespace: runtime.namespace,
+              runtimeJobName: runtime.jobName,
+              runtimeImage: runtime.image,
+              artifactPath: runtime.artifactPath,
+              lastError: null,
+              updatedAt: now,
+            })
+            .where(eq(trainingJobs.id, job.id));
+
+          await tx.insert(events).values({
+            eventType: "training.job.started",
+            entityType: "training_job",
+            entityId: job.id,
+            severity: "info",
+            title: `训练任务已启动：${job.title}`,
+            description: `${trainingJobStatusLabels.running} · ${job.gpuCount} GPU · ${runtime.jobName}`,
+            occurredAt: now,
+          });
+
+          return {
+            jobId: job.id,
+            message: `训练任务已提交到 Kubernetes：${runtime.namespace}/${runtime.jobName}`,
+          };
+        });
+      } catch (error) {
+        await stopTrainingJobRun({
+          ...job,
+          runtimeNamespace: runtime.namespace,
+          runtimeJobName: runtime.jobName,
+          runtimeImage: runtime.image,
+          artifactPath: runtime.artifactPath,
+          lastError: null,
+        });
+        throw error;
+      }
     }),
 
   stopJob: publicProcedure
@@ -146,27 +183,39 @@ export const trainingRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
 
+      const [job] = await ctx.db
+        .select()
+        .from(trainingJobs)
+        .where(eq(trainingJobs.id, input.jobId))
+        .limit(1);
+
+      if (!job) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "未找到训练任务。",
+        });
+      }
+
+      if (job.status !== "running") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "只有运行中的训练任务才能停止。",
+        });
+      }
+
+      try {
+        await stopTrainingJobRun(job);
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error
+              ? error.message
+              : "停止 Kubernetes 训练任务失败。",
+        });
+      }
+
       return ctx.db.transaction(async (tx) => {
-        const [job] = await tx
-          .select()
-          .from(trainingJobs)
-          .where(eq(trainingJobs.id, input.jobId))
-          .limit(1);
-
-        if (!job) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "未找到训练任务。",
-          });
-        }
-
-        if (job.status !== "running") {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "只有运行中的训练任务才能停止。",
-          });
-        }
-
         await tx
           .update(trainingJobs)
           .set({
@@ -182,7 +231,9 @@ export const trainingRouter = createTRPCRouter({
           entityId: job.id,
           severity: "warning",
           title: `训练任务已停止：${job.title}`,
-          description: "任务已从运行状态切回停止状态。",
+          description: job.runtimeJobName
+            ? `已删除 Kubernetes Job：${job.runtimeNamespace ?? "default"}/${job.runtimeJobName}`
+            : "任务已从运行状态切回停止状态。",
           occurredAt: now,
         });
 

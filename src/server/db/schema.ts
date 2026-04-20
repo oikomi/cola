@@ -1,6 +1,9 @@
 import { index, pgEnum, pgTableCreator } from "drizzle-orm/pg-core";
 
 import {
+  inferenceDeploymentStatusValues,
+} from "@/server/deployments/catalog";
+import {
   agentRoleValues,
   agentStatusValues,
   approvalStatusValues,
@@ -42,6 +45,10 @@ export const trainingJobTypeEnum = pgEnum(
 export const trainingJobStatusEnum = pgEnum(
   "cola_training_job_status",
   trainingJobStatusValues,
+);
+export const inferenceDeploymentStatusEnum = pgEnum(
+  "cola_inference_deployment_status",
+  inferenceDeploymentStatusValues,
 );
 export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
 export const deviceStatusEnum = pgEnum("cola_device_status", deviceStatusValues);
@@ -141,6 +148,11 @@ export const trainingJobs = createTable(
     datasetName: d.varchar({ length: 120 }).notNull(),
     objective: d.text().notNull(),
     gpuCount: d.integer().notNull().default(1),
+    runtimeNamespace: d.varchar({ length: 120 }),
+    runtimeJobName: d.varchar({ length: 120 }),
+    runtimeImage: d.varchar({ length: 255 }),
+    artifactPath: d.text(),
+    lastError: d.text(),
     startedAt: d.timestamp({ withTimezone: true }),
     finishedAt: d.timestamp({ withTimezone: true }),
     createdAt: d
@@ -153,6 +165,32 @@ export const trainingJobs = createTable(
     index("training_job_status_idx").on(t.status),
     index("training_job_priority_idx").on(t.priority),
     index("training_job_created_idx").on(t.createdAt),
+  ],
+);
+
+export const inferenceDeployments = createTable(
+  "inference_deployment",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    name: d.varchar({ length: 120 }).notNull(),
+    status: inferenceDeploymentStatusEnum().notNull().default("draft"),
+    modelName: d.varchar({ length: 160 }).notNull(),
+    imageTag: d.varchar({ length: 160 }).notNull(),
+    endpoint: d.varchar({ length: 255 }).notNull(),
+    objective: d.text().notNull(),
+    gpuCount: d.integer().notNull().default(1),
+    replicaCount: d.integer().notNull().default(1),
+    startedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("inference_deployment_status_idx").on(t.status),
+    index("inference_deployment_name_idx").on(t.name),
+    index("inference_deployment_created_idx").on(t.createdAt),
   ],
 );
 
