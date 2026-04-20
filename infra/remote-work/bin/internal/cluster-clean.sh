@@ -102,7 +102,7 @@ sudo rm -rf "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"
 
 if [[ "$PURGE_LOCAL_CACHE" -eq 1 ]]; then
   print_step "清理 infra/remote-work/runtime"
-  rm -rf "$RUNTIME_DIR"
+  sudo rm -rf "$RUNTIME_DIR"
 fi
 
 echo "remote-work 清理完成。"
