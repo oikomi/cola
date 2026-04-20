@@ -123,6 +123,30 @@ else
 fi
 
 nvidia-ctk runtime configure --runtime=containerd
+python3 - <<'PY'
+from pathlib import Path
+
+config = Path("/etc/containerd/config.toml")
+if not config.exists():
+    raise SystemExit(0)
+
+text = config.read_text()
+target = 'imports = ["/etc/containerd/conf.d/*.toml"]'
+
+if target in text:
+    raise SystemExit(0)
+
+lines = text.splitlines()
+for index, line in enumerate(lines):
+    if line.startswith("imports ="):
+        lines[index] = target
+        break
+else:
+    insert_at = 1 if lines and lines[0].startswith("version =") else 0
+    lines.insert(insert_at, target)
+
+config.write_text("\n".join(lines) + "\n")
+PY
 systemctl restart containerd
 '
 done

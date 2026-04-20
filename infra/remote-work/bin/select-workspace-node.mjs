@@ -91,6 +91,7 @@ function allocatableGpuCount(nodeLive) {
 }
 
 let candidates = configuredNodes.filter((node) => node.roles.includes("worker"));
+let requestedNodeName = null;
 
 if (args["requested-node"]) {
   candidates = candidates.filter(
@@ -100,6 +101,7 @@ if (args["requested-node"]) {
   if (candidates.length === 0) {
     throw new Error(`指定节点不存在或未配置为 worker: ${args["requested-node"]}`);
   }
+  requestedNodeName = candidates[0].name;
 }
 
 candidates = candidates
@@ -128,6 +130,14 @@ if (labeledCandidates.length > 0) {
 }
 
 if (candidates.length === 0) {
+  if (requestGpu > 0 && requestedNodeName) {
+    const requestedLive = liveNodeMap.get(requestedNodeName);
+    const allocatable = allocatableGpuCount(requestedLive);
+    const ready = requestedLive ? isReady(requestedLive) : false;
+    throw new Error(
+      `显式指定节点 ${requestedNodeName} 当前不满足 GPU 工作区调度条件：Ready=${ready}，allocatable nvidia.com/gpu=${allocatable}，请求值=${requestGpu}。请先确认 nvidia-device-plugin 已就绪且该节点已向 Kubernetes 上报 GPU 资源。`,
+    );
+  }
   throw new Error(
     requestGpu > 0
       ? "没有找到 Ready 且 allocatable GPU 足够的候选节点。"
