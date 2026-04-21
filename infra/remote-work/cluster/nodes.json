@@ -10,12 +10,13 @@
   },
 
   {
-    "name": "4090",
-    "ip": "192.168.5.232",
-    "sshUser": "dell",
-    "sshPassword": "123456",
+    "name": "178",
+    "ip": "192.168.5.178",
+    "sshUser": "nvidia",
+    "sshPassword": "nvidia",
     "sshPort": 22,
     "roles": ["worker", "gpu"],
     "arch": "amd64"
   }
+
 ]

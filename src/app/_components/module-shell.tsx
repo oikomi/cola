@@ -28,6 +28,7 @@ export function ModuleHero({
   actions,
   children,
   size = "default",
+  surfaceHeader,
 }: {
   eyebrow: string;
   title: string;
@@ -37,47 +38,61 @@ export function ModuleHero({
   actions?: ReactNode;
   children?: ReactNode;
   size?: "default" | "compact";
+  surfaceHeader?: ReactNode;
 }) {
   if (size === "compact") {
     return (
-      <>
-        <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] px-6 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.045)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_18%,rgba(96,165,250,0.12),transparent_24%),radial-gradient(circle_at_92%_0%,rgba(14,165,233,0.08),transparent_22%)]" />
+      <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] px-6 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.045)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_18%,rgba(96,165,250,0.12),transparent_24%),radial-gradient(circle_at_92%_0%,rgba(14,165,233,0.08),transparent_22%)]" />
 
-          <div className="relative flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-4">
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
-                  <Icon className="size-4" />
-                </div>
+        {surfaceHeader ? (
+          <div className="relative border-b border-slate-200/80 pb-5">
+            {surfaceHeader}
+          </div>
+        ) : null}
 
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="border border-slate-200/90 bg-white/86 text-slate-700">
-                      {eyebrow}
-                    </Badge>
-                    {badges}
-                  </div>
-                  <h1 className="mt-2 truncate text-[1.5rem] leading-none font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.7rem]">
-                    {title}
-                  </h1>
-                  <p className="mt-2 max-w-[44rem] text-sm leading-6 text-slate-600">
-                    {description}
-                  </p>
+        <div
+          className={cn(
+            "relative flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-4",
+            surfaceHeader ? "pt-5" : "",
+          )}
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                <Icon className="size-4" />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border border-slate-200/90 bg-white/86 text-slate-700">
+                    {eyebrow}
+                  </Badge>
+                  {badges}
                 </div>
+                <h1 className="mt-2 truncate text-[1.5rem] leading-none font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.7rem]">
+                  {title}
+                </h1>
+                <p className="mt-2 max-w-[44rem] text-sm leading-6 text-slate-600">
+                  {description}
+                </p>
               </div>
             </div>
-
-            {actions ? (
-              <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:px-4 [&_[data-slot=button]]:text-[13px]">
-                {actions}
-              </div>
-            ) : null}
           </div>
-        </section>
 
-        {children ? <div className="mt-3">{children}</div> : null}
-      </>
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:px-4 [&_[data-slot=button]]:text-[13px]">
+              {actions}
+            </div>
+          ) : null}
+        </div>
+
+        {children ? (
+          <div className="relative mt-5 border-t border-slate-200/80 pt-5">
+            {children}
+          </div>
+        ) : null}
+      </section>
     );
   }
 

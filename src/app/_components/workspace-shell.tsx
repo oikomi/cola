@@ -274,14 +274,13 @@ export function WorkspaceShell() {
 
   return (
     <ModulePageShell>
-      <ProductAreaHeader />
-
       <ModuleHero
         size="compact"
         eyebrow="Remote Desktop"
         title="远程桌面"
         description="统一管理远程工作区、节点分配、访问入口和启动状态。"
         icon={MonitorSmartphoneIcon}
+        surfaceHeader={<ProductAreaHeader embedded />}
         badges={
           <>
             <Badge

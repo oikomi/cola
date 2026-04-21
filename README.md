@@ -95,6 +95,12 @@ NEXT_PUBLIC_OPENCLAW_NATIVE_URL="https://openclaw.example.com/"
 NEXT_PUBLIC_HERMES_NATIVE_URL="https://hermes.example.com/"
 ```
 
+如果训练模块也希望跳到单独部署的 Unsloth 原生页面，可以额外配置：
+
+```env
+NEXT_PUBLIC_UNSLOTH_STUDIO_URL="https://unsloth.example.com/"
+```
+
 OpenClaw 在没有域名、只做内网临时调试时，还可以显式开启：
 
 ```env
@@ -122,3 +128,4 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - [AI-Native 公司环境路线图](./docs/ai-native-roadmap.md)
 - [AI-Native 公司环境指标体系](./docs/ai-native-metrics.md)
 - [AI-Native 公司环境工作流模板](./docs/ai-native-workflow-templates.md)
+- [训练平台 Unsloth on Kubernetes 说明](./docs/training-unsloth-k8s.md)

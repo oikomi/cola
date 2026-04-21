@@ -270,14 +270,13 @@ export function DeploymentsShell() {
 
   return (
     <ModulePageShell>
-      <ProductAreaHeader />
-
       <ModuleHero
         eyebrow="Kubernetes Inference"
         title="推理部署平台"
         description="统一管理 vLLM、llama.cpp 和 SGLang 部署，集中查看资源规格、入口地址和服务状态。"
         icon={BrainCircuitIcon}
         size="compact"
+        surfaceHeader={<ProductAreaHeader embedded />}
         badges={
           <>
             <Badge
