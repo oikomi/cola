@@ -275,6 +275,7 @@ run_kubeasz_ezctl() {
   local ezctl_path
   ensure_ansible_available
   patch_kubeasz_compatibility
+  patch_kubeasz_mixed_arch_image_sources
   ezctl_path="$(kubeasz_ezctl_path)" || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
   sudo env PATH="$(ansible_env_path)" "$ezctl_path" "$@"
 }
@@ -306,6 +307,124 @@ updated = updated.replace(
 
 if updated != text:
     task_file.write_text(updated)
+PY
+}
+
+patch_kubeasz_mixed_arch_image_sources() {
+  cluster_has_mixed_arch_nodes_configured || return 0
+
+  sudo python3 - "$(cluster_kubeasz_config_path)" "$(sandbox_image)" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+cluster_config = Path(sys.argv[1])
+sandbox_image = sys.argv[2]
+
+replacements = {
+    "/etc/kubeasz/roles/calico/templates/calico-v3.24.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/cni:{{ calico_ver }}": "docker.io/calico/cni:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/node:{{ calico_ver }}": "docker.io/calico/node:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/kube-controllers:{{ calico_ver }}": "docker.io/calico/kube-controllers:{{ calico_ver }}",
+    },
+    "/etc/kubeasz/roles/calico/templates/calico-v3.26.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/cni:{{ calico_ver }}": "docker.io/calico/cni:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/node:{{ calico_ver }}": "docker.io/calico/node:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/kube-controllers:{{ calico_ver }}": "docker.io/calico/kube-controllers:{{ calico_ver }}",
+    },
+    "/etc/kubeasz/roles/calico/templates/calico-v3.28.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/cni:{{ calico_ver }}": "docker.io/calico/cni:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/node:{{ calico_ver }}": "docker.io/calico/node:{{ calico_ver }}",
+        "easzlab.io.local:5000/easzlab/kube-controllers:{{ calico_ver }}": "docker.io/calico/kube-controllers:{{ calico_ver }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/dns/coredns.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/coredns:{{ corednsVer }}": "registry.k8s.io/coredns/coredns:{{ corednsVer if corednsVer.startswith('v') else 'v' ~ corednsVer }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/dns/nodelocaldns-iptables.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:{{ dnsNodeCacheVer }}": "registry.k8s.io/dns/k8s-dns-node-cache:{{ dnsNodeCacheVer }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/dns/nodelocaldns-ipvs.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:{{ dnsNodeCacheVer }}": "registry.k8s.io/dns/k8s-dns-node-cache:{{ dnsNodeCacheVer }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/metrics-server/components.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/metrics-server:{{ metricsVer }}": "registry.k8s.io/metrics-server/metrics-server:{{ metricsVer }}",
+    },
+    "/etc/kubeasz/roles/cilium/templates/values.yaml.j2": {
+        'repository: "easzlab.io.local:5000/cilium/cilium"': 'repository: "quay.io/cilium/cilium"',
+        'repository: "easzlab.io.local:5000/cilium/hubble-relay"': 'repository: "quay.io/cilium/hubble-relay"',
+        'repository: "easzlab.io.local:5000/cilium/hubble-ui-backend"': 'repository: "quay.io/cilium/hubble-ui-backend"',
+        'repository: "easzlab.io.local:5000/cilium/hubble-ui"': 'repository: "quay.io/cilium/hubble-ui"',
+        'repository: "easzlab.io.local:5000/cilium/operator"': 'repository: "quay.io/cilium/operator"',
+    },
+    "/etc/kubeasz/roles/kube-router/templates/kuberouter.yaml.j2": {
+        "easzlab.io.local:5000/cloudnativelabs/kube-router:{{ kube_router_ver }}": "docker.io/cloudnativelabs/kube-router:{{ kube_router_ver }}",
+    },
+    "/etc/kubeasz/roles/flannel/templates/kube-flannel.yaml.j2": {
+        "easzlab.io.local:5000/flannel/flannel:{{ flannel_ver }}": "docker.io/flannel/flannel:{{ flannel_ver }}",
+        "easzlab.io.local:5000/flannel/flannel-cni-plugin:v1.7.1-flannel1": "docker.io/flannel/flannel-cni-plugin:v1.7.1-flannel1",
+    },
+    "/etc/kubeasz/roles/kube-ovn/templates/coredns.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/coredns:{{ corednsVer }}": "registry.k8s.io/coredns/coredns:{{ corednsVer if corednsVer.startswith('v') else 'v' ~ corednsVer }}",
+    },
+    "/etc/kubeasz/roles/kube-ovn/templates/nodelocaldns-iptables.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:{{ dnsNodeCacheVer }}": "registry.k8s.io/dns/k8s-dns-node-cache:{{ dnsNodeCacheVer }}",
+    },
+    "/etc/kubeasz/roles/kube-ovn/templates/nodelocaldns-ipvs.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:{{ dnsNodeCacheVer }}": "registry.k8s.io/dns/k8s-dns-node-cache:{{ dnsNodeCacheVer }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/dashboard/dashboard-values.yaml.j2": {
+        "repository: easzlab.io.local:5000/kubernetesui/dashboard-auth": "repository: docker.io/kubernetesui/dashboard-auth",
+        "repository: easzlab.io.local:5000/kubernetesui/dashboard-api": "repository: docker.io/kubernetesui/dashboard-api",
+        "repository: easzlab.io.local:5000/kubernetesui/dashboard-web": "repository: docker.io/kubernetesui/dashboard-web",
+        "repository: easzlab.io.local:5000/kubernetesui/dashboard-metrics-scraper": "repository: docker.io/kubernetesui/dashboard-metrics-scraper",
+        "repository: easzlab.io.local:5000/kubernetesui/kong": "repository: docker.io/library/kong",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/minio/operator-values.yaml.j2": {
+        "repository: easzlab.io.local:5000/minio/operator": "repository: quay.io/minio/operator",
+        "repository: easzlab.io.local:5000/minio/operator-sidecar": "repository: quay.io/minio/operator-sidecar",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/minio/tenant-values.yaml.j2": {
+        "repository: easzlab.io.local:5000/minio/minio": "repository: quay.io/minio/minio",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/openebs/values.yaml.j2": {
+        'imageRegistry: "easzlab.io.local:5000"': 'imageRegistry: "docker.io"',
+        "registry: easzlab.io.local:5000/": "registry: docker.io/",
+        "registry: easzlab.io.local:5000": "registry: docker.io",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/kubeapps/values.yaml.j2": {
+        'imageRegistry: "easzlab.io.local:5000"': 'imageRegistry: "docker.io"',
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/local-storage/local-path-storage.yaml.j2": {
+        "easzlab.io.local:5000/rancher/local-path-provisioner:{{ local_path_provisioner_ver }}": "docker.io/rancher/local-path-provisioner:{{ local_path_provisioner_ver }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/nfs-provisioner/nfs-provisioner.yaml.j2": {
+        "easzlab.io.local:5000/easzlab/nfs-subdir-external-provisioner:{{ nfs_provisioner_ver }}": "registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:{{ nfs_provisioner_ver }}",
+    },
+    "/etc/kubeasz/roles/cluster-addon/templates/ingress-nginx/values.yaml.j2": {
+        "registry: easzlab.io.local:5000": "registry: registry.k8s.io",
+        "image: easzlab/ingress-nginx-controller": "image: ingress-nginx/controller",
+        "image: easzlab/kube-webhook-certgen": "image: ingress-nginx/kube-webhook-certgen",
+    },
+}
+
+for file_name, file_replacements in replacements.items():
+    path = Path(file_name)
+    if not path.exists():
+        continue
+
+    text = path.read_text()
+    updated = text
+    for old, new in file_replacements.items():
+        updated = updated.replace(old, new)
+
+    if updated != text:
+        path.write_text(updated)
+
+if cluster_config.exists():
+    text = cluster_config.read_text()
+    updated = re.sub(r'^SANDBOX_IMAGE:.*$', f'SANDBOX_IMAGE: "{sandbox_image}"', text, flags=re.MULTILINE)
+    if updated != text:
+        cluster_config.write_text(updated)
 PY
 }
 
