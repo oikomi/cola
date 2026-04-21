@@ -1,0 +1,66 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="900" fill="#07111E"/>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <g opacity="0.5">
+    <path d="M0 154H1600" stroke="url(#lineH)" stroke-width="1"/>
+    <path d="M0 344H1600" stroke="url(#lineH)" stroke-width="1"/>
+    <path d="M0 536H1600" stroke="url(#lineH)" stroke-width="1"/>
+    <path d="M0 726H1600" stroke="url(#lineH)" stroke-width="1"/>
+    <path d="M220 0V900" stroke="url(#lineV)" stroke-width="1"/>
+    <path d="M540 0V900" stroke="url(#lineV)" stroke-width="1"/>
+    <path d="M860 0V900" stroke="url(#lineV)" stroke-width="1"/>
+    <path d="M1180 0V900" stroke="url(#lineV)" stroke-width="1"/>
+    <path d="M1500 0V900" stroke="url(#lineV)" stroke-width="1"/>
+  </g>
+  <circle cx="1332" cy="192" r="276" fill="url(#glowA)" opacity="0.72"/>
+  <circle cx="320" cy="728" r="312" fill="url(#glowB)" opacity="0.82"/>
+  <circle cx="828" cy="478" r="404" fill="url(#glowC)" opacity="0.62"/>
+  <path d="M0 704C272 602 430 560 654 560C934 560 1110 636 1600 822V900H0V704Z" fill="url(#surface)"/>
+  <g opacity="0.9">
+    <rect x="96" y="96" width="280" height="112" rx="24" fill="url(#card)" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <text x="128" y="142" fill="#E6EEF8" font-family="Noto Sans, sans-serif" font-size="28" font-weight="700">Remote Workspace</text>
+    <text x="128" y="178" fill="#A8BDD4" font-family="Noto Sans, sans-serif" font-size="17">Focused GPU sessions for Cola operators</text>
+  </g>
+  <g opacity="0.64">
+    <path d="M1112 110L1328 328" stroke="#A5F3FC" stroke-width="2"/>
+    <path d="M1206 84L1422 302" stroke="#7DD3FC" stroke-width="2"/>
+    <path d="M1050 168L1266 386" stroke="#67E8F9" stroke-width="2"/>
+  </g>
+  <defs>
+    <linearGradient id="bg" x1="84" y1="34" x2="1480" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#081423"/>
+      <stop offset="0.48" stop-color="#0A1C31"/>
+      <stop offset="1" stop-color="#102D4B"/>
+    </linearGradient>
+    <linearGradient id="lineH" x1="0" y1="0" x2="1600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DD3FC" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#7DD3FC" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#7DD3FC" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lineV" x1="0" y1="0" x2="0" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C084FC" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#C084FC" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#C084FC" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1332 192) rotate(90) scale(276)">
+      <stop stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#1D4ED8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(320 728) rotate(90) scale(312)">
+      <stop stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#0EA5E9" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowC" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(828 478) rotate(90) scale(404)">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="surface" x1="800" y1="560" x2="800" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A1A2B" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#06111D" stop-opacity="0.82"/>
+    </linearGradient>
+    <linearGradient id="card" x1="96" y1="96" x2="376" y2="208" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F1E33" stop-opacity="0.94"/>
+      <stop offset="1" stop-color="#0E223A" stop-opacity="0.72"/>
+    </linearGradient>
+  </defs>
+</svg>

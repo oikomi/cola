@@ -359,7 +359,7 @@ function buildLoginUrl(params: {
 }) {
   const quality = process.env.REMOTE_WORKSPACE_NOVNC_QUALITY ?? "9";
   const compression = process.env.REMOTE_WORKSPACE_NOVNC_COMPRESSION ?? "0";
-  const query = `vnc.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
+  const query = `vnc_lite.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
 
   const host = params.ingress?.spec?.rules?.[0]?.host;
   if (host) {
@@ -520,6 +520,10 @@ function buildWorkspaceDeployment(input: {
                 {
                   name: "RESOLUTION",
                   value: input.resolution,
+                },
+                {
+                  name: "WORKSPACE_NAME",
+                  value: input.name,
                 },
                 { name: "NOVNC_PORT", value: "6080" },
                 { name: "VNC_PORT", value: "5901" },

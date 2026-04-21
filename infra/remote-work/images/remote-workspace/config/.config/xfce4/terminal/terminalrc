@@ -1,0 +1,18 @@
+[Configuration]
+BackgroundDarkness=0.900000
+BackgroundMode=TERMINAL_BACKGROUND_TRANSPARENT
+ColorBackground=#07141f
+ColorCursor=#f8fafc
+ColorForeground=#f8fafc
+ColorPalette=#0f172a;#f87171;#4ade80;#facc15;#60a5fa;#a78bfa;#22d3ee;#e2e8f0;#334155;#fca5a5;#86efac;#fde68a;#93c5fd;#c4b5fd;#67e8f9;#f8fafc
+ColorSelection=#1d4ed8
+ColorSelectionUseDefault=FALSE
+FontName=JetBrains Mono 11
+MiscAlwaysShowTabs=FALSE
+MiscBell=FALSE
+MiscConfirmClose=FALSE
+MiscDefaultGeometry=124x34
+MiscMenubarDefault=FALSE
+MiscMouseAutohide=FALSE
+MiscToolbarDefault=FALSE
+ScrollingLines=10000

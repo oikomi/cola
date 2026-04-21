@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="button_layout" type="string" value="O|HMC"/>
+    <property name="easy_click" type="string" value="Alt"/>
+    <property name="snap_to_border" type="bool" value="true"/>
+    <property name="theme" type="string" value="Arc-Darker"/>
+    <property name="title_font" type="string" value="Noto Sans Bold 10"/>
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>
