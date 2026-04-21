@@ -73,12 +73,13 @@ ensure_runtime_dirs
 IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
 ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
 LOCAL_ARCH="$(local_arch)"
+LOCAL_PLATFORM="linux/$LOCAL_ARCH"
 
 print_step "构建镜像 $IMAGE_REF"
 build_workspace_image "$IMAGE_REF"
 
 print_step "导出镜像"
-docker save "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
+docker image save --platform "$LOCAL_PLATFORM" "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
 
 mapfile -t TARGET_NODES < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
 if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then

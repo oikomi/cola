@@ -16,6 +16,7 @@ RUNTIME_DIR_IMAGES="$RUNTIME_DIR/dashboard-images"
 mkdir -p "$RUNTIME_DIR_IMAGES"
 
 LOCAL_ARCH="$(local_arch)"
+LOCAL_PLATFORM="linux/$LOCAL_ARCH"
 mapfile -t TARGET_NODES < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
 
 if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
@@ -35,8 +36,8 @@ for image_ref in "${IMAGES[@]}"; do
   image_file="${image_file//:/_}.tar.gz"
 
   print_step "准备镜像 $image_ref"
-  docker pull "$image_ref"
-  docker save "$image_ref" | gzip > "$image_file"
+  docker pull --platform "$LOCAL_PLATFORM" "$image_ref"
+  docker image save --platform "$LOCAL_PLATFORM" "$image_ref" | gzip > "$image_file"
 
   print_step "分发 $image_ref 到 ${#TARGET_NODES[@]} 个节点"
   load_compressed_image_archive_into_nodes "$image_file" "${TARGET_NODES[@]}"
