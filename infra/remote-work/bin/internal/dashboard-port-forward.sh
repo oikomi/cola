@@ -131,16 +131,23 @@ if is_running; then
   exit 0
 fi
 
-sudo -v
-nohup bash "$SCRIPT_PATH" \
-  --namespace "$NAMESPACE" \
-  --service "$SERVICE_NAME" \
-  --local-port "$LOCAL_PORT" \
-  --remote-port "$REMOTE_PORT" \
-  --address "$ADDRESS" \
-  --foreground \
-  >"$LOG_FILE" 2>&1 &
+BACKGROUND_COMMAND=$(
+  printf '%s' "set -euo pipefail; "
+  printf '%s' "source $(printf '%q' "$ROOT_DIR/bin/lib.sh"); "
+  printf '%s' "echo $(printf '%q' "Port-forward listening on ${ADDRESS}:${LOCAL_PORT} -> svc/${SERVICE_NAME}:${REMOTE_PORT}"); "
+  printf '%s' "run_cluster_kubectl -n $(printf '%q' "$NAMESPACE") port-forward --address $(printf '%q' "$ADDRESS") svc/$(printf '%q' "$SERVICE_NAME") $(printf '%q' "${LOCAL_PORT}:${REMOTE_PORT}")"
+)
+
+nohup bash -lc "$BACKGROUND_COMMAND" >"$LOG_FILE" 2>&1 </dev/null &
 echo "$!" > "$PID_FILE"
+
+sleep 1
+if ! kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1; then
+  rm -f "$PID_FILE"
+  echo "Dashboard port-forward 启动失败，日志如下：" >&2
+  tail -n 50 "$LOG_FILE" >&2 || true
+  exit 1
+fi
 
 echo "Dashboard port-forward started in background."
 echo "PID: $(cat "$PID_FILE")"

@@ -8,7 +8,13 @@ import { TRPCReactProvider } from "@/trpc/react";
 export const metadata: Metadata = {
   title: "Cola Agent Admin",
   description: "Admin control plane for multi-agent operations on Kubernetes",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  icons: {
+    icon: [
+      { url: "/cola-mark.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico" },
+    ],
+    shortcut: ["/favicon.ico"],
+  },
 };
 
 const geist = Geist({

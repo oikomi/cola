@@ -6,6 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 require_cmd sudo
 require_cmd tar
+ensure_runtime_dirs
 
 OUTPUT_PATH="$RUNTIME_DIR/secondary-arch/$(cluster_name)-kubeasz-seed.tar.gz"
 
@@ -36,8 +37,10 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 print_step "导出 secondary-arch kubeasz bundle"
 sudo tar \
-  --exclude="/etc/kubeasz/bin" \
-  --exclude="/etc/kubeasz/down" \
+  --exclude="etc/kubeasz/bin" \
+  --exclude="etc/kubeasz/bin/*" \
+  --exclude="etc/kubeasz/down" \
+  --exclude="etc/kubeasz/down/*" \
   -czf "$OUTPUT_PATH" \
   -C / etc/kubeasz
 

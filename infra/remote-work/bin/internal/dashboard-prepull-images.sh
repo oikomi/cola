@@ -13,6 +13,7 @@ require_cmd sudo
 
 TAG_SET="${1:-7.14.0}"
 RUNTIME_DIR_IMAGES="$RUNTIME_DIR/dashboard-images"
+ensure_runtime_dirs
 mkdir -p "$RUNTIME_DIR_IMAGES"
 
 LOCAL_ARCH="$(local_arch)"

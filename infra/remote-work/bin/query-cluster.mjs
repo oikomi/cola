@@ -33,6 +33,13 @@ switch (command) {
     console.log(config[command]);
     break;
 
+  case "proxyMode":
+  case "sandboxImage":
+    if (typeof config[command] === "string") {
+      console.log(config[command]);
+    }
+    break;
+
   case "localArch":
     console.log(localArch());
     break;

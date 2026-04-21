@@ -24,7 +24,7 @@ spec:
         - operator: Exists
       containers:
         - name: nvidia-device-plugin
-          image: nvcr.io/nvidia/k8s-device-plugin:v0.17.0
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.17.4
           imagePullPolicy: IfNotPresent
           args:
             - --fail-on-init-error=false

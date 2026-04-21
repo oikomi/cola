@@ -10,13 +10,13 @@
   },
 
   {
-    "name": "178",
+    "name": "rw-gpu-178",
     "ip": "192.168.5.178",
     "sshUser": "nvidia",
     "sshPassword": "nvidia",
     "sshPort": 22,
     "roles": ["worker", "gpu"],
-    "arch": "amd64"
+    "arch": "arm64"
   }
 
 ]

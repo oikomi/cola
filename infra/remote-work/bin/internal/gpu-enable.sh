@@ -13,6 +13,9 @@ TARGET_NODE=""
 SKIP_MANIFESTS=0
 AUTO_DISCOVERED=0
 ROLLOUT_TIMEOUT="300s"
+NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE="nvcr.io/nvidia/k8s-device-plugin:v0.17.0"
+NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE="easzlab.io.local:5000/nvidia/k8s-device-plugin:v0.17.0"
+NVIDIA_DEVICE_PLUGIN_IMAGE="$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE"
 
 print_gpu_diagnostics() {
   echo
@@ -35,6 +38,82 @@ print_gpu_diagnostics() {
       echo
     done <<<"$PODS"
   fi
+}
+
+mirror_nvidia_device_plugin_image() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "WARN: 当前主机未安装 docker，nvidia-device-plugin 将继续使用上游镜像。"
+    return 0
+  fi
+
+  if ! sudo test -f /etc/docker/daemon.json || \
+    ! sudo grep -q 'easzlab\.io\.local:5000' /etc/docker/daemon.json; then
+    echo "WARN: 本机 Docker 未将 easzlab.io.local:5000 配置为 insecure registry，跳过本地镜像同步。"
+    return 0
+  fi
+
+  if docker manifest inspect --insecure "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" >/dev/null 2>&1; then
+    NVIDIA_DEVICE_PLUGIN_IMAGE="$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE"
+    return 0
+  fi
+
+  local local_amd64_image
+  local local_arm64_image
+  local image_repo
+  local image_tag
+  image_tag="${NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE##*:}"
+  image_repo="${NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE%:*}"
+  local_amd64_image="${image_repo}-amd64:${image_tag}"
+  local_arm64_image="${image_repo}-arm64:${image_tag}"
+
+  print_step "同步 NVIDIA device plugin 镜像到本地 registry"
+  if docker pull --platform linux/amd64 "$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE" && \
+    docker tag "$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE" "$local_amd64_image" && \
+    docker push "$local_amd64_image" && \
+    docker pull --platform linux/arm64 "$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE" && \
+    docker tag "$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE" "$local_arm64_image" && \
+    docker push "$local_arm64_image" && \
+    docker manifest rm "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" >/dev/null 2>&1 || true
+  then
+    if docker manifest create --insecure "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" "$local_amd64_image" "$local_arm64_image" && \
+      docker manifest annotate "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" "$local_amd64_image" --os linux --arch amd64 && \
+      docker manifest annotate "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" "$local_arm64_image" --os linux --arch arm64 && \
+      docker manifest push --insecure --purge "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE"; then
+      NVIDIA_DEVICE_PLUGIN_IMAGE="$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE"
+      return 0
+    fi
+  fi
+
+  if docker manifest inspect --insecure "$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE" >/dev/null 2>&1; then
+    NVIDIA_DEVICE_PLUGIN_IMAGE="$NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE"
+    return 0
+  fi
+
+  echo "WARN: 无法将 NVIDIA device plugin 镜像同步到本地 registry，回退到上游镜像。"
+  return 0
+}
+
+prepull_nvidia_device_plugin_image() {
+  local node_name
+
+  for node_name in "${GPU_NODES[@]}"; do
+    print_step "在节点 $node_name 上预拉 NVIDIA device plugin 镜像"
+    if ! remote_sudo_ssh "$node_name" "ctr -n k8s.io images pull $(printf '%q' "$NVIDIA_DEVICE_PLUGIN_IMAGE")"; then
+      echo "WARN: 节点 $node_name 预拉镜像失败，继续依赖 kubelet 自行拉取。"
+    fi
+  done
+}
+
+apply_nvidia_device_plugin_manifest() {
+  local rendered_manifest
+  rendered_manifest="$(mktemp)"
+
+  sed \
+    "s#${NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE}#${NVIDIA_DEVICE_PLUGIN_IMAGE}#g" \
+    "$ROOT_DIR/manifests/gpu/nvidia-device-plugin.yaml" > "$rendered_manifest"
+
+  kubectl_apply_file "$rendered_manifest"
+  rm -f "$rendered_manifest"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -151,6 +230,8 @@ systemctl restart containerd
 '
 done
 
+ensure_mixed_arch_cluster_components_ready 600
+
 print_step "给节点打标签"
 mapfile -t ALL_NODES < <(cluster_query nodeNames)
 for node_name in "${ALL_NODES[@]}"; do
@@ -165,10 +246,12 @@ for node_name in "${ALL_NODES[@]}"; do
 done
 
 if [[ "$SKIP_MANIFESTS" -eq 0 ]]; then
+  mirror_nvidia_device_plugin_image
+  prepull_nvidia_device_plugin_image
   print_step "应用 GPU 相关 Kubernetes 清单"
   kubectl_apply_file "$ROOT_DIR/manifests/base/namespace.yaml"
   kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-runtimeclass.yaml"
-  kubectl_apply_file "$ROOT_DIR/manifests/gpu/nvidia-device-plugin.yaml"
+  apply_nvidia_device_plugin_manifest
   if ! kubectl_remote "rollout status daemonset/nvidia-device-plugin-daemonset -n kube-system --timeout=$ROLLOUT_TIMEOUT"; then
     print_step "nvidia-device-plugin 启动超时，输出诊断信息"
     print_gpu_diagnostics

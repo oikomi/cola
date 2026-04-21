@@ -16,25 +16,49 @@ const roles = args.roles
   .filter(Boolean);
 
 const { config, nodes } = readClusterData();
+const nextNode = {
+  name: args.name,
+  ip: args.ip,
+  sshUser: args["ssh-user"],
+  sshPassword: args["ssh-password"],
+  sshPort,
+  roles,
+  arch: args.arch,
+};
 
-if (nodes.some((node) => node.name === args.name)) {
-  throw new Error(`节点名已存在: ${args.name}`);
+const existingByName = nodes.find((node) => node.name === args.name);
+const existingByIp = nodes.find((node) => node.ip === args.ip);
+
+if (
+  existingByName &&
+  JSON.stringify(existingByName) === JSON.stringify(nextNode)
+) {
+  console.log(
+    `Node ${args.name} (${args.ip}) already exists in cluster/nodes.json for cluster ${config.clusterName}`,
+  );
+  process.exit(0);
 }
-if (nodes.some((node) => node.ip === args.ip)) {
-  throw new Error(`节点 IP 已存在: ${args.ip}`);
+
+if (
+  existingByIp &&
+  JSON.stringify(existingByIp) === JSON.stringify(nextNode)
+) {
+  console.log(
+    `Node ${args.name} (${args.ip}) already exists in cluster/nodes.json for cluster ${config.clusterName}`,
+  );
+  process.exit(0);
+}
+
+if (existingByName) {
+  throw new Error(`节点名已存在且配置不一致: ${args.name}`);
+}
+if (existingByIp) {
+  throw new Error(`节点 IP 已存在且配置不一致: ${args.ip}`);
 }
 
 const updated = [
   ...nodes,
-  {
-    name: args.name,
-    ip: args.ip,
-    sshUser: args["ssh-user"],
-    sshPassword: args["ssh-password"],
-    sshPort,
-    roles,
-    arch: args.arch,
-  },
+  nextNode,
 ];
 
 writeJson(nodesPath, updated);

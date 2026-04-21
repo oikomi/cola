@@ -8,6 +8,7 @@ import {
   ROOT_DIR,
   ensureRuntimeDirs,
   localArch,
+  normalizeArch,
   nodesForArch,
   readClusterData,
 } from "./cluster-utils.mjs";
@@ -121,7 +122,17 @@ function resolveChronyHosts() {
   return [nodes[0].ip];
 }
 
+function effectiveProxyMode() {
+  if (typeof config.proxyMode === "string" && config.proxyMode.length > 0) {
+    return config.proxyMode;
+  }
+
+  const configuredArchs = new Set(nodes.map((node) => normalizeArch(node.arch)));
+  return configuredArchs.size > 1 ? "iptables" : "ipvs";
+}
+
 const effectiveArch = args.targetArch ?? localArch();
+const proxyMode = effectiveProxyMode();
 const targetNodes = args.includeNodes
   ? args.includeNodes.map((name) => {
       const matched = nodes.find((node) => node.name === name);
@@ -194,7 +205,7 @@ const hostsLines = [
     SECURE_PORT: iniDoubleQuote("6443"),
     CONTAINER_RUNTIME: iniDoubleQuote("containerd"),
     CLUSTER_NETWORK: iniDoubleQuote("calico"),
-    PROXY_MODE: iniDoubleQuote("ipvs"),
+    PROXY_MODE: iniDoubleQuote(proxyMode),
     SERVICE_CIDR: iniDoubleQuote("10.68.0.0/16"),
     CLUSTER_CIDR: iniDoubleQuote("172.20.0.0/16"),
     NODE_PORT_RANGE: iniDoubleQuote("30000-32767"),
@@ -221,6 +232,7 @@ const summary = {
   effectiveArch,
   enableChrony: config.enableChrony === true,
   mode: args.mode,
+  proxyMode,
   includedNodes: targetNodes,
   skippedNodes,
   kubeaszDir: KUBEASZ_DIR,

@@ -105,6 +105,29 @@ print_dashboard_diagnostics() {
   fi
 }
 
+pin_dashboard_workloads_to_master() {
+  local master_name
+  local deployment_name
+
+  master_name="$(first_master_name)"
+  [[ -n "$master_name" ]] || die "无法确定 Dashboard 应固定部署到哪台 master 节点。"
+
+  mapfile -t DASHBOARD_DEPLOYMENTS < <(
+    run_cluster_kubectl -n "$NAMESPACE" get deployments \
+      -l "app.kubernetes.io/instance=$RELEASE_NAME" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+  )
+
+  [[ "${#DASHBOARD_DEPLOYMENTS[@]}" -gt 0 ]] || return 0
+
+  print_step "将 Dashboard 工作负载固定到 master 节点 $master_name"
+  for deployment_name in "${DASHBOARD_DEPLOYMENTS[@]}"; do
+    [[ -n "$deployment_name" ]] || continue
+    run_cluster_kubectl -n "$NAMESPACE" patch deployment "$deployment_name" --type merge -p \
+      "{\"spec\":{\"template\":{\"spec\":{\"nodeSelector\":{\"kubernetes.io/hostname\":\"$master_name\"}}}}}" >/dev/null
+  done
+}
+
 dashboard_pods_have_image_pull_errors() {
   run_cluster_kubectl -n "$NAMESPACE" get pods -o json | \
     node --input-type=module -e '
@@ -216,6 +239,7 @@ if [[ "$CHART_REF" == "kubernetes-dashboard/kubernetes-dashboard" ]]; then
 fi
 
 run_cluster_helm "${helm_args[@]}"
+pin_dashboard_workloads_to_master
 
 if [[ "$SKIP_ADMIN_USER" -eq 0 ]]; then
   print_step "创建 Dashboard 管理员账号"

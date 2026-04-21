@@ -10,9 +10,9 @@
 推荐拓扑：
 
 - `192.168.5.22`：`rw-node-022`，`amd64`，`master + etcd + worker`
-- `192.168.5.178`：`rw-gpu-178`，`Jetson AGX / arm64`，建议作为二阶段加入的 `worker + gpu`
+- `192.168.5.178`：`rw-gpu-178`，`Jetson AGX / arm64`，可作为自动接力加入的 `worker + gpu`
 
-仓库默认 `cluster/nodes.json` 只预置首轮引导节点 `rw-node-022`。后续增加同架构节点时，直接使用 `./bin/cluster.sh cluster add-node`；如果要加入 Jetson 这类异构 `arm64` 节点，走本文后面的“混合架构接入”流程。
+仓库默认仍然以当前部署机同架构节点先拉起控制面，但如果 `cluster/nodes.json` 里同时声明了 Jetson 这类异构 `arm64` worker，`./bin/cluster.sh cluster install` 会在首轮安装完成后自动导出 bundle、同步仓库，并在次级架构节点上继续执行 `secondary-arch import + add-node`。当前自动接力仅覆盖 `worker` / `worker,gpu`，不自动扩容异构 `master/etcd`。
 
 ## 目录结构
 
@@ -136,6 +136,8 @@ infra/remote-work
 - `controllerIp`：控制机 IP，用于让各节点把 `easzlab.io.local` 解析到正确地址
 - `enableChrony`：默认 `false`，因为 `chrony` 在 kubeasz 里本身是可选项
 - `chronyServerNode`：仅当 `enableChrony=true` 时使用，可指定哪台节点做内部时间源
+- `proxyMode`：可选 `iptables` 或 `ipvs`；未显式设置时，混合架构集群默认使用 `iptables`，单架构集群默认使用 `ipvs`
+- `sandboxImage`：可选；未显式设置时，secondary-arch 接力默认使用官方多架构 `registry.k8s.io/pause:3.10`
 
 ## 2. 下载 kubeasz 并渲染集群 inventory
 
@@ -167,13 +169,14 @@ cd infra/remote-work
 ./bin/cluster.sh cluster install
 ```
 
-首轮安装只会纳入与当前部署机同架构的节点。
-按当前默认配置，从 `192.168.5.22` 这台 `amd64` 部署机执行时，会先拉起一个单节点控制面：`rw-node-022`。
+首轮安装仍只会纳入与当前部署机同架构的节点。
+按当前默认配置，从 `192.168.5.22` 这台 `amd64` 部署机执行时，会先拉起单节点控制面 `rw-node-022`，随后如果 `cluster/nodes.json` 中存在异构 `worker` / `worker,gpu` 节点，则脚本会自动继续 secondary-arch 接力，把这些节点一并加入集群。
 
 安装完成后，脚本会自动：
 
 - 同步一份用户可读的 kubeconfig 到 `~/.kube/<clusterName>.config`
 - 让 `/etc/kubeasz/clusters/<clusterName>/kubectl.kubeconfig` 对当前用户组可读
+- 在混合架构场景下，自动刷新本地 kubeasz inventory，并为异构节点预拉官方多架构的 Calico 镜像
 
 ## 4. 启用 GPU 支持
 
@@ -188,6 +191,7 @@ cd infra/remote-work
 - 配置 containerd 的 `nvidia` runtime
 - 重启 containerd
 - 给节点打上 `remote-work/workspace=true` 与 `remote-work/gpu=true`
+- 优先把 `nvcr.io/nvidia/k8s-device-plugin` 同步到本地 registry，并在 GPU 节点预拉
 - 在集群里部署 `nvidia-device-plugin`
 
 ## 5. 构建并分发 noVNC 工作区镜像
@@ -337,9 +341,15 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 - 主部署机：`192.168.5.22`，`amd64`
 - 次级节点：`192.168.5.178`，Jetson AGX，`arm64`
 
-推荐流程：
+当前默认推荐流程：
 
-1. 在 `amd64` 部署机上完成 `cluster bootstrap` 和 `cluster install`，只拉起 `rw-node-022`
+1. 在 `amd64` 部署机上完成 `cluster bootstrap`
+2. 直接执行 `cluster install`
+3. 脚本会在首轮控制面安装完成后，自动把 `rw-gpu-178` 这类异构 `worker` / `worker,gpu` 节点继续接力加入集群
+
+如果你需要手工接管，仍然可以退回显式的双部署机流程：
+
+1. 在 `amd64` 部署机上完成 `cluster bootstrap` 和 `cluster install`
 2. 在 `amd64` 部署机上导出 kubeasz seed bundle
 3. 把 bundle 和仓库拷到 Jetson 这台 `arm64` 机器
 4. 在 Jetson 上导入 bundle、补齐 `arm64` 二进制，并执行 `add-node`
@@ -372,6 +382,8 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ```bash
 ./bin/cluster.sh cluster clean --yes
 ```
+
+在混合架构场景下，脚本会先按 `cluster/nodes.json` 重新渲染完整 inventory，再执行 `ezctl destroy`，因此已经自动接力加入的 `arm64` worker 也会一并纳入销毁；同时会清理远端 `~/.remote-work-secondary-arch/<clusterName>` staging 目录。
 
 如果还要顺手清每台节点上的工作区持久目录：
 

@@ -63,6 +63,30 @@ ensure_runtime_dirs
 
 CLUSTER_NAME="$(cluster_name)"
 
+cleanup_remote_secondary_arch_staging() {
+  if ! command -v sshpass >/dev/null 2>&1 || ! command -v ssh >/dev/null 2>&1; then
+    echo "WARN: 当前主机缺少 sshpass/ssh，跳过 secondary-arch staging 清理。"
+    return 0
+  fi
+
+  print_step "清理各节点上的 secondary-arch staging 目录"
+  mapfile -t ALL_NODES < <(cluster_query nodeNames)
+  for node_name in "${ALL_NODES[@]}"; do
+    local remote_home
+    local staging_dir
+
+    remote_home="$(remote_ssh "$node_name" 'printf %s "$HOME"' 2>/dev/null | tail -n 1 || true)"
+    if [[ -z "$remote_home" ]]; then
+      echo "WARN: 无法获取节点 $node_name 的 HOME，跳过 secondary-arch staging 清理。"
+      continue
+    fi
+
+    staging_dir="$remote_home/.remote-work-secondary-arch/$CLUSTER_NAME"
+    echo "Cleaning secondary-arch staging on $node_name ..."
+    remote_sudo_ssh "$node_name" "rm -rf $(printf '%q' "$staging_dir")"
+  done
+}
+
 print_step "准备清理 remote-work 部署"
 echo "Cluster: $CLUSTER_NAME"
 echo "Destroy cluster: $DESTROY_CLUSTER"
@@ -74,11 +98,14 @@ if [[ "$AUTO_YES" -ne 1 ]]; then
 fi
 
 if [[ "$DESTROY_CLUSTER" -eq 1 ]]; then
-  if [[ -x "$KUBEASZ_DIR/ezctl" ]] && cluster_exists_in_kubeasz; then
+  if kubeasz_ezctl_path >/dev/null 2>&1 && cluster_exists_in_kubeasz; then
     ensure_ansible_available
+    print_step "刷新 kubeasz inventory，确保 mixed-arch 节点被纳入 destroy"
+    render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
+    copy_hosts_into_kubeasz
     print_step "通过 kubeasz 销毁集群"
     (
-      cd "$KUBEASZ_DIR"
+      cd "$KUBEASZ_DIR" 2>/dev/null || cd "$KUBEASZ_BASE_DIR"
       run_kubeasz_ezctl destroy "$CLUSTER_NAME"
     )
   else
@@ -96,6 +123,8 @@ if [[ "$PURGE_REMOTE_DATA" -eq 1 ]]; then
     remote_sudo_ssh "$node_name" "rm -rf /var/lib/remote-work/workspaces"
   done
 fi
+
+cleanup_remote_secondary_arch_staging
 
 print_step "清理 /etc/kubeasz 中当前 cluster 的本地配置"
 sudo rm -rf "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"

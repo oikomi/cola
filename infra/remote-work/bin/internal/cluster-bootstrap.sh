@@ -139,6 +139,14 @@ prepare_kubeasz_docker_bundle() {
   sudo install -m 0644 "$bundle_file" "$KUBEASZ_BASE_DIR/down/docker-${docker_ver}.tgz"
 }
 
+ensure_local_script_executable() {
+  local script_path="$1"
+
+  [[ -x "$script_path" ]] && return 0
+
+  chmod +x "$script_path" || die "无法为脚本补充执行权限: $script_path"
+}
+
 init_cluster_dir_without_ansible() {
   print_step "初始化 kubeasz cluster 目录"
 
@@ -199,7 +207,8 @@ else
   echo "复用现有 kubeasz 目录: $KUBEASZ_DIR"
 fi
 
-chmod +x "$KUBEASZ_DIR/ezdown" "$KUBEASZ_DIR/ezctl"
+ensure_local_script_executable "$KUBEASZ_DIR/ezdown"
+ensure_local_script_executable "$KUBEASZ_DIR/ezctl"
 prepare_kubeasz_docker_bundle
 
 print_step "下载 kubeasz 依赖"

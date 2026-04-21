@@ -12,7 +12,9 @@ ensure_ansible_available
 
 CLUSTER_NAME="$(cluster_name)"
 
-[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
+if ! kubeasz_ezctl_path >/dev/null 2>&1; then
+  die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
+fi
 BOOTSTRAP_HOSTS="$GENERATED_DIR/hosts-bootstrap"
 BOOTSTRAP_SUMMARY="$GENERATED_DIR/cluster-summary-bootstrap.json"
 BOOTSTRAP_NODE_LIST=()
@@ -81,5 +83,11 @@ print_step "开始安装 Kubernetes 集群"
 
 print_step "同步用户可读 kubeconfig"
 sync_user_kubeconfig
+
+if cluster_has_mixed_arch_nodes_configured; then
+  print_step "自动接力 secondary-arch worker 节点"
+  bash "$ROOT_DIR/bin/internal/cluster-auto-secondary-arch.sh"
+  ensure_mixed_arch_cluster_components_ready 600
+fi
 
 echo "集群安装完成。下一步执行: ./bin/cluster.sh gpu enable"

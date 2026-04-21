@@ -41,6 +41,19 @@ run_subcommand() {
   "$ENTRYPOINT" "$@"
 }
 
+run_subcommand_or_exit() {
+  local title="$1"
+  local failure_hint="$2"
+  shift 2
+
+  if ! run_subcommand "$title" "$@"; then
+    echo >&2
+    echo "ERROR: 步骤失败: $title" >&2
+    echo "ERROR: 因此未继续执行: $failure_hint" >&2
+    exit 1
+  fi
+}
+
 WITH_IMAGES=0
 SKIP_DASHBOARD=0
 SKIP_PORT_FORWARD=0
@@ -123,10 +136,22 @@ if [[ "$PORT_FORWARD_FOREGROUND" -eq 1 ]]; then
   dashboard_port_forward_args+=(--foreground)
 fi
 
-run_subcommand "Bootstrap cluster assets" "${bootstrap_args[@]}"
-run_subcommand "Install cluster" cluster install
-run_subcommand "Enable GPU support" gpu enable
-run_subcommand "Build and distribute workspace image" "${image_args[@]}"
+run_subcommand_or_exit \
+  "Bootstrap cluster assets" \
+  "cluster install、gpu enable、image build-and-load、dashboard deploy、dashboard port-forward" \
+  "${bootstrap_args[@]}"
+run_subcommand_or_exit \
+  "Install cluster" \
+  "gpu enable、image build-and-load、dashboard deploy、dashboard port-forward" \
+  cluster install
+run_subcommand_or_exit \
+  "Enable GPU support" \
+  "image build-and-load、dashboard deploy、dashboard port-forward" \
+  gpu enable
+run_subcommand_or_exit \
+  "Build and distribute workspace image" \
+  "dashboard deploy、dashboard port-forward" \
+  "${image_args[@]}"
 
 if [[ "$SKIP_DASHBOARD" -eq 1 ]]; then
   print_step "Skip dashboard setup"
@@ -134,7 +159,10 @@ if [[ "$SKIP_DASHBOARD" -eq 1 ]]; then
   exit 0
 fi
 
-run_subcommand "Deploy Kubernetes Dashboard" dashboard deploy
+run_subcommand_or_exit \
+  "Deploy Kubernetes Dashboard" \
+  "dashboard port-forward" \
+  dashboard deploy
 
 if [[ "$SKIP_PORT_FORWARD" -eq 1 ]]; then
   print_step "Skip dashboard port-forward"
@@ -142,4 +170,7 @@ if [[ "$SKIP_PORT_FORWARD" -eq 1 ]]; then
   exit 0
 fi
 
-run_subcommand "Start dashboard port-forward" "${dashboard_port_forward_args[@]}"
+run_subcommand_or_exit \
+  "Start dashboard port-forward" \
+  "无后续步骤" \
+  "${dashboard_port_forward_args[@]}"

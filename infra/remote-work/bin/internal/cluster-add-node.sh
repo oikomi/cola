@@ -99,11 +99,13 @@ if [[ ",$ROLES," != *",worker,"* ]]; then
   die "--roles 至少需要包含 worker"
 fi
 
-[[ -x "$KUBEASZ_DIR/ezctl" ]] || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
+if ! kubeasz_ezctl_path >/dev/null 2>&1; then
+  die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
+fi
 
 print_step "通过 kubeasz 加入 worker 节点"
 (
-  cd "$KUBEASZ_DIR"
+  cd "$KUBEASZ_DIR" 2>/dev/null || cd "$KUBEASZ_BASE_DIR"
   run_kubeasz_ezctl add-node "$(cluster_name)" "$IP" \
     "ansible_user=$SSH_USER" \
     "ansible_ssh_pass=$SSH_PASSWORD" \
@@ -129,12 +131,22 @@ node "$ROOT_DIR/bin/update-node-list.mjs" \
 render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
 copy_hosts_into_kubeasz
 
+if cluster_has_mixed_arch_nodes_configured; then
+  print_step "调整 mixed-arch 集群系统组件镜像"
+  reconcile_mixed_arch_cluster_components
+  print_step "等待节点 $NAME 达到稳定 Ready"
+  wait_for_cluster_node_ready "$NAME" 600 || \
+    die "节点 $NAME 在 mixed-arch 组件调整后未恢复到 Ready。"
+fi
+
 kubectl_remote "label node $NAME $(workspace_label_key)=true --overwrite"
 
 if [[ ",$ROLES," == *",gpu,"* ]]; then
   print_step "为新增 GPU 节点启用 NVIDIA runtime"
   "$ROOT_DIR/bin/cluster.sh" gpu enable --node "$NAME" --skip-manifests
   kubectl_remote "label node $NAME $(gpu_label_key)=true --overwrite"
+  wait_for_cluster_node_ready "$NAME" 300 || \
+    die "GPU runtime 启用后，节点 $NAME 未恢复到 Ready。"
 fi
 
 echo "节点 $NAME ($IP) 已加入集群。"

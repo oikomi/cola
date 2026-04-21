@@ -69,6 +69,25 @@ export function validateClusterData(config, nodes) {
     }
   }
 
+  if (
+    "proxyMode" in config &&
+    config.proxyMode !== undefined &&
+    config.proxyMode !== "iptables" &&
+    config.proxyMode !== "ipvs"
+  ) {
+    throw new Error(
+      "cluster/config.json 中的 proxyMode 只支持 iptables 或 ipvs。",
+    );
+  }
+
+  if (
+    "sandboxImage" in config &&
+    config.sandboxImage !== undefined &&
+    typeof config.sandboxImage !== "string"
+  ) {
+    throw new Error("cluster/config.json 中的 sandboxImage 必须是字符串。");
+  }
+
   if (!Array.isArray(nodes) || nodes.length === 0) {
     throw new Error("cluster/nodes.json 至少需要包含一台机器。");
   }
