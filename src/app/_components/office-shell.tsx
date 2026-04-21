@@ -551,7 +551,7 @@ export function OfficeShell({ snapshot }: Props) {
 
               <div className="max-w-4xl space-y-3">
                 <p className="text-[11px] tracking-[0.34em] text-white/52 uppercase">
-                  Cola Operations
+                  XDream Cloud
                 </p>
                 <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.06em] md:text-5xl xl:text-[3.35rem]">
                   多智能体指挥中心

@@ -98,7 +98,11 @@ prepull_nvidia_device_plugin_image() {
 
   for node_name in "${GPU_NODES[@]}"; do
     print_step "在节点 $node_name 上预拉 NVIDIA device plugin 镜像"
-    if ! remote_sudo_ssh "$node_name" "ctr -n k8s.io images pull $(printf '%q' "$NVIDIA_DEVICE_PLUGIN_IMAGE")"; then
+    if ! remote_pull_k8s_image \
+      "$node_name" \
+      "$NVIDIA_DEVICE_PLUGIN_IMAGE" \
+      "linux/$(node_arch "$node_name")"
+    then
       echo "WARN: 节点 $node_name 预拉镜像失败，继续依赖 kubelet 自行拉取。"
     fi
   done

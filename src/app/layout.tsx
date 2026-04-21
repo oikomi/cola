@@ -6,14 +6,11 @@ import { Geist, Geist_Mono, Manrope } from "next/font/google";
 import { TRPCReactProvider } from "@/trpc/react";
 
 export const metadata: Metadata = {
-  title: "Cola Agent Admin",
-  description: "Admin control plane for multi-agent operations on Kubernetes",
+  title: "XDream Cloud",
+  description: "XDream Cloud control plane for multi-agent operations on Kubernetes",
   icons: {
-    icon: [
-      { url: "/cola-mark.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico" },
-    ],
-    shortcut: ["/favicon.ico"],
+    icon: [{ url: "/xdream-cloud-mark.svg", type: "image/svg+xml" }],
+    shortcut: ["/xdream-cloud-mark.svg"],
   },
 };
 

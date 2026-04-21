@@ -72,7 +72,7 @@ export function ProductAreaHeader({
           Master Node
         </Badge>
         <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
-          Cola Admin Surface
+          XDream Cloud
         </Badge>
       </div>
     </div>

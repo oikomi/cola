@@ -671,6 +671,76 @@ remote_sudo_ssh() {
     "printf '%s\n' $(printf '%q' "$(node_password "$node_name")") | sudo -S -p '' bash -lc $(printf '%q' "$*")"
 }
 
+remote_sudo_ssh_retry() {
+  local node_name="$1"
+  shift
+
+  local attempts="${REMOTE_WORK_REMOTE_RETRY_COUNT:-3}"
+  local attempt
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if remote_sudo_ssh "$node_name" "$@"; then
+      return 0
+    fi
+
+    if (( attempt < attempts )); then
+      echo "WARN: 节点 $node_name 的远端 sudo 命令失败，准备第 $((attempt + 1)) 次重试。"
+      sleep 3
+    fi
+  done
+
+  return 1
+}
+
+remote_pull_k8s_image() {
+  local node_name="$1"
+  local image_ref="$2"
+  local platform="${3:-linux/$(node_arch "$node_name")}"
+  shift 3
+
+  local cleanup_script=""
+  local ref
+  for ref in "$image_ref" "$@"; do
+    [[ -n "$ref" ]] || continue
+    cleanup_script+="ctr -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
+  done
+
+  remote_sudo_ssh_retry "$node_name" "
+set -euo pipefail
+
+pull_log=\"/tmp/remote-work-ctr-pull.\$\$.log\"
+
+cleanup_image_refs() {
+  ${cleanup_script}
+}
+
+cleanup_corrupt_content() {
+  if [[ ! -f \"\$pull_log\" ]]; then
+    return 0
+  fi
+
+  grep -Eo 'config-sha256:[0-9a-f]{64}' \"\$pull_log\" | \
+    sed 's/config-sha256:/sha256:/' | \
+    sort -u | \
+    while IFS= read -r digest; do
+      [[ -n \"\$digest\" ]] || continue
+      ctr -n k8s.io content rm \"\$digest\" >/dev/null 2>&1 || true
+    done || true
+}
+
+if ctr -n k8s.io images pull --platform $(printf '%q' "$platform") $(printf '%q' "$image_ref") >\"\$pull_log\" 2>&1; then
+  rm -f \"\$pull_log\"
+  exit 0
+fi
+
+tail -n 80 \"\$pull_log\" >&2 || true
+cleanup_corrupt_content
+cleanup_image_refs
+rm -f \"\$pull_log\"
+exit 1
+"
+}
+
 remote_scp() {
   local source_path="$1"
   local node_name="$2"
@@ -752,18 +822,23 @@ reconcile_mixed_arch_cluster_components() {
     fi
 
     echo "Preparing multi-arch Calico images on $node_name ..."
-    remote_sudo_ssh "$node_name" \
-      "ctr -n k8s.io images rm docker.io/calico/cni:${calico_ver} docker.io/calico/node:${calico_ver} easzlab.io.local:5000/easzlab/cni:${calico_ver} easzlab.io.local:5000/easzlab/node:${calico_ver} >/dev/null 2>&1 || true"
-    remote_sudo_ssh "$node_name" \
-      "ctr -n k8s.io images pull docker.io/calico/cni:${calico_ver}"
-    remote_sudo_ssh "$node_name" \
-      "ctr -n k8s.io images pull docker.io/calico/node:${calico_ver}"
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/cni:${calico_ver}" \
+      "linux/$(node_arch "$node_name")" \
+      "easzlab.io.local:5000/easzlab/cni:${calico_ver}"
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/node:${calico_ver}" \
+      "linux/$(node_arch "$node_name")" \
+      "easzlab.io.local:5000/easzlab/node:${calico_ver}"
 
     if [[ -n "$dns_node_cache_ver" ]]; then
-      remote_sudo_ssh "$node_name" \
-        "ctr -n k8s.io images rm registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver} easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver} >/dev/null 2>&1 || true"
-      remote_sudo_ssh "$node_name" \
-        "ctr -n k8s.io images pull registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}"
+      remote_pull_k8s_image \
+        "$node_name" \
+        "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}" \
+        "linux/$(node_arch "$node_name")" \
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}"
     fi
   done < <(cluster_query nodeNames)
 

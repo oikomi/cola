@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -27,14 +28,6 @@ const areaIcons = {
   system: Settings2Icon,
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
 
-function ColaMark() {
-  return (
-    <div className="flex size-14 items-center justify-center rounded-[var(--radius-card)] bg-[linear-gradient(135deg,#60a5fa,#2563eb_48%,#1e293b)] text-lg font-semibold tracking-[0.12em] text-white shadow-[0_16px_34px_rgba(37,99,235,0.28)]">
-      C
-    </div>
-  );
-}
-
 export function AdminChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const activeArea = productAreaForPath(pathname);
@@ -44,14 +37,24 @@ export function AdminChrome({ children }: { children: ReactNode }) {
       <div className="mx-auto grid h-full min-h-0 w-full max-w-[1800px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 py-4 lg:grid-cols-[288px_minmax(0,1fr)] lg:grid-rows-1 lg:gap-6 lg:px-8 lg:py-8 xl:grid-cols-[304px_minmax(0,1fr)] xl:px-10 xl:py-10">
         <aside className="min-h-0 overflow-hidden rounded-[var(--radius-shell)] border border-white/14 bg-[linear-gradient(180deg,rgba(30,41,59,0.94)_0%,rgba(33,44,61,0.9)_48%,rgba(35,46,64,0.84)_100%)] text-slate-50 shadow-[0_24px_68px_rgba(15,23,42,0.18)] supports-[backdrop-filter]:backdrop-blur-xl">
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4 lg:justify-center lg:px-6 lg:py-7">
-              <ColaMark />
-              <div className="lg:hidden">
-                <p className="text-[11px] tracking-[0.28em] text-slate-300 uppercase">
-                  Cola
+            <div className="flex items-center gap-3 border-b border-white/10 px-4 py-4 lg:px-6 lg:py-7">
+              <Image
+                src="/xdream-cloud-mark.svg"
+                alt="XDream Cloud"
+                width={56}
+                height={56}
+                priority
+                className="size-14 shrink-0 rounded-[18px] shadow-[0_18px_38px_rgba(56,189,248,0.18)]"
+              />
+              <div className="min-w-0">
+                <p className="text-[11px] tracking-[0.34em] text-sky-100/72 uppercase">
+                  XDream
                 </p>
-                <p className="mt-1 text-sm font-medium tracking-[-0.02em] text-white">
-                  Admin Surface
+                <p className="mt-1 text-base font-semibold tracking-[-0.03em] text-white">
+                  Cloud Console
+                </p>
+                <p className="mt-1 text-xs text-slate-300/78">
+                  Kubernetes control surface
                 </p>
               </div>
             </div>
