@@ -1,19 +1,16 @@
 "use client";
 
 import {
-  ActivityIcon,
-  GlobeIcon,
   LoaderCircleIcon,
   MonitorSmartphoneIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   ModuleEmptyState,
   ModuleHero,
-  ModuleMetricCard,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
@@ -59,6 +56,39 @@ const RESOLUTION_PRESETS = [
   "1600x900x24",
   "1920x1080x24",
 ] as const;
+const PRIMARY_ACTION_CLASS =
+  "border-sky-500 bg-sky-600 text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] hover:border-sky-500 hover:bg-sky-500";
+
+function WorkspaceMetric({
+  label,
+  value,
+  description,
+  dotClassName,
+}: {
+  label: string;
+  value: string;
+  description: string;
+  dotClassName: string;
+}) {
+  return (
+    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-medium tracking-[0.18em] text-slate-600 uppercase">
+            {label}
+          </p>
+          <p className="mt-2 text-[1.75rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+            {value}
+          </p>
+        </div>
+
+        <span className={cn("mt-1 size-2.5 rounded-full", dotClassName)} />
+      </div>
+
+      <p className="mt-2 text-sm leading-5 text-slate-500">{description}</p>
+    </div>
+  );
+}
 
 function FormField({
   label,
@@ -69,7 +99,7 @@ function FormField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-muted-foreground text-[11px] font-medium tracking-[0.28em] uppercase">
+      <span className="text-[11px] font-medium tracking-[0.28em] text-slate-600 uppercase">
         {label}
       </span>
       {children}
@@ -113,7 +143,7 @@ function LoadingRows() {
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`workspace-skeleton-${index}`}
-          className="border-border/70 bg-background/70 rounded-3xl border p-4"
+          className="border-border/70 bg-background/80 rounded-[var(--radius-card)] border p-4"
         >
           <div className="grid gap-3 md:grid-cols-[1.2fr_120px_180px_1fr_140px_220px] md:items-center">
             <div className="grid gap-2">
@@ -128,8 +158,8 @@ function LoadingRows() {
             </div>
             <Skeleton className="h-5 w-24" />
             <div className="flex gap-2">
-              <Skeleton className="h-9 w-20 rounded-full" />
-              <Skeleton className="h-9 w-20 rounded-full" />
+              <Skeleton className="h-8 w-20 rounded-[var(--radius-control)]" />
+              <Skeleton className="h-8 w-8 rounded-[var(--radius-control)]" />
             </div>
           </div>
         </div>
@@ -141,7 +171,9 @@ function LoadingRows() {
 export function WorkspaceShell() {
   const utils = api.useUtils();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingDeletedWorkspaceNames, setPendingDeletedWorkspaceNames] =
+    useState<string[]>([]);
   const [draft, setDraft] = useState({
     name: "",
     cpu: "4",
@@ -160,7 +192,7 @@ export function WorkspaceShell() {
   const createWorkspace = api.workspace.create.useMutation({
     onSuccess: async () => {
       await utils.workspace.list.invalidate();
-      setFeedback("远程桌面已提交创建。");
+      setErrorMessage(null);
       setIsCreateOpen(false);
       setDraft({
         name: "",
@@ -171,18 +203,30 @@ export function WorkspaceShell() {
         resolutionPreset: "1600x900x24",
       });
     },
-    onError: (error) => setFeedback(error.message),
+    onError: (error) => setErrorMessage(error.message),
   });
 
   const deleteWorkspace = api.workspace.delete.useMutation({
+    onMutate: ({ name }) => {
+      setErrorMessage(null);
+      setPendingDeletedWorkspaceNames((current) =>
+        current.includes(name) ? current : [...current, name],
+      );
+    },
     onSuccess: async () => {
       await utils.workspace.list.invalidate();
-      setFeedback("远程桌面已删除。");
     },
-    onError: (error) => setFeedback(error.message),
+    onError: (error, variables) => {
+      setPendingDeletedWorkspaceNames((current) =>
+        current.filter((name) => name !== variables.name),
+      );
+      setErrorMessage(error.message);
+    },
   });
 
-  const rows = workspaceQuery.data?.items ?? [];
+  const rows = (workspaceQuery.data?.items ?? []).filter(
+    (workspace) => !pendingDeletedWorkspaceNames.includes(workspace.name),
+  );
   const capabilityReason = workspaceQuery.data?.reason ?? null;
   const available = workspaceQuery.data?.available ?? true;
   const runningCount = rows.filter(
@@ -194,6 +238,17 @@ export function WorkspaceShell() {
   const readyCount = rows.filter((workspace) =>
     Boolean(workspace.loginUrl),
   ).length;
+
+  useEffect(() => {
+    const liveNames = new Set(
+      (workspaceQuery.data?.items ?? []).map((workspace) => workspace.name),
+    );
+
+    setPendingDeletedWorkspaceNames((current) => {
+      const next = current.filter((name) => liveNames.has(name));
+      return next.length === current.length ? current : next;
+    });
+  }, [workspaceQuery.data?.items]);
 
   const handleCreate = async () => {
     const memoryGi = Number.parseInt(draft.memoryGi, 10);
@@ -232,7 +287,7 @@ export function WorkspaceShell() {
             <Badge
               variant="outline"
               className={cn(
-                "rounded-full px-2.5 py-0.5 text-[12px]",
+                "px-2.5 py-0.5 text-[12px]",
                 available
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border-rose-200 bg-rose-50 text-rose-700",
@@ -242,7 +297,7 @@ export function WorkspaceShell() {
             </Badge>
             <Badge
               variant="outline"
-              className="border-border/80 bg-background/60 rounded-full px-2.5 py-0.5 text-[12px]"
+              className="border-border/80 bg-background/70 px-2.5 py-0.5 text-[12px] text-slate-600"
             >
               {workspaceQuery.isFetching && !workspaceQuery.isLoading ? (
                 <LoaderCircleIcon
@@ -258,7 +313,7 @@ export function WorkspaceShell() {
         }
         actions={
           <Button
-            className="h-[30px] rounded-full px-3.5 text-[13px]"
+            className={PRIMARY_ACTION_CLASS}
             disabled={!available}
             onClick={() => setIsCreateOpen(true)}
           >
@@ -267,27 +322,24 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-2 md:grid-cols-3">
-          <ModuleMetricCard
-            size="compact"
+        <div className="grid gap-3 md:grid-cols-3">
+          <WorkspaceMetric
             label="工作区总数"
             value={String(rows.length)}
             description="当前纳入远程桌面控制面的全部 workspace。"
-            icon={MonitorSmartphoneIcon}
+            dotClassName="bg-sky-500"
           />
-          <ModuleMetricCard
-            size="compact"
+          <WorkspaceMetric
             label="运行中"
             value={String(runningCount)}
             description="已经拿到访问入口，可以直接登录的工作区。"
-            icon={ActivityIcon}
+            dotClassName="bg-emerald-500"
           />
-          <ModuleMetricCard
-            size="compact"
+          <WorkspaceMetric
             label="待就绪"
             value={String(startingCount)}
             description="容器正在拉起或探针尚未完成。"
-            icon={GlobeIcon}
+            dotClassName="bg-amber-500"
           />
         </div>
       </ModuleHero>
@@ -299,10 +351,10 @@ export function WorkspaceShell() {
         </Alert>
       ) : null}
 
-      {feedback ? (
-        <Alert>
-          <AlertTitle>执行结果</AlertTitle>
-          <AlertDescription>{feedback}</AlertDescription>
+      {errorMessage ? (
+        <Alert variant="destructive">
+          <AlertTitle>操作失败</AlertTitle>
+          <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -312,7 +364,7 @@ export function WorkspaceShell() {
         action={
           <Badge
             variant="outline"
-            className="border-border/80 bg-background/60"
+            className="border-slate-200/90 bg-slate-50 text-slate-700"
           >
             登录就绪 {readyCount}
           </Badge>
@@ -326,6 +378,7 @@ export function WorkspaceShell() {
             description="先创建一个 workspace，再在这里统一查看状态、登录入口和节点落点。"
             action={
               <Button
+                className={PRIMARY_ACTION_CLASS}
                 disabled={!available}
                 onClick={() => setIsCreateOpen(true)}
               >
@@ -337,107 +390,123 @@ export function WorkspaceShell() {
         ) : null}
 
         {!workspaceQuery.isLoading && rows.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>名称</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>规格</TableHead>
-                <TableHead>节点 / 地址</TableHead>
-                <TableHead>更新时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((workspace) => (
-                <TableRow key={workspace.id} className="border-border/70">
-                  <TableCell className="align-top">
-                    <div className="flex flex-col gap-1">
-                      <p className="text-foreground font-medium">
-                        {workspace.name}
-                      </p>
-                      <p className="text-muted-foreground text-sm">
-                        Workspace ID: {workspace.id}
-                      </p>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "rounded-full",
-                        statusTone(workspace.status),
-                      )}
-                    >
-                      {statusLabel(workspace.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-foreground align-top font-medium">
-                    <div className="flex flex-col gap-1">
-                      <span>{specLabel(workspace)}</span>
-                      <span className="text-muted-foreground text-sm font-normal">
-                        {workspace.resolution}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-foreground font-medium">
-                        {workspace.nodeName ?? "-"}
-                      </span>
-                      <span className="text-muted-foreground text-sm break-all">
-                        {workspace.endpoint ?? "-"}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground align-top">
-                    {workspace.updatedAt ?? "-"}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <div className="flex justify-end gap-2">
-                      {workspace.loginUrl ? (
-                        <a
-                          href={workspace.loginUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={cn(
-                            buttonVariants({ variant: "outline" }),
-                            "rounded-full",
-                          )}
-                        >
-                          登录
-                        </a>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          className="rounded-full"
-                          disabled
-                        >
-                          登录
-                        </Button>
-                      )}
-                      <Button
-                        variant="destructive"
-                        className="rounded-full"
-                        disabled={deleteWorkspace.isPending}
-                        onClick={() => void handleDelete(workspace.name)}
-                      >
-                        {deleteWorkspace.isPending ? (
-                          <LoaderCircleIcon
-                            className="animate-spin"
-                            data-icon="inline-start"
-                          />
-                        ) : (
-                          <Trash2Icon data-icon="inline-start" />
-                        )}
-                        删除
-                      </Button>
-                    </div>
-                  </TableCell>
+          <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/92">
+            <Table>
+              <TableHeader className="bg-slate-50/90">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    名称
+                  </TableHead>
+                  <TableHead className="h-12 px-4 text-center text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    状态
+                  </TableHead>
+                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    规格
+                  </TableHead>
+                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    节点 / 地址
+                  </TableHead>
+                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    更新时间
+                  </TableHead>
+                  <TableHead className="h-12 px-4 text-right text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                    操作
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((workspace) => (
+                  <TableRow
+                    key={workspace.id}
+                    className="group border-border/70 hover:bg-sky-50/50"
+                  >
+                    <TableCell className="px-4 py-4 align-middle">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-foreground font-semibold">
+                          {workspace.name}
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          Workspace ID: {workspace.id}
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-center align-middle">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "justify-center px-2.5",
+                          statusTone(workspace.status),
+                        )}
+                      >
+                        {statusLabel(workspace.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 align-middle">
+                      <div className="flex flex-col gap-1 text-slate-950">
+                        <span className="font-medium">
+                          {specLabel(workspace)}
+                        </span>
+                        <span className="text-sm font-normal text-slate-500">
+                          {workspace.resolution}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 align-middle">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium text-slate-950">
+                          {workspace.nodeName ?? "-"}
+                        </span>
+                        <span className="font-mono text-[13px] break-all text-slate-500">
+                          {workspace.endpoint ?? "-"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 align-middle text-sm text-slate-500">
+                      {workspace.updatedAt ?? "-"}
+                    </TableCell>
+                    <TableCell className="px-4 py-4 align-middle">
+                      <div className="flex items-center justify-end gap-2">
+                        {workspace.loginUrl ? (
+                          <a
+                            href={workspace.loginUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={cn(
+                              buttonVariants({ size: "sm" }),
+                              "border-sky-500 bg-sky-600 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-sky-500",
+                            )}
+                          >
+                            登录
+                          </a>
+                        ) : (
+                          <Button variant="outline" size="sm" disabled>
+                            登录
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                          disabled={deleteWorkspace.isPending}
+                          onClick={() => void handleDelete(workspace.name)}
+                          title={`删除远程桌面 ${workspace.name}`}
+                        >
+                          {deleteWorkspace.isPending ? (
+                            <LoaderCircleIcon className="animate-spin" />
+                          ) : (
+                            <Trash2Icon />
+                          )}
+                          <span className="sr-only">
+                            删除远程桌面 {workspace.name}
+                          </span>
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : null}
       </ModuleSection>
 
@@ -522,7 +591,7 @@ export function WorkspaceShell() {
                       }));
                     }}
                   >
-                    <SelectTrigger className="w-full min-w-0 bg-white">
+                    <SelectTrigger className="w-full min-w-0 bg-white/80">
                       <SelectValue placeholder="选择分辨率" />
                     </SelectTrigger>
                     <SelectContent>
@@ -561,6 +630,7 @@ export function WorkspaceShell() {
               取消
             </Button>
             <Button
+              className={PRIMARY_ACTION_CLASS}
               disabled={
                 createWorkspace.isPending || !available || draft.name.length < 2
               }

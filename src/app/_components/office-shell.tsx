@@ -26,7 +26,6 @@ import {
 import { AdminChrome } from "@/app/_components/admin-chrome";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
-import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -479,7 +478,7 @@ export function OfficeShell({ snapshot }: Props) {
     : null;
   const HighlightedRoleIcon = highlightedRoleIcon;
   const highlightedTone = engineTone(highlightedAgent?.engine);
-  const openNativeWorkspace = async (
+  const openNativePage = async (
     agent: OfficeSnapshot["agents"][number],
   ) => {
     setHighlightedAgentId(agent.id);
@@ -507,20 +506,10 @@ export function OfficeShell({ snapshot }: Props) {
       nativeUrl = nativeUrl ?? null;
     }
 
-    nativeUrl = resolveBrowserNativeWorkspaceHref({
-      agentId: agent.id,
-      deviceId: agent.deviceId,
-      engine: agent.engine,
-      nativeUrl,
-      openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
-      hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
-      origin: window.location.origin,
-    });
-
     if (!nativeUrl) {
       openedWindow.close();
       pushFeedback(
-        `${k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"]} 工作区地址未配置。`,
+        `${k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"]} 原生页面地址未配置。`,
         "error",
       );
       return;
@@ -1066,7 +1055,7 @@ export function OfficeShell({ snapshot }: Props) {
               <SectionTitle
                 eyebrow="People"
                 title="当前所有人物"
-                description="点击人物卡片会新开窗口进入对应工作区，当前页仍保留系统级摘要。"
+                description="点击人物卡片会新开窗口进入对应原生页面，当前页仍保留系统级摘要。"
               />
 
               <div className="w-full sm:max-w-xs">
@@ -1086,7 +1075,7 @@ export function OfficeShell({ snapshot }: Props) {
               {agents.length === 0 ? (
                 <EmptyBlock
                   title="还没有可展示的人物"
-                  description="先创建人物，列表会自动出现，之后可直接打开对应工作区。"
+                  description="先创建人物，列表会自动出现，之后可直接打开对应原生页面。"
                 />
               ) : (
                 agents.map((agent) => {
@@ -1101,7 +1090,7 @@ export function OfficeShell({ snapshot }: Props) {
                       type="button"
                       key={agent.id}
                       aria-pressed={isHighlighted}
-                      onClick={() => openNativeWorkspace(agent)}
+                      onClick={() => openNativePage(agent)}
                       onMouseEnter={() => setHighlightedAgentId(agent.id)}
                       onFocus={() => setHighlightedAgentId(agent.id)}
                       className={cn(
@@ -1149,7 +1138,7 @@ export function OfficeShell({ snapshot }: Props) {
                           </div>
 
                           <div className="flex items-center gap-2 text-sm text-[#5f5347]">
-                            <span>进入工作区</span>
+                            <span>进入原生页面</span>
                             <ArrowRightIcon className="size-4 transition-transform duration-200 group-hover:translate-x-1" />
                           </div>
                         </div>
@@ -1207,7 +1196,7 @@ export function OfficeShell({ snapshot }: Props) {
                 <SectionTitle
                   eyebrow="Focused Workspace"
                   title="当前人物摘要"
-                  description="点击左侧人物会新开工作区，当前页右侧保留该人物的任务、设备和执行摘要。"
+                  description="点击左侧人物会新开原生页面，当前页右侧保留该人物的任务、设备和执行摘要。"
                 />
               </div>
 

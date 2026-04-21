@@ -29,7 +29,7 @@ const areaIcons = {
 
 function ColaMark() {
   return (
-    <div className="flex size-16 items-center justify-center rounded-[26px] bg-[linear-gradient(135deg,#60a5fa,#1d4ed8_52%,#0f172a)] text-xl font-semibold tracking-[0.12em] text-white shadow-[0_16px_36px_rgba(37,99,235,0.34)]">
+    <div className="flex size-14 items-center justify-center rounded-[var(--radius-card)] bg-[linear-gradient(135deg,#60a5fa,#2563eb_48%,#1e293b)] text-lg font-semibold tracking-[0.12em] text-white shadow-[0_16px_34px_rgba(37,99,235,0.28)]">
       C
     </div>
   );
@@ -40,14 +40,14 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const activeArea = productAreaForPath(pathname);
 
   return (
-    <div className="text-foreground h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.16),transparent_24%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_22%),linear-gradient(180deg,#f4f7fb_0%,#eff4f9_46%,#edf2f7_100%)]">
-      <div className="mx-auto grid h-full w-full max-w-[1760px] min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 px-3 py-3 lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1 lg:gap-5 lg:px-5 lg:py-5 xl:grid-cols-[296px_minmax(0,1fr)]">
-        <aside className="min-h-0 overflow-hidden rounded-[28px] border border-slate-800/80 bg-[linear-gradient(180deg,#0f172a_0%,#111827_54%,#172033_100%)] text-slate-50 shadow-[0_26px_80px_rgba(15,23,42,0.24)]">
+    <div className="text-foreground h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.13),transparent_24%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.1),transparent_22%),linear-gradient(180deg,#f5f8fc_0%,#eff4f9_48%,#eef3f8_100%)]">
+      <div className="mx-auto grid h-full min-h-0 w-full max-w-[1800px] grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 py-4 lg:grid-cols-[288px_minmax(0,1fr)] lg:grid-rows-1 lg:gap-6 lg:px-8 lg:py-8 xl:grid-cols-[304px_minmax(0,1fr)] xl:px-10 xl:py-10">
+        <aside className="min-h-0 overflow-hidden rounded-[var(--radius-shell)] border border-white/14 bg-[linear-gradient(180deg,rgba(30,41,59,0.94)_0%,rgba(33,44,61,0.9)_48%,rgba(35,46,64,0.84)_100%)] text-slate-50 shadow-[0_24px_68px_rgba(15,23,42,0.18)] supports-[backdrop-filter]:backdrop-blur-xl">
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4 lg:justify-center lg:px-5 lg:py-6">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-4 lg:justify-center lg:px-6 lg:py-7">
               <ColaMark />
               <div className="lg:hidden">
-                <p className="text-[11px] tracking-[0.28em] text-slate-400 uppercase">
+                <p className="text-[11px] tracking-[0.28em] text-slate-300 uppercase">
                   Cola
                 </p>
                 <p className="mt-1 text-sm font-medium tracking-[-0.02em] text-white">
@@ -57,7 +57,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex min-h-0 flex-col gap-4 px-3 py-3 lg:gap-6 lg:px-4 lg:py-5">
-              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none lg:grid lg:gap-1.5 lg:overflow-visible lg:pb-0">
+              <div className="scrollbar-none flex gap-2 overflow-x-auto pb-1 lg:grid lg:gap-1.5 lg:overflow-visible lg:pb-0">
                 {PRODUCT_AREAS.map((area) => {
                   const Icon = areaIcons[area.key];
                   const active = area.key === activeArea;
@@ -68,19 +68,19 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                       href={area.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group min-w-[148px] shrink-0 rounded-[18px] border px-3 py-3 transition-all duration-200 lg:min-w-0 lg:rounded-[20px] lg:px-3.5",
+                        "group min-w-[148px] shrink-0 rounded-[var(--radius-card)] border px-3 py-3 transition-all duration-200 lg:min-w-0 lg:px-3.5",
                         active
-                          ? "border-white/12 bg-white/12 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                          : "border-transparent text-slate-300 hover:border-white/10 hover:bg-white/6 hover:text-white",
+                          ? "border-white/16 bg-white/10 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(125,211,252,0.06)]"
+                          : "border-transparent text-slate-200/88 hover:border-sky-200/14 hover:bg-white/8 hover:text-white hover:shadow-[inset_0_0_0_1px_rgba(125,211,252,0.12),0_12px_22px_rgba(15,23,42,0.08)]",
                       )}
                     >
                       <div className="flex items-start gap-3">
                         <span
                           className={cn(
-                            "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl",
+                            "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-[10px] transition-colors",
                             active
                               ? "bg-white/12 text-white"
-                              : "bg-slate-800/80 text-slate-300 group-hover:bg-white/10 group-hover:text-white",
+                              : "bg-slate-700/65 text-slate-200 group-hover:bg-sky-300/10 group-hover:text-white",
                           )}
                         >
                           <Icon className="size-4" />
@@ -92,12 +92,12 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                               {area.title}
                             </span>
                             {active ? (
-                              <Badge className="border-0 bg-sky-400/16 text-sky-100">
+                              <Badge className="border-0 bg-sky-300/18 text-sky-100">
                                 Active
                               </Badge>
                             ) : null}
                           </div>
-                          <p className="mt-1 hidden text-xs leading-5 text-inherit/72 lg:block">
+                          <p className="mt-1 hidden text-xs leading-5 text-inherit/80 lg:block">
                             {area.description}
                           </p>
                         </div>
@@ -110,9 +110,9 @@ export function AdminChrome({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <main className="min-w-0 min-h-0">
-          <div className="h-full min-h-0 overflow-hidden rounded-[30px] border border-white/72 bg-white/64 shadow-[0_24px_72px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-            <div className="h-full min-h-0 overflow-y-auto p-4 scrollbar-none md:p-5 xl:p-6">
+        <main className="min-h-0 min-w-0">
+          <div className="h-full min-h-0 overflow-hidden rounded-[var(--radius-shell)] border border-white/80 bg-white/70 shadow-[0_24px_72px_rgba(15,23,42,0.07)] supports-[backdrop-filter]:backdrop-blur-2xl">
+            <div className="scrollbar-none h-full min-h-0 overflow-y-auto p-4 md:p-6 xl:p-8">
               {children}
             </div>
           </div>

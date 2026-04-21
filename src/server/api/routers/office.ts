@@ -7,10 +7,6 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { db } from "@/server/db";
 import {
-  mergeNativeWorkspaceUrl,
-  resolveNativeWorkspaceHref,
-} from "@/lib/office-routing";
-import {
   agents,
   approvals,
   devices,
@@ -223,34 +219,6 @@ async function resolveDeviceDashboardUrl(
     typeof metadata.engine === "string"
       ? metadata.engine
       : null;
-  const agentId =
-    metadata &&
-    "agentId" in metadata &&
-    typeof metadata.agentId === "string"
-      ? metadata.agentId
-      : null;
-  const runtime =
-    metadata &&
-    "runtime" in metadata &&
-    typeof metadata.runtime === "string"
-      ? metadata.runtime
-      : "docker";
-
-  const templateUrl =
-    agentId &&
-    (engine === "openclaw" || engine === "hermes-agent")
-      ? resolveNativeWorkspaceHref({
-          agentId,
-          deviceId: device.id,
-          engine,
-          openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
-          hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
-        })
-      : null;
-
-  if (templateUrl && (engine !== "openclaw" || runtime === "kubernetes")) {
-    return templateUrl;
-  }
 
   if (engine !== "openclaw" || !containerName || !currentUrl) {
     return currentUrl;
@@ -289,14 +257,9 @@ async function resolveDeviceDashboardUrl(
     );
     controlUrl.hash = freshUrl.hash;
 
-    return templateUrl
-      ? mergeNativeWorkspaceUrl({
-          nativeUrl: controlUrl.toString(),
-          templateUrl,
-        })
-      : controlUrl.toString();
+    return controlUrl.toString();
   } catch {
-    return null;
+    return currentUrl;
   }
 }
 

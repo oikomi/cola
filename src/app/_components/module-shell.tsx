@@ -14,7 +14,7 @@ export function ModulePageShell({
 }) {
   return (
     <AdminChrome>
-      <div className={cn("flex flex-col gap-4", className)}>{children}</div>
+      <div className={cn("flex flex-col gap-6", className)}>{children}</div>
     </AdminChrome>
   );
 }
@@ -41,66 +41,70 @@ export function ModuleHero({
   if (size === "compact") {
     return (
       <>
-        <section className="relative overflow-hidden rounded-[22px] border border-slate-900/80 bg-[linear-gradient(135deg,#0f172a_0%,#172033_42%,#1e293b_100%)] px-3.5 py-2.5 text-slate-50 shadow-[0_14px_30px_rgba(15,23,42,0.09)] md:px-4 md:py-3">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,rgba(96,165,250,0.14),transparent_18%),radial-gradient(circle_at_88%_14%,rgba(14,165,233,0.1),transparent_16%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+        <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] px-6 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.045)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_18%,rgba(96,165,250,0.12),transparent_24%),radial-gradient(circle_at_92%_0%,rgba(14,165,233,0.08),transparent_22%)]" />
 
-          <div className="relative flex flex-col gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-3">
-            <div className="min-w-0 space-y-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <div className="flex size-[30px] shrink-0 items-center justify-center rounded-[11px] bg-white/8 text-slate-50 ring-1 ring-white/10">
-                  <Icon className="size-3" />
+          <div className="relative flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-4">
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                  <Icon className="size-4" />
                 </div>
-                <h1 className="truncate text-[1.28rem] leading-none font-semibold tracking-[-0.05em] text-white md:text-[1.55rem]">
-                  {title}
-                </h1>
-                <Badge className="border-0 bg-white/10 text-white">
-                  {eyebrow}
-                </Badge>
-                {badges}
-              </div>
 
-              <p className="max-w-[44rem] pl-[38px] text-[11px] leading-4 text-slate-300">
-                {description}
-              </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="border border-slate-200/90 bg-white/86 text-slate-700">
+                      {eyebrow}
+                    </Badge>
+                    {badges}
+                  </div>
+                  <h1 className="mt-2 truncate text-[1.5rem] leading-none font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.7rem]">
+                    {title}
+                  </h1>
+                  <p className="mt-2 max-w-[44rem] text-sm leading-6 text-slate-600">
+                    {description}
+                  </p>
+                </div>
+              </div>
             </div>
 
             {actions ? (
-              <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-[30px] [&_[data-slot=button]]:rounded-full [&_[data-slot=button]]:px-3 [&_[data-slot=button]]:text-[13px]">
+              <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:px-4 [&_[data-slot=button]]:text-[13px]">
                 {actions}
               </div>
             ) : null}
           </div>
         </section>
 
-        {children ? <div className="mt-1.5">{children}</div> : null}
+        {children ? <div className="mt-3">{children}</div> : null}
       </>
     );
   }
 
   return (
     <>
-      <section className="relative overflow-hidden rounded-[24px] border border-slate-900/80 bg-[linear-gradient(135deg,#0f172a_0%,#172033_42%,#1e293b_100%)] px-4 py-3 text-slate-50 shadow-[0_18px_42px_rgba(15,23,42,0.11)] md:px-[18px] md:py-3.5">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,rgba(96,165,250,0.18),transparent_18%),radial-gradient(circle_at_88%_14%,rgba(14,165,233,0.14),transparent_16%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
+      <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.88))] px-6 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.05)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,rgba(96,165,250,0.12),transparent_22%),radial-gradient(circle_at_88%_14%,rgba(14,165,233,0.08),transparent_18%)]" />
 
-        <div className="relative flex flex-col gap-3 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-3.5">
+        <div className="relative flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-4">
           <div className="flex items-start gap-2.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-[14px] bg-white/8 text-slate-50 ring-1 ring-white/10">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
               <Icon className="size-[14px]" />
             </div>
 
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border-0 bg-white/10 text-white">
+                <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
                   {eyebrow}
                 </Badge>
                 {badges}
               </div>
 
               <div className="space-y-0.5">
-                <h1 className="max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-[-0.05em] md:text-[2rem]">
+                <h1 className="max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-[-0.05em] text-slate-950 md:text-[2rem]">
                   {title}
                 </h1>
-                <p className="max-w-3xl text-[13px] leading-5 text-slate-300 md:max-w-2xl">
+                <p className="max-w-3xl text-[13px] leading-6 text-slate-600 md:max-w-2xl">
                   {description}
                 </p>
               </div>
@@ -115,7 +119,7 @@ export function ModuleHero({
         </div>
       </section>
 
-      {children ? <div className="mt-2.5">{children}</div> : null}
+      {children ? <div className="mt-3">{children}</div> : null}
     </>
   );
 }
@@ -140,20 +144,20 @@ export function ModuleMetricCard({
       className={cn(
         "border border-slate-200/90 bg-white/88",
         isCompact
-          ? "rounded-[16px] px-3 py-2 shadow-[0_6px_14px_rgba(15,23,42,0.032)]"
-          : "rounded-[18px] px-3.5 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)]",
+          ? "rounded-[var(--radius-card)] px-4 py-3 shadow-[0_10px_22px_rgba(15,23,42,0.038)]"
+          : "rounded-[var(--radius-card)] px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)]",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] tracking-[0.16em] text-slate-500 uppercase">
+          <p className="text-[10px] tracking-[0.16em] text-slate-600 uppercase">
             {label}
           </p>
           <p
             className={cn(
               "font-semibold tracking-[-0.05em] text-slate-950",
               isCompact
-                ? "mt-0.5 text-[1.32rem] leading-none"
+                ? "mt-1 text-[1.25rem] leading-none"
                 : "mt-1.5 text-[1.85rem]",
             )}
           >
@@ -163,7 +167,9 @@ export function ModuleMetricCard({
         <div
           className={cn(
             "flex items-center justify-center bg-slate-100 text-slate-600 ring-1 ring-slate-200",
-            isCompact ? "size-[26px] rounded-[11px]" : "size-8 rounded-[14px]",
+            isCompact
+              ? "size-[28px] rounded-[10px]"
+              : "size-8 rounded-[var(--radius-card)]",
           )}
         >
           <Icon className={cn(isCompact ? "size-3" : "size-[14px]")} />
@@ -173,7 +179,7 @@ export function ModuleMetricCard({
         className={cn(
           "text-slate-500",
           isCompact
-            ? "mt-0.5 text-[11px] leading-4"
+            ? "mt-1 text-[12px] leading-5"
             : "mt-1.5 text-[13px] leading-[1.15rem]",
         )}
       >
@@ -199,16 +205,16 @@ export function ModuleSection({
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-[30px] border border-slate-200/90 bg-white/86 shadow-[0_18px_56px_rgba(15,23,42,0.06)]",
+        "overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/84 shadow-[0_18px_56px_rgba(15,23,42,0.055)]",
         className,
       )}
     >
-      <div className="flex flex-col gap-4 border-b border-slate-200/80 px-6 py-5 md:flex-row md:items-start md:justify-between md:px-7">
+      <div className="flex flex-col gap-4 border-b border-slate-200/80 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
         <div className="space-y-2">
-          <h2 className="text-2xl font-semibold tracking-[-0.05em] text-slate-950">
+          <h2 className="text-[1.5rem] font-semibold tracking-[-0.05em] text-slate-950">
             {title}
           </h2>
-          <p className="max-w-2xl text-sm leading-6 text-slate-500">
+          <p className="max-w-2xl text-sm leading-6 text-slate-600">
             {description}
           </p>
         </div>
@@ -217,7 +223,7 @@ export function ModuleSection({
         ) : null}
       </div>
 
-      <div className="px-6 py-6 md:px-7">{children}</div>
+      <div className="px-6 py-6 md:px-8">{children}</div>
     </section>
   );
 }
@@ -232,7 +238,7 @@ export function ModuleEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-[28px] border border-dashed border-slate-300 bg-slate-50/80 px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center rounded-[var(--radius-shell)] border border-dashed border-slate-300 bg-slate-50/80 px-8 py-16 text-center">
       <p className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
         {title}
       </p>

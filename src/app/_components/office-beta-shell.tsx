@@ -38,7 +38,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
-import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
 import { cn } from "@/lib/utils";
 import {
@@ -420,7 +419,7 @@ function getCameraPose(
 ) {
   const baseTarget = {
     x: size.width * 0.5,
-    y: size.height * 0.53,
+    y: size.height * 0.5,
   };
   const focusedTarget = {
     x: size.width * 0.46,
@@ -431,8 +430,8 @@ function getCameraPose(
       ? 0.66
       : 0.86
     : size.width < 900
-      ? 0.6
-      : 0.76;
+      ? 0.58
+      : 0.74;
   const anchor = focused
     ? { x: focused.screenX, y: focused.screenY }
     : getDefaultSceneAnchor();
@@ -2353,7 +2352,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     });
   };
 
-  const openNativeWorkspace = async () => {
+  const openNativePage = async () => {
     if (!selectedAgent || typeof window === "undefined") return;
 
     const openedWindow = window.open("about:blank", "_blank");
@@ -2373,19 +2372,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
       nativeUrl = nativeUrl ?? null;
     }
 
-    nativeUrl = resolveBrowserNativeWorkspaceHref({
-      agentId: selectedAgent.id,
-      deviceId: selectedAgent.deviceId,
-      engine: selectedAgent.engine,
-      nativeUrl,
-      openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
-      hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
-      origin: window.location.origin,
-    });
-
     if (!nativeUrl) {
       openedWindow.close();
-      setFeedback("当前人物的工作区地址未配置。");
+      setFeedback("当前人物的原生页面地址未配置。");
       return;
     }
 
@@ -2577,10 +2566,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 <div className="mt-4 flex gap-2">
                   <Button
                     className="flex-1 rounded-full bg-[#f5e2cf] text-[#7d3300] hover:bg-[#eed4bc]"
-                    onClick={() => void openNativeWorkspace()}
+                    onClick={() => void openNativePage()}
                   >
                     <ExternalLinkIcon />
-                    进入工作区
+                    进入原生页面
                   </Button>
                   <Button
                     variant="outline"
