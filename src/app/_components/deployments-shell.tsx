@@ -116,52 +116,6 @@ function Field(props: { label: string; children: ReactNode; hint?: string }) {
   );
 }
 
-function FormSection(props: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-[28px] border border-slate-200/90 bg-white/92 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-      <div className="flex flex-col gap-1.5 border-b border-slate-200/80 pb-4">
-        <span className="text-[10px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-          {props.eyebrow}
-        </span>
-        <h3 className="text-lg font-semibold tracking-[-0.04em] text-slate-950">
-          {props.title}
-        </h3>
-        <p className="text-sm leading-6 text-slate-600">{props.description}</p>
-      </div>
-      <div className="mt-4 grid gap-4">{props.children}</div>
-    </section>
-  );
-}
-
-function SummaryItem(props: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  subdued?: boolean;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <span className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-        {props.label}
-      </span>
-      <span
-        className={cn(
-          "text-sm leading-6 break-all",
-          props.mono ? "font-mono text-[13px]" : "font-medium",
-          props.subdued ? "text-slate-500" : "text-slate-800",
-        )}
-      >
-        {props.value}
-      </span>
-    </div>
-  );
-}
-
 function resourceLabel(row: DeploymentRow) {
   return `${row.gpuCount} GPU · ${row.cpu} CPU · ${row.memory}`;
 }
@@ -463,7 +417,6 @@ export function DeploymentsShell() {
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
-  const normalizedDraftName = draft.name.trim() || "未命名部署";
   const modelRefValid = isHuggingFaceModelRef(trimmedModelRef);
   const effectiveGpuCount =
     Number.isInteger(parsedGpuCount) && parsedGpuCount > 0 ? parsedGpuCount : 1;
@@ -471,21 +424,6 @@ export function DeploymentsShell() {
     draft.engine,
     effectiveGpuCount,
   );
-  const usesDefaultImage = trimmedImage === defaultImageForDraft;
-  const resourcePreview = [
-    `${Number.isInteger(parsedGpuCount) && parsedGpuCount > 0 ? parsedGpuCount : "?"} GPU`,
-    `${draft.cpu.trim() || "?"} CPU`,
-    `${
-      Number.isInteger(parsedMemoryGi) && parsedMemoryGi > 0
-        ? `${parsedMemoryGi}Gi`
-        : "? Gi"
-    } Memory`,
-    `${
-      Number.isInteger(parsedReplicaCount) && parsedReplicaCount > 0
-        ? `${parsedReplicaCount} 副本`
-        : "? 副本"
-    }`,
-  ].join(" · ");
   const canSubmit =
     draft.name.trim().length >= 2 &&
     modelRefValid &&
@@ -822,300 +760,189 @@ export function DeploymentsShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 bg-background/95 text-foreground max-h-[88vh] max-w-[980px] overflow-hidden p-0 backdrop-blur-xl">
+        <DialogContent className="border-border/70 bg-background/95 text-foreground max-w-[760px] p-0 backdrop-blur-xl">
           <DialogHeader className="border-border/70 border-b px-6 py-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <DialogTitle className="text-2xl tracking-[-0.04em]">
-                  创建推理部署
-                </DialogTitle>
-                <DialogDescription className="text-muted-foreground mt-2 max-w-2xl text-sm leading-6">
-                  运行时会部署成 Kubernetes Deployment。创建后先以草稿保存，点击上线后再扩容到目标副本。
-                </DialogDescription>
-              </div>
+            <DialogTitle className="text-2xl tracking-[-0.04em]">
+              创建推理部署
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground text-sm leading-6">
+              当前只支持 Hugging Face 模型引用。创建后会先保存为草稿，点击上线后再扩到目标副本。
+            </DialogDescription>
+          </DialogHeader>
 
+          <div className="grid gap-5 px-6 py-5">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+              <Field label="部署名称">
+                <Input
+                  value={draft.name}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="例如：qwen3-chat-prod"
+                />
+              </Field>
+
+              <Field label="Runtime">
+                <Select
+                  value={draft.engine}
+                  onValueChange={(value) => {
+                    if (!value) return;
+
+                    setDraft((current) => ({
+                      ...current,
+                      engine: value,
+                      image: defaultInferenceImage(
+                        value,
+                        Number.parseInt(current.gpuCount, 10) || 0,
+                      ),
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="选择 runtime" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {creatableInferenceDeploymentEngineValues.map((engine) => (
+                        <SelectItem key={engine} value={engine}>
+                          {inferenceDeploymentEngineLabels[engine]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <div className="grid gap-4">
+              <Field
+                label="模型引用"
+                hint="只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct"
+              >
+                <Input
+                  value={draft.modelRef}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      modelRef: event.target.value,
+                    }))
+                  }
+                  placeholder="Qwen/Qwen3-8B-Instruct"
+                />
+              </Field>
+
+              <Field
+                label="运行镜像"
+                hint={`默认镜像：${defaultImageForDraft}`}
+              >
+                <Input
+                  value={draft.image}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      image: event.target.value,
+                    }))
+                  }
+                  placeholder="vllm/vllm-openai:latest"
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <Field label="CPU">
+                <Input
+                  value={draft.cpu}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      cpu: event.target.value,
+                    }))
+                  }
+                  placeholder="8"
+                />
+              </Field>
+
+              <Field label="Memory Gi">
+                <Input
+                  type="number"
+                  min={1}
+                  max={2048}
+                  value={draft.memoryGi}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      memoryGi: event.target.value,
+                    }))
+                  }
+                  placeholder="32"
+                />
+              </Field>
+
+              <Field label="GPU" hint="当前 runtime 至少需要 1 GPU">
+                <Input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={draft.gpuCount}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      gpuCount: event.target.value,
+                      image: defaultInferenceImage(
+                        current.engine,
+                        Number.parseInt(event.target.value, 10) || 0,
+                      ),
+                    }))
+                  }
+                  placeholder="1"
+                />
+              </Field>
+
+              <Field label="副本数">
+                <Input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={draft.replicaCount}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      replicaCount: event.target.value,
+                    }))
+                  }
+                  placeholder="1"
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
               <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    modelRefValid
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-amber-200 bg-amber-50 text-amber-700",
+                  )}
+                >
+                  {modelRefValid
+                    ? "模型引用格式正确"
+                    : "请输入合法的 Hugging Face 模型 ID"}
+                </Badge>
                 <Badge
                   variant="outline"
                   className="border-slate-200 bg-white/85 text-slate-700"
                 >
-                  Hugging Face Only
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="border-sky-200 bg-sky-50 text-sky-700"
-                >
                   {inferenceDeploymentEngineLabels[draft.engine]}
                 </Badge>
               </div>
-            </div>
-          </DialogHeader>
-
-          <div className="max-h-[calc(88vh-9.75rem)] overflow-y-auto">
-            <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="grid gap-5 px-6 py-6">
-                <FormSection
-                  eyebrow="Identity"
-                  title="部署定义"
-                  description="先确定部署名称和运行时，这两项决定最终资源名和默认镜像。"
-                >
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                    <Field label="部署名称">
-                      <Input
-                        value={draft.name}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            name: event.target.value,
-                          }))
-                        }
-                        placeholder="例如：qwen3-chat-prod"
-                      />
-                    </Field>
-
-                    <Field label="Runtime">
-                      <Select
-                        value={draft.engine}
-                        onValueChange={(value) => {
-                          if (!value) return;
-
-                          setDraft((current) => ({
-                            ...current,
-                            engine: value,
-                            image: defaultInferenceImage(
-                              value,
-                              Number.parseInt(current.gpuCount, 10) || 0,
-                            ),
-                          }));
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="选择 runtime" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {creatableInferenceDeploymentEngineValues.map(
-                              (engine) => (
-                                <SelectItem key={engine} value={engine}>
-                                  {inferenceDeploymentEngineLabels[engine]}
-                                </SelectItem>
-                              ),
-                            )}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </div>
-                </FormSection>
-
-                <FormSection
-                  eyebrow="Model"
-                  title="模型与镜像"
-                  description="模型引用只接受 Hugging Face 模型 ID；运行镜像默认跟随 runtime，也可以手动覆盖。"
-                >
-                  <Field
-                    label="模型引用"
-                    hint="格式示例：Qwen/Qwen3-8B-Instruct"
-                  >
-                    <Input
-                      value={draft.modelRef}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          modelRef: event.target.value,
-                        }))
-                      }
-                      placeholder="Qwen/Qwen3-8B-Instruct"
-                    />
-                  </Field>
-
-                  <Field
-                    label="运行镜像"
-                    hint={`默认镜像：${defaultImageForDraft}`}
-                  >
-                    <Input
-                      value={draft.image}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          image: event.target.value,
-                        }))
-                      }
-                      placeholder="vllm/vllm-openai:latest"
-                    />
-                  </Field>
-                </FormSection>
-
-                <FormSection
-                  eyebrow="Resources"
-                  title="资源规格"
-                  description="GPU 必填，副本数决定上线后的目标规模。"
-                >
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <Field label="CPU">
-                      <Input
-                        value={draft.cpu}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            cpu: event.target.value,
-                          }))
-                        }
-                        placeholder="8"
-                      />
-                    </Field>
-
-                    <Field label="Memory Gi">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={2048}
-                        value={draft.memoryGi}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            memoryGi: event.target.value,
-                          }))
-                        }
-                        placeholder="32"
-                      />
-                    </Field>
-
-                    <Field label="GPU" hint="当前 runtime 至少需要 1 GPU">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={16}
-                        value={draft.gpuCount}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            gpuCount: event.target.value,
-                            image: defaultInferenceImage(
-                              current.engine,
-                              Number.parseInt(event.target.value, 10) || 0,
-                            ),
-                          }))
-                        }
-                        placeholder="1"
-                      />
-                    </Field>
-
-                    <Field label="副本数">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={16}
-                        value={draft.replicaCount}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            replicaCount: event.target.value,
-                          }))
-                        }
-                        placeholder="1"
-                      />
-                    </Field>
-                  </div>
-                </FormSection>
-
-                <FormSection
-                  eyebrow="Routing"
-                  title="调度与访问"
-                  description="当前控制面和服务入口都在 master，推理 Pod 会优先调度到 worker。"
-                >
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/75 p-4">
-                      <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-                        调度策略
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-700">
-                        推理 Pod 优先调度到非 master worker 节点，避免和 Web 控制面抢占同一台主机。
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/75 p-4">
-                      <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-                        外部入口
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-700">
-                        服务统一通过 master NodePort 暴露，创建后会生成可直接访问的 HTTP 地址。
-                      </p>
-                    </div>
-                  </div>
-                </FormSection>
-              </div>
-
-              <aside className="border-border/70 bg-slate-50/80 px-6 py-6 lg:border-l">
-                <div className="grid gap-4">
-                  <div className="rounded-[28px] border border-slate-200/90 bg-white/92 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                          Draft Preview
-                        </p>
-                        <h3 className="mt-2 text-lg font-semibold tracking-[-0.04em] text-slate-950">
-                          {normalizedDraftName}
-                        </h3>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="border-slate-200 bg-slate-50 text-slate-700"
-                      >
-                        {inferenceDeploymentEngineLabels[draft.engine]}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-4 grid gap-4">
-                      <SummaryItem
-                        label="模型引用"
-                        value={trimmedModelRef || "等待输入 Hugging Face 模型 ID"}
-                        mono
-                        subdued={!trimmedModelRef}
-                      />
-                      <SummaryItem
-                        label="运行镜像"
-                        value={trimmedImage || defaultImageForDraft}
-                        mono
-                        subdued={!trimmedImage}
-                      />
-                      <SummaryItem label="资源预览" value={resourcePreview} />
-                    </div>
-                  </div>
-
-                  <div className="rounded-[28px] border border-slate-200/90 bg-white/92 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-                    <p className="text-[10px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                      校验状态
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          modelRefValid
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700",
-                        )}
-                      >
-                        {modelRefValid
-                          ? "Hugging Face ID 合法"
-                          : "等待合法模型 ID"}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          usesDefaultImage
-                            ? "border-sky-200 bg-sky-50 text-sky-700"
-                            : "border-slate-200 bg-slate-50 text-slate-700",
-                        )}
-                      >
-                        {usesDefaultImage ? "使用默认镜像" : "已自定义镜像"}
-                      </Badge>
-                    </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-600">
-                      创建完成后先保持草稿状态。只有点击上线，Deployment 才会扩到你设置的目标副本数。
-                    </p>
-                  </div>
-                </div>
-              </aside>
+              <p className="text-sm leading-6 text-slate-600">
+                推理 Pod 会优先调度到非 master worker，服务入口统一走 master
+                NodePort。创建完成后先保留为草稿，点击上线才会扩到目标副本数。
+              </p>
             </div>
           </div>
 

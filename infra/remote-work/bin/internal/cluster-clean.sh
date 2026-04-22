@@ -9,7 +9,7 @@ require_cmd node
 
 DESTROY_CLUSTER=1
 PURGE_REMOTE_DATA=0
-PURGE_LOCAL_CACHE=1
+PURGE_LOCAL_CACHE=0
 AUTO_YES=0
 
 usage() {
@@ -19,12 +19,14 @@ Usage: ./bin/cluster.sh cluster clean [options]
 Destroy the current remote-work deployment and clean local state.
 By default it will:
   1. destroy the kubeasz cluster for the current clusterName
-  2. remove local runtime files under infra/remote-work/runtime
-  3. remove local /etc/kubeasz cluster config for the current cluster
+  2. remove local runtime state under infra/remote-work/runtime
+  3. keep local image archives and secondary-arch asset bundles for reuse
+  4. remove local /etc/kubeasz cluster config for the current cluster
 
 Options:
   --purge-remote-data      Also remove /var/lib/remote-work/workspaces on every node
-  --keep-local-cache       Keep infra/remote-work/runtime and cache files
+  --purge-local-cache      Also remove local image archives and secondary-arch asset bundles
+  --keep-local-cache       Backward-compatible alias; local cache is now kept by default
   --skip-destroy-cluster   Skip 'ezctl destroy', only clean local state
   --yes                    Do not ask for interactive confirmation
   -h, --help               Show this help message
@@ -35,6 +37,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --purge-remote-data)
       PURGE_REMOTE_DATA=1
+      shift
+      ;;
+    --purge-local-cache)
+      PURGE_LOCAL_CACHE=1
       shift
       ;;
     --keep-local-cache)
@@ -62,6 +68,39 @@ done
 ensure_runtime_dirs
 
 CLUSTER_NAME="$(cluster_name)"
+
+cleanup_local_secondary_arch_cache() {
+  local secondary_arch_dir="$RUNTIME_DIR/secondary-arch"
+  local path
+
+  [[ -d "$secondary_arch_dir" ]] || return 0
+
+  while IFS= read -r -d '' path; do
+    sudo rm -rf "$path"
+  done < <(
+    find "$secondary_arch_dir" -mindepth 1 -maxdepth 1 \
+      \( -type d -o -name '*.part' -o -name 'repo-sync.*.tar.gz' \) \
+      -print0
+  )
+}
+
+cleanup_local_runtime_state_preserving_cache() {
+  local path
+
+  [[ -d "$RUNTIME_DIR" ]] || return 0
+
+  print_step "清理 infra/remote-work/runtime 运行态，保留本地镜像/资产缓存"
+  while IFS= read -r -d '' path; do
+    sudo rm -rf "$path"
+  done < <(
+    find "$RUNTIME_DIR" -mindepth 1 -maxdepth 1 \
+      ! -name cache \
+      ! -name secondary-arch \
+      -print0
+  )
+
+  cleanup_local_secondary_arch_cache
+}
 
 cleanup_remote_secondary_arch_staging() {
   if ! command -v sshpass >/dev/null 2>&1 || ! command -v ssh >/dev/null 2>&1; then
@@ -132,6 +171,8 @@ sudo rm -rf "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"
 if [[ "$PURGE_LOCAL_CACHE" -eq 1 ]]; then
   print_step "清理 infra/remote-work/runtime"
   sudo rm -rf "$RUNTIME_DIR"
+else
+  cleanup_local_runtime_state_preserving_cache
 fi
 
 echo "remote-work 清理完成。"

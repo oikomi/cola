@@ -391,10 +391,10 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 ./bin/cluster.sh cluster clean --yes --purge-remote-data
 ```
 
-如果只想删集群，但保留本地 `runtime/` 缓存：
+默认会保留本地镜像归档和 `secondary-arch` 资产包，后续重装会直接复用；只有明确要求时才连缓存一起删：
 
 ```bash
-./bin/cluster.sh cluster clean --yes --keep-local-cache
+./bin/cluster.sh cluster clean --yes --purge-local-cache
 ```
 
 ## 12. 已知边界
