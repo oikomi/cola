@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { readClusterData } from "../../infra/remote-work/bin/cluster-utils.mjs";
+import { readClusterData } from "../../infra/k8s/bin/cluster-utils.mjs";
 import { parseArgs, requireArgs } from "./cli-utils.mjs";
 import { buildWorkspaceManifest } from "./workspace-utils.mjs";
 import {

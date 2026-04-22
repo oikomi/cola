@@ -22,13 +22,9 @@ import {
   isHuggingFaceModelRef,
 } from "@/server/deployments/catalog";
 
-const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
-const CLUSTER_CONFIG_PATH = path.join(
-  REMOTE_WORK_DIR,
-  "cluster",
-  "config.json",
-);
-const CLUSTER_NODES_PATH = path.join(REMOTE_WORK_DIR, "cluster", "nodes.json");
+const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
+const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
+const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 
 const INFERENCE_DEPLOYMENT_PREFIX = "inference-";
 const INFERENCE_SERVICE_SUFFIX = "-svc";
@@ -209,7 +205,11 @@ function normalizeGpuCount(
 }
 
 function normalizeReplicaCount(replicaCount: number) {
-  if (!Number.isInteger(replicaCount) || replicaCount <= 0 || replicaCount > 16) {
+  if (
+    !Number.isInteger(replicaCount) ||
+    replicaCount <= 0 ||
+    replicaCount > 16
+  ) {
     throw new Error("副本数必须是 1 到 16 之间的整数。");
   }
 
@@ -319,9 +319,7 @@ function selectEligibleInferenceNodes(params: {
         ready: live ? isReady(live) : false,
         isMaster: node.roles.includes("master"),
         allocatableGpu: live ? allocatableGpuCount(live) : 0,
-        gpuCapable: live
-          ? isGpuCapable(node, live, params.gpuLabelKey)
-          : false,
+        gpuCapable: live ? isGpuCapable(node, live, params.gpuLabelKey) : false,
         workloadCount: countInferenceDeploymentsOnNode(
           params.deployments,
           node.name,
@@ -385,7 +383,10 @@ function resolveInferenceNodePort(services: V1Service[]) {
   throw new Error("无法为推理部署自动分配 NodePort。");
 }
 
-function resolveControllerAccessHost(config: ClusterConfig, nodes: ClusterNode[]) {
+function resolveControllerAccessHost(
+  config: ClusterConfig,
+  nodes: ClusterNode[],
+) {
   if (config.controllerIp) return config.controllerIp;
 
   return nodes.find((node) => node.roles.includes("master"))?.ip ?? null;
@@ -432,7 +433,9 @@ function deploymentAnnotations(input: {
 }
 
 function resolveLlamaModelPath(modelRef: string) {
-  return modelRef.startsWith("/") ? modelRef : path.posix.join("/models", modelRef);
+  return modelRef.startsWith("/")
+    ? modelRef
+    : path.posix.join("/models", modelRef);
 }
 
 function buildRuntimeCommand(input: {
@@ -469,10 +472,7 @@ function buildRuntimeCommand(input: {
           "-c",
           process.env.LLAMA_CPP_CONTEXT_SIZE ?? "4096",
           ...(input.gpuCount > 0
-            ? [
-                "--n-gpu-layers",
-                process.env.LLAMA_CPP_GPU_LAYERS ?? "999",
-              ]
+            ? ["--n-gpu-layers", process.env.LLAMA_CPP_GPU_LAYERS ?? "999"]
             : []),
         ],
       };
@@ -795,8 +795,9 @@ async function listInferenceResources(ctx: KubeContext) {
     services: (services.items ?? []).filter((service) =>
       service.metadata?.name?.startsWith(INFERENCE_DEPLOYMENT_PREFIX),
     ),
-    pods: (pods.items ?? []).filter((pod) =>
-      pod.metadata?.labels?.["app.kubernetes.io/name"] === "cola-inference",
+    pods: (pods.items ?? []).filter(
+      (pod) =>
+        pod.metadata?.labels?.["app.kubernetes.io/name"] === "cola-inference",
     ),
     liveNodes: liveNodes.items ?? [],
   };
@@ -831,12 +832,20 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
   }
 
   const { deployments, services, pods } = await listInferenceResources(ctx);
-  const controllerAccessHost = resolveControllerAccessHost(ctx.config, ctx.nodes);
+  const controllerAccessHost = resolveControllerAccessHost(
+    ctx.config,
+    ctx.nodes,
+  );
 
   const serviceByName = new Map(
     services
-      .map((service) => [inferenceNameFromResource(service.metadata?.name), service] as const)
-      .filter((entry): entry is readonly [string, V1Service] => Boolean(entry[0])),
+      .map(
+        (service) =>
+          [inferenceNameFromResource(service.metadata?.name), service] as const,
+      )
+      .filter((entry): entry is readonly [string, V1Service] =>
+        Boolean(entry[0]),
+      ),
   );
 
   const podNodesByName = new Map<string, Set<string>>();
@@ -863,14 +872,15 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
       const limits =
         container?.resources?.limits ?? container?.resources?.requests ?? {};
       const desiredReplicas = Number.parseInt(
-        deployment.metadata?.annotations?.[INFERENCE_METADATA.desiredReplicas] ??
-          String(deployment.spec?.replicas ?? 0),
+        deployment.metadata?.annotations?.[
+          INFERENCE_METADATA.desiredReplicas
+        ] ?? String(deployment.spec?.replicas ?? 0),
         10,
       );
       const engine =
-        (deployment.metadata?.annotations?.[
-          INFERENCE_METADATA.engine
-        ] as InferenceDeploymentEngine | undefined) ?? "vllm";
+        (deployment.metadata?.annotations?.[INFERENCE_METADATA.engine] as
+          | InferenceDeploymentEngine
+          | undefined) ?? "vllm";
       const updatedSource = latestTimestamp([
         ...((deployment.status?.conditions ?? []).map(
           (condition) => condition.lastTransitionTime,
@@ -935,7 +945,8 @@ export async function createInferenceDeployment(
 
   await ensureNamespace(ctx.coreApi, ctx.namespace);
 
-  const { deployments, services, liveNodes } = await listInferenceResources(ctx);
+  const { deployments, services, liveNodes } =
+    await listInferenceResources(ctx);
   const existing = deployments.some(
     (deployment) =>
       inferenceNameFromResource(deployment.metadata?.name) === input.name,
@@ -986,7 +997,10 @@ export async function createInferenceDeployment(
     throw error;
   }
 
-  const controllerAccessHost = resolveControllerAccessHost(ctx.config, ctx.nodes);
+  const controllerAccessHost = resolveControllerAccessHost(
+    ctx.config,
+    ctx.nodes,
+  );
 
   return {
     name: input.name,
@@ -1024,10 +1038,11 @@ function buildReplacementDeployment(input: {
     10,
   );
   const engine =
-    (metadata?.annotations?.[
-      INFERENCE_METADATA.engine
-    ] as InferenceDeploymentEngine | undefined) ?? "vllm";
-  const modelRef = metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? input.name;
+    (metadata?.annotations?.[INFERENCE_METADATA.engine] as
+      | InferenceDeploymentEngine
+      | undefined) ?? "vllm";
+  const modelRef =
+    metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? input.name;
 
   return {
     apiVersion: input.deployment.apiVersion,
@@ -1066,7 +1081,8 @@ export async function startInferenceDeployment(name: string) {
   const ctx = await createKubeContext();
   const deployment = await readInferenceDeployment(ctx, name);
   const desiredReplicas = Number.parseInt(
-    deployment.metadata?.annotations?.[INFERENCE_METADATA.desiredReplicas] ?? "1",
+    deployment.metadata?.annotations?.[INFERENCE_METADATA.desiredReplicas] ??
+      "1",
     10,
   );
 

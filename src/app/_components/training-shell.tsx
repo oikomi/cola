@@ -146,6 +146,11 @@ const minimalQwenLoraRuntimeNotes = [
   "任务完成后会把 LoRA adapter 写到产物目录下的 adapter/ 子目录。",
 ] as const;
 
+const dialogControlClassName =
+  "h-11 rounded-2xl border-slate-200/90 bg-white/92 px-3 text-[15px] shadow-[0_1px_0_rgba(255,255,255,0.7)]";
+const dialogTextareaClassName =
+  "min-h-[152px] rounded-[24px] border-slate-200/90 bg-white/92 px-4 py-3 text-[15px] leading-7 shadow-[0_1px_0_rgba(255,255,255,0.7)]";
+
 function formatTime(value: Date | string | null | undefined) {
   if (!value) return "未启动";
 
@@ -205,17 +210,58 @@ function runtimeSummaryTone(
   }
 }
 
-function Field(props: { label: string; children: ReactNode; hint?: string }) {
+function Field(props: {
+  label: string;
+  children: ReactNode;
+  hint?: string;
+  className?: string;
+  labelClassName?: string;
+}) {
   return (
-    <label className="grid gap-2">
-      <span className="text-muted-foreground text-xs font-medium tracking-[0.18em] uppercase">
+    <label className={cn("grid gap-2.5", props.className)}>
+      <span
+        className={cn(
+          "text-sm leading-5 font-medium text-slate-700",
+          props.labelClassName,
+        )}
+      >
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-muted-foreground text-xs">{props.hint}</span>
+        <span className="text-xs leading-5 text-slate-500">{props.hint}</span>
       ) : null}
     </label>
+  );
+}
+
+function FormSection(props: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]",
+        props.className,
+      )}
+    >
+      <div className="border-b border-slate-200/80 pb-4">
+        <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
+          {props.eyebrow}
+        </p>
+        <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+          {props.title}
+        </h3>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          {props.description}
+        </p>
+      </div>
+      <div className="mt-5 grid gap-5">{props.children}</div>
+    </section>
   );
 }
 
@@ -259,10 +305,7 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function getNestedValue(
-  source: unknown,
-  path: readonly string[],
-): unknown {
+function getNestedValue(source: unknown, path: readonly string[]): unknown {
   let current: unknown = source;
 
   for (const segment of path) {
@@ -380,20 +423,12 @@ function inferPrecision(
   if (precision === "auto") return "auto";
 
   const bf16 = asBooleanString(
-    pickFirstValue(source, [
-      ["bf16"],
-      ["trainer", "bf16"],
-      ["model", "bf16"],
-    ]),
+    pickFirstValue(source, [["bf16"], ["trainer", "bf16"], ["model", "bf16"]]),
   );
   if (bf16 === "true") return "bf16";
 
   const fp16 = asBooleanString(
-    pickFirstValue(source, [
-      ["fp16"],
-      ["trainer", "fp16"],
-      ["model", "fp16"],
-    ]),
+    pickFirstValue(source, [["fp16"], ["trainer", "fp16"], ["model", "fp16"]]),
   );
   if (fp16 === "true") return "fp16";
 
@@ -787,6 +822,21 @@ export function TrainingShell() {
       (Number.isInteger(parsedDeepspeedStage) &&
         parsedDeepspeedStage >= 2 &&
         parsedDeepspeedStage <= 3));
+  const hasStudioConfig = draft.studioConfigJson.trim().length > 0;
+  const summaryGpuCount = Number.isFinite(totalGpuCount) ? totalGpuCount : null;
+  const titleReady = draft.title.trim().length >= 3;
+  const objectiveReady = draft.objective.trim().length >= 8;
+  const modelAndDatasetReady =
+    draft.baseModel.trim().length >= 2 && draft.datasetName.trim().length >= 2;
+  const resourcePlanReady =
+    Number.isInteger(parsedNodeCount) &&
+    Number.isInteger(parsedGpusPerNode) &&
+    parsedNodeCount >= 1 &&
+    parsedNodeCount <= 32 &&
+    parsedGpusPerNode >= 1 &&
+    parsedGpusPerNode <= 16 &&
+    totalGpuCount >= 1 &&
+    totalGpuCount <= 128;
 
   function applyMinimalExample() {
     setDraft(minimalQwenLoraExample);
@@ -1183,7 +1233,9 @@ export function TrainingShell() {
           />
         ) : null}
 
-        {!jobsQuery.isLoading && jobs.length > 0 && filteredJobs.length === 0 ? (
+        {!jobsQuery.isLoading &&
+        jobs.length > 0 &&
+        filteredJobs.length === 0 ? (
           <ModuleEmptyState
             title="当前筛选下没有任务"
             description={
@@ -1326,7 +1378,8 @@ export function TrainingShell() {
                           ·{" "}
                           {
                             trainingPrecisionLabels[
-                              (job.precision ?? "auto") as keyof typeof trainingPrecisionLabels
+                              (job.precision ??
+                                "auto") as keyof typeof trainingPrecisionLabels
                             ]
                           }
                         </span>
@@ -1541,7 +1594,7 @@ export function TrainingShell() {
                     <p className="text-[11px] tracking-[0.18em] text-slate-500 uppercase">
                       Job
                     </p>
-                    <p className="mt-2 break-all font-medium text-slate-950">
+                    <p className="mt-2 font-medium break-all text-slate-950">
                       {runtimeDetail.jobName}
                     </p>
                   </div>
@@ -1549,7 +1602,7 @@ export function TrainingShell() {
                     <p className="text-[11px] tracking-[0.18em] text-slate-500 uppercase">
                       Service
                     </p>
-                    <p className="mt-2 break-all font-medium text-slate-950">
+                    <p className="mt-2 font-medium break-all text-slate-950">
                       {runtimeDetail.serviceName ?? "未记录"}
                     </p>
                   </div>
@@ -1557,7 +1610,7 @@ export function TrainingShell() {
                     <p className="text-[11px] tracking-[0.18em] text-slate-500 uppercase">
                       Leader Pod
                     </p>
-                    <p className="mt-2 break-all font-medium text-slate-950">
+                    <p className="mt-2 font-medium break-all text-slate-950">
                       {runtimeDetail.leaderPodName ?? "未记录"}
                     </p>
                   </div>
@@ -1622,9 +1675,7 @@ export function TrainingShell() {
                                   启动时间: {formatTime(pod.startedAt)} · Ready:{" "}
                                   {pod.ready ? "Yes" : "No"}
                                 </span>
-                                <span>
-                                  原因: {pod.reason ?? "无"}
-                                </span>
+                                <span>原因: {pod.reason ?? "无"}</span>
                                 {pod.containerStatuses.length > 0 ? (
                                   <span className="break-all">
                                     容器状态:{" "}
@@ -1729,406 +1780,665 @@ export function TrainingShell() {
       </Dialog>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 bg-background/95 text-foreground max-w-[880px] p-0 backdrop-blur-xl">
-          <DialogHeader className="border-border/70 border-b px-6 py-5">
-            <DialogTitle className="text-2xl tracking-[-0.04em]">
-              创建训练任务
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground text-sm leading-6">
-              当前启动后会提交到 Kubernetes，使用 Unsloth 容器通过
-              Indexed Job、Headless Service 和 torchrun 执行。数据集可填写
-              Hugging Face 数据集名，或挂载卷里的文件路径。
-            </DialogDescription>
+        <DialogContent className="max-h-[min(92vh,980px)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)_auto] border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(243,247,252,0.95))] p-0 text-slate-950 shadow-[0_32px_80px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:max-w-[1120px]">
+          <DialogHeader className="relative overflow-hidden border-b border-slate-200/80 px-4 py-5 sm:px-6">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.15),transparent_32%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.11),transparent_24%)]" />
+            <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                    Kubernetes Job
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="border-slate-200/90 bg-white/90"
+                  >
+                    Unsloth Runtime
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="border-slate-200/90 bg-white/90"
+                  >
+                    {summaryGpuCount ?? "-"} GPU
+                  </Badge>
+                </div>
+                <DialogTitle className="mt-3 text-[1.9rem] leading-none tracking-[-0.06em] text-slate-950">
+                  创建训练任务
+                </DialogTitle>
+                <DialogDescription className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                  把任务说明、模型数据和分布式 GPU
+                  规格整理成一张可提交的作业单。 提交后 Cola
+                  会创建训练记录，并交给 Kubernetes + Unsloth 容器执行。
+                </DialogDescription>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-full border-slate-200/90 bg-white/88 px-4"
+                  onClick={applyMinimalExample}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  带入最小示例
+                </Button>
+              </div>
+            </div>
           </DialogHeader>
 
-          <div className="grid gap-4 px-6 py-5">
-            <Field label="任务标题">
-              <Input
-                value={draft.title}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    title: event.target.value,
-                  }))
-                }
-                placeholder="例如：Qwen3 客服语料 LoRA 微调"
-              />
-            </Field>
-
-            <Field label="训练目标">
-              <Textarea
-                className="min-h-28 resize-none"
-                value={draft.objective}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    objective: event.target.value,
-                  }))
-                }
-                placeholder="说明任务目标、产出物和预期效果。"
-              />
-            </Field>
-
-            <div className="grid gap-4 md:grid-cols-4">
-              <Field label="配置来源">
-                <Select
-                  value={draft.configSource}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      configSource: value! ?? current.configSource,
-                    }))
-                  }
+          <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+              <div className="grid gap-5">
+                <FormSection
+                  eyebrow="Job Brief"
+                  title="任务概览"
+                  description="先写清任务背景和目标，再决定训练方式与优先级。这个分区负责回答“为什么要跑这次训练”。"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择配置来源" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {trainingConfigSourceValues.map((configSource) => (
-                        <SelectItem key={configSource} value={configSource}>
-                          {trainingConfigSourceLabels[configSource]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <Field label="任务标题">
+                    <Input
+                      className={dialogControlClassName}
+                      value={draft.title}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          title: event.target.value,
+                        }))
+                      }
+                      placeholder="例如：Qwen3 客服语料 LoRA 微调"
+                    />
+                  </Field>
 
-              <Field label="训练类型">
-                <Select
-                  value={draft.jobType}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      jobType: value ?? current.jobType,
-                    }))
-                  }
+                  <Field label="训练目标">
+                    <Textarea
+                      className={cn(dialogTextareaClassName, "resize-none")}
+                      value={draft.objective}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          objective: event.target.value,
+                        }))
+                      }
+                      placeholder="说明任务目标、产出物和预期效果。"
+                    />
+                  </Field>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="配置来源">
+                      <Select
+                        value={draft.configSource}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            configSource: value! ?? current.configSource,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择配置来源" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {trainingConfigSourceValues.map((configSource) => (
+                              <SelectItem
+                                key={configSource}
+                                value={configSource}
+                              >
+                                {trainingConfigSourceLabels[configSource]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label="训练类型">
+                      <Select
+                        value={draft.jobType}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            jobType: value ?? current.jobType,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择训练类型" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {trainingJobTypeValues.map((jobType) => (
+                              <SelectItem key={jobType} value={jobType}>
+                                {trainingJobTypeLabels[jobType]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label="优先级">
+                      <Select
+                        value={draft.priority}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            priority: value!,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择优先级" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {priorityValues.map((priority) => (
+                              <SelectItem key={priority} value={priority}>
+                                {priorityLabels[priority]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label="精度">
+                      <Select
+                        value={draft.precision}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            precision: value! ?? current.precision,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择精度" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {trainingPrecisionValues.map((precision) => (
+                              <SelectItem key={precision} value={precision}>
+                                {trainingPrecisionLabels[precision]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field
+                      label="4-bit 加载"
+                      className="md:col-span-2"
+                      hint="资源紧张时建议保持启用；正式训练前再评估精度与量化策略。"
+                    >
+                      <Select
+                        value={draft.loadIn4bit}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            loadIn4bit: value === "false" ? "false" : "true",
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择量化策略" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="true">启用 4-bit</SelectItem>
+                            <SelectItem value="false">关闭 4-bit</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                </FormSection>
+
+                <FormSection
+                  eyebrow="Model & Data"
+                  title="模型与数据"
+                  description="这里定义训练脚本要加载的基础模型与输入数据位置。Hugging Face 名称和挂载卷路径都支持。"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择训练类型" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {trainingJobTypeValues.map((jobType) => (
-                        <SelectItem key={jobType} value={jobType}>
-                          {trainingJobTypeLabels[jobType]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field
+                      label="基础模型"
+                      hint="填写 Hugging Face 模型名，或训练容器内可直接解析的模型 ID"
+                    >
+                      <Input
+                        className={dialogControlClassName}
+                        value={draft.baseModel}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            baseModel: event.target.value,
+                          }))
+                        }
+                        placeholder="Qwen/Qwen3-8B"
+                      />
+                    </Field>
 
-              <Field label="优先级">
-                <Select
-                  value={draft.priority}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      priority: value!,
-                    }))
-                  }
+                    <Field
+                      label="数据集"
+                      hint="可填写 Hugging Face 数据集名，或挂载卷里的文件路径"
+                    >
+                      <Input
+                        className={dialogControlClassName}
+                        value={draft.datasetName}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            datasetName: event.target.value,
+                          }))
+                        }
+                        placeholder="例如：cola/support-v2 或 /workspace/datasets/support.jsonl"
+                      />
+                    </Field>
+
+                    <Field label="数据集 Split">
+                      <Input
+                        className={dialogControlClassName}
+                        value={draft.datasetSplit}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            datasetSplit: event.target.value,
+                          }))
+                        }
+                        placeholder="train"
+                      />
+                    </Field>
+
+                    <Field label="文本字段">
+                      <Input
+                        className={dialogControlClassName}
+                        value={draft.datasetTextField}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            datasetTextField: event.target.value,
+                          }))
+                        }
+                        placeholder="text"
+                      />
+                    </Field>
+                  </div>
+                </FormSection>
+
+                <FormSection
+                  eyebrow="Compute Plan"
+                  title="资源与分布式配置"
+                  description="按节点、GPU、启动器和后端组织执行规格。右侧摘要会实时反映当前 GPU 申请量。"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择优先级" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {priorityValues.map((priority) => (
-                        <SelectItem key={priority} value={priority}>
-                          {priorityLabels[priority]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="节点数" hint="范围 1-32">
+                      <Input
+                        className={dialogControlClassName}
+                        type="number"
+                        min={1}
+                        max={32}
+                        value={draft.nodeCount}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            nodeCount: event.target.value,
+                          }))
+                        }
+                        placeholder="1"
+                      />
+                    </Field>
 
-              <Field label="精度">
-                <Select
-                  value={draft.precision}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      precision: value! ?? current.precision,
-                    }))
-                  }
+                    <Field label="每节点 GPU" hint="范围 1-16">
+                      <Input
+                        className={dialogControlClassName}
+                        type="number"
+                        min={1}
+                        max={16}
+                        value={draft.gpusPerNode}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            gpusPerNode: event.target.value,
+                          }))
+                        }
+                        placeholder="1"
+                      />
+                    </Field>
+
+                    <Field label="启动器">
+                      <Select
+                        value={draft.launcherType}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            launcherType: value! ?? current.launcherType,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择启动器" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {trainingLauncherTypeValues.map((launcherType) => (
+                              <SelectItem
+                                key={launcherType}
+                                value={launcherType}
+                              >
+                                {trainingLauncherTypeLabels[launcherType]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field label="后端">
+                      <Select
+                        value={draft.distributedBackend}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            distributedBackend:
+                              value! ?? current.distributedBackend,
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择后端" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {trainingDistributedBackendValues.map((backend) => (
+                              <SelectItem key={backend} value={backend}>
+                                {trainingDistributedBackendLabels[backend]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
+                    <Field
+                      label="DeepSpeed Stage"
+                      className="md:col-span-2"
+                      hint={
+                        draft.distributedBackend === "deepspeed"
+                          ? "当前后端支持 ZeRO-2 / ZeRO-3。"
+                          : "仅在后端选择 DeepSpeed 时启用。"
+                      }
+                    >
+                      <Select
+                        value={draft.deepspeedStage}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            deepspeedStage: value ?? current.deepspeedStage,
+                          }))
+                        }
+                        disabled={draft.distributedBackend !== "deepspeed"}
+                      >
+                        <SelectTrigger
+                          className={cn(
+                            "w-full",
+                            dialogControlClassName,
+                            draft.distributedBackend !== "deepspeed"
+                              ? "bg-slate-100/90 text-slate-400"
+                              : undefined,
+                          )}
+                        >
+                          <SelectValue placeholder="选择 Stage" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="2">ZeRO-2</SelectItem>
+                            <SelectItem value="3">ZeRO-3</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+
+                  <div className="rounded-[24px] border border-sky-200/70 bg-[linear-gradient(180deg,rgba(239,246,255,0.92),rgba(248,250,252,0.9))] px-4 py-4 text-sm leading-6 text-slate-700">
+                    当前将申请
+                    <span className="mx-1 font-semibold text-slate-950">
+                      {summaryGpuCount ?? "-"}
+                    </span>
+                    张 GPU，规格为
+                    <span className="mx-1 font-semibold text-slate-950">
+                      {draft.nodeCount} 节点 x {draft.gpusPerNode} GPU
+                    </span>
+                    ，执行方式为
+                    <span className="mx-1 font-semibold text-slate-950">
+                      {trainingLauncherTypeLabels[draft.launcherType]}
+                    </span>
+                    +
+                    <span className="mx-1 font-semibold text-slate-950">
+                      {
+                        trainingDistributedBackendLabels[
+                          draft.distributedBackend
+                        ]
+                      }
+                    </span>
+                    。
+                  </div>
+                </FormSection>
+
+                <FormSection
+                  eyebrow="Advanced Import"
+                  title="Studio JSON（可选）"
+                  description="如果你从 Unsloth Studio 导出了配置，可以直接粘贴到这里。Cola 会保存原始快照，并尝试识别常用字段。"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择精度" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {trainingPrecisionValues.map((precision) => (
-                        <SelectItem key={precision} value={precision}>
-                          {trainingPrecisionLabels[precision]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                  <Field
+                    label="Unsloth Studio JSON"
+                    hint="宽松兼容解析会优先识别模型、数据集、文本字段、节点数、每节点 GPU、精度、DeepSpeed Stage 和 4-bit 设置。"
+                  >
+                    <Textarea
+                      className={cn(
+                        dialogTextareaClassName,
+                        "min-h-[220px] resize-y font-mono text-[13px] leading-6",
+                      )}
+                      value={draft.studioConfigJson}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          studioConfigJson: event.target.value,
+                          configSource: event.target.value.trim()
+                            ? "unsloth_studio"
+                            : current.configSource === "unsloth_studio"
+                              ? "manual"
+                              : current.configSource,
+                        }))
+                      }
+                      placeholder='例如：{"project":"qwen-lora","notes":"exported from studio"}'
+                    />
+                  </Field>
 
-              <Field label="4-bit 加载">
-                <Select
-                  value={draft.loadIn4bit}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      loadIn4bit: value === "false" ? "false" : "true",
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择量化策略" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="true">启用 4-bit</SelectItem>
-                      <SelectItem value="false">关闭 4-bit</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
+                  <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200/80 bg-slate-50/90 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-slate-900">
+                        {hasStudioConfig
+                          ? "已检测到 Studio JSON，可直接导入字段。"
+                          : "还没有粘贴 Studio JSON。"}
+                      </p>
+                      <p className="text-xs leading-5 text-slate-500">
+                        导入只会覆盖能识别的字段，未识别部分仍保留在原始 JSON
+                        快照中。
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-full border-slate-200/90 bg-white/88 px-4"
+                      onClick={applyStudioConfigToDraft}
+                    >
+                      <RefreshCwIcon data-icon="inline-start" />从 Studio JSON
+                      带入字段
+                    </Button>
+                  </div>
+                </FormSection>
+              </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label="基础模型"
-                hint="最小 smoke test 可直接使用 unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit"
-              >
-                <Input
-                  value={draft.baseModel}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      baseModel: event.target.value,
-                    }))
-                  }
-                  placeholder="Qwen/Qwen3-8B"
-                />
-              </Field>
+              <aside className="grid gap-5 xl:sticky xl:top-0">
+                <div className="rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]">
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
+                    Live Summary
+                  </p>
+                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+                    提交摘要
+                  </h3>
 
-              <Field
-                label="数据集"
-                hint="可填写 Hugging Face 数据集名，或挂载卷里的文件路径"
-              >
-                <Input
-                  value={draft.datasetName}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      datasetName: event.target.value,
-                    }))
-                  }
-                  placeholder="例如：cola/support-v2 或 /workspace/datasets/support.jsonl"
-                />
-              </Field>
-            </div>
+                  <div className="mt-5 grid gap-3">
+                    <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-4">
+                      <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
+                        GPU 总量
+                      </p>
+                      <p className="mt-2 text-[2rem] leading-none font-semibold tracking-[-0.06em] text-slate-950">
+                        {summaryGpuCount ?? "--"}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {draft.nodeCount} 节点 x {draft.gpusPerNode} GPU
+                      </p>
+                    </div>
 
-            <div className="grid gap-4 md:grid-cols-4">
-              <Field label="节点数" hint="范围 1-32">
-                <Input
-                  type="number"
-                  min={1}
-                  max={32}
-                  value={draft.nodeCount}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      nodeCount: event.target.value,
-                    }))
-                  }
-                  placeholder="1"
-                />
-              </Field>
+                    <div className="rounded-[22px] border border-slate-200/80 bg-white/88 px-4 py-4">
+                      <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
+                        训练规格
+                      </p>
+                      <p className="mt-2 text-sm font-medium text-slate-900">
+                        {trainingJobTypeLabels[draft.jobType]} /{" "}
+                        {trainingPrecisionLabels[draft.precision]}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {trainingLauncherTypeLabels[draft.launcherType]} +{" "}
+                        {
+                          trainingDistributedBackendLabels[
+                            draft.distributedBackend
+                          ]
+                        }
+                      </p>
+                    </div>
 
-              <Field
-                label="每节点 GPU"
-                hint="范围 1-16"
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  max={16}
-                  value={draft.gpusPerNode}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      gpusPerNode: event.target.value,
-                    }))
-                  }
-                  placeholder="1"
-                />
-              </Field>
+                    <div className="rounded-[22px] border border-slate-200/80 bg-white/88 px-4 py-4">
+                      <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
+                        数据来源
+                      </p>
+                      <p className="mt-2 text-sm font-medium break-all text-slate-900">
+                        {draft.datasetName.trim() || "待填写数据集"}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        split: {draft.datasetSplit || "train"} · text field:{" "}
+                        {draft.datasetTextField || "text"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-              <Field label="启动器">
-                <Select
-                  value={draft.launcherType}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      launcherType: value! ?? current.launcherType,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择启动器" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {trainingLauncherTypeValues.map((launcherType) => (
-                        <SelectItem key={launcherType} value={launcherType}>
-                          {trainingLauncherTypeLabels[launcherType]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
+                <div className="rounded-[28px] border border-slate-200/85 bg-white/92 p-5 shadow-[0_16px_38px_rgba(15,23,42,0.04)]">
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
+                    Readiness
+                  </p>
+                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+                    提交前检查
+                  </h3>
 
-              <Field label="后端">
-                <Select
-                  value={draft.distributedBackend}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      distributedBackend: value! ?? current.distributedBackend,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择后端" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {trainingDistributedBackendValues.map((backend) => (
-                        <SelectItem key={backend} value={backend}>
-                          {trainingDistributedBackendLabels[backend]}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
+                  <div className="mt-5 grid gap-2.5">
+                    {[
+                      {
+                        label: "任务标题",
+                        ready: titleReady,
+                        detail: titleReady
+                          ? draft.title.trim()
+                          : "至少 3 个字符",
+                      },
+                      {
+                        label: "训练目标",
+                        ready: objectiveReady,
+                        detail: objectiveReady
+                          ? "目标描述已填写"
+                          : "至少 8 个字符",
+                      },
+                      {
+                        label: "模型与数据",
+                        ready: modelAndDatasetReady,
+                        detail: modelAndDatasetReady
+                          ? "模型与数据路径已配置"
+                          : "补充基础模型和数据集",
+                      },
+                      {
+                        label: "资源规格",
+                        ready: resourcePlanReady,
+                        detail: resourcePlanReady
+                          ? `${summaryGpuCount ?? "-"} GPU 可提交`
+                          : "节点数 / GPU 数量超出范围",
+                      },
+                      {
+                        label: "Studio JSON",
+                        ready: hasStudioConfig,
+                        detail: hasStudioConfig
+                          ? "已附带原始配置快照"
+                          : "未使用，可忽略",
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className={cn(
+                          "flex items-start justify-between gap-3 rounded-[20px] border px-4 py-3",
+                          item.ready
+                            ? "border-emerald-200 bg-emerald-50/70"
+                            : "border-slate-200/80 bg-slate-50/80",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900">
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            {item.detail}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            "mt-0.5 shrink-0 rounded-full px-2 py-1 text-[11px] font-medium",
+                            item.ready
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-white text-slate-500 ring-1 ring-slate-200",
+                          )}
+                        >
+                          {item.ready ? "已就绪" : "待补充"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="数据集 Split">
-                <Input
-                  value={draft.datasetSplit}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      datasetSplit: event.target.value,
-                    }))
-                  }
-                  placeholder="train"
-                />
-              </Field>
-
-              <Field label="文本字段">
-                <Input
-                  value={draft.datasetTextField}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      datasetTextField: event.target.value,
-                    }))
-                  }
-                  placeholder="text"
-                />
-              </Field>
-
-              <Field label="DeepSpeed Stage">
-                <Select
-                  value={draft.deepspeedStage}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      deepspeedStage: value ?? current.deepspeedStage,
-                    }))
-                  }
-                  disabled={draft.distributedBackend !== "deepspeed"}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择 Stage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="2">ZeRO-2</SelectItem>
-                      <SelectItem value="3">ZeRO-3</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-700">
-              当前将申请
-              <span className="mx-1 font-medium text-slate-950">
-                {Number.isFinite(totalGpuCount) ? totalGpuCount : "-"}
-              </span>
-              张 GPU，规格为
-              <span className="mx-1 font-medium text-slate-950">
-                {draft.nodeCount} 节点 x {draft.gpusPerNode} GPU
-              </span>
-              ，使用
-              <span className="mx-1 font-medium text-slate-950">
-                {trainingLauncherTypeLabels[draft.launcherType]}
-              </span>
-              和
-              <span className="mx-1 font-medium text-slate-950">
-                {trainingDistributedBackendLabels[draft.distributedBackend]}
-              </span>
-              。
-            </div>
-
-            <Field
-              label="Unsloth Studio JSON（可选）"
-              hint="如果你从 Unsloth Studio 导出了配置，可先粘贴到这里；Cola 会把它作为 studioConfigSnapshot 保存。"
-            >
-              <Textarea
-                className="min-h-28 resize-y font-mono text-xs"
-                value={draft.studioConfigJson}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    studioConfigJson: event.target.value,
-                    configSource: event.target.value.trim()
-                      ? "unsloth_studio"
-                      : current.configSource === "unsloth_studio"
-                        ? "manual"
-                        : current.configSource,
-                  }))
-                }
-                placeholder='例如：{"project":"qwen-lora","notes":"exported from studio"}'
-              />
-            </Field>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                onClick={applyStudioConfigToDraft}
-              >
-                <RefreshCwIcon data-icon="inline-start" />
-                从 Studio JSON 带入字段
-              </Button>
-              <p className="text-muted-foreground text-xs leading-5">
-                这是宽松兼容解析：会优先识别模型、数据集、文本字段、节点数、每节点
-                GPU、精度、DeepSpeed Stage 和 4-bit 设置。
-              </p>
+                  <div className="mt-5 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
+                    提交后会先创建训练任务记录，再由 Kubernetes
+                    拉起容器。如果你只是做链路验收，优先使用上面的最小示例。
+                  </div>
+                </div>
+              </aside>
             </div>
           </div>
 
-          <DialogFooter className="border-border/70 bg-muted/30 border-t px-6 py-4">
+          <DialogFooter className="border-slate-200/80 bg-white/72 px-4 py-4 sm:px-6">
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>
             <Button
+              className="h-11 rounded-full px-5"
               disabled={!canSubmit || createJob.isPending}
               onClick={() => {
                 const studioConfigSnapshot = parseStudioConfigSnapshot();
@@ -2156,9 +2466,7 @@ export function TrainingShell() {
                       : null,
                   precision: draft.precision,
                   loadIn4bit: draft.loadIn4bit === "true",
-                  ...(studioConfigSnapshot
-                    ? { studioConfigSnapshot }
-                    : {}),
+                  ...(studioConfigSnapshot ? { studioConfigSnapshot } : {}),
                 });
               }}
             >

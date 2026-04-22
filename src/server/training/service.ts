@@ -25,12 +25,8 @@ import {
   trainingK8sSupportedJobTypes,
 } from "@/server/training/catalog";
 
-const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
-const CLUSTER_CONFIG_PATH = path.join(
-  REMOTE_WORK_DIR,
-  "cluster",
-  "config.json",
-);
+const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
+const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const TRAINING_CONFIG_MOUNT_PATH = "/etc/cola-training";
 const TRAINING_SCRIPT_NAME = "train.py";
 const DEEPSPEED_CONFIG_NAME = "deepspeed.json";
@@ -151,10 +147,13 @@ export type TrainingRuntimeInlineSummary = {
   runtimeSummaryAt: Date | null;
 };
 
-export type TrainingJobListItem = TrainingJobRecord & TrainingRuntimeInlineSummary;
+export type TrainingJobListItem = TrainingJobRecord &
+  TrainingRuntimeInlineSummary;
 
 function readClusterConfig() {
-  return JSON.parse(fs.readFileSync(CLUSTER_CONFIG_PATH, "utf8")) as ClusterConfig;
+  return JSON.parse(
+    fs.readFileSync(CLUSTER_CONFIG_PATH, "utf8"),
+  ) as ClusterConfig;
 }
 
 function resolveKubeconfigPath(clusterName: string) {
@@ -175,13 +174,18 @@ function resolveTrainingNamespace(config: ClusterConfig) {
 }
 
 function resolveTrainingImage() {
-  return process.env.COLA_TRAINING_K8S_IMAGE?.trim() ?? "unsloth/unsloth:latest";
+  return (
+    process.env.COLA_TRAINING_K8S_IMAGE?.trim() ?? "unsloth/unsloth:latest"
+  );
 }
 
 function createKubeConfig(clusterName: string) {
   const kubeConfig = new KubeConfig();
 
-  if (process.env.KUBERNETES_SERVICE_HOST && process.env.KUBERNETES_SERVICE_PORT) {
+  if (
+    process.env.KUBERNETES_SERVICE_HOST &&
+    process.env.KUBERNETES_SERVICE_PORT
+  ) {
     try {
       kubeConfig.loadFromCluster();
       return kubeConfig;
@@ -277,7 +281,9 @@ function buildRuntimeJobName(job: TrainingJobRecord) {
   const maxSlugLength = Math.max(8, 63 - prefix.length - suffix.length - 2);
   const slug = slugify(job.title).slice(0, maxSlugLength).replace(/-+$/g, "");
 
-  return `${prefix}-${slug || "job"}-${suffix}`.slice(0, 63).replace(/-+$/g, "");
+  return `${prefix}-${slug || "job"}-${suffix}`
+    .slice(0, 63)
+    .replace(/-+$/g, "");
 }
 
 function buildRuntimeServiceName(runtimeJobName: string) {
@@ -339,9 +345,7 @@ function resolveTrainingConfig(job: TrainingJobRecord): ResolvedTrainingConfig {
 
   return {
     datasetSplit:
-      (datasetSplit && datasetSplit.length > 0
-        ? datasetSplit
-        : undefined) ??
+      (datasetSplit && datasetSplit.length > 0 ? datasetSplit : undefined) ??
       process.env.COLA_TRAINING_DATASET_SPLIT?.trim() ??
       "train",
     datasetTextField:
@@ -358,7 +362,8 @@ function resolveTrainingConfig(job: TrainingJobRecord): ResolvedTrainingConfig {
       distributedBackend === "deepspeed"
         ? Math.min(3, Math.max(2, job.deepspeedStage ?? 2))
         : null,
-    precision: (precision && precision.length > 0 ? precision : undefined) ?? "bf16",
+    precision:
+      (precision && precision.length > 0 ? precision : undefined) ?? "bf16",
     loadIn4bit: job.loadIn4bit ?? true,
   };
 }
@@ -377,7 +382,10 @@ function resolveMemoryRequest(gpusPerNode: number) {
   );
 }
 
-function buildJobSpecPayload(job: TrainingJobRecord, config: ResolvedTrainingConfig) {
+function buildJobSpecPayload(
+  job: TrainingJobRecord,
+  config: ResolvedTrainingConfig,
+) {
   return JSON.stringify({
     id: job.id,
     title: job.title,
@@ -562,18 +570,18 @@ function buildDeepSpeedConfig(stage: number | null) {
 function buildTrainingShellCommand() {
   return [
     "set -euo pipefail",
-    "mkdir -p \"$COLA_ARTIFACT_DIR\"",
-    "export COLA_NODE_RANK=\"${JOB_COMPLETION_INDEX:-0}\"",
-    "if [ \"$COLA_LAUNCHER_TYPE\" = \"torchrun\" ]; then",
+    'mkdir -p "$COLA_ARTIFACT_DIR"',
+    'export COLA_NODE_RANK="${JOB_COMPLETION_INDEX:-0}"',
+    'if [ "$COLA_LAUNCHER_TYPE" = "torchrun" ]; then',
     "  exec torchrun \\",
-    "    --nnodes=\"$COLA_NODE_COUNT\" \\",
-    "    --nproc_per_node=\"$COLA_GPUS_PER_NODE\" \\",
-    "    --node_rank=\"$COLA_NODE_RANK\" \\",
-    "    --master_addr=\"$COLA_MASTER_ADDR\" \\",
-    "    --master_port=\"$COLA_MASTER_PORT\" \\",
-    "    \"$COLA_TRAIN_SCRIPT_PATH\"",
+    '    --nnodes="$COLA_NODE_COUNT" \\',
+    '    --nproc_per_node="$COLA_GPUS_PER_NODE" \\',
+    '    --node_rank="$COLA_NODE_RANK" \\',
+    '    --master_addr="$COLA_MASTER_ADDR" \\',
+    '    --master_port="$COLA_MASTER_PORT" \\',
+    '    "$COLA_TRAIN_SCRIPT_PATH"',
     "fi",
-    "exec python -u \"$COLA_TRAIN_SCRIPT_PATH\"",
+    'exec python -u "$COLA_TRAIN_SCRIPT_PATH"',
   ].join("\n");
 }
 
@@ -629,7 +637,10 @@ function buildHeadlessService(
   } satisfies V1Service;
 }
 
-function buildTrainingRuntime(job: TrainingJobRecord, ctx: TrainingKubeContext) {
+function buildTrainingRuntime(
+  job: TrainingJobRecord,
+  ctx: TrainingKubeContext,
+) {
   const config = resolveTrainingConfig(job);
   const runtimeJobName = buildRuntimeJobName(job);
   const runtimeServiceName = buildRuntimeServiceName(runtimeJobName);
@@ -716,7 +727,8 @@ function buildTrainingRuntime(job: TrainingJobRecord, ctx: TrainingKubeContext) 
   }
 
   const hfSecretName = process.env.COLA_TRAINING_HF_SECRET_NAME?.trim();
-  const hfSecretKey = process.env.COLA_TRAINING_HF_SECRET_KEY?.trim() ?? "HF_TOKEN";
+  const hfSecretKey =
+    process.env.COLA_TRAINING_HF_SECRET_KEY?.trim() ?? "HF_TOKEN";
 
   if (hfSecretName) {
     for (const envName of ["HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"]) {
@@ -745,7 +757,11 @@ function buildTrainingRuntime(job: TrainingJobRecord, ctx: TrainingKubeContext) 
     },
   };
 
-  const serviceSpec = buildHeadlessService(runtimeServiceName, labels, MASTER_PORT);
+  const serviceSpec = buildHeadlessService(
+    runtimeServiceName,
+    labels,
+    MASTER_PORT,
+  );
   const configMapSpec = buildTrainingConfigMap(
     runtimeConfigMapName,
     labels,
@@ -870,7 +886,9 @@ function buildTrainingRuntime(job: TrainingJobRecord, ctx: TrainingKubeContext) 
 function describeCondition(condition?: V1JobCondition | null) {
   if (!condition) return null;
 
-  return [condition.reason, condition.message].filter(Boolean).join(": ") || null;
+  return (
+    [condition.reason, condition.message].filter(Boolean).join(": ") || null
+  );
 }
 
 function deriveJobTerminalState(runtimeJob: V1Job): {
@@ -902,7 +920,8 @@ function deriveJobTerminalState(runtimeJob: V1Job): {
         ? new Date(failed.lastTransitionTime)
         : new Date(),
       lastError:
-        describeCondition(failed) ?? "Kubernetes Job 进入失败状态，请检查 Pod 日志。",
+        describeCondition(failed) ??
+        "Kubernetes Job 进入失败状态，请检查 Pod 日志。",
     };
   }
 
@@ -927,9 +946,10 @@ async function resolveRuntimeJobReference(
     labelSelector: `cola.training/job-id=${job.id}`,
   });
   const matchedJob = [...jobList.items]
-    .sort((left, right) =>
-      new Date(right.metadata?.creationTimestamp ?? 0).valueOf() -
-      new Date(left.metadata?.creationTimestamp ?? 0).valueOf(),
+    .sort(
+      (left, right) =>
+        new Date(right.metadata?.creationTimestamp ?? 0).valueOf() -
+        new Date(left.metadata?.creationTimestamp ?? 0).valueOf(),
     )
     .find((entry) => entry.metadata?.name);
 
@@ -959,7 +979,8 @@ function summarizePod(pod: V1Pod): TrainingRuntimePodSummary | null {
 
   const containerStatuses = pod.status?.containerStatuses ?? [];
   const ready =
-    containerStatuses.length > 0 && containerStatuses.every((status) => status.ready);
+    containerStatuses.length > 0 &&
+    containerStatuses.every((status) => status.ready);
 
   return {
     name,
@@ -970,7 +991,8 @@ function summarizePod(pod: V1Pod): TrainingRuntimePodSummary | null {
     hostIP: pod.status?.hostIP ?? null,
     startedAt: pod.status?.startTime ? new Date(pod.status.startTime) : null,
     completionIndex:
-      pod.metadata?.annotations?.["batch.kubernetes.io/job-completion-index"] ?? null,
+      pod.metadata?.annotations?.["batch.kubernetes.io/job-completion-index"] ??
+      null,
     ready,
     restarts: containerStatuses.reduce(
       (total, status) => total + (status.restartCount ?? 0),
@@ -991,7 +1013,9 @@ function summarizePod(pod: V1Pod): TrainingRuntimePodSummary | null {
   };
 }
 
-function summarizeEvent(event: CoreV1Event): TrainingRuntimeEventSummary | null {
+function summarizeEvent(
+  event: CoreV1Event,
+): TrainingRuntimeEventSummary | null {
   const message = event.message?.trim();
   if (!message) return null;
 
@@ -1030,7 +1054,9 @@ async function listRuntimePods(
     .filter((pod): pod is TrainingRuntimePodSummary => Boolean(pod))
     .sort((left, right) => {
       const leftIndex = Number(left.completionIndex ?? Number.MAX_SAFE_INTEGER);
-      const rightIndex = Number(right.completionIndex ?? Number.MAX_SAFE_INTEGER);
+      const rightIndex = Number(
+        right.completionIndex ?? Number.MAX_SAFE_INTEGER,
+      );
       if (leftIndex !== rightIndex) return leftIndex - rightIndex;
       return left.name.localeCompare(right.name);
     });
@@ -1097,7 +1123,9 @@ function buildRuntimeInlineSummary(
     return {
       runtimeSummary: latestWarning.message,
       runtimeSummaryTone:
-        latestWarning.reason?.startsWith("Failed") === true ? "error" : "warning",
+        latestWarning.reason?.startsWith("Failed") === true
+          ? "error"
+          : "warning",
       runtimeSummaryCategory: category,
       runtimeSummaryAt: latestWarning.at,
     };
@@ -1115,7 +1143,8 @@ function buildRuntimeInlineSummary(
       runtimeSummary:
         problematicPod.reason ??
         `${problematicPod.name} 处于 ${problematicPod.phase} 状态。`,
-      runtimeSummaryTone: problematicPod.phase === "Failed" ? "error" : "warning",
+      runtimeSummaryTone:
+        problematicPod.phase === "Failed" ? "error" : "warning",
       runtimeSummaryCategory: category,
       runtimeSummaryAt: problematicPod.startedAt,
     };
@@ -1134,7 +1163,9 @@ function buildRuntimeInlineSummary(
     const readyCount = pods.filter((pod) => pod.ready).length;
     const runningCount = pods.filter((pod) => pod.phase === "Running").length;
     const pendingCount = pods.filter((pod) => pod.phase === "Pending").length;
-    const completedCount = pods.filter((pod) => pod.phase === "Succeeded").length;
+    const completedCount = pods.filter(
+      (pod) => pod.phase === "Succeeded",
+    ).length;
 
     return {
       runtimeSummary:
@@ -1178,7 +1209,8 @@ async function readRuntimePodLog(
       return "Pod log is not available because the pod no longer exists.";
     }
 
-    const message = error instanceof Error ? error.message : "Unknown log error";
+    const message =
+      error instanceof Error ? error.message : "Unknown log error";
     return `Unable to read pod log: ${message}`;
   }
 }
@@ -1255,7 +1287,10 @@ export async function submitTrainingJob(job: TrainingJobRecord) {
         runtime.runtimeServiceName,
       );
     } catch (cleanupError) {
-      console.error("[training] failed to cleanup runtime resources", cleanupError);
+      console.error(
+        "[training] failed to cleanup runtime resources",
+        cleanupError,
+      );
     }
     throw error;
   }
@@ -1275,7 +1310,8 @@ export async function stopTrainingJobRun(job: TrainingJobRecord) {
   const ctx = await createKubeContext();
   const runtimeJob = await resolveRuntimeJobReference(job, ctx);
   const jobName = runtimeJob?.jobName ?? job.runtimeJobName;
-  const namespace = runtimeJob?.namespace ?? job.runtimeNamespace ?? ctx.namespace;
+  const namespace =
+    runtimeJob?.namespace ?? job.runtimeNamespace ?? ctx.namespace;
 
   if (!jobName) return;
 
@@ -1298,7 +1334,11 @@ export async function inspectTrainingJobRuntime(
   const runtimeJob = await resolveRuntimeJobReference(job, ctx);
   if (!runtimeJob) return null;
 
-  const pods = await listRuntimePods(ctx, runtimeJob.namespace, runtimeJob.jobName);
+  const pods = await listRuntimePods(
+    ctx,
+    runtimeJob.namespace,
+    runtimeJob.jobName,
+  );
   const requestedPodName = options?.podName?.trim();
   const selectedPodName =
     (requestedPodName && requestedPodName.length > 0
@@ -1324,7 +1364,8 @@ export async function inspectTrainingJobRuntime(
     jobName: runtimeJob.jobName,
     serviceName:
       job.runtimeServiceName ?? buildRuntimeServiceName(runtimeJob.jobName),
-    leaderPodName: job.runtimeLeaderPodName ?? buildLeaderPodName(runtimeJob.jobName),
+    leaderPodName:
+      job.runtimeLeaderPodName ?? buildLeaderPodName(runtimeJob.jobName),
     selectedPodName,
     logText,
     pods,
@@ -1349,14 +1390,20 @@ async function summarizeTrainingJobRuntime(
   if (!runtimeJob) {
     return {
       runtimeSummary:
-        job.status === "running" ? "运行态对象不存在，可能已被外部删除。" : null,
+        job.status === "running"
+          ? "运行态对象不存在，可能已被外部删除。"
+          : null,
       runtimeSummaryTone: job.status === "running" ? "warning" : "neutral",
       runtimeSummaryCategory: job.status === "running" ? "runtime" : "none",
       runtimeSummaryAt: null,
     };
   }
 
-  const pods = await listRuntimePods(ctx, runtimeJob.namespace, runtimeJob.jobName);
+  const pods = await listRuntimePods(
+    ctx,
+    runtimeJob.namespace,
+    runtimeJob.jobName,
+  );
   const events = await listRuntimeEvents(ctx, runtimeJob, pods);
   return buildRuntimeInlineSummary(job, pods, events);
 }
@@ -1437,7 +1484,8 @@ export async function syncTrainingJobs(jobs: TrainingJobRecord[]) {
 
     return enriched.sort(
       (left, right) =>
-        new Date(right.createdAt).valueOf() - new Date(left.createdAt).valueOf(),
+        new Date(right.createdAt).valueOf() -
+        new Date(left.createdAt).valueOf(),
     );
   } catch (error) {
     console.error("[training] failed to create kube context for sync", error);

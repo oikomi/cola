@@ -307,4 +307,4 @@ if [[ "$AUTO_DISCOVERED" -eq 1 ]]; then
   echo "建议后续把这些节点在 cluster/nodes.json 中补上 gpu 角色。"
 fi
 
-echo "GPU 能力已启用。下一步执行: ./bin/cluster.sh image build-and-load"
+echo "GPU 能力已启用。下一步执行: ./scripts/workspace-image.sh build-and-load"

@@ -536,7 +536,7 @@ ghcr.io/cola/unsloth-deepspeed:<version>
 
 建议默认启用：
 
-- GPU 节点选择器：沿用 `infra/remote-work/cluster/config.json` 中的 `gpuLabelKey`
+- GPU 节点选择器：沿用 `infra/k8s/cluster/config.json` 中的 `gpuLabelKey`
 - `podAntiAffinity`：尽量让不同索引 Pod 分散到不同 GPU 节点
 - `topologySpreadConstraints`：减少单节点堆叠
 - `runtimeClassName: nvidia`

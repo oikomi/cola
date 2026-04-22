@@ -1,4 +1,15 @@
 
+  {
+    "name": "rw-gpu-178",
+    "ip": "192.168.5.178",
+    "sshUser": "nvidia",
+    "sshPassword": "nvidia",
+    "sshPort": 22,
+    "roles": ["worker", "gpu"],
+    "arch": "arm64"
+  }
+
+
 
 sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeasz/bin/kubectl get nodes -owide
 

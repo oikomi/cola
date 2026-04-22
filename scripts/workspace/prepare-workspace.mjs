@@ -1,4 +1,4 @@
-import { readClusterData } from "../../infra/remote-work/bin/cluster-utils.mjs";
+import { readClusterData } from "../../infra/k8s/bin/cluster-utils.mjs";
 import { parseArgs, readJsonFile, requireArgs } from "./cli-utils.mjs";
 import { prepareWorkspace } from "./workspace-utils.mjs";
 

@@ -13,18 +13,18 @@ Run the default bring-up flow in order:
   1. cluster bootstrap
   2. cluster install
   3. gpu enable
-  4. image build-and-load
-  5. dashboard deploy
-  6. dashboard port-forward
+  4. dashboard deploy
+  5. dashboard port-forward
 
 Options:
   --with-images              Pass through to 'cluster bootstrap --with-images'
+  --with-workspace-image     Also run './scripts/workspace-image.sh build-and-load'
   --skip-dashboard           Skip dashboard deploy and port-forward
   --skip-port-forward        Deploy dashboard but do not start port-forward
   --port-forward-foreground  Run dashboard port-forward in foreground
-  --image-name <name>        Pass through to 'image build-and-load'
-  --image-tag <tag>          Pass through to 'image build-and-load'
-  --novnc-version <ver>      Pass through to 'image build-and-load'
+  --image-name <name>        Pass through to 'workspace-image.sh build-and-load'
+  --image-tag <tag>          Pass through to 'workspace-image.sh build-and-load'
+  --novnc-version <ver>      Pass through to 'workspace-image.sh build-and-load'
   -h, --help                 Show help
 EOF
 }
@@ -34,19 +34,19 @@ print_step() {
   echo "==> $*"
 }
 
-run_subcommand() {
+run_command() {
   local title="$1"
   shift
   print_step "$title"
-  "$ENTRYPOINT" "$@"
+  "$@"
 }
 
-run_subcommand_or_exit() {
+run_command_or_exit() {
   local title="$1"
   local failure_hint="$2"
   shift 2
 
-  if ! run_subcommand "$title" "$@"; then
+  if ! run_command "$title" "$@"; then
     echo >&2
     echo "ERROR: 步骤失败: $title" >&2
     echo "ERROR: 因此未继续执行: $failure_hint" >&2
@@ -55,12 +55,14 @@ run_subcommand_or_exit() {
 }
 
 WITH_IMAGES=0
+WITH_WORKSPACE_IMAGE=0
 SKIP_DASHBOARD=0
 SKIP_PORT_FORWARD=0
 PORT_FORWARD_FOREGROUND=0
 IMAGE_NAME=""
 IMAGE_TAG=""
 NOVNC_VERSION=""
+WORKSPACE_IMAGE_ENTRYPOINT="$BIN_DIR/../../../scripts/workspace-image.sh"
 
 case "${1:-}" in
   -h|--help)
@@ -73,6 +75,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --with-images)
       WITH_IMAGES=1
+      shift
+      ;;
+    --with-workspace-image)
+      WITH_WORKSPACE_IMAGE=1
       shift
       ;;
     --skip-dashboard)
@@ -113,7 +119,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 bootstrap_args=(cluster bootstrap)
-image_args=(image build-and-load)
+image_args=(build-and-load)
 dashboard_port_forward_args=(dashboard port-forward)
 
 if [[ "$WITH_IMAGES" -eq 1 ]]; then
@@ -132,26 +138,39 @@ if [[ -n "$NOVNC_VERSION" ]]; then
   image_args+=(--novnc-version "$NOVNC_VERSION")
 fi
 
+if [[ "$WITH_WORKSPACE_IMAGE" -ne 1 ]] && [[ "${#image_args[@]}" -gt 1 ]]; then
+  echo "ERROR: --image-name/--image-tag/--novnc-version 只能与 --with-workspace-image 一起使用。" >&2
+  exit 1
+fi
+
 if [[ "$PORT_FORWARD_FOREGROUND" -eq 1 ]]; then
   dashboard_port_forward_args+=(--foreground)
 fi
 
-run_subcommand_or_exit \
+run_command_or_exit \
   "Bootstrap cluster assets" \
-  "cluster install、gpu enable、image build-and-load、dashboard deploy、dashboard port-forward" \
+  "cluster install、gpu enable、dashboard deploy、dashboard port-forward" \
+  "$ENTRYPOINT" \
   "${bootstrap_args[@]}"
-run_subcommand_or_exit \
+run_command_or_exit \
   "Install cluster" \
-  "gpu enable、image build-and-load、dashboard deploy、dashboard port-forward" \
+  "gpu enable、dashboard deploy、dashboard port-forward" \
+  "$ENTRYPOINT" \
   cluster install
-run_subcommand_or_exit \
+run_command_or_exit \
   "Enable GPU support" \
-  "image build-and-load、dashboard deploy、dashboard port-forward" \
-  gpu enable
-run_subcommand_or_exit \
-  "Build and distribute workspace image" \
   "dashboard deploy、dashboard port-forward" \
-  "${image_args[@]}"
+  "$ENTRYPOINT" \
+  gpu enable
+
+if [[ "$WITH_WORKSPACE_IMAGE" -eq 1 ]]; then
+  if ! run_command "Build and distribute workspace image" "$WORKSPACE_IMAGE_ENTRYPOINT" "${image_args[@]}"; then
+    echo >&2
+    echo "ERROR: 步骤失败: Build and distribute workspace image" >&2
+    echo "ERROR: 因此未继续执行: dashboard deploy、dashboard port-forward" >&2
+    exit 1
+  fi
+fi
 
 if [[ "$SKIP_DASHBOARD" -eq 1 ]]; then
   print_step "Skip dashboard setup"
@@ -159,9 +178,10 @@ if [[ "$SKIP_DASHBOARD" -eq 1 ]]; then
   exit 0
 fi
 
-run_subcommand_or_exit \
+run_command_or_exit \
   "Deploy Kubernetes Dashboard" \
   "dashboard port-forward" \
+  "$ENTRYPOINT" \
   dashboard deploy
 
 if [[ "$SKIP_PORT_FORWARD" -eq 1 ]]; then
@@ -170,7 +190,8 @@ if [[ "$SKIP_PORT_FORWARD" -eq 1 ]]; then
   exit 0
 fi
 
-run_subcommand_or_exit \
+run_command_or_exit \
   "Start dashboard port-forward" \
   "无后续步骤" \
+  "$ENTRYPOINT" \
   "${dashboard_port_forward_args[@]}"

@@ -2592,16 +2592,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </div>
             )}
 
-            <div className="absolute right-4 bottom-4 max-w-[320px] rounded-[24px] border border-[#4a372a] bg-[#2a2018]/94 px-4 py-3 text-[#fff3df] shadow-[0_20px_44px_rgba(31,19,9,0.28)]">
-              <p className="text-[11px] tracking-[0.28em] text-[#cfb797] uppercase">
-                2D 场景
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#f5e4c7]">
-                办公室空间和人物热区都由 snapshot
-                驱动。拖动画布可漫游，滚轮可缩放； 人物点击后会进入对应的 K8s
-                workspace，所有操作都保留在当前单页面内完成。
-              </p>
-            </div>
           </div>
 
           {feedback ? (

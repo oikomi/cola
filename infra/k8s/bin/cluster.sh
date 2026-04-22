@@ -77,7 +77,8 @@ case "$GROUP:$ACTION" in
     exec "$SCRIPT_DIR/internal/gpu-enable.sh" "$@"
     ;;
   image:build-and-load)
-    exec "$SCRIPT_DIR/internal/image-build-and-load.sh" "$@"
+    echo "WARN: workspace 镜像发布已迁移到 ./scripts/workspace-image.sh" >&2
+    exec "$REPO_ROOT/scripts/workspace-image.sh" build-and-load "$@"
     ;;
   workspace:create)
     echo "WARN: workspace 生命周期已迁移到 ./scripts/workspace.sh" >&2

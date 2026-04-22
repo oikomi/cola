@@ -17,14 +17,16 @@
 ## 目录结构
 
 ```text
-infra/remote-work
+infra/k8s
 ├── bin
 │   ├── cluster.sh        # 用户入口
 │   └── internal          # 内部实现脚本
 ├── cluster
-├── images/remote-workspace
 ├── manifests
 └── runtime            # 运行期生成，已被 .gitignore 忽略
+
+workloads/remote-workspace   # 工作区镜像运行时资产
+runtime/workspace            # 工作区业务运行时产物
 ```
 
 ## 前提
@@ -33,7 +35,7 @@ infra/remote-work
 - 本地部署机需要可用的 `sudo`
 - `./bin/cluster.sh cluster bootstrap` 需要：`git`、`node`、`curl` 或 `wget`
 - `./bin/cluster.sh cluster install` 与 `./bin/cluster.sh cluster add-node` 会自动准备一套独立的现代版 Ansible 运行时
-- `./bin/cluster.sh image build-and-load` 额外需要：`docker`
+- `./scripts/workspace-image.sh build-and-load` 额外需要：`docker`
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
 
@@ -52,10 +54,10 @@ infra/remote-work
 - `./bin/cluster.sh cluster bootstrap`
 - `./bin/cluster.sh cluster install`
 - `./bin/cluster.sh gpu enable`
-- `./bin/cluster.sh image build-and-load`
 - `./bin/cluster.sh stack up`
 - `./bin/cluster.sh dashboard deploy`
 - `./bin/cluster.sh dashboard port-forward`
+- `./scripts/workspace-image.sh build-and-load`
 
 如果你只是想把基础设施一次拉起来，可以直接执行：
 
@@ -68,13 +70,19 @@ infra/remote-work
 - `./bin/cluster.sh cluster bootstrap`
 - `./bin/cluster.sh cluster install`
 - `./bin/cluster.sh gpu enable`
-- `./bin/cluster.sh image build-and-load`
 - `./bin/cluster.sh dashboard deploy`
 - `./bin/cluster.sh dashboard port-forward`
+
+如果你还想在 bring-up 完成后顺手构建并分发工作区镜像，再额外执行：
+
+```bash
+./scripts/workspace-image.sh build-and-load
+```
 
 常用可选项：
 
 - `--with-images`：传给 `cluster bootstrap`
+- `--with-workspace-image`：在 `stack up` 里额外执行工作区镜像构建和分发
 - `--skip-dashboard`：跳过 Dashboard 安装与 port-forward
 - `--skip-port-forward`：安装 Dashboard，但不启动 port-forward
 - `--port-forward-foreground`：以前台模式运行 Dashboard port-forward
@@ -91,6 +99,7 @@ infra/remote-work
 
 - `./scripts/workspace.sh create --name alice --gpu 1`
 - `./scripts/workspace.sh delete --name alice`
+- `./scripts/workspace-image.sh build-and-load`
 
 兼容性说明：
 
@@ -142,7 +151,7 @@ infra/remote-work
 ## 2. 下载 kubeasz 并渲染集群 inventory
 
 ```bash
-cd infra/remote-work
+cd infra/k8s
 ./bin/cluster.sh cluster bootstrap
 ```
 
@@ -197,10 +206,17 @@ cd infra/remote-work
 ## 5. 构建并分发 noVNC 工作区镜像
 
 ```bash
-./bin/cluster.sh image build-and-load
+./scripts/workspace-image.sh build-and-load
 ```
 
-默认镜像名会写入 `runtime/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
+镜像构建上下文位于仓库根目录的 `workloads/remote-workspace/`。
+默认镜像名会写入 `runtime/workspace/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
+
+兼容性说明：
+
+- `./bin/cluster.sh image build-and-load`
+
+这个旧入口仍可用，但会跳转到 `./scripts/workspace-image.sh build-and-load`。
 
 ## 6. 部署 Kubernetes Dashboard
 

@@ -14,18 +14,11 @@ import {
   type V1Service,
 } from "@kubernetes/client-node";
 
-const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
-const CLUSTER_CONFIG_PATH = path.join(
-  REMOTE_WORK_DIR,
-  "cluster",
-  "config.json",
-);
-const CLUSTER_NODES_PATH = path.join(REMOTE_WORK_DIR, "cluster", "nodes.json");
-const RUNTIME_IMAGE_PATH = path.join(
-  REMOTE_WORK_DIR,
-  "runtime",
-  "latest-image.txt",
-);
+const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
+const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
+const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
+const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
+const RUNTIME_IMAGE_PATH = path.join(WORKSPACE_RUNTIME_DIR, "latest-image.txt");
 
 const WORKSPACE_NODE_PORT_START = 32080;
 const WORKSPACE_NODE_PORT_END = 32760;
@@ -193,7 +186,7 @@ function normalizeGpu(input: number) {
 
 function normalizeResolution(input: string) {
   const value = input.trim().toLowerCase();
-  const match = value.match(/^(\d{3,5})x(\d{3,5})x(\d{1,2})$/);
+  const match = /^(\d{3,5})x(\d{3,5})x(\d{1,2})$/.exec(value);
   if (!match) {
     throw new Error("分辨率必须是 WxHxD 格式，例如 1600x900x24。");
   }

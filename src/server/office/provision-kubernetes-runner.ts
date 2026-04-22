@@ -24,12 +24,8 @@ import type {
   ProvisionDockerRunnerResult as ProvisionRunnerResult,
 } from "@/server/office/provision-docker-runner";
 
-const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
-const CLUSTER_CONFIG_PATH = path.join(
-  REMOTE_WORK_DIR,
-  "cluster",
-  "config.json",
-);
+const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
+const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const OPENCLAW_NODE_PORT_START = 31180;
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_NODE_PORT_START = 31280;
@@ -183,7 +179,8 @@ function codexAuthPathForEngine(engine: DockerRunnerEngine) {
   }
 
   return (
-    process.env.OPENCLAW_AUTH_PATH ?? path.join(homedir(), ".codex", "auth.json")
+    process.env.OPENCLAW_AUTH_PATH ??
+    path.join(homedir(), ".codex", "auth.json")
   );
 }
 
@@ -206,7 +203,9 @@ function dashboardPublicHost(engine: DockerRunnerEngine) {
 }
 
 function uniqueOrigins(values: Array<string | null | undefined>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
 }
 
 function extractOrigin(urlValue: string | undefined) {
@@ -234,10 +233,10 @@ function openClawAllowedOrigins(nodePort: number) {
     publicHost ? `http://${publicHost}:${nodePort}` : null,
     publicHost ? `https://${publicHost}:${nodePort}` : null,
     extractOrigin(process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL),
-    ...((process.env.COLA_DASHBOARD_ALLOWED_ORIGINS ?? "")
+    ...(process.env.COLA_DASHBOARD_ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((value) => value.trim())
-      .filter(Boolean)),
+      .filter(Boolean),
   ]);
 }
 
@@ -261,7 +260,7 @@ function defaultApiBaseUrl() {
   }
 
   throw new Error(
-    "Kubernetes runner 需要可被 pod 访问的 Cola API 地址。请设置 COLA_K8S_API_BASE_URL / COLA_API_BASE_URL，或补齐 infra/remote-work/cluster/config.json 中的 controllerIp。",
+    "Kubernetes runner 需要可被 pod 访问的 Cola API 地址。请设置 COLA_K8S_API_BASE_URL / COLA_API_BASE_URL，或补齐 infra/k8s/cluster/config.json 中的 controllerIp。",
   );
 }
 
@@ -704,7 +703,10 @@ async function upsertDeployment(
   if (!name) throw new Error("Deployment 缺少 metadata.name");
 
   try {
-    const existing = await appsApi.readNamespacedDeployment({ name, namespace });
+    const existing = await appsApi.readNamespacedDeployment({
+      name,
+      namespace,
+    });
     await appsApi.replaceNamespacedDeployment({
       name,
       namespace,
@@ -842,7 +844,7 @@ export async function cleanupKubernetesRunner(options: {
   codexSecretManaged?: boolean;
 }) {
   const { appsApi, coreApi } = createKubeClients();
-  const namespace = options.namespace?.trim() || runnerNamespace();
+  const namespace = options.namespace?.trim() ?? runnerNamespace();
 
   await Promise.all([
     options.deploymentName

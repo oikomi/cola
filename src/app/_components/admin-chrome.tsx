@@ -53,9 +53,6 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                 <p className="mt-1 text-base font-semibold tracking-[-0.03em] text-white">
                   Cloud Console
                 </p>
-                <p className="mt-1 text-xs text-slate-300/78">
-                  Kubernetes control surface
-                </p>
               </div>
             </div>
 

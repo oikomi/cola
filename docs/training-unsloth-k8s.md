@@ -10,8 +10,8 @@
 ## 调度位置
 
 - 默认 namespace：`COLA_TRAINING_K8S_NAMESPACE`
-- 未设置时回退到 `infra/remote-work/cluster/config.json` 里的 `workspaceNamespace`
-- GPU 节点选择器默认使用 `infra/remote-work/cluster/config.json` 里的 `gpuLabelKey`
+- 未设置时回退到 `infra/k8s/cluster/config.json` 里的 `workspaceNamespace`
+- GPU 节点选择器默认使用 `infra/k8s/cluster/config.json` 里的 `gpuLabelKey`
 - `COLA_TRAINING_RUNTIME_CLASS_NAME` 未设置时，训练 Pod 不会强制注入 `runtimeClassName`
 
 ## Kubernetes 连接
@@ -95,44 +95,93 @@ NEXT_PUBLIC_UNSLOTH_STUDIO_URL="https://unsloth.example.com/"
 
 建议分工：
 
-- Cola：任务概览、最小模板、K8s 作业状态、产物路径
+- Cola：任务创建、K8s 作业状态、产物路径
 - Unsloth Studio：数据集选择、训练超参、原生训练配置
 
-## 最小示例：Unsloth + LoRA 微调 Qwen
+## 如何跑一个训练任务
 
-下面这个示例适合先做链路验收，目标不是把模型训到最优，而是确认训练平台表单、Kubernetes Job、数据读取和 LoRA 产物落盘都正常。
+### 1. 启动前检查
 
-### 页面填写示例
+- 确认 Web 进程能访问 Kubernetes API。
+- 如果 Web 跑在集群内 Pod 中，会优先使用 in-cluster kubeconfig。
+- 如果 Web 不在集群内，补齐 `COLA_TRAINING_KUBECONFIG_PATH` 或前文列出的 kubeconfig 环境变量。
+- 如果希望保留训练产物和本地数据集，配置 `COLA_TRAINING_PVC_NAME`；否则任务会使用 `emptyDir`，Pod 删除后产物会消失。
+- 如果基础模型需要 Hugging Face Token，配置 `COLA_TRAINING_HF_SECRET_NAME` 和 `COLA_TRAINING_HF_SECRET_KEY`。
+- 提前准备好数据集来源：
+  - Hugging Face 数据集名，例如 `username/dataset-name`
+  - 或训练 Pod 能直接读取的本地文件路径，例如 `/workspace/datasets/support.jsonl`
 
-- 任务标题：`Qwen2.5-0.5B 最小 LoRA 示例`
-- 训练目标：`使用 Unsloth + LoRA 验证训练平台链路，基于 4-bit Qwen2.5-0.5B Instruct 对最小中文客服问答样本做快速 smoke test，产出 adapter 权重。`
-- 训练类型：`lora`
-- 优先级：`medium`
-- GPU 数量：`1`
-- 基础模型：`unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit`
-- 数据集：`/workspace/cola-training/datasets/qwen2.5-0.5b-lora-minimal.jsonl`
+如果你用的是本地文件，当前内置读取器支持 `.json`、`.jsonl`、`.csv`、`.tsv`、`.parquet`。
 
-仓库里已经附了一个模板文件：
+JSONL 常见格式是每行至少有一个训练文本字段，例如：
 
-- [`docs/examples/qwen2.5-0.5b-lora-minimal.jsonl`](./examples/qwen2.5-0.5b-lora-minimal.jsonl)
-
-注意：
-
-- 上面这个 `docs/examples/...` 文件只是模板，不会自动挂载进训练 Pod
-- 真正提交任务前，需要把它复制到训练容器能读取的路径，例如 `/workspace/cola-training/datasets/qwen2.5-0.5b-lora-minimal.jsonl`
-- 当前默认读取字段名 `text`；如果你的字段名不同，需要设置 `COLA_TRAINING_DATASET_TEXT_FIELD`
-
-### 示例数据内容
-
-```json
-{"text":"你是客服助手。用户：退款一般多久到账？\n助手：原路退款通常 1 到 3 个工作日到账，如遇银行处理延迟可再等待 1 到 2 个工作日。"}
-{"text":"你是客服助手。用户：我想修改收货地址怎么办？\n助手：如果订单还未出库，请尽快提供新的详细地址和联系电话，我们会优先帮你修改。"}
-{"text":"你是客服助手。用户：你们支持开增值税专票吗？\n助手：支持。请提供开票抬头、税号、开户行、账号和注册地址，我们会在审核后开具。"}
+```jsonl
+{
+  "text": "用户：退款多久到账？\n助手：原路退款通常 1 到 3 个工作日到账。"
+}
 ```
 
-这个数据格式是最小 smoke test 版本，适合先验证流程。正式做对话微调时，建议先把样本预处理成更稳定的训练文本格式，例如按 Qwen 的 chat template 展平后再写入 `text` 字段。
+如果字段名不是 `text`，创建任务时把“文本字段”改成你的实际列名，或设置 `COLA_TRAINING_DATASET_TEXT_FIELD`。
 
-### 当前内置默认参数
+### 2. 在训练页创建任务
+
+进入 `/training` 后点击“创建训练任务”，至少填这些字段：
+
+- 任务标题：方便和 Kubernetes Job 对应
+- 训练目标：记录这次训练的目的、产物和预期效果
+- 训练类型：当前支持 `sft`、`lora`、`pretrain`
+- 基础模型：例如一个 Hugging Face 模型 ID
+- 数据集：Hugging Face 数据集名，或挂载卷里的文件路径
+- 数据集 Split：默认通常填 `train`
+- 文本字段：默认通常填 `text`
+- 节点数 / 每节点 GPU：决定分布式规格
+- 启动器 / 后端 / DeepSpeed Stage：默认单机和多机都可以沿用当前表单默认值
+
+可选项：
+
+- 如果你从 Unsloth Studio 导出了 JSON，可以粘贴到 `Unsloth Studio JSON`，Cola 会尽量自动带入模型、数据集、GPU、精度和 DeepSpeed 设置。
+- 如果只是先验证链路，建议先用 `1` 节点、`1` GPU 跑通，再放大资源。
+
+点击“创建训练任务”后，任务会先以草稿状态写入数据库，还不会立刻提交到 Kubernetes。
+
+### 3. 启动任务
+
+- 在任务列表里找到刚创建的任务，点击“启动”。
+- `training.startJob` 会创建一个 Kubernetes `Job`，并补齐运行态信息。
+- 成功后页面里会显示：
+  - Kubernetes namespace
+  - runtime job name
+  - 产物目录
+  - 最后错误信息
+
+如果提交失败，优先检查：
+
+- namespace 是否可创建或可访问
+- GPU 节点标签是否正确
+- `runtimeClassName`、镜像、PVC、HF Secret 是否存在
+- Web 所在身份是否有 `jobs.batch` 和 `namespaces` 的权限
+
+### 4. 观察运行状态
+
+- 点击任务行上的运行态入口，可以查看 Pod、事件和日志。
+- `运行中` 表示 Kubernetes Job 已提交，训练 Pod 正在执行。
+- `调度失败` 通常说明 GPU 资源、节点标签、runtime class 或镜像拉取存在问题。
+- `停止` 会删除对应的 Kubernetes Job。
+- `删除` 只允许在非运行态执行。
+
+### 5. 查看产物
+
+- 作业产物根目录默认是 `COLA_TRAINING_OUTPUT_ROOT` 或 `/workspace/cola-training`
+- LoRA / SFT 任务完成后，adapter 会保存到：
+
+```text
+/workspace/cola-training/<jobId>/<runtimeJobName>/adapter
+```
+
+- `pretrain` 这类非 LoRA 任务会把完整模型写到 `model/` 子目录
+- 同目录下还会生成一个 `job-result.json`，记录任务 ID、模型名、数据集和最终产物目录
+
+## 执行器默认训练参数
 
 当前 Unsloth 执行器会使用这些默认值，除非你通过环境变量覆盖：
 
@@ -148,17 +197,9 @@ NEXT_PUBLIC_UNSLOTH_STUDIO_URL="https://unsloth.example.com/"
 - `COLA_WARMUP_STEPS=5`
 - `COLA_MAX_STEPS=60`
 - `COLA_LEARNING_RATE=2e-4`
+- `COLA_LOGGING_STEPS=1`
 - `COLA_SAVE_STEPS=20`
+- `COLA_SAVE_TOTAL_LIMIT=2`
+- `COLA_RANDOM_SEED=3407`
 
-这些默认值更适合做链路验收，不代表正式训练配置。
-
-### 产物位置
-
-- 作业产物根目录默认是 `COLA_TRAINING_OUTPUT_ROOT` 或 `/workspace/cola-training`
-- LoRA 任务完成后，adapter 会保存到：
-
-```text
-/workspace/cola-training/<jobId>/<runtimeJobName>/adapter
-```
-
-- 同目录下还会生成一个 `job-result.json`，记录任务 ID、模型名、数据集和最终产物目录
+这些默认值更适合先跑通链路，不代表正式训练配置。

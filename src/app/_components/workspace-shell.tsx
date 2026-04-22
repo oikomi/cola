@@ -14,7 +14,6 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
-import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -276,13 +275,36 @@ export function WorkspaceShell() {
     <ModulePageShell>
       <ModuleHero
         size="compact"
-        eyebrow="Remote Desktop"
-        title="远程桌面"
-        description="统一管理远程工作区、节点分配、访问入口和启动状态。"
+        eyebrow="Workspace Control"
+        title="远程工作区"
+        description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
         icon={MonitorSmartphoneIcon}
-        surfaceHeader={<ProductAreaHeader embedded />}
         badges={
           <>
+            <Badge
+              variant="outline"
+              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+            >
+              Remote Desktop
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+            >
+              Kubernetes
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+            >
+              Master Node
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+            >
+              XDream Cloud
+            </Badge>
             <Badge
               variant="outline"
               className={cn(

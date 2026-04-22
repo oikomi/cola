@@ -19,7 +19,7 @@ Usage: ./bin/cluster.sh cluster clean [options]
 Destroy the current remote-work deployment and clean local state.
 By default it will:
   1. destroy the kubeasz cluster for the current clusterName
-  2. remove local runtime state under infra/remote-work/runtime
+  2. remove local runtime state under infra/k8s/runtime
   3. keep local image archives and secondary-arch asset bundles for reuse
   4. remove local /etc/kubeasz cluster config for the current cluster
 
@@ -89,7 +89,7 @@ cleanup_local_runtime_state_preserving_cache() {
 
   [[ -d "$RUNTIME_DIR" ]] || return 0
 
-  print_step "清理 infra/remote-work/runtime 运行态，保留本地镜像/资产缓存"
+  print_step "清理 infra/k8s/runtime 运行态，保留本地镜像/资产缓存"
   while IFS= read -r -d '' path; do
     sudo rm -rf "$path"
   done < <(
@@ -169,7 +169,7 @@ print_step "清理 /etc/kubeasz 中当前 cluster 的本地配置"
 sudo rm -rf "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"
 
 if [[ "$PURGE_LOCAL_CACHE" -eq 1 ]]; then
-  print_step "清理 infra/remote-work/runtime"
+  print_step "清理 infra/k8s/runtime"
   sudo rm -rf "$RUNTIME_DIR"
 else
   cleanup_local_runtime_state_preserving_cache

@@ -52,5 +52,6 @@ yarn-error.log*
 .playwright-mcp/
 
 output
+runtime/
 
 .codex

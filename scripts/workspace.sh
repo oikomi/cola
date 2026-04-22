@@ -3,7 +3,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$REPO_ROOT/infra/remote-work/bin/lib.sh"
+source "$REPO_ROOT/scripts/workspace/lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -194,10 +194,11 @@ workspace_create() {
   done
 
   [[ -n "$name" ]] || die "--name 必填"
+  ensure_workspace_runtime_dirs
   if [[ -z "$image" ]]; then
-    [[ -f "$RUNTIME_DIR/latest-image.txt" ]] || \
-      die "未指定 --image，且 runtime/latest-image.txt 不存在，请先执行 ./bin/cluster.sh image build-and-load"
-    image="$(tr -d '\n' < "$RUNTIME_DIR/latest-image.txt")"
+    [[ -f "$WORKSPACE_IMAGE_PATH" ]] || \
+      die "未指定 --image，且 runtime/workspace/latest-image.txt 不存在，请先执行 ./scripts/workspace-image.sh build-and-load"
+    image="$(tr -d '\n' < "$WORKSPACE_IMAGE_PATH")"
   fi
 
   print_step "选择目标节点"
@@ -287,7 +288,7 @@ workspace_create() {
   printf '%s\n' "$selection_reason"
 
   print_step "确保 namespace 存在"
-  kubectl_apply_file "$ROOT_DIR/manifests/base/namespace.yaml"
+  kubectl_apply_file "$WORKSPACE_NAMESPACE_MANIFEST"
 
   print_step "应用工作区清单"
   kubectl_apply_file "$manifest_path"
