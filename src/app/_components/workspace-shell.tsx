@@ -17,6 +17,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -56,30 +57,76 @@ const RESOLUTION_PRESETS = [
   "1920x1080x24",
 ] as const;
 const PRIMARY_ACTION_CLASS =
-  "border-sky-500 bg-sky-600 text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] hover:border-sky-500 hover:bg-sky-500";
+  "rounded-full border border-[#7cc0ff]/80 bg-[linear-gradient(135deg,#2f73ff_0%,#63a8ff_100%)] text-white shadow-[0_22px_38px_rgba(47,115,255,0.22),0_10px_18px_rgba(55,107,171,0.16),inset_0_1px_0_rgba(255,255,255,0.24)] hover:border-[#92d0ff] hover:brightness-[1.03]";
+const SECONDARY_ACTION_CLASS =
+  "rounded-full border border-[#d8e4f6] bg-white/92 text-[#21406f] shadow-[0_12px_24px_rgba(15,23,42,0.06)] hover:border-[#bfd7fb] hover:bg-[#f8fbff]";
+const ALERT_SURFACE_CLASS =
+  "rounded-[22px] border px-4 py-3 shadow-[0_18px_32px_rgba(15,23,42,0.05)]";
+
+const METRIC_TONE_STYLES = {
+  sky: {
+    container:
+      "border-sky-200/80 bg-[linear-gradient(180deg,rgba(247,251,255,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_32px_rgba(59,130,246,0.08),0_4px_12px_rgba(15,23,42,0.03)]",
+    glow: "bg-sky-100/90 shadow-[0_0_0_8px_rgba(219,234,254,0.55)]",
+    dot: "bg-sky-500",
+  },
+  emerald: {
+    container:
+      "border-emerald-200/85 bg-[linear-gradient(180deg,rgba(237,252,245,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_34px_rgba(16,185,129,0.1),0_4px_12px_rgba(15,23,42,0.03)]",
+    glow: "bg-emerald-100/90 shadow-[0_0_0_8px_rgba(209,250,229,0.58)]",
+    dot: "bg-emerald-500",
+  },
+  amber: {
+    container:
+      "border-amber-200/85 bg-[linear-gradient(180deg,rgba(255,249,235,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_34px_rgba(245,158,11,0.11),0_4px_12px_rgba(15,23,42,0.03)]",
+    glow: "bg-amber-100/90 shadow-[0_0_0_8px_rgba(254,243,199,0.62)]",
+    dot: "bg-amber-500",
+  },
+} as const;
+
+type WorkspaceMetricTone = keyof typeof METRIC_TONE_STYLES;
 
 function WorkspaceMetric({
   label,
   value,
-  dotClassName,
+  caption,
+  tone,
 }: {
   label: string;
   value: string;
-  dotClassName: string;
+  caption: string;
+  tone: WorkspaceMetricTone;
 }) {
+  const styles = METRIC_TONE_STYLES[tone];
+
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-medium tracking-[0.16em] text-slate-600 uppercase">
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-[22px] px-5 py-4",
+        styles.container,
+      )}
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/75" />
+
+      <div className="relative flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium tracking-[0.2em] text-slate-600 uppercase">
             {label}
           </p>
-          <p className="mt-1 text-[1.48rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+          <p className="mt-2 text-[2.2rem] leading-none font-semibold tracking-[-0.07em] text-slate-950">
             {value}
           </p>
+          <p className="mt-3 text-[12px] leading-5 text-slate-600">{caption}</p>
         </div>
 
-        <span className={cn("size-2 rounded-full", dotClassName)} />
+        <span
+          className={cn(
+            "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full",
+            styles.glow,
+          )}
+        >
+          <span className={cn("size-2 rounded-full", styles.dot)} />
+        </span>
       </div>
     </div>
   );
@@ -105,13 +152,26 @@ function FormField({
 function statusTone(status: WorkspaceRow["status"]) {
   switch (status) {
     case "running":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-emerald-300/80 bg-emerald-50/90 text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]";
     case "starting":
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "border-amber-300/80 bg-amber-50/90 text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]";
     case "error":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "border-rose-300/80 bg-rose-50/90 text-rose-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]";
     default:
-      return "border-border bg-muted text-muted-foreground";
+      return "border-slate-200/80 bg-slate-100/90 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]";
+  }
+}
+
+function statusDotTone(status: WorkspaceRow["status"]) {
+  switch (status) {
+    case "running":
+      return "bg-emerald-500";
+    case "starting":
+      return "bg-amber-500";
+    case "error":
+      return "bg-rose-500";
+    default:
+      return "bg-slate-400";
   }
 }
 
@@ -138,7 +198,7 @@ function LoadingRows() {
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`workspace-skeleton-${index}`}
-          className="border-border/70 bg-background/80 rounded-[var(--radius-card)] border p-4"
+          className="rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.9))] p-5 shadow-[0_18px_34px_rgba(15,23,42,0.045)]"
         >
           <div className="grid gap-3 md:grid-cols-[1.2fr_120px_180px_1fr_140px_220px] md:items-center">
             <div className="grid gap-2">
@@ -165,6 +225,7 @@ function LoadingRows() {
 
 export function WorkspaceShell() {
   const utils = api.useUtils();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingDeletedWorkspaceNames, setPendingDeletedWorkspaceNames] =
@@ -259,19 +320,20 @@ export function WorkspaceShell() {
   };
 
   const handleDelete = async (name: string) => {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(`确认删除远程桌面 ${name}？`);
-      if (!confirmed) return;
-    }
+    const confirmed = await confirm({
+      title: `确认删除远程桌面 ${name}？`,
+      description: "删除后会释放对应的 workspace 资源和访问入口，且不能自动恢复。",
+      confirmLabel: "删除桌面",
+    });
+    if (!confirmed) return;
 
     await deleteWorkspace.mutateAsync({ name });
   };
 
   return (
-    <ModulePageShell className="gap-4">
+    <ModulePageShell className="gap-5 xl:gap-6">
       <ModuleHero
         size="compact"
-        density="dense"
         eyebrow="Workspace Control"
         title="远程工作区"
         description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
@@ -280,42 +342,42 @@ export function WorkspaceShell() {
           <>
             <Badge
               variant="outline"
-              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+              className="border-slate-200/90 bg-white/84 px-2.5 py-0.5 text-[12px] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
             >
               Remote Desktop
             </Badge>
             <Badge
               variant="outline"
-              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+              className="border-slate-200/90 bg-white/84 px-2.5 py-0.5 text-[12px] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
             >
               Kubernetes
             </Badge>
             <Badge
               variant="outline"
-              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+              className="hidden border-slate-200/90 bg-white/84 px-2.5 py-0.5 text-[12px] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] md:inline-flex"
             >
               Master Node
             </Badge>
             <Badge
               variant="outline"
-              className="border-slate-200/90 bg-white/86 px-2.5 py-0.5 text-[12px] text-slate-700"
+              className="hidden border-slate-200/90 bg-white/84 px-2.5 py-0.5 text-[12px] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] xl:inline-flex"
             >
               XDream Cloud
             </Badge>
             <Badge
               variant="outline"
               className={cn(
-                "px-2.5 py-0.5 text-[12px]",
+                "px-2.5 py-0.5 text-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]",
                 available
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-rose-200 bg-rose-50 text-rose-700",
+                  ? "border-emerald-200 bg-emerald-50/92 text-emerald-800"
+                  : "border-rose-200 bg-rose-50/92 text-rose-800",
               )}
             >
               {available ? "K8s 已连接" : "K8s 不可用"}
             </Badge>
             <Badge
               variant="outline"
-              className="border-border/80 bg-background/70 px-2.5 py-0.5 text-[12px] text-slate-600"
+              className="border-border/80 bg-background/78 px-2.5 py-0.5 text-[12px] text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]"
             >
               {workspaceQuery.isFetching && !workspaceQuery.isLoading ? (
                 <LoaderCircleIcon
@@ -340,34 +402,49 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-2.5 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-3">
           <WorkspaceMetric
             label="工作区总数"
             value={String(rows.length)}
-            dotClassName="bg-sky-500"
+            caption="当前已登记的远程桌面数量。"
+            tone="sky"
           />
           <WorkspaceMetric
             label="运行中"
             value={String(runningCount)}
-            dotClassName="bg-emerald-500"
+            caption={`可直接登录 ${readyCount} 个，优先关注已就绪入口。`}
+            tone="emerald"
           />
           <WorkspaceMetric
             label="待就绪"
             value={String(startingCount)}
-            dotClassName="bg-amber-500"
+            caption="仍在等待容器、节点或地址分配。"
+            tone="amber"
           />
         </div>
       </ModuleHero>
 
       {capabilityReason ? (
-        <Alert variant="destructive">
+        <Alert
+          variant="destructive"
+          className={cn(
+            ALERT_SURFACE_CLASS,
+            "border-rose-200/80 bg-[linear-gradient(180deg,rgba(255,247,247,0.94),rgba(255,255,255,0.9))]",
+          )}
+        >
           <AlertTitle>Kubernetes 访问异常</AlertTitle>
           <AlertDescription>{capabilityReason}</AlertDescription>
         </Alert>
       ) : null}
 
       {errorMessage ? (
-        <Alert variant="destructive">
+        <Alert
+          variant="destructive"
+          className={cn(
+            ALERT_SURFACE_CLASS,
+            "border-rose-200/80 bg-[linear-gradient(180deg,rgba(255,247,247,0.94),rgba(255,255,255,0.9))]",
+          )}
+        >
           <AlertTitle>操作失败</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
@@ -376,10 +453,11 @@ export function WorkspaceShell() {
       <ModuleSection
         title="Workspace 列表"
         description="按统一表格查看状态、资源规格、节点地址和访问入口。"
+        className="border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.92))] shadow-[0_24px_56px_rgba(15,23,42,0.05),0_6px_16px_rgba(15,23,42,0.03)]"
         action={
           <Badge
             variant="outline"
-            className="border-slate-200/90 bg-slate-50 text-slate-700"
+            className="rounded-full border-slate-200/90 bg-slate-50/92 px-3 py-1 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
           >
             登录就绪 {readyCount}
           </Badge>
@@ -405,7 +483,7 @@ export function WorkspaceShell() {
         ) : null}
 
         {!workspaceQuery.isLoading && rows.length > 0 ? (
-          <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/92">
+          <div className="overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.9))] shadow-[0_18px_38px_rgba(15,23,42,0.05)]">
             <Table>
               <TableHeader className="bg-slate-50/90">
                 <TableRow className="hover:bg-transparent">
@@ -433,50 +511,61 @@ export function WorkspaceShell() {
                 {rows.map((workspace) => (
                   <TableRow
                     key={workspace.id}
-                    className="group border-border/70 hover:bg-sky-50/50"
+                    className="group border-border/70 hover:bg-sky-50/55"
                   >
                     <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex flex-col gap-1">
-                        <p className="text-foreground font-semibold">
-                          {workspace.name}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          Workspace ID: {workspace.id}
-                        </p>
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] border border-slate-200/85 bg-white/94 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
+                          <MonitorSmartphoneIcon className="size-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
+                            {workspace.name}
+                          </p>
+                          <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                            Workspace ID: {workspace.id}
+                          </p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-4 text-center align-middle">
                       <Badge
                         variant="outline"
                         className={cn(
-                          "justify-center px-2.5",
+                          "justify-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold",
                           statusTone(workspace.status),
                         )}
                       >
+                        <span
+                          className={cn(
+                            "size-2 rounded-full",
+                            statusDotTone(workspace.status),
+                          )}
+                        />
                         {statusLabel(workspace.status)}
                       </Badge>
                     </TableCell>
                     <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex flex-col gap-1 text-slate-950">
-                        <span className="font-medium">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[14px] font-medium leading-5 text-slate-950">
                           {specLabel(workspace)}
                         </span>
-                        <span className="text-sm font-normal text-slate-500">
+                        <span className="text-[12px] leading-5 font-normal text-slate-500">
                           {workspace.resolution}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium text-slate-950">
-                          {workspace.nodeName ?? "-"}
+                      <div className="flex flex-col gap-2">
+                        <span className="inline-flex w-fit rounded-full border border-slate-200/85 bg-slate-50/92 px-2.5 py-1 text-[12px] font-medium leading-none text-slate-700">
+                          {workspace.nodeName ?? "未分配节点"}
                         </span>
-                        <span className="font-mono text-[13px] break-all text-slate-500">
-                          {workspace.endpoint ?? "-"}
+                        <span className="font-mono text-[12px] leading-5 break-all text-slate-500">
+                          {workspace.endpoint ?? "入口地址待分配"}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="px-4 py-4 align-middle text-sm text-slate-500">
+                    <TableCell className="px-4 py-4 align-middle text-[13px] leading-5 text-slate-600">
                       {workspace.updatedAt ?? "-"}
                     </TableCell>
                     <TableCell className="px-4 py-4 align-middle">
@@ -488,20 +577,29 @@ export function WorkspaceShell() {
                             rel="noreferrer"
                             className={cn(
                               buttonVariants({ size: "sm" }),
-                              "border-sky-500 bg-sky-600 text-white shadow-[0_10px_22px_rgba(37,99,235,0.18)] hover:bg-sky-500",
+                              PRIMARY_ACTION_CLASS,
+                              "h-9 px-4 text-[12px]",
                             )}
                           >
                             登录
                           </a>
                         ) : (
-                          <Button variant="outline" size="sm" disabled>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={cn(
+                              SECONDARY_ACTION_CLASS,
+                              "h-9 px-4 text-[12px] text-slate-500",
+                            )}
+                            disabled
+                          >
                             登录
                           </Button>
                         )}
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                          className="rounded-full border border-rose-200/80 bg-rose-50/75 text-rose-600 shadow-[0_10px_18px_rgba(244,63,94,0.08)] hover:bg-rose-50 hover:text-rose-700"
                           disabled={deleteWorkspace.isPending}
                           onClick={() => void handleDelete(workspace.name)}
                           title={`删除远程桌面 ${workspace.name}`}
@@ -526,7 +624,7 @@ export function WorkspaceShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 bg-background/95 backdrop-blur-xl sm:max-w-xl">
+        <DialogContent className="border-slate-200/80 bg-white/90 shadow-[0_28px_68px_rgba(15,23,42,0.14)] backdrop-blur-2xl sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>创建远程桌面</DialogTitle>
             <DialogDescription>
@@ -641,7 +739,11 @@ export function WorkspaceShell() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+            <Button
+              variant="outline"
+              className={SECONDARY_ACTION_CLASS}
+              onClick={() => setIsCreateOpen(false)}
+            >
               取消
             </Button>
             <Button
@@ -664,6 +766,7 @@ export function WorkspaceShell() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </ModulePageShell>
   );
 }

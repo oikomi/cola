@@ -1,9 +1,8 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
 
 const apiBaseUrl =
   process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
@@ -48,11 +47,20 @@ const generatedOpenClawConfigPath =
   process.env.OPENCLAW_GENERATED_CONFIG_PATH ?? "/tmp/openclaw.generated.json";
 const openClawStateDir =
   process.env.OPENCLAW_STATE_DIR ?? path.join(homedir(), ".openclaw");
+const openClawWorkspaceDir =
+  process.env.OPENCLAW_WORKSPACE_DIR ?? path.join(openClawStateDir, "workspace");
 const openClawMainAgentDir = path.join(openClawStateDir, "agents", "main", "agent");
 const openClawAuthProfilesPath = path.join(
   openClawMainAgentDir,
   "auth-profiles.json",
 );
+const openClawBootstrapPath = path.join(openClawWorkspaceDir, "BOOTSTRAP.md");
+const openClawIdentityPath = path.join(openClawWorkspaceDir, "IDENTITY.md");
+const openClawUserPath = path.join(openClawWorkspaceDir, "USER.md");
+const colaAgentName = process.env.COLA_AGENT_NAME?.trim() || "OpenClaw Agent";
+const colaRoleLabel = process.env.COLA_AGENT_ROLE_LABEL?.trim() || "执行";
+const colaWorkspaceOwnerName =
+  process.env.COLA_WORKSPACE_OWNER_NAME?.trim() || "Cola Operator";
 
 let deviceId = "";
 let sessionId = "";
@@ -185,6 +193,58 @@ async function ensureOpenClawAuthProfiles(modelConfig) {
   await writeFile(
     openClawAuthProfilesPath,
     JSON.stringify(authProfiles, null, 2),
+  );
+}
+
+function buildIdentityMarkdown() {
+  return `# IDENTITY.md - Who Am I?
+
+- **Name:** ${colaAgentName}
+- **Creature:** Cola ${colaRoleLabel} Agent
+- **Vibe:** Direct, capable, calm
+- **Emoji:** 🤖
+- **Avatar:** _(workspace-relative path, http(s) URL, or data URI)_
+
+## Context
+
+- You are the OpenClaw-native workspace for ${colaAgentName}.
+- You operate as the ${colaRoleLabel} role inside Cola Virtual Office.
+- Keep execution grounded in the mounted \`/workspace\` directory when working on tasks.
+`;
+}
+
+function buildUserMarkdown() {
+  return `# USER.md - About Your Human
+
+- **Name:** ${colaWorkspaceOwnerName}
+- **What to call them:** ${colaWorkspaceOwnerName}
+- **Pronouns:** _(optional)_
+- **Timezone:** _(learn and update when confirmed)_
+- **Notes:**
+  - You are helping the Cola operator through the native OpenClaw dashboard.
+  - Default to Chinese when the user speaks Chinese.
+  - Keep responses concise and execution-oriented unless they ask for depth.
+
+## Context
+
+- This workspace is attached to Cola Virtual Office.
+- ${colaAgentName} is the active persona for this runner.
+- Use \`/workspace\` as the execution directory for project files and task work.
+`;
+}
+
+async function completeWorkspaceBootstrapIfNeeded() {
+  await mkdir(openClawWorkspaceDir, { recursive: true });
+
+  if (!existsSync(openClawBootstrapPath)) {
+    return;
+  }
+
+  await writeFile(openClawIdentityPath, buildIdentityMarkdown());
+  await writeFile(openClawUserPath, buildUserMarkdown());
+  await rm(openClawBootstrapPath, { force: true });
+  await logLine(
+    `completed OpenClaw workspace bootstrap for ${colaAgentName}`,
   );
 }
 
@@ -566,7 +626,10 @@ async function runBootCommand() {
 
   const child = spawn("sh", ["-lc", bootCommand], {
     cwd: workdir,
-    env: process.env,
+    env: {
+      ...process.env,
+      OPENCLAW_CONFIG_PATH: generatedOpenClawConfigPath,
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -594,6 +657,7 @@ async function runBootCommand() {
 async function main() {
   await ensureLogDir();
   await logLine(`starting ${runtimeLabel} OpenClaw bootstrap`);
+  await completeWorkspaceBootstrapIfNeeded();
 
   const probe = await probeOpenClaw();
   await registerRunner(probe.summary, probe.status);

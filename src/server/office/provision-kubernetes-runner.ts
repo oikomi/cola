@@ -779,6 +779,14 @@ function buildRunnerResources(
                   value: input.agentId,
                 },
                 {
+                  name: "COLA_AGENT_NAME",
+                  value: input.agentName,
+                },
+                {
+                  name: "COLA_AGENT_ROLE_LABEL",
+                  value: input.roleLabel,
+                },
+                {
                   name: "COLA_RUNNER_IMAGE",
                   value: image,
                 },
@@ -806,6 +814,22 @@ function buildRunnerResources(
                   name: "COLA_CODEX_AUTH_PATH",
                   value: "/home/node/.codex/auth.json",
                 },
+                ...(input.engine === "openclaw"
+                  ? [
+                      {
+                        name: "OPENCLAW_STATE_DIR",
+                        value: "/home/node/.openclaw",
+                      },
+                      {
+                        name: "OPENCLAW_WORKSPACE_DIR",
+                        value: "/home/node/.openclaw/workspace",
+                      },
+                      {
+                        name: "OPENCLAW_WORKDIR",
+                        value: "/workspace",
+                      },
+                    ]
+                  : []),
                 ...(input.engine === "hermes-agent"
                   ? [
                       {

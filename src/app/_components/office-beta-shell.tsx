@@ -20,6 +20,7 @@ import { startTransition, useEffect, useRef, useState } from "react";
 import { AdminChrome } from "@/app/_components/admin-chrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -1724,6 +1725,7 @@ function drawOfficeScene(
 
 export function OfficeBetaShell({ snapshot }: Props) {
   const utils = api.useUtils();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const lastVersionRef = useRef<string | null>(null);
   const liveSnapshotRef = useRef(snapshot);
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
@@ -2162,12 +2164,12 @@ export function OfficeBetaShell({ snapshot }: Props) {
       return;
     }
 
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        `确认删除人物 ${selectedAgent.name}？这会同时清理关联 runner 资源。`,
-      );
-      if (!confirmed) return;
-    }
+    const confirmed = await confirm({
+      title: `确认删除人物 ${selectedAgent.name}？`,
+      description: "这会同时清理关联的 runner 资源，且不能自动恢复。",
+      confirmLabel: "删除人物",
+    });
+    if (!confirmed) return;
 
     await deleteAgent.mutateAsync({
       agentId: selectedAgent.id,
@@ -2628,6 +2630,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          {confirmDialog}
         </div>
       </div>
     </AdminChrome>

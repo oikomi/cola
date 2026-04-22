@@ -23,6 +23,7 @@ import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -671,6 +672,7 @@ function inferDraftFromStudioConfig(
 
 export function TrainingShell() {
   const utils = api.useUtils();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const unslothStudioUrl = process.env.NEXT_PUBLIC_UNSLOTH_STUDIO_URL?.trim();
   const jobsQuery = api.training.listJobs.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -910,6 +912,17 @@ export function TrainingShell() {
     setRuntimeDialog(null);
     setSelectedRuntimePodName(undefined);
   }
+
+  const handleDeleteJob = async (jobId: string, title: string) => {
+    const confirmed = await confirm({
+      title: `确认删除训练任务「${title}」？`,
+      description: "删除后会从训练平台移除这条任务记录，且不能自动恢复。",
+      confirmLabel: "删除任务",
+    });
+    if (!confirmed) return;
+
+    deleteJob.mutate({ jobId });
+  };
 
   return (
     <ModulePageShell>
@@ -1291,17 +1304,7 @@ export function TrainingShell() {
                             isStopping ||
                             isDeleting
                           }
-                          onClick={() => {
-                            if (
-                              !window.confirm(
-                                `确认删除训练任务「${job.title}」吗？`,
-                              )
-                            ) {
-                              return;
-                            }
-
-                            deleteJob.mutate({ jobId: job.id });
-                          }}
+                          onClick={() => void handleDeleteJob(job.id, job.title)}
                         >
                           {isDeleting ? (
                             <LoaderCircleIcon
@@ -2319,6 +2322,7 @@ export function TrainingShell() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </ModulePageShell>
   );
 }
