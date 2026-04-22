@@ -76,8 +76,12 @@ run_ezdown_bootstrap_only() {
       imageDir=\$BASE/down
       ARCH=\$(uname -m)
       K8S_BIN_VER='${kube_version}'
-      download_docker
-      install_docker
+      if command -v docker >/dev/null 2>&1; then
+        systemctl is-active --quiet docker 2>/dev/null || systemctl start docker >/dev/null 2>&1 || true
+      else
+        download_docker
+        install_docker
+      fi
       get_kubeasz
       get_k8s_bin
       get_ext_bin

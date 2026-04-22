@@ -45,24 +45,36 @@ download_with_fallback() {
 
 ensure_secondary_arch_host_packages() {
   if command -v apt-get >/dev/null 2>&1; then
+    local -a apt_packages=(
+      python3 python3-venv python3-pip curl wget ca-certificates gnupg sshpass nginx
+    )
+
+    if [[ ! -f /usr/lib/nginx/modules/ngx_stream_module.so ]] && \
+      [[ ! -f /usr/lib/aarch64-linux-gnu/nginx/modules/ngx_stream_module.so ]]; then
+      apt_packages+=(libnginx-mod-stream)
+    fi
+
     sudo apt-get -o DPkg::Lock::Timeout=300 update
     sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y \
-      python3 python3-venv python3-pip curl wget ca-certificates gnupg \
-      sshpass containerd runc nginx libnginx-mod-stream
+      "${apt_packages[@]}"
     return 0
   fi
 
   if command -v dnf >/dev/null 2>&1; then
+    local -a dnf_packages=(
+      python3 python3-pip curl wget ca-certificates sshpass nginx
+    )
     sudo dnf install -y \
-      python3 python3-pip curl wget ca-certificates sshpass \
-      containerd runc nginx
+      "${dnf_packages[@]}"
     return 0
   fi
 
   if command -v yum >/dev/null 2>&1; then
+    local -a yum_packages=(
+      python3 python3-pip curl wget ca-certificates sshpass nginx
+    )
     sudo yum install -y \
-      python3 python3-pip curl wget ca-certificates sshpass \
-      containerd runc nginx
+      "${yum_packages[@]}"
     return 0
   fi
 
