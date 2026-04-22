@@ -659,12 +659,44 @@ controller_can_cache_image_archives() {
   command -v docker >/dev/null 2>&1
 }
 
+controller_local_image_runtime_ready() {
+  controller_can_cache_image_archives || return 1
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 10 docker version >/dev/null 2>&1
+  else
+    docker version >/dev/null 2>&1
+  fi
+}
+
+wait_for_controller_local_image_runtime_ready() {
+  local attempts="${1:-20}"
+  local delay_seconds="${2:-3}"
+  local attempt
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if controller_local_image_runtime_ready; then
+      return 0
+    fi
+
+    if (( attempt < attempts )); then
+      sleep "$delay_seconds"
+    fi
+  done
+
+  return 1
+}
+
 prefetch_image_archive_on_controller() {
   local image_ref="$1"
   local platform="$2"
   local archive_path
 
   controller_can_cache_image_archives || return 1
+  if ! wait_for_controller_local_image_runtime_ready; then
+    echo "WARN: controller 本机的 Docker/containerd 尚未就绪，跳过镜像归档缓存。"
+    return 1
+  fi
   archive_path="$(cached_image_archive_path "$image_ref" "$platform")"
 
   if [[ -s "$archive_path" && "$(stat -c '%s' "$archive_path" 2>/dev/null || echo 0)" -gt 1024 ]]; then
@@ -674,6 +706,7 @@ prefetch_image_archive_on_controller() {
   rm -f "$archive_path"
   print_step "在 master 预下载镜像 $image_ref ($platform)"
   docker pull --platform "$platform" "$image_ref"
+  wait_for_controller_local_image_runtime_ready 3 2 || return 1
   docker image save --platform "$platform" "$image_ref" | gzip > "$archive_path"
 }
 
@@ -893,6 +926,16 @@ sandbox_image() {
   fi
 }
 
+runtime_sandbox_image() {
+  local image
+  image="$(kubeasz_config_value SANDBOX_IMAGE || true)"
+  if [[ -n "$image" ]]; then
+    printf '%s\n' "$image"
+  else
+    sandbox_image
+  fi
+}
+
 configured_arch_count() {
   node --input-type=module -e '
     import fs from "node:fs";
@@ -971,16 +1014,32 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
 
   local -a target_nodes=("$@")
   local -a image_refs=()
+  local sandbox_source_ref
+  local sandbox_runtime_ref
+  local image_ref
+  local archive_path
 
   [[ "${#target_nodes[@]}" -gt 0 ]] || return 0
   mapfile -t image_refs < <(emit_cluster_installation_image_refs)
   [[ "${#image_refs[@]}" -gt 0 ]] || return 0
 
-  cache_and_distribute_image_archives_to_nodes \
-    "linux/$arch" \
-    "${target_nodes[@]}" \
-    -- \
-    "${image_refs[@]}"
+  controller_can_cache_image_archives || return 1
+  sandbox_source_ref="$(sandbox_image)"
+  sandbox_runtime_ref="$(runtime_sandbox_image)"
+
+  for image_ref in "${image_refs[@]}"; do
+    prefetch_image_archive_on_controller "$image_ref" "linux/$arch" || return 1
+    archive_path="$(cached_image_archive_path "$image_ref" "linux/$arch")"
+    print_step "分发镜像 $image_ref 到 ${#target_nodes[@]} 个节点"
+    load_compressed_image_archive_into_nodes "$archive_path" "${target_nodes[@]}"
+
+    if [[ "$image_ref" == "$sandbox_source_ref" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "$sandbox_runtime_ref" \
+        "${target_nodes[@]}"
+    fi
+  done
 }
 
 kubeasz_bundled_kubernetes_version() {
@@ -1102,6 +1161,41 @@ ctr --address /run/containerd/containerd.sock version >/dev/null 2>&1
 " >/dev/null 2>&1
 }
 
+remote_tag_k8s_image_aliases() {
+  local node_name="$1"
+  local source_ref="$2"
+  shift 2
+
+  local alias_script=""
+  local alias_ref
+  for alias_ref in "$@"; do
+    [[ -n "$alias_ref" && "$alias_ref" != "$source_ref" ]] || continue
+    alias_script+="ctr -n k8s.io images rm $(printf '%q' "$alias_ref") >/dev/null 2>&1 || true; "
+    alias_script+="ctr -n k8s.io images tag $(printf '%q' "$source_ref") $(printf '%q' "$alias_ref") >/dev/null 2>&1; "
+  done
+
+  [[ -n "$alias_script" ]] || return 0
+
+  remote_sudo_ssh_retry "$node_name" "
+set -euo pipefail
+
+${alias_script}
+"
+}
+
+tag_k8s_image_aliases_on_nodes() {
+  local source_ref="$1"
+  shift
+
+  local alias_ref="$1"
+  shift
+
+  local node_name
+  for node_name in "$@"; do
+    remote_tag_k8s_image_aliases "$node_name" "$source_ref" "$alias_ref"
+  done
+}
+
 remote_pull_k8s_image() {
   local node_name="$1"
   local image_ref="$2"
@@ -1109,10 +1203,15 @@ remote_pull_k8s_image() {
   shift 3
 
   local cleanup_script=""
+  local alias_script=""
   local ref
   for ref in "$image_ref" "$@"; do
     [[ -n "$ref" ]] || continue
     cleanup_script+="ctr -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
+    if [[ "$ref" != "$image_ref" ]]; then
+      alias_script+="ctr -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
+      alias_script+="ctr -n k8s.io images tag $(printf '%q' "$image_ref") $(printf '%q' "$ref") >/dev/null 2>&1; "
+    fi
   done
 
   remote_sudo_ssh_retry "$node_name" "
@@ -1139,6 +1238,7 @@ cleanup_corrupt_content() {
 }
 
 if ctr -n k8s.io images pull --platform $(printf '%q' "$platform") $(printf '%q' "$image_ref") >\"\$pull_log\" 2>&1; then
+  ${alias_script}
   rm -f \"\$pull_log\"
   exit 0
 fi
@@ -1178,7 +1278,11 @@ prewarm_cluster_system_images_on_node() {
 
   print_step "预热系统镜像到节点 $node_name"
 
-  remote_pull_k8s_image "$node_name" "$sandbox_image_ref" "linux/$node_arch_value"
+  remote_pull_k8s_image \
+    "$node_name" \
+    "$sandbox_image_ref" \
+    "linux/$node_arch_value" \
+    "$(runtime_sandbox_image)"
 
   if [[ -n "$calico_ver" ]]; then
     remote_pull_k8s_image \

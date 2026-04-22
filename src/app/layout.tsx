@@ -35,6 +35,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
+      suppressHydrationWarning
       className={`${geist.variable} ${geistMono.variable} ${manrope.variable}`}
     >
       <body>
