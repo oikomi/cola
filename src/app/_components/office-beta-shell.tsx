@@ -2287,11 +2287,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
               <h1 className="text-[2.45rem] font-semibold tracking-[-0.06em] text-[#2a1d12] md:text-[3.2rem]">
                 虚拟 Office
               </h1>
-              <p className="max-w-2xl text-[15px] leading-7 text-[#6d5544]">
-                你之前的 2D 动画办公室继续以真实 office snapshot
-                驱动。人物仍在办公室里编排，OpenClaw / Hermes 的执行入口已经按
-                workspace 范式对齐到 K8s 工作区，顶部仍可直接添加工位和人物。
-              </p>
             </div>
 
             <div className="flex flex-col gap-3 xl:items-end">
