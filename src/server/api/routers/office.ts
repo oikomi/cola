@@ -36,7 +36,10 @@ import {
   provisionRunner,
   runnerRuntimeLabel,
 } from "@/server/office/provision-runner";
-import { buildNativeDashboardUrl } from "@/server/office/provision-kubernetes-runner";
+import {
+  buildNativeDashboardUrl,
+  resolveKubernetesRunnerDashboardUrl,
+} from "@/server/office/provision-kubernetes-runner";
 import { getOfficeSnapshot } from "@/server/office/snapshot";
 
 const execFileAsync = promisify(execFile);
@@ -242,6 +245,18 @@ async function resolveDeviceDashboardUrl(
     typeof metadata.runtime === "string"
       ? metadata.runtime
       : null;
+  const namespace =
+    metadata &&
+    "namespace" in metadata &&
+    typeof metadata.namespace === "string"
+      ? metadata.namespace
+      : null;
+  const deploymentName =
+    metadata &&
+    "deploymentName" in metadata &&
+    typeof metadata.deploymentName === "string"
+      ? metadata.deploymentName
+      : null;
   const nodePort = nodePortFromDeviceMetadata(metadata);
   const fallbackUrl =
     nodePort && (engine === "openclaw" || engine === "hermes-agent")
@@ -249,6 +264,17 @@ async function resolveDeviceDashboardUrl(
       : null;
 
   if (runtime === "kubernetes") {
+    if (nodePort && (engine === "openclaw" || engine === "hermes-agent")) {
+      const directUrl = await resolveKubernetesRunnerDashboardUrl({
+        engine,
+        namespace,
+        deploymentName,
+        nodePort,
+      });
+
+      return directUrl ?? fallbackUrl ?? currentUrl;
+    }
+
     return fallbackUrl ?? currentUrl;
   }
 

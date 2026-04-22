@@ -2,16 +2,20 @@ import fs from "node:fs";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 
 import {
   AppsV1Api,
   CoreV1Api,
+  Exec,
   KubeConfig,
   type V1ConfigMap,
   type V1Deployment,
   type V1Namespace,
+  type V1Pod,
   type V1Secret,
   type V1Service,
+  type V1Status,
   type V1Volume,
 } from "@kubernetes/client-node";
 
@@ -30,6 +34,8 @@ const OPENCLAW_NODE_PORT_START = 31180;
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
+const RUNNER_CONTAINER_NAME = "runner";
+const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 
 type ClusterConfig = {
   clusterName?: string;
@@ -50,6 +56,7 @@ function clusterControllerIp() {
 type KubeClients = {
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
+  kubeConfig: KubeConfig;
 };
 
 type MountSpec = {
@@ -114,7 +121,182 @@ function createKubeClients(): KubeClients {
   return {
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    kubeConfig,
   };
+}
+
+function runnerPodSortScore(pod: V1Pod) {
+  const isRunning = pod.status?.phase === "Running";
+  const runnerContainer = pod.status?.containerStatuses?.find(
+    (container) => container.name === RUNNER_CONTAINER_NAME,
+  );
+  const isReady = Boolean(runnerContainer?.ready);
+  const restartCount = runnerContainer?.restartCount ?? 0;
+  const startedAt = pod.status?.startTime
+    ? new Date(pod.status.startTime).getTime()
+    : 0;
+
+  return [
+    isReady ? 1 : 0,
+    isRunning ? 1 : 0,
+    restartCount * -1,
+    startedAt,
+  ] as const;
+}
+
+function compareRunnerPods(left: V1Pod, right: V1Pod) {
+  const leftScore = runnerPodSortScore(left);
+  const rightScore = runnerPodSortScore(right);
+  const [
+    leftReady,
+    leftRunning,
+    leftRestartScore,
+    leftStartedAt,
+  ] = leftScore;
+  const [
+    rightReady,
+    rightRunning,
+    rightRestartScore,
+    rightStartedAt,
+  ] = rightScore;
+
+  if (leftReady !== rightReady) return rightReady - leftReady;
+  if (leftRunning !== rightRunning) return rightRunning - leftRunning;
+  if (leftRestartScore !== rightRestartScore) {
+    return rightRestartScore - leftRestartScore;
+  }
+  if (leftStartedAt !== rightStartedAt) return rightStartedAt - leftStartedAt;
+
+  return 0;
+}
+
+function firstNonEmptyValue(...values: Array<string | null | undefined>) {
+  return values.find((value) => typeof value === "string" && value.length > 0);
+}
+
+function rewriteDashboardUrlForPublicHost(
+  dashboardUrl: string,
+  publicUrl: string,
+) {
+  const freshUrl = new URL(dashboardUrl);
+  const rewritten = new URL(publicUrl);
+
+  rewritten.pathname = freshUrl.pathname;
+  rewritten.search = freshUrl.search;
+  rewritten.hash = freshUrl.hash;
+
+  const gatewayUrl = freshUrl.searchParams.get("gatewayUrl");
+  if (gatewayUrl) {
+    try {
+      const gateway = new URL(gatewayUrl);
+      gateway.protocol = rewritten.protocol === "https:" ? "wss:" : "ws:";
+      gateway.hostname = rewritten.hostname;
+      gateway.port = rewritten.port;
+      rewritten.searchParams.set("gatewayUrl", gateway.toString());
+    } catch {
+      rewritten.searchParams.set("gatewayUrl", gatewayUrl);
+    }
+  }
+
+  return rewritten.toString();
+}
+
+async function execOpenClawDashboardUrl(options: {
+  namespace: string;
+  deploymentName: string;
+  nodePort: number;
+}) {
+  const publicUrl = buildNativeDashboardUrl("openclaw", options.nodePort);
+  if (!publicUrl) return null;
+
+  const { coreApi, kubeConfig } = createKubeClients();
+  const podList = await coreApi.listNamespacedPod({
+    namespace: options.namespace,
+    labelSelector: `cola/runner=${options.deploymentName}`,
+  });
+  const pod = [...(podList.items ?? [])].sort(compareRunnerPods)[0];
+  const podName = pod?.metadata?.name?.trim();
+  if (!podName) {
+    return publicUrl;
+  }
+
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let stdoutText = "";
+  let stderrText = "";
+
+  stdout.on("data", (chunk) => {
+    stdoutText += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+  });
+  stderr.on("data", (chunk) => {
+    stderrText += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+  });
+
+  const exec = new Exec(kubeConfig);
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+
+    const timeout = setTimeout(() => {
+      settle(new Error("获取 OpenClaw dashboard URL 超时"));
+    }, 5000);
+
+    const handleStatus = (status?: V1Status) => {
+      if (status?.status && status.status !== "Success") {
+        settle(
+          new Error(
+            firstNonEmptyValue(
+              status.message?.trim(),
+              stderrText.trim(),
+              stdoutText.trim(),
+              "OpenClaw dashboard exec 失败",
+            ) ?? "OpenClaw dashboard exec 失败",
+          ),
+        );
+        return;
+      }
+
+      settle();
+    };
+
+    void exec
+      .exec(
+        options.namespace,
+        podName,
+        RUNNER_CONTAINER_NAME,
+        ["sh", "-lc", "openclaw dashboard --no-open"],
+        stdout,
+        stderr,
+        null,
+        false,
+        handleStatus,
+      )
+      .catch((error) =>
+        settle(error instanceof Error ? error : new Error(String(error))),
+      );
+  });
+
+  const dashboardLine = stdoutText
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith(DASHBOARD_URL_PREFIX));
+
+  if (!dashboardLine) {
+    return publicUrl;
+  }
+
+  const dashboardUrl = dashboardLine.replace(DASHBOARD_URL_PREFIX, "").trim();
+  return rewriteDashboardUrlForPublicHost(dashboardUrl, publicUrl);
 }
 
 function getErrorStatus(error: unknown) {
@@ -248,11 +430,21 @@ function extractOrigin(urlValue: string | undefined) {
   }
 }
 
+function isLoopbackDashboardHost(host: string) {
+  const normalized = host.trim().toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1";
+}
+
 function openClawDisableDeviceIdentity() {
   const raw = process.env.COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY;
-  if (!raw) return false;
+  if (raw) {
+    return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+  }
 
-  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+  const publicHost = dashboardPublicHost("openclaw");
+  if (!publicHost) return false;
+
+  return !isLoopbackDashboardHost(publicHost);
 }
 
 function openClawAllowedOrigins(nodePort: number) {
@@ -448,6 +640,38 @@ export function buildNativeDashboardUrl(
   if (!publicHost) return null;
 
   return `http://${publicHost}:${nodePort}/`;
+}
+
+export async function resolveKubernetesRunnerDashboardUrl(options: {
+  engine: DockerRunnerEngine;
+  namespace?: string | null;
+  deploymentName?: string | null;
+  nodePort?: number | null;
+}) {
+  const nodePort = options.nodePort ?? null;
+  if (!nodePort) return null;
+
+  const fallbackUrl = buildNativeDashboardUrl(options.engine, nodePort);
+  if (!fallbackUrl) return null;
+
+  if (options.engine !== "openclaw") {
+    return fallbackUrl;
+  }
+
+  const deploymentName = options.deploymentName?.trim();
+  if (!deploymentName) {
+    return fallbackUrl;
+  }
+
+  try {
+    return await execOpenClawDashboardUrl({
+      namespace: options.namespace?.trim() ?? runnerNamespace(),
+      deploymentName,
+      nodePort,
+    });
+  } catch {
+    return fallbackUrl;
+  }
 }
 
 function nodeSelection() {
