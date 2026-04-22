@@ -29,6 +29,7 @@ export function ModuleHero({
   children,
   size = "default",
   surfaceHeader,
+  density = "default",
 }: {
   eyebrow: string;
   title: string;
@@ -39,41 +40,84 @@ export function ModuleHero({
   children?: ReactNode;
   size?: "default" | "compact";
   surfaceHeader?: ReactNode;
+  density?: "default" | "dense";
 }) {
+  const isDense = density === "dense";
+
   if (size === "compact") {
     return (
-      <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] px-6 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.045)]">
+      <section
+        className={cn(
+          "relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] shadow-[0_14px_34px_rgba(15,23,42,0.045)]",
+          isDense ? "px-5 py-4" : "px-6 py-5",
+        )}
+      >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_18%,rgba(96,165,250,0.12),transparent_24%),radial-gradient(circle_at_92%_0%,rgba(14,165,233,0.08),transparent_22%)]" />
 
         {surfaceHeader ? (
-          <div className="relative border-b border-slate-200/80 pb-5">
+          <div
+            className={cn(
+              "relative border-b border-slate-200/80",
+              isDense ? "pb-4" : "pb-5",
+            )}
+          >
             {surfaceHeader}
           </div>
         ) : null}
 
         <div
           className={cn(
-            "relative flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-4",
-            surfaceHeader ? "pt-5" : "",
+            "relative flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start",
+            isDense ? "gap-3 lg:gap-3" : "gap-4 lg:gap-4",
+            surfaceHeader ? (isDense ? "pt-4" : "pt-5") : "",
           )}
         >
           <div className="min-w-0">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
-                <Icon className="size-4" />
+            <div
+              className={cn(
+                "flex min-w-0 items-start",
+                isDense ? "gap-2.5" : "gap-3",
+              )}
+            >
+              <div
+                className={cn(
+                  "flex shrink-0 items-center justify-center bg-sky-50 text-sky-700 ring-1 ring-sky-100",
+                  isDense
+                    ? "size-10 rounded-[10px]"
+                    : "size-11 rounded-[var(--radius-card)]",
+                )}
+              >
+                <Icon className={cn(isDense ? "size-[15px]" : "size-4")} />
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+                <div
+                  className={cn(
+                    "flex flex-wrap items-center",
+                    isDense ? "gap-1.5" : "gap-2",
+                  )}
+                >
                   <Badge className="border border-slate-200/90 bg-white/86 text-slate-700">
                     {eyebrow}
                   </Badge>
                   {badges}
                 </div>
-                <h1 className="mt-2 truncate text-[1.5rem] leading-none font-semibold tracking-[-0.05em] text-slate-950 md:text-[1.7rem]">
+                <h1
+                  className={cn(
+                    "truncate font-semibold tracking-[-0.05em] text-slate-950",
+                    isDense
+                      ? "mt-1.5 text-[1.34rem] leading-none md:text-[1.48rem]"
+                      : "mt-2 text-[1.5rem] leading-none md:text-[1.7rem]",
+                  )}
+                >
                   {title}
                 </h1>
-                <p className="mt-2 max-w-[44rem] text-sm leading-6 text-slate-600">
+                <p
+                  className={cn(
+                    "max-w-[44rem] text-slate-600",
+                    isDense ? "mt-1.5 text-[13px] leading-5" : "mt-2 text-sm leading-6",
+                  )}
+                >
                   {description}
                 </p>
               </div>
@@ -81,14 +125,26 @@ export function ModuleHero({
           </div>
 
           {actions ? (
-            <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-10 [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:px-4 [&_[data-slot=button]]:text-[13px]">
+            <div
+              className={cn(
+                "flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:text-[13px]",
+                isDense
+                  ? "[&_[data-slot=button]]:h-9 [&_[data-slot=button]]:px-3.5"
+                  : "[&_[data-slot=button]]:h-10 [&_[data-slot=button]]:px-4",
+              )}
+            >
               {actions}
             </div>
           ) : null}
         </div>
 
         {children ? (
-          <div className="relative mt-5 border-t border-slate-200/80 pt-5">
+          <div
+            className={cn(
+              "relative border-t border-slate-200/80",
+              isDense ? "mt-4 pt-4" : "mt-5 pt-5",
+            )}
+          >
             {children}
           </div>
         ) : null}

@@ -1062,7 +1062,10 @@ export function DeploymentsShell() {
             </div>
           </div>
 
-          <DialogFooter className="border-border/70 bg-muted/30 border-t px-6 py-4 md:px-7">
+          <DialogFooter
+            bleed={false}
+            className="border-border/70 bg-muted/30 border-t px-6 py-4 md:px-7"
+          >
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>

@@ -279,7 +279,7 @@ const ZONE_SCENE: Record<ZoneKey, ZoneSceneConfig> = {
     decor: "people",
   },
   vendor: {
-    anchor: { x: 13.55, y: 6.95 },
+    anchor: { x: 13.05, y: 6.45 },
     rugTint: 0xffd5d8,
     deskTint: 0xbd8559,
     chairTint: 0x8b6a74,
@@ -1484,7 +1484,10 @@ function drawOfficeScene(
       0.5,
       0.5,
     );
-    zoneMeta.position.set(zoneAnchor.x, zoneAnchor.y + 92);
+    zoneMeta.position.set(
+      zoneAnchor.x,
+      zoneAnchor.y + (zone.id === "vendor" ? 84 : 92),
+    );
     zoneMeta.alpha = 0.56;
     zoneMeta.zIndex = zoneAnchor.y + 4;
 

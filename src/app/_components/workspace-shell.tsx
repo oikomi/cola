@@ -61,30 +61,26 @@ const PRIMARY_ACTION_CLASS =
 function WorkspaceMetric({
   label,
   value,
-  description,
   dotClassName,
 }: {
   label: string;
   value: string;
-  description: string;
   dotClassName: string;
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.03)]">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-medium tracking-[0.18em] text-slate-600 uppercase">
+          <p className="text-[10px] font-medium tracking-[0.16em] text-slate-600 uppercase">
             {label}
           </p>
-          <p className="mt-2 text-[1.75rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+          <p className="mt-1 text-[1.48rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
             {value}
           </p>
         </div>
 
-        <span className={cn("mt-1 size-2.5 rounded-full", dotClassName)} />
+        <span className={cn("size-2 rounded-full", dotClassName)} />
       </div>
-
-      <p className="mt-2 text-sm leading-5 text-slate-500">{description}</p>
     </div>
   );
 }
@@ -272,9 +268,10 @@ export function WorkspaceShell() {
   };
 
   return (
-    <ModulePageShell>
+    <ModulePageShell className="gap-4">
       <ModuleHero
         size="compact"
+        density="dense"
         eyebrow="Workspace Control"
         title="远程工作区"
         description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
@@ -343,23 +340,20 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-2.5 md:grid-cols-3">
           <WorkspaceMetric
             label="工作区总数"
             value={String(rows.length)}
-            description="当前纳入远程桌面控制面的全部 workspace。"
             dotClassName="bg-sky-500"
           />
           <WorkspaceMetric
             label="运行中"
             value={String(runningCount)}
-            description="已经拿到访问入口，可以直接登录的工作区。"
             dotClassName="bg-emerald-500"
           />
           <WorkspaceMetric
             label="待就绪"
             value={String(startingCount)}
-            description="容器正在拉起或探针尚未完成。"
             dotClassName="bg-amber-500"
           />
         </div>

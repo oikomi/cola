@@ -132,20 +132,6 @@ const minimalQwenLoraExample = {
   studioConfigJson: "",
 } satisfies TrainingDraft;
 
-const minimalQwenLoraDatasetPreview = [
-  '{"text":"你是客服助手。用户：退款一般多久到账？\\n助手：原路退款通常 1 到 3 个工作日到账，如遇银行处理延迟可再等待 1 到 2 个工作日。"}',
-  '{"text":"你是客服助手。用户：我想修改收货地址怎么办？\\n助手：如果订单还未出库，请尽快提供新的详细地址和联系电话，我们会优先帮你修改。"}',
-  '{"text":"你是客服助手。用户：你们支持开增值税专票吗？\\n助手：支持。请提供开票抬头、税号、开户行、账号和注册地址，我们会在审核后开具。"}',
-] as const;
-
-const minimalQwenLoraRuntimeNotes = [
-  "默认用 1 节点 x 1 GPU，通过 torchrun + DeepSpeed ZeRO-2 跑最小链路。",
-  "默认 load_in_4bit=true，适合用 1 张 GPU 先验证链路。",
-  "默认读取 text 字段；如果你的字段名不同，需要改 COLA_TRAINING_DATASET_TEXT_FIELD。",
-  "平台默认 max_steps=60、per_device_train_batch_size=2、gradient_accumulation_steps=4，更像 smoke test，不是正式收敛配置。",
-  "任务完成后会把 LoRA adapter 写到产物目录下的 adapter/ 子目录。",
-] as const;
-
 const dialogControlClassName =
   "h-11 rounded-2xl border-slate-200/90 bg-white/92 px-3 text-[15px] shadow-[0_1px_0_rgba(255,255,255,0.7)]";
 const dialogTextareaClassName =
@@ -1025,156 +1011,6 @@ export function TrainingShell() {
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       ) : null}
-
-      <ModuleSection
-        title="最小示例"
-        description="先用一个最小 Qwen LoRA 任务把链路跑通，再逐步替换成自己的模型和数据。下面这组配置对应当前平台的默认 torchrun + DeepSpeed 执行器；如果要调更多高级超参，建议直接进入 Unsloth Studio。"
-        action={
-          <Button
-            variant="outline"
-            className="rounded-full"
-            onClick={applyMinimalExample}
-          >
-            <PlusIcon data-icon="inline-start" />
-            带入最小示例
-          </Button>
-        }
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-          <div className="grid gap-4">
-            <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(255,255,255,0.98))] p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                  Unsloth
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="border-slate-200/90 bg-white/90"
-                >
-                  Qwen2.5-0.5B
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="border-slate-200/90 bg-white/90"
-                >
-                  LoRA Smoke Test
-                </Badge>
-              </div>
-
-              <div className="mt-4 grid gap-3 text-sm">
-                <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                  <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    任务标题
-                  </span>
-                  <span className="font-medium text-slate-900">
-                    {minimalQwenLoraExample.title}
-                  </span>
-                </div>
-                <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                  <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    训练目标
-                  </span>
-                  <span className="leading-6 text-slate-700">
-                    {minimalQwenLoraExample.objective}
-                  </span>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                    <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                      训练类型
-                    </span>
-                    <span className="font-medium text-slate-900">
-                      {trainingJobTypeLabels[minimalQwenLoraExample.jobType]}
-                    </span>
-                  </div>
-                  <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                    <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                      分布式规格
-                    </span>
-                    <span className="font-medium text-slate-900">
-                      {minimalQwenLoraExample.nodeCount} 节点 x{" "}
-                      {minimalQwenLoraExample.gpusPerNode} GPU
-                    </span>
-                  </div>
-                </div>
-                <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                  <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    基础模型
-                  </span>
-                  <span className="font-medium break-all text-slate-900">
-                    {minimalQwenLoraExample.baseModel}
-                  </span>
-                </div>
-                <div className="grid gap-1 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3">
-                  <span className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    数据集路径
-                  </span>
-                  <span className="font-medium break-all text-slate-900">
-                    {minimalQwenLoraExample.datasetName}
-                  </span>
-                  <span className="text-xs leading-5 text-slate-500">
-                    这个路径必须存在于训练 Pod
-                    挂载卷中；仓库里的文档示例不会自动出现在容器里。
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[var(--radius-card)] border border-amber-200/80 bg-amber-50/70 p-5 text-sm leading-6 text-amber-900 shadow-[0_14px_34px_rgba(15,23,42,0.03)]">
-              这是一个最小可跑示例，目标是先验证表单、Kubernetes
-              Job、数据读取、LoRA
-              保存链路都正常，再把数据集和步数切换到正式配置。
-            </div>
-          </div>
-
-          <div className="grid gap-4">
-            <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/94 p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <p className="text-sm font-semibold tracking-[-0.03em] text-slate-950">
-                示例数据文件
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                先把下面 3 行 JSONL 保存到
-                <span className="mx-1 font-mono text-[12px] text-slate-900">
-                  {minimalQwenLoraExample.datasetName}
-                </span>
-                ，并确保字段名就是
-                <span className="mx-1 font-mono text-[12px] text-slate-900">
-                  text
-                </span>
-                。
-              </p>
-              <pre className="mt-4 overflow-x-auto rounded-2xl border border-slate-200/80 bg-slate-950 px-4 py-4 text-[11px] leading-5 text-slate-100">
-                {minimalQwenLoraDatasetPreview.join("\n")}
-              </pre>
-            </div>
-
-            <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white/94 p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <p className="text-sm font-semibold tracking-[-0.03em] text-slate-950">
-                平台默认参数
-              </p>
-              <div className="mt-4 grid gap-2 text-sm leading-6 text-slate-700">
-                {minimalQwenLoraRuntimeNotes.map((note) => (
-                  <div
-                    key={note}
-                    className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3"
-                  >
-                    {note}
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-xs leading-5 text-slate-500">
-                如果你要做正式训练，至少要重新评估 step、batch size、learning
-                rate 和数据格式；当前默认值更适合做链路验收。
-              </p>
-              <p className="mt-2 text-xs leading-5 text-slate-500">
-                {unslothStudioUrl
-                  ? "已经配置 Unsloth Studio，可从页面右上角直接进入原生配置界面。"
-                  : "如果需要进入 Unsloth 原生页面，请配置 NEXT_PUBLIC_UNSLOTH_STUDIO_URL。"}
-              </p>
-            </div>
-          </div>
-        </div>
-      </ModuleSection>
 
       <ModuleSection
         title="任务列表"
@@ -2426,7 +2262,7 @@ export function TrainingShell() {
 
                   <div className="mt-5 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
                     提交后会先创建训练任务记录，再由 Kubernetes
-                    拉起容器。如果你只是做链路验收，优先使用上面的最小示例。
+                    拉起容器。链路验收阶段建议先用小模型和小样本跑通流程。
                   </div>
                 </div>
               </aside>

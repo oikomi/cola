@@ -92,16 +92,19 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  bleed = true,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean;
+  bleed?: boolean;
 }) {
   return (
     <div
       data-slot="dialog-footer"
       className={cn(
-        "bg-muted/50 -mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-[var(--radius-shell)] border-t p-4 sm:flex-row sm:justify-end",
+        "bg-muted/50 flex flex-col-reverse gap-2 rounded-b-[var(--radius-shell)] border-t p-4 sm:flex-row sm:justify-end",
+        bleed && "-mx-4 -mb-4",
         className,
       )}
       {...props}
