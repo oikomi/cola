@@ -10,6 +10,7 @@ require_cmd node
 DESTROY_CLUSTER=1
 PURGE_REMOTE_DATA=0
 PURGE_LOCAL_CACHE=0
+PURGE_CONTAINER_RUNTIME=0
 AUTO_YES=0
 
 usage() {
@@ -20,12 +21,15 @@ Destroy the current remote-work deployment and clean local state.
 By default it will:
   1. destroy the kubeasz cluster for the current clusterName
   2. remove local runtime state under infra/k8s/runtime
-  3. keep local image archives and secondary-arch asset bundles for reuse
-  4. remove local /etc/kubeasz cluster config for the current cluster
+  3. keep node-side container runtime and local Docker/containerd image store intact
+  4. keep local image archives and secondary-arch asset bundles for reuse
+  5. remove local /etc/kubeasz cluster config for the current cluster
 
 Options:
   --purge-remote-data      Also remove /var/lib/remote-work/workspaces on every node
   --purge-local-cache      Also remove local image archives and secondary-arch asset bundles
+  --purge-container-runtime
+                           Also remove node-side docker/containerd runtime state and image store
   --keep-local-cache       Backward-compatible alias; local cache is now kept by default
   --skip-destroy-cluster   Skip 'ezctl destroy', only clean local state
   --yes                    Do not ask for interactive confirmation
@@ -41,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --purge-local-cache)
       PURGE_LOCAL_CACHE=1
+      shift
+      ;;
+    --purge-container-runtime)
+      PURGE_CONTAINER_RUNTIME=1
       shift
       ;;
     --keep-local-cache)
@@ -131,6 +139,7 @@ echo "Cluster: $CLUSTER_NAME"
 echo "Destroy cluster: $DESTROY_CLUSTER"
 echo "Purge remote data: $PURGE_REMOTE_DATA"
 echo "Purge local cache: $PURGE_LOCAL_CACHE"
+echo "Purge container runtime: $PURGE_CONTAINER_RUNTIME"
 
 if [[ "$AUTO_YES" -ne 1 ]]; then
   confirm_or_exit "这会销毁当前 remote-work 集群与相关状态，是否继续？"
@@ -143,10 +152,10 @@ if [[ "$DESTROY_CLUSTER" -eq 1 ]]; then
     render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
     copy_hosts_into_kubeasz
     print_step "通过 kubeasz 销毁集群"
-    (
-      cd "$KUBEASZ_DIR" 2>/dev/null || cd "$KUBEASZ_BASE_DIR"
-      run_kubeasz_ezctl destroy "$CLUSTER_NAME"
-    )
+    run_kubeasz_playbook \
+      "$GENERATED_DIR/hosts" \
+      "99.clean.yml" \
+      -e "REMOTE_WORK_KEEP_CONTAINER_RUNTIME=$([[ "$PURGE_CONTAINER_RUNTIME" -eq 1 ]] && printf false || printf true)"
   else
     echo "未检测到可销毁的 kubeasz cluster，跳过集群销毁。"
   fi

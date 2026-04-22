@@ -277,6 +277,7 @@ run_kubeasz_ezctl() {
   patch_kubeasz_compatibility
   patch_kubeasz_prepare_compatibility
   patch_kubeasz_registry_mirrors
+  patch_kubeasz_clean_runtime_preservation
   patch_kubeasz_mixed_arch_image_sources
   ezctl_path="$(kubeasz_ezctl_path)" || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
   sudo env PATH="$(ansible_env_path)" "$ezctl_path" "$@"
@@ -297,6 +298,7 @@ run_kubeasz_playbook() {
   patch_kubeasz_compatibility
   patch_kubeasz_prepare_compatibility
   patch_kubeasz_registry_mirrors
+  patch_kubeasz_clean_runtime_preservation
   patch_kubeasz_mixed_arch_image_sources
 
   [[ -f "$inventory_path" ]] || die "找不到 inventory: $inventory_path"
@@ -415,6 +417,42 @@ for path in targets:
     if path.read_text() == template:
         continue
     path.write_text(template)
+PY
+}
+
+patch_kubeasz_clean_runtime_preservation() {
+  sudo python3 - "$KUBEASZ_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+runtime_root = Path(sys.argv[1])
+targets = [
+    runtime_root / "roles/clean/tasks/clean_node.yml",
+    Path("/etc/kubeasz/roles/clean/tasks/clean_node.yml"),
+]
+
+docker_old = "    when: CONTAINER_RUNTIME == 'docker'"
+docker_new = (
+    "    when: CONTAINER_RUNTIME == 'docker' and "
+    "not (REMOTE_WORK_KEEP_CONTAINER_RUNTIME | default(false) | bool)"
+)
+containerd_old = "    when: CONTAINER_RUNTIME == 'containerd'"
+containerd_new = (
+    "    when: CONTAINER_RUNTIME == 'containerd' and "
+    "not (REMOTE_WORK_KEEP_CONTAINER_RUNTIME | default(false) | bool)"
+)
+
+for path in targets:
+    if not path.exists():
+        continue
+
+    text = path.read_text()
+    updated = text.replace(docker_old, docker_new).replace(
+        containerd_old, containerd_new
+    )
+
+    if updated != text:
+        path.write_text(updated)
 PY
 }
 
@@ -781,14 +819,23 @@ user_kubeconfig_path() {
   printf '%s\n' "$home_dir/.kube/$(cluster_name).config"
 }
 
+default_user_kubeconfig_path() {
+  local home_dir
+  home_dir="$(invoking_user_home_dir)"
+  printf '%s\n' "$home_dir/.kube/config"
+}
+
 sync_user_kubeconfig() {
   local source_kubeconfig
   local user_name
   local group_name
   local target_kubeconfig
+  local default_kubeconfig
   local target_dir
   local tmp_kubeconfig
   local kubectl_bin
+  local default_target
+  local managed_default=0
 
   source_kubeconfig="$(cluster_kubeconfig_path)"
   if ! sudo test -f "$source_kubeconfig"; then
@@ -799,6 +846,7 @@ sync_user_kubeconfig() {
   user_name="$(invoking_user_name)"
   group_name="$(invoking_user_group)"
   target_kubeconfig="$(user_kubeconfig_path)"
+  default_kubeconfig="$(default_user_kubeconfig_path)"
   target_dir="$(dirname "$target_kubeconfig")"
   kubectl_bin="$(kubectl_bin_path)"
   tmp_kubeconfig="$(mktemp)"
@@ -810,6 +858,25 @@ sync_user_kubeconfig() {
 
   sudo chgrp "$group_name" "$source_kubeconfig"
   sudo chmod 0640 "$source_kubeconfig"
+
+  if ! sudo test -e "$default_kubeconfig"; then
+    managed_default=1
+  elif sudo test -L "$default_kubeconfig"; then
+    default_target="$(sudo readlink "$default_kubeconfig" || true)"
+    case "$default_target" in
+      "$(basename "$target_kubeconfig")"|"$target_dir/"*.config|"$target_dir"/*.config)
+        managed_default=1
+        ;;
+    esac
+  fi
+
+  if [[ "$managed_default" -eq 1 ]]; then
+    sudo ln -sfn "$(basename "$target_kubeconfig")" "$default_kubeconfig"
+    sudo chown -h "$user_name":"$group_name" "$default_kubeconfig"
+    echo "已同步默认 kubeconfig: $default_kubeconfig -> $(basename "$target_kubeconfig")"
+  else
+    echo "WARN: 保留现有默认 kubeconfig: $default_kubeconfig"
+  fi
 
   echo "已同步用户 kubeconfig: $target_kubeconfig"
   echo "已允许当前用户组读取: $source_kubeconfig"
