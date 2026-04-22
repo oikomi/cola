@@ -42,6 +42,11 @@ function readClusterConfig() {
   return JSON.parse(readFileSync(CLUSTER_CONFIG_PATH, "utf8")) as ClusterConfig;
 }
 
+function clusterControllerIp() {
+  const controllerIp = readClusterConfig()?.controllerIp?.trim();
+  return controllerIp && controllerIp.length > 0 ? controllerIp : null;
+}
+
 type KubeClients = {
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
@@ -207,21 +212,24 @@ function codexAuthPathForEngine(engine: DockerRunnerEngine) {
 }
 
 function dashboardPublicHost(engine: DockerRunnerEngine) {
-  if (engine === "hermes-agent") {
-    return (
-      process.env.COLA_HERMES_DASHBOARD_PUBLIC_HOST ??
-      process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
-      process.env.COLA_DASHBOARD_PUBLIC_HOST ??
-      null
-    );
+  const configured =
+    engine === "hermes-agent"
+      ? process.env.COLA_HERMES_DASHBOARD_PUBLIC_HOST ??
+        process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
+        process.env.COLA_DASHBOARD_PUBLIC_HOST
+      : process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
+        process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
+        process.env.COLA_DASHBOARD_PUBLIC_HOST;
+
+  if (configured?.trim()) {
+    return configured.trim();
   }
 
-  return (
-    process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
-    process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
-    process.env.COLA_DASHBOARD_PUBLIC_HOST ??
-    null
-  );
+  if (engine === "hermes-agent") {
+    return clusterControllerIp();
+  }
+
+  return clusterControllerIp();
 }
 
 function uniqueOrigins(values: Array<string | null | undefined>) {
@@ -432,7 +440,7 @@ function buildBootstrapConfigMap(workloadName: string): V1ConfigMap {
   };
 }
 
-function buildNativeDashboardUrl(
+export function buildNativeDashboardUrl(
   engine: DockerRunnerEngine,
   nodePort: number,
 ): string | null {

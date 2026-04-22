@@ -36,6 +36,7 @@ import {
   provisionRunner,
   runnerRuntimeLabel,
 } from "@/server/office/provision-runner";
+import { buildNativeDashboardUrl } from "@/server/office/provision-kubernetes-runner";
 import { getOfficeSnapshot } from "@/server/office/snapshot";
 
 const execFileAsync = promisify(execFile);
@@ -171,6 +172,22 @@ function linkedAgentIdFromDeviceMetadata(metadata: unknown) {
   return typeof metadata.agentId === "string" ? metadata.agentId : null;
 }
 
+function nodePortFromDeviceMetadata(metadata: unknown) {
+  if (!isPlainRecord(metadata)) return null;
+
+  const raw = metadata.nodePort;
+  if (typeof raw !== "string" && typeof raw !== "number") {
+    return null;
+  }
+
+  const nodePort = Number(raw);
+  if (!Number.isInteger(nodePort) || nodePort <= 0) {
+    return null;
+  }
+
+  return nodePort;
+}
+
 async function resolveFreshDashboardUrl(
   database: Database,
   agentId: string,
@@ -219,9 +236,24 @@ async function resolveDeviceDashboardUrl(
     typeof metadata.engine === "string"
       ? metadata.engine
       : null;
+  const runtime =
+    metadata &&
+    "runtime" in metadata &&
+    typeof metadata.runtime === "string"
+      ? metadata.runtime
+      : null;
+  const nodePort = nodePortFromDeviceMetadata(metadata);
+  const fallbackUrl =
+    nodePort && (engine === "openclaw" || engine === "hermes-agent")
+      ? buildNativeDashboardUrl(engine, nodePort)
+      : null;
+
+  if (runtime === "kubernetes") {
+    return fallbackUrl ?? currentUrl;
+  }
 
   if (engine !== "openclaw" || !containerName || !currentUrl) {
-    return currentUrl;
+    return currentUrl ?? fallbackUrl;
   }
 
   try {
@@ -259,7 +291,7 @@ async function resolveDeviceDashboardUrl(
 
     return controlUrl.toString();
   } catch {
-    return currentUrl;
+    return currentUrl ?? fallbackUrl;
   }
 }
 
