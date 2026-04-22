@@ -76,14 +76,25 @@ if [[ -f "$BOOTSTRAP_SUMMARY" ]]; then
 fi
 
 print_step "开始安装 Kubernetes 集群"
-for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do
-  best_effort_prewarm_cluster_system_images_on_node "$node_name"
-done
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "01.prepare.yml"
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "02.etcd.yml"
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "03.runtime.yml"
 
-(
-  cd "$KUBEASZ_DIR"
-  run_kubeasz_ezctl setup "$CLUSTER_NAME" all
-)
+print_step "在 master 预下载并分发集群系统镜像"
+if ! cache_and_distribute_cluster_installation_images_to_nodes \
+  "$(local_arch)" \
+  "${BOOTSTRAP_NODE_LIST[@]}"
+then
+  echo "WARN: 无法通过 master 归档分发系统镜像，回退为节点自行预热。"
+  for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do
+    best_effort_prewarm_cluster_system_images_on_node "$node_name"
+  done
+fi
+
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "04.kube-master.yml"
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "05.kube-node.yml"
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "06.network.yml"
+run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "07.cluster-addon.yml"
 
 print_step "安装完成后补充预热系统镜像"
 for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do

@@ -282,6 +282,39 @@ run_kubeasz_ezctl() {
   sudo env PATH="$(ansible_env_path)" "$ezctl_path" "$@"
 }
 
+cluster_hosts_file() {
+  printf '%s\n' "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/hosts"
+}
+
+run_kubeasz_playbook() {
+  local inventory_path="$1"
+  local playbook_name="$2"
+  shift 2
+
+  local cluster_config_file
+
+  ensure_ansible_available
+  patch_kubeasz_compatibility
+  patch_kubeasz_prepare_compatibility
+  patch_kubeasz_registry_mirrors
+  patch_kubeasz_mixed_arch_image_sources
+
+  [[ -f "$inventory_path" ]] || die "找不到 inventory: $inventory_path"
+  sudo test -f "$KUBEASZ_BASE_DIR/playbooks/$playbook_name" || \
+    die "找不到 kubeasz playbook: $KUBEASZ_BASE_DIR/playbooks/$playbook_name"
+
+  cluster_config_file="$(cluster_kubeasz_config_path)"
+  (
+    cd "$KUBEASZ_BASE_DIR"
+    sudo env PATH="$(ansible_env_path)" \
+      "$ANSIBLE_BIN_DIR/ansible-playbook" \
+      -i "$inventory_path" \
+      "playbooks/$playbook_name" \
+      -e "@$cluster_config_file" \
+      "$@"
+  )
+}
+
 run_ansible_ad_hoc() {
   ensure_ansible_available
   patch_kubeasz_compatibility
@@ -554,9 +587,123 @@ load_compressed_image_archive_into_nodes() {
   archive_name="$(basename "$archive_path")"
 
   for node_name in "$@"; do
-    remote_scp "$archive_path" "$node_name" "/tmp/$archive_name"
-    remote_sudo_ssh "$node_name" \
-      "gzip -dc /tmp/$archive_name | ctr -n k8s.io images import - && rm -f /tmp/$archive_name"
+    load_compressed_image_archive_into_remote_host \
+      "$archive_path" \
+      "$(node_ip "$node_name")" \
+      "$(node_user "$node_name")" \
+      "$(node_password "$node_name")" \
+      "$(node_port "$node_name")"
+  done
+}
+
+load_compressed_image_archive_into_remote_host() {
+  local archive_path="$1"
+  local host_ip="$2"
+  local ssh_user="$3"
+  local ssh_password="$4"
+  local ssh_port="$5"
+  local archive_name
+  local attempt
+
+  [[ -f "$archive_path" ]] || die "找不到镜像归档: $archive_path"
+
+  archive_name="$(basename "$archive_path")"
+
+  for attempt in 1 2 3; do
+    if sshpass -p "$ssh_password" \
+      scp "${SSH_OPTS[@]}" \
+      -P "$ssh_port" \
+      "$archive_path" \
+      "$ssh_user@$host_ip:/tmp/$archive_name"
+    then
+      break
+    fi
+
+    if [[ "$attempt" -lt 3 ]]; then
+      echo "WARN: scp 到 $host_ip 失败，准备第 $((attempt + 1)) 次重试。"
+      sleep 2
+    else
+      die "向远端主机传输镜像归档失败: $archive_path -> $host_ip:/tmp/$archive_name"
+    fi
+  done
+
+  sshpass -p "$ssh_password" \
+    ssh "${SSH_OPTS[@]}" \
+    -p "$ssh_port" \
+    "$ssh_user@$host_ip" \
+    "printf '%s\n' $(printf '%q' "$ssh_password") | sudo -S -p '' bash -lc $(printf '%q' "gzip -dc /tmp/$archive_name | ctr -n k8s.io images import - && rm -f /tmp/$archive_name")"
+}
+
+controller_image_archive_dir() {
+  ensure_runtime_dirs
+  local dir="$RUNTIME_DIR/cache/image-archives"
+  mkdir -p "$dir"
+  printf '%s\n' "$dir"
+}
+
+cached_image_archive_path() {
+  local image_ref="$1"
+  local platform="$2"
+  local image_key
+  local platform_key
+
+  image_key="${image_ref//\//_}"
+  image_key="${image_key//:/_}"
+  image_key="${image_key//@/_}"
+  platform_key="${platform//\//_}"
+
+  printf '%s\n' "$(controller_image_archive_dir)/${image_key}_${platform_key}.tar.gz"
+}
+
+controller_can_cache_image_archives() {
+  command -v docker >/dev/null 2>&1
+}
+
+prefetch_image_archive_on_controller() {
+  local image_ref="$1"
+  local platform="$2"
+  local archive_path
+
+  controller_can_cache_image_archives || return 1
+  archive_path="$(cached_image_archive_path "$image_ref" "$platform")"
+
+  if [[ -s "$archive_path" && "$(stat -c '%s' "$archive_path" 2>/dev/null || echo 0)" -gt 1024 ]]; then
+    return 0
+  fi
+
+  rm -f "$archive_path"
+  print_step "在 master 预下载镜像 $image_ref ($platform)"
+  docker pull --platform "$platform" "$image_ref"
+  docker image save --platform "$platform" "$image_ref" | gzip > "$archive_path"
+}
+
+cache_and_distribute_image_archives_to_nodes() {
+  local platform="$1"
+  shift
+
+  local -a target_nodes=()
+  while [[ $# -gt 0 && "$1" != "--" ]]; do
+    target_nodes+=("$1")
+    shift
+  done
+
+  [[ $# -gt 0 && "$1" == "--" ]] || die "cache_and_distribute_image_archives_to_nodes 缺少 '--' 分隔符"
+  shift
+
+  local -a image_refs=("$@")
+  local image_ref
+  local archive_path
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || die "未提供目标节点，无法分发镜像归档。"
+  [[ "${#image_refs[@]}" -gt 0 ]] || return 0
+
+  controller_can_cache_image_archives || return 1
+
+  for image_ref in "${image_refs[@]}"; do
+    prefetch_image_archive_on_controller "$image_ref" "$platform" || return 1
+    archive_path="$(cached_image_archive_path "$image_ref" "$platform")"
+    print_step "分发镜像 $image_ref 到 ${#target_nodes[@]} 个节点"
+    load_compressed_image_archive_into_nodes "$archive_path" "${target_nodes[@]}"
   done
 }
 
@@ -777,6 +924,63 @@ kubeasz_config_value() {
   file="$(cluster_kubeasz_config_path)"
 
   sudo sed -n "s/^${key}: \"\\(.*\\)\"/\\1/p" "$file" | head -n 1
+}
+
+emit_cluster_installation_image_refs() {
+  local calico_ver
+  local dns_node_cache_ver
+  local coredns_ver
+  local coredns_tag
+  local metrics_ver
+  local sandbox_image_ref
+
+  calico_ver="$(kubeasz_config_value calico_ver || true)"
+  dns_node_cache_ver="$(kubeasz_config_value dnsNodeCacheVer || true)"
+  coredns_ver="$(kubeasz_config_value corednsVer || true)"
+  coredns_tag="$coredns_ver"
+  if [[ -n "$coredns_tag" && "$coredns_tag" != v* ]]; then
+    coredns_tag="v${coredns_tag}"
+  fi
+  metrics_ver="$(kubeasz_config_value metricsVer || true)"
+  sandbox_image_ref="$(sandbox_image)"
+
+  printf '%s\n' "$sandbox_image_ref"
+
+  if [[ -n "$calico_ver" ]]; then
+    printf '%s\n' "docker.io/calico/cni:${calico_ver}"
+    printf '%s\n' "docker.io/calico/node:${calico_ver}"
+    printf '%s\n' "docker.io/calico/kube-controllers:${calico_ver}"
+  fi
+
+  if [[ -n "$dns_node_cache_ver" ]]; then
+    printf '%s\n' "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}"
+  fi
+
+  if [[ -n "$coredns_tag" ]]; then
+    printf '%s\n' "registry.k8s.io/coredns/coredns:${coredns_tag}"
+  fi
+
+  if [[ -n "$metrics_ver" ]]; then
+    printf '%s\n' "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}"
+  fi
+}
+
+cache_and_distribute_cluster_installation_images_to_nodes() {
+  local arch="$1"
+  shift
+
+  local -a target_nodes=("$@")
+  local -a image_refs=()
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || return 0
+  mapfile -t image_refs < <(emit_cluster_installation_image_refs)
+  [[ "${#image_refs[@]}" -gt 0 ]] || return 0
+
+  cache_and_distribute_image_archives_to_nodes \
+    "linux/$arch" \
+    "${target_nodes[@]}" \
+    -- \
+    "${image_refs[@]}"
 }
 
 kubeasz_bundled_kubernetes_version() {

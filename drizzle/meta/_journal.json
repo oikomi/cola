@@ -50,6 +50,13 @@
       "when": 1776811200000,
       "tag": "0006_unsloth_training_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776844800000,
+      "tag": "0007_training_distributed_runtime",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,11 @@ export const inferenceDeploymentEngineValues = [
   "sglang",
 ] as const;
 
+export const creatableInferenceDeploymentEngineValues = [
+  "vllm",
+  "sglang",
+] as const;
+
 export const inferenceDeploymentStatusValues = [
   "draft",
   "starting",
@@ -16,6 +21,22 @@ export type InferenceDeploymentEngine =
   (typeof inferenceDeploymentEngineValues)[number];
 export type InferenceDeploymentStatus =
   (typeof inferenceDeploymentStatusValues)[number];
+
+const creatableInferenceDeploymentEngineSet = new Set<InferenceDeploymentEngine>(
+  creatableInferenceDeploymentEngineValues,
+);
+const huggingFaceModelRefPattern =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
+
+export function canCreateInferenceDeploymentWithEngine(
+  engine: InferenceDeploymentEngine,
+) {
+  return creatableInferenceDeploymentEngineSet.has(engine);
+}
+
+export function isHuggingFaceModelRef(modelRef: string) {
+  return huggingFaceModelRefPattern.test(modelRef.trim());
+}
 
 export const inferenceDeploymentEngineLabels: Record<
   InferenceDeploymentEngine,

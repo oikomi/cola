@@ -12,6 +12,7 @@
 - 默认 namespace：`COLA_TRAINING_K8S_NAMESPACE`
 - 未设置时回退到 `infra/remote-work/cluster/config.json` 里的 `workspaceNamespace`
 - GPU 节点选择器默认使用 `infra/remote-work/cluster/config.json` 里的 `gpuLabelKey`
+- `COLA_TRAINING_RUNTIME_CLASS_NAME` 未设置时，训练 Pod 不会强制注入 `runtimeClassName`
 
 ## Kubernetes 连接
 
@@ -35,6 +36,7 @@
 - `COLA_TRAINING_HF_SECRET_KEY`
 - `COLA_TRAINING_DATASET_SPLIT`
 - `COLA_TRAINING_DATASET_TEXT_FIELD`
+- `COLA_TRAINING_RUNTIME_CLASS_NAME`
 - `COLA_TRAINING_CPU_REQUEST`
 - `COLA_TRAINING_CPU_LIMIT`
 - `COLA_TRAINING_MEMORY_REQUEST`

@@ -215,6 +215,11 @@ wait_for_dashboard_ready() {
 print_step "检查集群连通性"
 run_cluster_kubectl get nodes >/dev/null
 
+if can_auto_prepull_images; then
+  print_step "在 master 预下载并分发 Dashboard 镜像"
+  "$ROOT_DIR/bin/cluster.sh" dashboard prepull-images "$CHART_VERSION"
+fi
+
 print_step "安装 Kubernetes Dashboard"
 CHART_REF="kubernetes-dashboard/kubernetes-dashboard"
 if run_cluster_helm repo add kubernetes-dashboard "$REPO_URL" --force-update && \

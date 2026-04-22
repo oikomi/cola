@@ -33,13 +33,8 @@ IMAGES=(
 )
 
 for image_ref in "${IMAGES[@]}"; do
-  image_file="$RUNTIME_DIR_IMAGES/${image_ref//\//_}"
-  image_file="${image_file//:/_}.tar.gz"
-
-  print_step "准备镜像 $image_ref"
-  docker pull --platform "$LOCAL_PLATFORM" "$image_ref"
-  docker image save --platform "$LOCAL_PLATFORM" "$image_ref" | gzip > "$image_file"
-
+  prefetch_image_archive_on_controller "$image_ref" "$LOCAL_PLATFORM"
+  image_file="$(cached_image_archive_path "$image_ref" "$LOCAL_PLATFORM")"
   print_step "分发 $image_ref 到 ${#TARGET_NODES[@]} 个节点"
   load_compressed_image_archive_into_nodes "$image_file" "${TARGET_NODES[@]}"
 done

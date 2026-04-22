@@ -14,10 +14,12 @@ import {
 } from "@kubernetes/client-node";
 
 import {
+  canCreateInferenceDeploymentWithEngine,
   defaultInferenceImage,
   type InferenceDeploymentEngine,
   type InferenceDeploymentStatus,
   inferenceDeploymentEngineValues,
+  isHuggingFaceModelRef,
 } from "@/server/deployments/catalog";
 
 const REMOTE_WORK_DIR = path.join(process.cwd(), "infra", "remote-work");
@@ -212,6 +214,26 @@ function normalizeReplicaCount(replicaCount: number) {
   }
 
   return replicaCount;
+}
+
+function normalizeCreateEngine(engine: InferenceDeploymentEngine) {
+  if (!canCreateInferenceDeploymentWithEngine(engine)) {
+    throw new Error("当前创建推理部署只支持 vLLM 和 SGLang。");
+  }
+
+  return engine;
+}
+
+function normalizeModelRef(input: string) {
+  const value = input.trim();
+
+  if (!isHuggingFaceModelRef(value)) {
+    throw new Error(
+      "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
+    );
+  }
+
+  return value;
 }
 
 function formatTimestamp(input?: string | Date | null) {
@@ -904,9 +926,11 @@ export async function createInferenceDeployment(
   const ctx = await createKubeContext();
 
   validateInferenceName(input.name);
+  const engine = normalizeCreateEngine(input.engine);
+  const modelRef = normalizeModelRef(input.modelRef);
   const cpu = normalizeCpu(input.cpu);
   const memory = normalizeMemoryGi(input.memoryGi);
-  const gpuCount = normalizeGpuCount(input.engine, input.gpuCount);
+  const gpuCount = normalizeGpuCount(engine, input.gpuCount);
   const replicaCount = normalizeReplicaCount(input.replicaCount);
 
   await ensureNamespace(ctx.coreApi, ctx.namespace);
@@ -934,8 +958,8 @@ export async function createInferenceDeployment(
     namespace: ctx.namespace,
     body: buildInferenceDeployment({
       name: input.name,
-      engine: input.engine,
-      modelRef: input.modelRef,
+      engine,
+      modelRef,
       image: input.image,
       cpu,
       memory,

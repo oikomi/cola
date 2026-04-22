@@ -95,8 +95,46 @@ mirror_nvidia_device_plugin_image() {
 
 prepull_nvidia_device_plugin_image() {
   local node_name
+  local -a amd64_nodes=()
+  local -a arm64_nodes=()
 
   for node_name in "${GPU_NODES[@]}"; do
+    case "$(node_arch "$node_name")" in
+      amd64)
+        amd64_nodes+=("$node_name")
+        ;;
+      arm64)
+        arm64_nodes+=("$node_name")
+        ;;
+    esac
+  done
+
+  if controller_can_cache_image_archives; then
+    if [[ "${#amd64_nodes[@]}" -gt 0 ]]; then
+      cache_and_distribute_image_archives_to_nodes \
+        "linux/amd64" \
+        "${amd64_nodes[@]}" \
+        -- \
+        "$NVIDIA_DEVICE_PLUGIN_IMAGE" && amd64_nodes=()
+    fi
+
+    if [[ "${#arm64_nodes[@]}" -gt 0 ]]; then
+      cache_and_distribute_image_archives_to_nodes \
+        "linux/arm64" \
+        "${arm64_nodes[@]}" \
+        -- \
+        "$NVIDIA_DEVICE_PLUGIN_IMAGE" && arm64_nodes=()
+    fi
+  fi
+
+  for node_name in "${GPU_NODES[@]}"; do
+    if [[ "$(node_arch "$node_name")" == "amd64" && "${#amd64_nodes[@]}" -eq 0 ]]; then
+      continue
+    fi
+    if [[ "$(node_arch "$node_name")" == "arm64" && "${#arm64_nodes[@]}" -eq 0 ]]; then
+      continue
+    fi
+
     print_step "在节点 $node_name 上预拉 NVIDIA device plugin 镜像"
     if ! remote_pull_k8s_image \
       "$node_name" \

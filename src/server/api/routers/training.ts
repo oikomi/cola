@@ -10,15 +10,22 @@ import {
   priorityLabels,
 } from "@/server/office/catalog";
 import {
+  trainingConfigSourceValues,
+  trainingDistributedBackendLabels,
+  trainingDistributedBackendValues,
+  trainingLauncherTypeValues,
+  trainingPrecisionValues,
   trainingJobStatusLabels,
   trainingJobTypeLabels,
   trainingJobTypeValues,
 } from "@/server/training/catalog";
 import {
+  type TrainingRuntimeColumnSupport,
   getTrainingRuntimeColumnSupport,
   normalizeTrainingJobRecord,
 } from "@/server/training/compat";
 import {
+  inspectTrainingJobRuntime,
   stopTrainingJobRun,
   submitTrainingJob,
   syncTrainingJobs,
@@ -31,46 +38,153 @@ const createTrainingJobInput = z.object({
   priority: z.enum(priorityValues),
   baseModel: z.string().trim().min(2).max(120),
   datasetName: z.string().trim().min(2).max(120),
-  gpuCount: z.number().int().min(1).max(64),
+  datasetSplit: z.string().trim().min(1).max(32).default("train"),
+  datasetTextField: z.string().trim().min(1).max(64).default("text"),
+  nodeCount: z.number().int().min(1).max(32),
+  gpusPerNode: z.number().int().min(1).max(16),
+  configSource: z.enum(trainingConfigSourceValues).default("manual"),
+  launcherType: z.enum(trainingLauncherTypeValues).default("torchrun"),
+  distributedBackend: z
+    .enum(trainingDistributedBackendValues)
+    .default("deepspeed"),
+  deepspeedStage: z.number().int().min(2).max(3).nullable().default(2),
+  precision: z.enum(trainingPrecisionValues).default("bf16"),
+  loadIn4bit: z.boolean().default(true),
+  studioConfigSnapshot: z.unknown().optional(),
+  trainingConfigSnapshot: z.unknown().optional(),
 });
 
 const trainingJobActionInput = z.object({
   jobId: z.string().uuid(),
 });
 
+const trainingRuntimeDetailInput = z.object({
+  jobId: z.string().uuid(),
+  podName: z.string().trim().min(1).max(160).optional(),
+  tailLines: z.number().int().min(20).max(500).optional(),
+});
+
+type CreateTrainingJobInput = z.infer<typeof createTrainingJobInput>;
 type TrainingJobReader = Pick<typeof db, "select">;
+
+function buildTrainingJobSelection(runtimeColumns: TrainingRuntimeColumnSupport) {
+  return {
+    id: trainingJobs.id,
+    title: trainingJobs.title,
+    jobType: trainingJobs.jobType,
+    status: trainingJobs.status,
+    priority: trainingJobs.priority,
+    baseModel: trainingJobs.baseModel,
+    datasetName: trainingJobs.datasetName,
+    objective: trainingJobs.objective,
+    gpuCount: trainingJobs.gpuCount,
+    lastError: trainingJobs.lastError,
+    startedAt: trainingJobs.startedAt,
+    finishedAt: trainingJobs.finishedAt,
+    createdAt: trainingJobs.createdAt,
+    updatedAt: trainingJobs.updatedAt,
+    ...(runtimeColumns.datasetSplit
+      ? { datasetSplit: trainingJobs.datasetSplit }
+      : {}),
+    ...(runtimeColumns.datasetTextField
+      ? { datasetTextField: trainingJobs.datasetTextField }
+      : {}),
+    ...(runtimeColumns.nodeCount ? { nodeCount: trainingJobs.nodeCount } : {}),
+    ...(runtimeColumns.gpusPerNode
+      ? { gpusPerNode: trainingJobs.gpusPerNode }
+      : {}),
+    ...(runtimeColumns.configSource
+      ? { configSource: trainingJobs.configSource }
+      : {}),
+    ...(runtimeColumns.launcherType
+      ? { launcherType: trainingJobs.launcherType }
+      : {}),
+    ...(runtimeColumns.distributedBackend
+      ? { distributedBackend: trainingJobs.distributedBackend }
+      : {}),
+    ...(runtimeColumns.deepspeedStage
+      ? { deepspeedStage: trainingJobs.deepspeedStage }
+      : {}),
+    ...(runtimeColumns.precision ? { precision: trainingJobs.precision } : {}),
+    ...(runtimeColumns.loadIn4bit
+      ? { loadIn4bit: trainingJobs.loadIn4bit }
+      : {}),
+    ...(runtimeColumns.studioConfigSnapshot
+      ? { studioConfigSnapshot: trainingJobs.studioConfigSnapshot }
+      : {}),
+    ...(runtimeColumns.trainingConfigSnapshot
+      ? { trainingConfigSnapshot: trainingJobs.trainingConfigSnapshot }
+      : {}),
+    ...(runtimeColumns.runtimeNamespace
+      ? { runtimeNamespace: trainingJobs.runtimeNamespace }
+      : {}),
+    ...(runtimeColumns.runtimeKind
+      ? { runtimeKind: trainingJobs.runtimeKind }
+      : {}),
+    ...(runtimeColumns.runtimeJobName
+      ? { runtimeJobName: trainingJobs.runtimeJobName }
+      : {}),
+    ...(runtimeColumns.runtimeServiceName
+      ? { runtimeServiceName: trainingJobs.runtimeServiceName }
+      : {}),
+    ...(runtimeColumns.runtimeLeaderPodName
+      ? { runtimeLeaderPodName: trainingJobs.runtimeLeaderPodName }
+      : {}),
+    ...(runtimeColumns.runtimeImage
+      ? { runtimeImage: trainingJobs.runtimeImage }
+      : {}),
+    ...(runtimeColumns.artifactPath
+      ? { artifactPath: trainingJobs.artifactPath }
+      : {}),
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildTrainingConfigSnapshot(input: CreateTrainingJobInput) {
+  const totalGpuCount = input.nodeCount * input.gpusPerNode;
+  const baseSnapshot = {
+    version: 1,
+    source: input.configSource,
+    jobType: input.jobType,
+    baseModel: input.baseModel,
+    objective: input.objective,
+    dataset: {
+      name: input.datasetName,
+      split: input.datasetSplit,
+      textField: input.datasetTextField,
+    },
+    model: {
+      loadIn4bit: input.loadIn4bit,
+    },
+    distributed: {
+      launcher: input.launcherType,
+      backend: input.distributedBackend,
+      nodeCount: input.nodeCount,
+      gpusPerNode: input.gpusPerNode,
+      totalGpuCount,
+      deepspeedStage:
+        input.distributedBackend === "deepspeed" ? input.deepspeedStage : null,
+      precision: input.precision,
+    },
+  };
+
+  if (!isPlainObject(input.trainingConfigSnapshot)) {
+    return baseSnapshot;
+  }
+
+  return {
+    ...input.trainingConfigSnapshot,
+    ...baseSnapshot,
+  };
+}
 
 async function listTrainingJobsWithCompat(database: TrainingJobReader) {
   const runtimeColumns = await getTrainingRuntimeColumnSupport();
   const rows = await database
-    .select({
-      id: trainingJobs.id,
-      title: trainingJobs.title,
-      jobType: trainingJobs.jobType,
-      status: trainingJobs.status,
-      priority: trainingJobs.priority,
-      baseModel: trainingJobs.baseModel,
-      datasetName: trainingJobs.datasetName,
-      objective: trainingJobs.objective,
-      gpuCount: trainingJobs.gpuCount,
-      lastError: trainingJobs.lastError,
-      startedAt: trainingJobs.startedAt,
-      finishedAt: trainingJobs.finishedAt,
-      createdAt: trainingJobs.createdAt,
-      updatedAt: trainingJobs.updatedAt,
-      ...(runtimeColumns.runtimeNamespace
-        ? { runtimeNamespace: trainingJobs.runtimeNamespace }
-        : {}),
-      ...(runtimeColumns.runtimeJobName
-        ? { runtimeJobName: trainingJobs.runtimeJobName }
-        : {}),
-      ...(runtimeColumns.runtimeImage
-        ? { runtimeImage: trainingJobs.runtimeImage }
-        : {}),
-      ...(runtimeColumns.artifactPath
-        ? { artifactPath: trainingJobs.artifactPath }
-        : {}),
-    })
+    .select(buildTrainingJobSelection(runtimeColumns))
     .from(trainingJobs)
     .orderBy(desc(trainingJobs.createdAt));
 
@@ -86,34 +200,7 @@ async function getTrainingJobByIdWithCompat(
 ) {
   const runtimeColumns = await getTrainingRuntimeColumnSupport();
   const [row] = await database
-    .select({
-      id: trainingJobs.id,
-      title: trainingJobs.title,
-      jobType: trainingJobs.jobType,
-      status: trainingJobs.status,
-      priority: trainingJobs.priority,
-      baseModel: trainingJobs.baseModel,
-      datasetName: trainingJobs.datasetName,
-      objective: trainingJobs.objective,
-      gpuCount: trainingJobs.gpuCount,
-      lastError: trainingJobs.lastError,
-      startedAt: trainingJobs.startedAt,
-      finishedAt: trainingJobs.finishedAt,
-      createdAt: trainingJobs.createdAt,
-      updatedAt: trainingJobs.updatedAt,
-      ...(runtimeColumns.runtimeNamespace
-        ? { runtimeNamespace: trainingJobs.runtimeNamespace }
-        : {}),
-      ...(runtimeColumns.runtimeJobName
-        ? { runtimeJobName: trainingJobs.runtimeJobName }
-        : {}),
-      ...(runtimeColumns.runtimeImage
-        ? { runtimeImage: trainingJobs.runtimeImage }
-        : {}),
-      ...(runtimeColumns.artifactPath
-        ? { artifactPath: trainingJobs.artifactPath }
-        : {}),
-    })
+    .select(buildTrainingJobSelection(runtimeColumns))
     .from(trainingJobs)
     .where(eq(trainingJobs.id, jobId))
     .limit(1);
@@ -131,10 +218,45 @@ export const trainingRouter = createTRPCRouter({
     return syncTrainingJobs(rows);
   }),
 
+  getRuntimeDetails: publicProcedure
+    .input(trainingRuntimeDetailInput)
+    .query(async ({ ctx, input }) => {
+      const { job } = await getTrainingJobByIdWithCompat(ctx.db, input.jobId);
+
+      if (!job) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "未找到训练任务。",
+        });
+      }
+
+      if (!job.runtimeJobName && !job.runtimeNamespace) {
+        return null;
+      }
+
+      try {
+        return await inspectTrainingJobRuntime(job, {
+          podName: input.podName,
+          tailLines: input.tailLines,
+        });
+      } catch (error) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error
+              ? error.message
+              : "读取训练任务运行态失败。",
+        });
+      }
+    }),
+
   createJob: publicProcedure
     .input(createTrainingJobInput)
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
+      const runtimeColumns = await getTrainingRuntimeColumnSupport();
+      const totalGpuCount = input.nodeCount * input.gpusPerNode;
+      const trainingConfigSnapshot = buildTrainingConfigSnapshot(input);
 
       return ctx.db.transaction(async (tx) => {
         const [createdJob] = await tx
@@ -146,9 +268,47 @@ export const trainingRouter = createTRPCRouter({
             priority: input.priority,
             baseModel: input.baseModel,
             datasetName: input.datasetName,
-            gpuCount: input.gpuCount,
+            gpuCount: totalGpuCount,
             status: "draft",
             createdAt: now,
+            ...(runtimeColumns.datasetSplit
+              ? { datasetSplit: input.datasetSplit }
+              : {}),
+            ...(runtimeColumns.datasetTextField
+              ? { datasetTextField: input.datasetTextField }
+              : {}),
+            ...(runtimeColumns.nodeCount ? { nodeCount: input.nodeCount } : {}),
+            ...(runtimeColumns.gpusPerNode
+              ? { gpusPerNode: input.gpusPerNode }
+              : {}),
+            ...(runtimeColumns.configSource
+              ? { configSource: input.configSource }
+              : {}),
+            ...(runtimeColumns.launcherType
+              ? { launcherType: input.launcherType }
+              : {}),
+            ...(runtimeColumns.distributedBackend
+              ? { distributedBackend: input.distributedBackend }
+              : {}),
+            ...(runtimeColumns.deepspeedStage
+              ? {
+                  deepspeedStage:
+                    input.distributedBackend === "deepspeed"
+                      ? input.deepspeedStage
+                      : null,
+                }
+              : {}),
+            ...(runtimeColumns.precision ? { precision: input.precision } : {}),
+            ...(runtimeColumns.loadIn4bit
+              ? { loadIn4bit: input.loadIn4bit }
+              : {}),
+            ...(runtimeColumns.studioConfigSnapshot &&
+            input.studioConfigSnapshot !== undefined
+              ? { studioConfigSnapshot: input.studioConfigSnapshot }
+              : {}),
+            ...(runtimeColumns.trainingConfigSnapshot
+              ? { trainingConfigSnapshot }
+              : {}),
           })
           .returning();
 
@@ -165,7 +325,7 @@ export const trainingRouter = createTRPCRouter({
           entityId: createdJob.id,
           severity: "info",
           title: `已创建训练任务：${createdJob.title}`,
-          description: `${trainingJobTypeLabels[input.jobType]} · ${input.baseModel} · ${priorityLabels[input.priority]}优先级`,
+          description: `${trainingJobTypeLabels[input.jobType]} · ${input.baseModel} · ${input.nodeCount} 节点 x ${input.gpusPerNode} GPU · ${trainingDistributedBackendLabels[input.distributedBackend]} · ${priorityLabels[input.priority]}优先级`,
           occurredAt: now,
         });
 
@@ -233,8 +393,17 @@ export const trainingRouter = createTRPCRouter({
               ...(runtimeColumns.runtimeNamespace
                 ? { runtimeNamespace: runtime.namespace }
                 : {}),
+              ...(runtimeColumns.runtimeKind
+                ? { runtimeKind: runtime.kind }
+                : {}),
               ...(runtimeColumns.runtimeJobName
                 ? { runtimeJobName: runtime.jobName }
+                : {}),
+              ...(runtimeColumns.runtimeServiceName
+                ? { runtimeServiceName: runtime.serviceName }
+                : {}),
+              ...(runtimeColumns.runtimeLeaderPodName
+                ? { runtimeLeaderPodName: runtime.leaderPodName }
                 : {}),
               ...(runtimeColumns.runtimeImage
                 ? { runtimeImage: runtime.image }
@@ -251,7 +420,7 @@ export const trainingRouter = createTRPCRouter({
             entityId: job.id,
             severity: "info",
             title: `训练任务已启动：${job.title}`,
-            description: `${trainingJobStatusLabels.running} · ${job.gpuCount} GPU · ${runtime.jobName}`,
+            description: `${trainingJobStatusLabels.running} · ${job.nodeCount} 节点 x ${job.gpusPerNode} GPU · ${runtime.jobName}`,
             occurredAt: now,
           });
 
@@ -264,7 +433,10 @@ export const trainingRouter = createTRPCRouter({
         await stopTrainingJobRun({
           ...job,
           runtimeNamespace: runtime.namespace,
+          runtimeKind: runtime.kind,
           runtimeJobName: runtime.jobName,
+          runtimeServiceName: runtime.serviceName,
+          runtimeLeaderPodName: runtime.leaderPodName,
           runtimeImage: runtime.image,
           artifactPath: runtime.artifactPath,
           lastError: null,

@@ -38,6 +38,15 @@ SSH_PASSWORD=""
 SSH_PORT="22"
 ROLES=""
 ARCH=""
+TEMP_HOSTS=""
+
+cleanup() {
+  if [[ -n "$TEMP_HOSTS" && -f "$TEMP_HOSTS" ]]; then
+    rm -f "$TEMP_HOSTS"
+  fi
+}
+
+trap cleanup EXIT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -103,20 +112,77 @@ if ! kubeasz_ezctl_path >/dev/null 2>&1; then
   die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
 fi
 
-print_step "通过 kubeasz 加入 worker 节点"
-(
-  cd "$KUBEASZ_DIR" 2>/dev/null || cd "$KUBEASZ_BASE_DIR"
-  run_kubeasz_ezctl add-node "$(cluster_name)" "$IP" \
-    "ansible_user=$SSH_USER" \
-    "ansible_ssh_pass=$SSH_PASSWORD" \
-    "ansible_ssh_port=$SSH_PORT" \
-    "ansible_become=true" \
-    "ansible_become_method=sudo" \
-    "ansible_become_user=root" \
-    "ansible_become_pass=$SSH_PASSWORD" \
-    "ansible_python_interpreter=/usr/bin/python3" \
-    "k8s_nodename=$NAME"
-)
+build_temp_hosts_with_node() {
+  local source_hosts
+  local node_line
+
+  source_hosts="$(cluster_hosts_file)"
+  TEMP_HOSTS="$(mktemp "$GENERATED_DIR/add-node-hosts.XXXXXX")"
+  node_line="$IP ansible_user=$SSH_USER ansible_ssh_pass=$SSH_PASSWORD ansible_ssh_port=$SSH_PORT ansible_become=true ansible_become_method=sudo ansible_become_user=root ansible_become_pass=$SSH_PASSWORD ansible_python_interpreter=/usr/bin/python3 k8s_nodename=$NAME"
+
+  sudo python3 - "$source_hosts" "$TEMP_HOSTS" "$node_line" <<'PY'
+from pathlib import Path
+import sys
+
+source_path = Path(sys.argv[1])
+target_path = Path(sys.argv[2])
+node_line = sys.argv[3]
+
+text = source_path.read_text()
+if node_line in text:
+    target_path.write_text(text)
+    raise SystemExit(0)
+
+lines = text.splitlines()
+output = []
+inserted = False
+for line in lines:
+    output.append(line)
+    if not inserted and line.strip() == "[kube_node]":
+        output.append(node_line)
+        inserted = True
+
+if not inserted:
+    raise SystemExit("未找到 [kube_node] 分组，无法插入新增节点。")
+
+target_path.write_text("\n".join(output) + "\n")
+PY
+}
+
+cache_and_distribute_installation_images_to_new_node() {
+  local -a image_refs=()
+  local image_ref
+  local archive_path
+
+  mapfile -t image_refs < <(emit_cluster_installation_image_refs)
+  [[ "${#image_refs[@]}" -gt 0 ]] || return 0
+  controller_can_cache_image_archives || return 1
+
+  for image_ref in "${image_refs[@]}"; do
+    prefetch_image_archive_on_controller "$image_ref" "linux/$ARCH" || return 1
+    archive_path="$(cached_image_archive_path "$image_ref" "linux/$ARCH")"
+    print_step "分发镜像 $image_ref 到节点 $NAME"
+    load_compressed_image_archive_into_remote_host \
+      "$archive_path" \
+      "$IP" \
+      "$SSH_USER" \
+      "$SSH_PASSWORD" \
+      "$SSH_PORT"
+  done
+}
+
+print_step "通过 kubeasz 分阶段加入 worker 节点"
+build_temp_hosts_with_node
+run_kubeasz_playbook "$TEMP_HOSTS" "01.prepare.yml" --limit "$IP"
+run_kubeasz_playbook "$TEMP_HOSTS" "03.runtime.yml" --limit "$IP"
+
+print_step "在 master 预下载并分发集群系统镜像"
+if ! cache_and_distribute_installation_images_to_new_node; then
+  echo "WARN: 无法通过 master 归档分发系统镜像到节点 $NAME，回退为后置预热。"
+fi
+
+run_kubeasz_playbook "$TEMP_HOSTS" "05.kube-node.yml" --limit "$IP"
+run_kubeasz_playbook "$TEMP_HOSTS" "06.network.yml" --limit "$IP"
 
 print_step "更新本地节点清单"
 node "$ROOT_DIR/bin/update-node-list.mjs" \

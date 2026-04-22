@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import {
+  canCreateInferenceDeploymentWithEngine,
   type InferenceDeploymentEngine,
   inferenceDeploymentEngineValues,
+  isHuggingFaceModelRef,
 } from "@/server/deployments/catalog";
 import {
   createInferenceDeployment,
@@ -16,8 +18,21 @@ import {
 
 const createInferenceDeploymentInput = z.object({
   name: z.string().trim().min(2).max(63),
-  engine: z.enum(inferenceDeploymentEngineValues),
-  modelRef: z.string().trim().min(2).max(255),
+  engine: z
+    .enum(inferenceDeploymentEngineValues)
+    .refine(
+      canCreateInferenceDeploymentWithEngine,
+      "当前创建推理部署只支持 vLLM 和 SGLang。",
+    ),
+  modelRef: z
+    .string()
+    .trim()
+    .min(3)
+    .max(255)
+    .refine(
+      isHuggingFaceModelRef,
+      "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
+    ),
   image: z.string().trim().min(2).max(255),
   cpu: z.string().trim().min(1).max(20),
   memoryGi: z.number().int().positive().max(2048),
