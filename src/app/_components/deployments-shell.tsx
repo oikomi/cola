@@ -1,10 +1,7 @@
 "use client";
 
 import {
-  ActivityIcon,
   BlocksIcon,
-  BrainCircuitIcon,
-  CpuIcon,
   GlobeIcon,
   LoaderCircleIcon,
   PauseCircleIcon,
@@ -18,11 +15,9 @@ import { type ReactNode, useState } from "react";
 import {
   ModuleEmptyState,
   ModuleHero,
-  ModuleMetricCard,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
-import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -506,12 +501,12 @@ export function DeploymentsShell() {
   return (
     <ModulePageShell>
       <ModuleHero
-        eyebrow="Kubernetes Inference"
-        title="推理部署平台"
-        description="统一管理基于 Hugging Face 模型引用的 vLLM 与 SGLang 部署，集中查看资源规格、入口地址和服务状态。"
-        icon={BrainCircuitIcon}
+        eyebrow="Inference Ops"
+        title="推理部署"
+        description="管理基于 Hugging Face 模型引用的 vLLM 与 SGLang 运行时，集中查看入口、资源和服务状态。"
+        icon={BlocksIcon}
         size="compact"
-        surfaceHeader={<ProductAreaHeader embedded />}
+        density="dense"
         badges={
           <>
             <Badge
@@ -528,7 +523,31 @@ export function DeploymentsShell() {
               variant="outline"
               className="border-border/80 bg-background/60"
             >
-              master NodePort 入口
+              Master NodePort
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
+              部署 {rows.length}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
+              服务中 {servingCount}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
+              启动中 {startingCount}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60"
+            >
+              活跃 GPU {activeGpuCount}
             </Badge>
           </>
         }
@@ -559,38 +578,7 @@ export function DeploymentsShell() {
             </Button>
           </div>
         }
-      >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ModuleMetricCard
-            label="部署总数"
-            value={String(rows.length)}
-            description="当前集群中被控制面纳管的全部推理运行时。"
-            icon={BlocksIcon}
-            size="compact"
-          />
-          <ModuleMetricCard
-            label="服务中"
-            value={String(servingCount)}
-            description="已准备好承接线上流量的推理部署。"
-            icon={ActivityIcon}
-            size="compact"
-          />
-          <ModuleMetricCard
-            label="已暂停"
-            value={String(pausedCount)}
-            description="Deployment 还在，但副本已经缩容到 0。"
-            icon={PauseCircleIcon}
-            size="compact"
-          />
-          <ModuleMetricCard
-            label="活跃 GPU"
-            value={String(activeGpuCount)}
-            description="按服务中和启动中的副本累计 GPU 配额。"
-            icon={CpuIcon}
-            size="compact"
-          />
-        </div>
-      </ModuleHero>
+      />
 
       {capabilityReason ? (
         <Alert variant="destructive">
@@ -618,7 +606,7 @@ export function DeploymentsShell() {
             variant="outline"
             className="border-border/80 bg-background/60"
           >
-            启动中 {startingCount}
+            已暂停 {pausedCount}
           </Badge>
         }
       >

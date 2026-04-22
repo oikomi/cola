@@ -1722,18 +1722,6 @@ function drawOfficeScene(
   }
 }
 
-function statCardClass(tone: "default" | "warn" | "danger") {
-  if (tone === "danger") {
-    return "border-[#f0d4d8] bg-white/86 text-[#7f252c]";
-  }
-
-  if (tone === "warn") {
-    return "border-[#edd9b7] bg-white/86 text-[#7b5310]";
-  }
-
-  return "border-[#e3d6c7] bg-white/86 text-[#34271e]";
-}
-
 export function OfficeBetaShell({ snapshot }: Props) {
   const utils = api.useUtils();
   const lastVersionRef = useRef<string | null>(null);
@@ -2135,63 +2123,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     : null;
   const selectedWorkstationZone =
     liveSnapshot.zones.find((zone) => zone.id === workstationZoneId) ?? null;
-  const totalWorkstationCapacity = liveSnapshot.zones.reduce(
-    (sum, zone) => sum + zone.workstationCapacity,
-    0,
-  );
-  const totalWorkstationMax = liveSnapshot.zones.reduce(
-    (sum, zone) => sum + zone.workstationMax,
-    0,
-  );
   const trimmedAgentName = agentDraft.name.trim();
-
-  const summaryCards = [
-    {
-      label: "编组",
-      value: String(liveSnapshot.agents.length),
-      tone: "default" as const,
-    },
-    {
-      label: "工位",
-      value: `${totalWorkstationCapacity}/${totalWorkstationMax}`,
-      tone: "default" as const,
-    },
-    {
-      label: "执行中",
-      value: String(
-        liveSnapshot.agents.filter((agent) => agent.status === "executing")
-          .length,
-      ),
-      tone: "default" as const,
-    },
-    {
-      label: "高风险",
-      value: String(
-        liveSnapshot.tasks.filter((task) => task.riskLevel === "high").length,
-      ),
-      tone: "warn" as const,
-    },
-    {
-      label: "待办",
-      value: String(
-        liveSnapshot.tasks.filter((task) =>
-          ["created", "queued", "assigned", "in_progress"].includes(
-            task.status,
-          ),
-        ).length,
-      ),
-      tone: "default" as const,
-    },
-    {
-      label: "异常",
-      value: String(
-        liveSnapshot.agents.filter((agent) =>
-          ["blocked", "error"].includes(agent.status),
-        ).length,
-      ),
-      tone: "danger" as const,
-    },
-  ];
 
   const handleCreateAgent = async () => {
     if (liveSnapshot.readOnlyReason) {
@@ -2274,6 +2206,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const SelectedRoleIcon = selectedAgent
     ? ROLE_ICONS[selectedAgent.role]
     : null;
+  const hasAgents = liveSnapshot.agents.length > 0;
 
   return (
     <AdminChrome>
@@ -2329,24 +2262,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </Button>
               </div>
 
-              <div className="flex flex-wrap gap-2 xl:justify-end">
-                {summaryCards.map((card) => (
-                  <div
-                    key={card.label}
-                    className={cn(
-                      "min-w-[68px] rounded-[20px] border px-3 py-1.5",
-                      statCardClass(card.tone),
-                    )}
-                  >
-                    <p className="text-[9px] tracking-[0.22em] text-current/50 uppercase">
-                      {card.label}
-                    </p>
-                    <p className="mt-1 text-[1.95rem] leading-none font-semibold tracking-[-0.05em]">
-                      {card.value}
-                    </p>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -2470,6 +2385,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     删除
                   </Button>
                 </div>
+              </div>
+            ) : hasAgents ? (
+              <div className="absolute bottom-4 left-4 rounded-[24px] border border-white/55 bg-white/88 px-4 py-3 text-sm text-[#6d5544] shadow-[0_20px_40px_rgba(69,45,24,0.12)]">
+                当前有 {liveSnapshot.agents.length} 位人物在线。点击办公室中的人物可查看详情并进入对应原生页面。
               </div>
             ) : (
               <div className="absolute bottom-4 left-4 rounded-[24px] border border-white/55 bg-white/88 px-4 py-3 text-sm text-[#6d5544] shadow-[0_20px_40px_rgba(69,45,24,0.12)]">

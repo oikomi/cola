@@ -913,14 +913,14 @@ export function TrainingShell() {
 
   return (
     <ModulePageShell>
-      <ProductAreaHeader />
-
       <ModuleHero
         size="compact"
+        density="dense"
         eyebrow="Training Jobs"
         title="训练平台"
         description="把训练任务、基础模型、数据集和分布式 GPU 配额统一收口到一张作业表里。"
         icon={BrainCircuitIcon}
+        surfaceHeader={<ProductAreaHeader embedded />}
         badges={
           <Badge
             variant="outline"
