@@ -12,7 +12,7 @@
 
 - 前端如何展示一个“活”的虚拟办公室
 - Agent 如何被编排、调度和协作
-- Docker OpenClaw runner 如何作为真实执行资源接入系统
+- Kubernetes OpenClaw runner 如何作为真实执行资源接入系统
 - 权限、审批、审计和观测如何落地
 - 当前仓库如何演进到一个可运行的 MVP
 
@@ -61,7 +61,7 @@
 
 ### 4.5 执行层
 
-- Docker OpenClaw Worker
+- Kubernetes OpenClaw Worker
 - 浏览器自动化
 - 终端命令执行
 - IDE / 桌面自动化
@@ -99,7 +99,7 @@
 推荐方式：
 
 - 角色 Agent 是逻辑身份
-- Docker OpenClaw runner 是资源池节点
+- Kubernetes OpenClaw runner 是资源池节点
 - Agent 在任务执行时动态申请设备
 - 执行会话结束后释放设备
 
@@ -128,7 +128,7 @@
 
 职责：
 
-- 管理 Docker OpenClaw runner 注册
+- 管理 Kubernetes OpenClaw runner 注册
 - 跟踪设备在线状态
 - 分配和回收执行会话
 - 维护设备健康数据
@@ -290,7 +290,7 @@
 2. 编排器选择角色
 3. 角色进入 planning
 4. 如需设备则申请执行会话
-5. 设备服务分配可用 Docker OpenClaw runner
+5. 设备服务分配可用 Kubernetes OpenClaw runner
 6. Worker 开始执行
 7. 执行结果持续上报
 8. 命中规则则交接、审批、完成或失败
@@ -346,9 +346,9 @@
 - 人工接管
 - 终止会话
 
-## 13. Docker OpenClaw Worker 设计
+## 13. Kubernetes OpenClaw Worker 设计
 
-每个 Docker OpenClaw runner 运行一个常驻 Worker 进程，职责包括：
+每个 Kubernetes OpenClaw runner 运行一个常驻 Worker 进程，职责包括：
 
 - 启动后向控制面注册
 - 周期性发送心跳
@@ -446,8 +446,8 @@
 
 ### Step 4：设备接入
 
-- 已接入真实 Docker OpenClaw runner
-- 已接入真实 Docker Hermes runner
+- 已接入真实 Kubernetes OpenClaw runner
+- 已接入真实 Kubernetes Hermes runner
 - 当前仍缺少 worker 鉴权与更复杂的调度治理
 
 ### Step 5：审批与接管
@@ -460,7 +460,7 @@
 只做一条最小闭环：
 
 - 4 个角色：产品、研发、运营、CEO Office
-- 1 种设备：Docker OpenClaw runner
+- 1 种设备：Kubernetes OpenClaw runner
 - 1 类任务：需求交付
 - 1 套审批：生产发布批准
 - 1 套事件流：任务、设备、审批三类事件

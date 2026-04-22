@@ -927,6 +927,63 @@ run_cluster_helm() {
     "$helm_bin" "$@"
 }
 
+reconcile_node_local_dns_upstream() {
+  local proxy_mode
+  local upstream_service_ip
+  local current_corefile
+  local current_rendered_manifest
+  local tmp_manifest
+
+  proxy_mode="$(cluster_proxy_mode)"
+  [[ "$proxy_mode" == "ipvs" ]] || return 0
+
+  if ! run_cluster_kubectl -n kube-system get daemonset node-local-dns >/dev/null 2>&1; then
+    return 0
+  fi
+
+  upstream_service_ip="$(
+    run_cluster_kubectl -n kube-system get svc kube-dns-upstream \
+      -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true
+  )"
+  if [[ -z "$upstream_service_ip" || "$upstream_service_ip" == "None" || "$upstream_service_ip" == "<none>" ]]; then
+    echo "WARN: 未找到 kube-dns-upstream 的 ClusterIP，跳过 node-local-dns 上游校正。"
+    return 0
+  fi
+
+  current_corefile="$(
+    run_cluster_kubectl -n kube-system get configmap node-local-dns \
+      -o go-template='{{ index .data "Corefile" }}' 2>/dev/null || true
+  )"
+  [[ -n "$current_corefile" ]] || return 0
+
+  if grep -Fq "forward . ${upstream_service_ip} {" <<<"$current_corefile"; then
+    return 0
+  fi
+
+  current_rendered_manifest="$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/yml/nodelocaldns.yaml"
+  tmp_manifest="$(mktemp)"
+  trap 'rm -f "$tmp_manifest"' RETURN
+
+  if sudo test -f "$current_rendered_manifest"; then
+    sudo cat "$current_rendered_manifest" >"$tmp_manifest"
+  else
+    run_cluster_kubectl -n kube-system get configmap node-local-dns -o yaml >"$tmp_manifest"
+  fi
+
+  sed -E -i \
+    "s@(^[[:space:]]*forward \\. )[0-9.]+( \\{)@\\1${upstream_service_ip}\\2@g" \
+    "$tmp_manifest"
+
+  print_step "校正 node-local-dns 上游到 kube-dns-upstream (${upstream_service_ip})"
+  run_cluster_kubectl apply -f "$tmp_manifest" >/dev/null
+  if sudo test -f "$current_rendered_manifest"; then
+    sudo install -m 0644 "$tmp_manifest" "$current_rendered_manifest"
+  fi
+  run_cluster_kubectl -n kube-system rollout restart daemonset/node-local-dns >/dev/null
+  run_cluster_kubectl -n kube-system rollout status daemonset/node-local-dns --timeout=180s >/dev/null || \
+    die "node-local-dns 在上游校正后未能完成 rollout。"
+}
+
 cluster_name() {
   cluster_query clusterName
 }

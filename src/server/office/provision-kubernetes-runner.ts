@@ -20,9 +20,9 @@ import {
   type DockerRunnerEngine,
 } from "@/server/office/catalog";
 import type {
-  ProvisionDockerRunnerInput as ProvisionRunnerInput,
-  ProvisionDockerRunnerResult as ProvisionRunnerResult,
-} from "@/server/office/provision-docker-runner";
+  ProvisionRunnerInput,
+  ProvisionRunnerResult,
+} from "@/server/office/provision-types";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -32,8 +32,15 @@ const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
 
 type ClusterConfig = {
+  clusterName?: string;
   controllerIp?: string;
 };
+
+function readClusterConfig() {
+  if (!existsSync(CLUSTER_CONFIG_PATH)) return null;
+
+  return JSON.parse(readFileSync(CLUSTER_CONFIG_PATH, "utf8")) as ClusterConfig;
+}
 
 type KubeClients = {
   appsApi: AppsV1Api;
@@ -61,11 +68,26 @@ function runnerNamespace() {
 }
 
 function kubeconfigPath() {
+  const configured =
+    process.env.COLA_K8S_KUBECONFIG?.trim() ??
+    process.env.REMOTE_WORK_KUBECONFIG_PATH?.trim() ??
+    process.env.WORKSPACE_KUBECONFIG?.trim();
+  if (configured) return configured;
+
+  const clusterName = readClusterConfig()?.clusterName?.trim();
+  const candidates = [
+    clusterName
+      ? path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
+      : null,
+    clusterName ? path.join(homedir(), ".kube", `${clusterName}.config`) : null,
+    path.join(homedir(), ".kube", "config"),
+  ];
+
   return (
-    process.env.COLA_K8S_KUBECONFIG ??
-    (existsSync("/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig")
-      ? "/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig"
-      : null)
+    candidates.find(
+      (candidate): candidate is string =>
+        candidate !== null && existsSync(candidate),
+    ) ?? null
   );
 }
 
@@ -80,7 +102,7 @@ function createKubeClients(): KubeClients {
     kubeConfig.loadFromCluster();
   } else {
     throw new Error(
-      "无法创建 Kubernetes 客户端。请设置 COLA_K8S_KUBECONFIG，或在集群内运行控制面。",
+      "无法创建 Kubernetes 客户端。请设置 COLA_K8S_KUBECONFIG / REMOTE_WORK_KUBECONFIG_PATH / WORKSPACE_KUBECONFIG，或在集群内运行控制面。",
     );
   }
 
@@ -249,10 +271,8 @@ function defaultApiBaseUrl() {
   }
 
   if (existsSync(CLUSTER_CONFIG_PATH)) {
-    const clusterConfig = JSON.parse(
-      readFileSync(CLUSTER_CONFIG_PATH, "utf8"),
-    ) as ClusterConfig;
-    const controllerIp = clusterConfig.controllerIp?.trim();
+    const clusterConfig = readClusterConfig();
+    const controllerIp = clusterConfig?.controllerIp?.trim();
 
     if (controllerIp) {
       return `http://${controllerIp}:${process.env.PORT ?? "50038"}`;

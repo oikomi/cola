@@ -1,29 +1,27 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import {
-  type DockerRunnerEngine,
   runnerRuntimeLabels,
   type RunnerRuntime,
 } from "@/server/office/catalog";
-import {
-  cleanupDockerRunner,
-  provisionDockerRunner,
-  type ProvisionDockerRunnerInput as ProvisionRunnerInput,
-  type ProvisionDockerRunnerResult as ProvisionRunnerResult,
-} from "@/server/office/provision-docker-runner";
 import {
   cleanupKubernetesRunner,
   provisionKubernetesRunner,
 } from "@/server/office/provision-kubernetes-runner";
 import type { devices } from "@/server/db/schema";
+import type {
+  ProvisionRunnerInput,
+  ProvisionRunnerResult,
+} from "@/server/office/provision-types";
 
 export type { ProvisionRunnerInput, ProvisionRunnerResult };
 
-export function getRunnerRuntime(): RunnerRuntime {
-  const configured = process.env.COLA_RUNNER_RUNTIME?.trim().toLowerCase();
-  if (configured === "docker" || configured === "kubernetes") {
-    return configured;
-  }
+const execFileAsync = promisify(execFile);
+const RUNNER_RUNTIME = "kubernetes" as const;
 
-  return "kubernetes";
+export function getRunnerRuntime(): RunnerRuntime {
+  return RUNNER_RUNTIME;
 }
 
 export function runnerRuntimeLabel(runtime: RunnerRuntime) {
@@ -33,16 +31,7 @@ export function runnerRuntimeLabel(runtime: RunnerRuntime) {
 export async function provisionRunner(
   input: ProvisionRunnerInput,
 ): Promise<ProvisionRunnerResult> {
-  return getRunnerRuntime() === "kubernetes"
-    ? provisionKubernetesRunner(input)
-    : provisionDockerRunner(input);
-}
-
-export function runnerRuntimeMetadataPatch(runtime: RunnerRuntime) {
-  return {
-    runtime,
-    runtimeLabel: runnerRuntimeLabel(runtime),
-  };
+  return provisionKubernetesRunner(input);
 }
 
 type DeviceRecord = typeof devices.$inferSelect;
@@ -58,43 +47,60 @@ export async function cleanupRunner(device: DeviceRecord) {
       ? resolveCleanupRuntime(metadata.runtime)
       : getRunnerRuntime();
 
-  if (runtime === "kubernetes") {
-    await cleanupKubernetesRunner({
-      namespace:
-        metadata && typeof metadata.namespace === "string"
-          ? metadata.namespace
-          : null,
-      deploymentName:
-        metadata && typeof metadata.deploymentName === "string"
-          ? metadata.deploymentName
-          : null,
-      serviceName:
-        metadata && typeof metadata.serviceName === "string"
-          ? metadata.serviceName
-          : null,
-      configMapName:
-        metadata && typeof metadata.configMapName === "string"
-          ? metadata.configMapName
-          : null,
-      codexSecretName:
-        metadata && typeof metadata.codexSecretName === "string"
-          ? metadata.codexSecretName
-          : null,
-      codexSecretManaged: Boolean(
-        metadata && metadata.codexSecretManaged === "true",
-      ),
-    });
-    return;
-  }
-
-  await cleanupDockerRunner({
-    containerName:
+  if (runtime === "docker") {
+    await cleanupLegacyDockerRunner(
       metadata && typeof metadata.containerName === "string"
         ? metadata.containerName
         : null,
+    );
+    return;
+  }
+
+  await cleanupKubernetesRunner({
+    namespace:
+      metadata && typeof metadata.namespace === "string"
+        ? metadata.namespace
+        : null,
+    deploymentName:
+      metadata && typeof metadata.deploymentName === "string"
+        ? metadata.deploymentName
+        : null,
+    serviceName:
+      metadata && typeof metadata.serviceName === "string"
+        ? metadata.serviceName
+        : null,
+    configMapName:
+      metadata && typeof metadata.configMapName === "string"
+        ? metadata.configMapName
+        : null,
+    codexSecretName:
+      metadata && typeof metadata.codexSecretName === "string"
+        ? metadata.codexSecretName
+        : null,
+    codexSecretManaged: Boolean(
+      metadata && metadata.codexSecretManaged === "true",
+    ),
   });
 }
 
 function resolveCleanupRuntime(value: string): RunnerRuntime {
-  return value === "kubernetes" ? "kubernetes" : "docker";
+  return value === "docker" ? "docker" : RUNNER_RUNTIME;
+}
+
+async function cleanupLegacyDockerRunner(containerName?: string | null) {
+  const trimmedName = containerName?.trim();
+  if (!trimmedName) return;
+
+  try {
+    await execFileAsync("docker", ["rm", "-f", trimmedName]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (
+      message.includes("No such container") ||
+      message.includes("No such object")
+    ) {
+      return;
+    }
+    throw error;
+  }
 }

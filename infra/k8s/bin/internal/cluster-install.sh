@@ -95,6 +95,7 @@ run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "04.kube-master.yml"
 run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "05.kube-node.yml"
 run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "06.network.yml"
 run_kubeasz_playbook "$BOOTSTRAP_HOSTS" "07.cluster-addon.yml"
+reconcile_node_local_dns_upstream
 
 print_step "安装完成后补充预热系统镜像"
 for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do

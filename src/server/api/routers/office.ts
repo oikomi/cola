@@ -326,7 +326,7 @@ async function markProvisionFailed(
   });
 }
 
-async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput) {
+async function provisionRunnerInBackground(input: BackgroundProvisionInput) {
   const engineLabel = dockerRunnerEngineLabels[input.engine];
   const runtime = getRunnerRuntime();
   const runtimeLabel = runnerRuntimeLabel(runtime);
@@ -413,7 +413,7 @@ async function provisionDockerRunnerInBackground(input: BackgroundProvisionInput
       engineLabel,
       runtimeLabel,
       runtime,
-      runtime === "kubernetes" ? "kubernetes" : "host.docker.internal",
+      "kubernetes",
       "",
       error instanceof Error ? error.message : `未知 ${runtimeLabel} 启动错误`,
     );
@@ -545,7 +545,7 @@ export const officeRouter = createTRPCRouter({
       );
 
       setTimeout(() => {
-        void provisionDockerRunnerInBackground({
+        void provisionRunnerInBackground({
           agentId: createdAgent.id,
           agentName: input.name,
           deviceId: createdDevice.id,

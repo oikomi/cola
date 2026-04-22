@@ -5,8 +5,6 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
 REMOVE_DB=0
-REMOVE_OPENCLAW_RUNNER=0
-REMOVE_HERMES_RUNNER=0
 
 usage() {
   cat <<'EOF'
@@ -17,8 +15,6 @@ If no option is provided, all supported containers are cleaned up.
 
 Options:
   --db                Remove the local Postgres container
-  --openclaw-runner   Remove the OpenClaw runner container
-  --hermes-runner     Remove the Hermes runner container
   --all               Remove all supported containers
   -h, --help          Show this help message
 EOF
@@ -29,16 +25,8 @@ while [[ $# -gt 0 ]]; do
     --db)
       REMOVE_DB=1
       ;;
-    --openclaw-runner)
-      REMOVE_OPENCLAW_RUNNER=1
-      ;;
-    --hermes-runner)
-      REMOVE_HERMES_RUNNER=1
-      ;;
     --all)
       REMOVE_DB=1
-      REMOVE_OPENCLAW_RUNNER=1
-      REMOVE_HERMES_RUNNER=1
       ;;
     -h|--help)
       usage
@@ -53,10 +41,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-if [[ "$REMOVE_DB" -eq 0 && "$REMOVE_OPENCLAW_RUNNER" -eq 0 && "$REMOVE_HERMES_RUNNER" -eq 0 ]]; then
+if [[ "$REMOVE_DB" -eq 0 ]]; then
   REMOVE_DB=1
-  REMOVE_OPENCLAW_RUNNER=1
-  REMOVE_HERMES_RUNNER=1
 fi
 
 if command -v docker >/dev/null 2>&1; then
@@ -66,15 +52,6 @@ elif command -v podman >/dev/null 2>&1; then
 else
   echo "Docker or Podman is not installed." >&2
   exit 1
-fi
-
-COMPOSE_CMD=()
-if "$CONTAINER_CMD" compose version >/dev/null 2>&1; then
-  COMPOSE_CMD=("$CONTAINER_CMD" "compose")
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=("docker-compose")
-elif command -v podman-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=("podman-compose")
 fi
 
 database_container_name="${DB_CONTAINER_NAME:-}"
@@ -111,28 +88,8 @@ remove_container() {
   fi
 }
 
-compose_down_or_remove() {
-  local compose_file="$1"
-  local container_name="$2"
-
-  if [[ ${#COMPOSE_CMD[@]} -gt 0 ]]; then
-    echo "Stopping compose stack from $compose_file ..."
-    "${COMPOSE_CMD[@]}" -f "$compose_file" down --remove-orphans >/dev/null || true
-  fi
-
-  remove_container "$container_name"
-}
-
 if [[ "$REMOVE_DB" -eq 1 ]]; then
   remove_container "$database_container_name"
-fi
-
-if [[ "$REMOVE_OPENCLAW_RUNNER" -eq 1 ]]; then
-  compose_down_or_remove "$ROOT_DIR/docker/openclaw-runner.compose.yml" "openclaw-runner-01"
-fi
-
-if [[ "$REMOVE_HERMES_RUNNER" -eq 1 ]]; then
-  compose_down_or_remove "$ROOT_DIR/docker/hermes-runner.compose.yml" "hermes-runner-01"
 fi
 
 echo "Container cleanup completed."

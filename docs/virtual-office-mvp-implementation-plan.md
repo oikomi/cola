@@ -14,7 +14,7 @@
 - 数据模型已经覆盖角色、任务、设备、执行会话、审批、事件和工位配置
 - `office` router 已支持创建角色、扩容工位、创建任务、推进任务、发起审批、处理审批和刷新原生工作区地址
 - `worker` router 与 `/api/worker/*` 路由已经支持 runner 注册、心跳、拉任务和会话回报
-- 新增人物时会异步拉起 Docker OpenClaw / Hermes runner
+- 新增人物时会异步拉起 Kubernetes OpenClaw / Hermes runner
 - `/api/office/stream` 已通过 SSE 让前端自动刷新快照
 - 前端可查看最近一次执行结果回放
 
@@ -82,24 +82,24 @@
 - `pullNextTask`
 - `reportSession`
 
-### 2.4 Docker 执行层
+### 2.4 Kubernetes 执行层
 
-当前仓库已经不是“只有 mock worker”的阶段，而是真实接入了两种 Docker runner：
+当前仓库已经不是“只有 mock worker”的阶段，而是真实接入了两种 Kubernetes runner：
 
 - `openclaw`
 - `hermes-agent`
 
 关键文件：
 
-- `src/server/office/provision-docker-runner.ts`
+- `src/server/office/provision-kubernetes-runner.ts`
 - `scripts/openclaw-runner/bootstrap.mjs`
 - `scripts/hermes-runner/bootstrap.mjs`
-- `docker/openclaw-runner.compose.yml`
-- `docker/hermes-runner.compose.yml`
+- `infra/k8s/cluster/config.json`
+- `infra/k8s/manifests/`
 
 当前链路支持：
 
-- 后台异步拉起容器
+- 后台异步拉起 Kubernetes Deployment / Service
 - 设备注册与心跳
 - 任务轮询和自动认领
 - 执行会话状态回报
@@ -144,7 +144,7 @@
 - 角色、任务、设备、审批、事件、工位配置的数据模型
 - 单页办公室主视图与控制台视图
 - 任务与审批的最小写操作闭环
-- OpenClaw / Hermes Docker runner 接入
+- OpenClaw / Hermes Kubernetes runner 接入
 - SSE 驱动的实时刷新
 - 原生工作区地址模板与内置工作区页面
 

@@ -117,53 +117,25 @@ const ROLE_LABEL_STYLES: Record<
 const ZONE_BADGE_STYLES: Record<
   ZoneKey,
   {
-    surface: number;
-    border: number;
-    ribbon: number;
-    title: number;
     meta: string;
   }
 > = {
   command: {
-    surface: 0xfff1e4,
-    border: 0x947159,
-    ribbon: 0x6f5642,
-    title: 0x311b0f,
     meta: "#805f4c",
   },
   product: {
-    surface: 0xfff1df,
-    border: 0xc58a57,
-    ribbon: 0xd1965f,
-    title: 0x351b0d,
     meta: "#966849",
   },
   engineering: {
-    surface: 0xf2fbf6,
-    border: 0x4d8f7c,
-    ribbon: 0x5da391,
-    title: 0x173129,
     meta: "#4e7468",
   },
   growth: {
-    surface: 0xfff6df,
-    border: 0xcd9647,
-    ribbon: 0xdfad5d,
-    title: 0x3b240b,
     meta: "#8d6841",
   },
   people: {
-    surface: 0xf5efff,
-    border: 0x9078ba,
-    ribbon: 0xa58fd1,
-    title: 0x2b1f40,
     meta: "#6b5782",
   },
   vendor: {
-    surface: 0xffeee7,
-    border: 0xc78068,
-    ribbon: 0xd58c73,
-    title: 0x3e1f14,
     meta: "#8b5d4a",
   },
 };
@@ -1279,20 +1251,6 @@ function createAgentLabel(
   showExpandedName: boolean,
   laneIndex: number,
 ) {
-  if (!selected && !hovered) {
-    const marker = new PIXI.Container();
-    const dot = new PIXI.Graphics();
-    dot.beginFill(0x171310, 0.92);
-    dot.drawCircle(0, -44, 4);
-    dot.endFill();
-    const accent = new PIXI.Graphics();
-    accent.beginFill(0xf0b64b);
-    accent.drawCircle(0, -44, 1.6);
-    accent.endFill();
-    marker.addChild(dot, accent);
-    return marker;
-  }
-
   const label = new PIXI.Container();
   const emphasized = selected || hovered;
   const palette = ROLE_LABEL_STYLES[agent.role];
@@ -1308,9 +1266,7 @@ function createAgentLabel(
     0.5,
   );
   const nameText = createText(
-    showExpandedName
-      ? compactLabelText(agent.name, emphasized ? 16 : 12)
-      : compactLabelText(agent.name, 4),
+    compactLabelText(agent.name, showExpandedName ? 16 : 12),
     {
       fill: "#fff8ef",
       fontSize: emphasized ? 12 : 11,
@@ -1371,68 +1327,6 @@ function createAgentLabel(
   );
 
   return label;
-}
-
-function createZoneBadge(
-  zone: OfficeSnapshot["zones"][number],
-  anchor: { x: number; y: number },
-  active: boolean,
-) {
-  const badge = new PIXI.Container();
-  const palette = ZONE_BADGE_STYLES[zone.id];
-  const title = createText(
-    zone.label,
-    {
-      fill: palette.title,
-      fontSize: zone.id === "engineering" ? 14 : 13,
-      fontWeight: "800",
-    },
-    0.5,
-    0.5,
-  );
-  const eyebrow = createText(
-    "分区",
-    {
-      fill: "#fffaf3",
-      fontSize: 9,
-      fontWeight: "800",
-      letterSpacing: 1.5,
-    },
-    0.5,
-    0.5,
-  );
-  const width = Math.max(104, title.width + 34);
-  const height = 42;
-  const ribbonWidth = Math.max(40, eyebrow.width + 18);
-
-  const shadow = new PIXI.Graphics();
-  shadow.beginFill(0x694834, active ? 0.14 : 0.1);
-  shadow.drawRoundedRect(-width / 2 + 2, -height / 2 + 4, width, height, 14);
-  shadow.endFill();
-
-  const background = new PIXI.Graphics();
-  background.lineStyle(2, palette.border, active ? 0.78 : 0.54);
-  background.beginFill(palette.surface, active ? 0.98 : 0.93);
-  background.drawRoundedRect(-width / 2, -height / 2, width, height, 14);
-  background.endFill();
-
-  const ribbon = new PIXI.Graphics();
-  ribbon.beginFill(palette.ribbon, active ? 0.98 : 0.92);
-  ribbon.drawRoundedRect(-ribbonWidth / 2, -height / 2 + 6, ribbonWidth, 15, 8);
-  ribbon.endFill();
-
-  const accentLine = new PIXI.Graphics();
-  accentLine.beginFill(palette.border, active ? 0.26 : 0.16);
-  accentLine.drawRoundedRect(-width / 2 + 10, height / 2 - 8, width - 20, 3, 2);
-  accentLine.endFill();
-
-  eyebrow.position.set(0, -height / 2 + 13.5);
-  title.position.set(0, 6);
-
-  badge.position.set(anchor.x, anchor.y - 66);
-  badge.addChild(shadow, background, ribbon, accentLine, eyebrow, title);
-  badge.zIndex = anchor.y + 26;
-  return badge;
 }
 
 function animateCamera(
@@ -1578,13 +1472,6 @@ function drawOfficeScene(
       ZONE_SCENE[zone.id].anchor.x,
       ZONE_SCENE[zone.id].anchor.y,
     );
-    const zoneLabel = createZoneBadge(
-      zone,
-      zoneAnchor,
-      snapshot.agents.some(
-        (agent) => agent.id === selectedAgentId && agent.zoneId === zone.id,
-      ),
-    );
     const zonePalette = ZONE_BADGE_STYLES[zone.id];
 
     const zoneMeta = createText(
@@ -1597,11 +1484,11 @@ function drawOfficeScene(
       0.5,
       0.5,
     );
-    zoneMeta.position.set(zoneAnchor.x, zoneAnchor.y + 108);
+    zoneMeta.position.set(zoneAnchor.x, zoneAnchor.y + 92);
     zoneMeta.alpha = 0.56;
     zoneMeta.zIndex = zoneAnchor.y + 4;
 
-    objectLayer.addChild(zoneLabel, zoneMeta);
+    objectLayer.addChild(zoneMeta);
   }
 
   const agentsByZone = new Map<ZoneKey, OfficeAgent[]>();

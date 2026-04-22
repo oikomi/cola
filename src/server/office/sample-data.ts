@@ -10,7 +10,7 @@ export const officeSnapshot: OfficeSnapshot = {
   metrics: [
     { label: "在线角色", value: "6", delta: "+2 已接管任务" },
     { label: "执行中任务", value: "4", delta: "1 个等待发布批准" },
-    { label: "设备池负载", value: "75%", delta: "3 / 4 个 Docker Runner 已占用" },
+    { label: "设备池负载", value: "75%", delta: "3 / 4 个 Kubernetes Runner 已占用" },
     { label: "异常事件", value: "1", delta: "集中在采购审批滞后" },
   ],
   zones: [

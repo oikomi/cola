@@ -8,10 +8,10 @@ const apiBaseUrl =
   process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "Hermes Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
-const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "docker";
+const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "kubernetes";
 const runtimeLabel =
   runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
-const runnerHost = process.env.COLA_RUNNER_HOST ?? "host.docker.internal";
+const runnerHost = process.env.COLA_RUNNER_HOST ?? "kubernetes";
 const image = process.env.HERMES_AGENT_IMAGE ?? "unknown-image";
 const containerName =
   process.env.HOSTNAME ?? process.env.COLA_CONTAINER_NAME ?? runnerName;
@@ -329,8 +329,7 @@ async function startHeartbeatLoop() {
     } catch (error) {
       if (
         error instanceof Error &&
-        (error.message.includes("未找到目标 Docker runner。") ||
-          error.message.includes("未找到目标 runner。"))
+        error.message.includes("未找到目标 runner。")
       ) {
         try {
           await logLine("runner record is missing, re-registering before next heartbeat");

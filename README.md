@@ -1,13 +1,13 @@
 # Cola Virtual Office
 
-`cola` 是一个基于 Next.js 15、tRPC、Drizzle 和 PostgreSQL 的 Virtual Office 控制面。仓库当前实现的是一个可运行的 MVP：用空间化办公室界面展示角色、任务、设备、审批和事件，并通过 Docker 异步拉起 OpenClaw / Hermes Agent runner 执行真实任务。
+`cola` 是一个基于 Next.js 15、tRPC、Drizzle 和 PostgreSQL 的 Virtual Office 控制面。仓库当前实现的是一个可运行的 MVP：用空间化办公室界面展示角色、任务、设备、审批和事件，并通过 Kubernetes 异步拉起 OpenClaw / Hermes Agent runner 执行真实任务。
 
 ## 当前实现
 
 - `/` 使用 `OfficeBetaShell` 渲染等距办公室主视图，支持人物创建、工位扩容、任务与审批流转、设备状态观察和执行结果回放
 - `/control` 提供偏传统的控制台视图，适合做列表式查看和操作
 - 快照优先读取 PostgreSQL；数据库不可用时，页面会退回只读空快照并明确提示原因
-- `createAgent` 会先写入角色和设备记录，再在后台执行 Docker provisioning，不阻塞前端请求
+- `createAgent` 会先写入角色和设备记录，再在后台执行 Kubernetes provisioning，不阻塞前端请求
 - `/api/office/stream` 通过 SSE 推送版本变化，前端自动失效并刷新 office 快照
 - Worker 协议已落地：`/api/worker/register`、`/api/worker/heartbeat`、`/api/worker/tasks/next`、`/api/worker/session`
 - 内置角色工作区页面为 `/openclaw/[agentId]` 和 `/hermes/[agentId]`；也可以用 `NEXT_PUBLIC_OPENCLAW_NATIVE_URL` / `NEXT_PUBLIC_HERMES_NATIVE_URL` 覆盖为远程地址
@@ -55,23 +55,20 @@ npm run db:setup:office
 ./reset-database.sh --seed-office
 ```
 
-## Docker Runner
+## Kubernetes Runner
 
-新增人物时，系统会立即创建数据库记录，并在后台尝试 `docker pull` + `docker run` 对应 runner 镜像。常见状态含义如下：
+新增人物时，系统会立即创建数据库记录，并在后台尝试创建对应的 Kubernetes runner。常见状态含义如下：
 
 - `waiting_device` / `maintenance`：设备已排队或 runner 正在启动
 - `idle` / `online`：runner 已注册，可以接任务
-- `blocked` / `unhealthy`：镜像拉取、容器启动、就绪检查或任务执行失败
+- `blocked` / `unhealthy`：runner 资源创建、镜像拉取、就绪检查或任务执行失败
 
 当前支持两种执行引擎：
 
 - `openclaw`
 - `hermes-agent`
 
-对应接入说明：
-
-- [Docker OpenClaw Runner 接入说明](./docs/docker-openclaw-runner.md)
-- [Docker Hermes Agent Runner 接入说明](./docs/docker-hermes-runner.md)
+- [Kubernetes Runner 部署说明](./docs/kubernetes-runner-deployment.md)
 
 ## 远程访问
 

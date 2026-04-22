@@ -167,8 +167,8 @@ export const deviceStatusLabels: Record<DeviceStatus, string> = {
 
 export const deviceTypeLabels: Record<DeviceType, string> = {
   mac_mini: "Mac mini",
-  docker_openclaw: "Docker / OpenClaw",
-  docker_hermes_agent: "Docker / Hermes Agent",
+  docker_openclaw: "OpenClaw Runner",
+  docker_hermes_agent: "Hermes Agent Runner",
   browser_runner: "Browser Runner",
   sandbox: "Sandbox",
 };

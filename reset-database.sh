@@ -5,20 +5,16 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
 SEED_OFFICE=0
-START_OPENCLAW_RUNNER=0
-START_HERMES_RUNNER=0
 
 usage() {
   cat <<'EOF'
 Usage: ./reset-database.sh [options]
 
 Starts the local Postgres container, clears the current database schema,
-runs migrations, and optionally seeds demo data or starts runner containers.
+runs migrations, and optionally seeds demo data.
 
 Options:
   --seed-office        Run `npm run db:setup:office` after the reset
-  --openclaw-runner    Start docker/openclaw-runner.compose.yml
-  --hermes-runner      Start docker/hermes-runner.compose.yml
   -h, --help           Show this help message
 EOF
 }
@@ -27,12 +23,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --seed-office)
       SEED_OFFICE=1
-      ;;
-    --openclaw-runner)
-      START_OPENCLAW_RUNNER=1
-      ;;
-    --hermes-runner)
-      START_HERMES_RUNNER=1
       ;;
     -h|--help)
       usage
@@ -88,27 +78,6 @@ else
   exit 1
 fi
 
-COMPOSE_CMD=()
-if "$CONTAINER_CMD" compose version >/dev/null 2>&1; then
-  COMPOSE_CMD=("$CONTAINER_CMD" "compose")
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=("docker-compose")
-elif command -v podman-compose >/dev/null 2>&1; then
-  COMPOSE_CMD=("podman-compose")
-fi
-
-run_compose_up() {
-  local compose_file="$1"
-
-  if [[ ${#COMPOSE_CMD[@]} -eq 0 ]]; then
-    echo "Docker Compose is not installed, cannot start $compose_file." >&2
-    exit 1
-  fi
-
-  echo "Starting compose service from $compose_file ..."
-  "${COMPOSE_CMD[@]}" -f "$compose_file" up -d
-}
-
 echo "Ensuring local database container is running..."
 "$ROOT_DIR/start-database.sh"
 
@@ -149,14 +118,6 @@ else
     cd "$ROOT_DIR"
     npm run db:migrate
   )
-fi
-
-if [[ "$START_OPENCLAW_RUNNER" -eq 1 ]]; then
-  run_compose_up "$ROOT_DIR/docker/openclaw-runner.compose.yml"
-fi
-
-if [[ "$START_HERMES_RUNNER" -eq 1 ]]; then
-  run_compose_up "$ROOT_DIR/docker/hermes-runner.compose.yml"
 fi
 
 echo "Database reset completed."
