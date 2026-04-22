@@ -12,9 +12,9 @@ require_cmd scp
 TARGET_NODE=""
 SKIP_MANIFESTS=0
 AUTO_DISCOVERED=0
-ROLLOUT_TIMEOUT="300s"
-NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE="nvcr.io/nvidia/k8s-device-plugin:v0.17.0"
-NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE="easzlab.io.local:5000/nvidia/k8s-device-plugin:v0.17.0"
+ROLLOUT_TIMEOUT="900s"
+NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE="nvcr.io/nvidia/k8s-device-plugin:v0.17.4"
+NVIDIA_DEVICE_PLUGIN_LOCAL_IMAGE="easzlab.io.local:5000/nvidia/k8s-device-plugin:v0.17.4"
 NVIDIA_DEVICE_PLUGIN_IMAGE="$NVIDIA_DEVICE_PLUGIN_SOURCE_IMAGE"
 
 print_gpu_diagnostics() {

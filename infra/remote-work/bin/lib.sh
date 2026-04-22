@@ -275,6 +275,8 @@ run_kubeasz_ezctl() {
   local ezctl_path
   ensure_ansible_available
   patch_kubeasz_compatibility
+  patch_kubeasz_prepare_compatibility
+  patch_kubeasz_registry_mirrors
   patch_kubeasz_mixed_arch_image_sources
   ezctl_path="$(kubeasz_ezctl_path)" || die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
   sudo env PATH="$(ansible_env_path)" "$ezctl_path" "$@"
@@ -283,6 +285,8 @@ run_kubeasz_ezctl() {
 run_ansible_ad_hoc() {
   ensure_ansible_available
   patch_kubeasz_compatibility
+  patch_kubeasz_prepare_compatibility
+  patch_kubeasz_registry_mirrors
   sudo env PATH="$(ansible_env_path)" "$ANSIBLE_BIN_DIR/ansible" "$@"
 }
 
@@ -307,6 +311,77 @@ updated = updated.replace(
 
 if updated != text:
     task_file.write_text(updated)
+PY
+}
+
+patch_kubeasz_prepare_compatibility() {
+  sudo python3 - "$KUBEASZ_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+runtime_root = Path(sys.argv[1])
+
+task_paths = [
+    runtime_root / "roles/prepare/tasks/common.yml",
+    Path("/etc/kubeasz/roles/prepare/tasks/common.yml"),
+]
+template_paths = [
+    runtime_root / "roles/prepare/templates/95-k8s-sysctl.conf.j2",
+    Path("/etc/kubeasz/roles/prepare/templates/95-k8s-sysctl.conf.j2"),
+]
+
+task_replacements = {
+    'shell: "source /etc/profile; swapoff -a && sysctl -w vm.swappiness=0"':
+        'shell: "swapoff -a && sysctl -w vm.swappiness=0"',
+    'shell: "source /etc/profile; sysctl -p /etc/sysctl.d/95-k8s-sysctl.conf"':
+        'shell: "sysctl -p /etc/sysctl.d/95-k8s-sysctl.conf"',
+}
+
+for path in task_paths:
+    if not path.exists():
+        continue
+    text = path.read_text()
+    updated = text
+    for old, new in task_replacements.items():
+        updated = updated.replace(old, new)
+    if updated != text:
+        path.write_text(updated)
+
+for path in template_paths:
+    if not path.exists():
+        continue
+    text = path.read_text()
+    updated = text.replace("kernel.softlockup_panic = 1\n", "")
+    if updated != text:
+        path.write_text(updated)
+PY
+}
+
+patch_kubeasz_registry_mirrors() {
+  sudo python3 - "$KUBEASZ_DIR" <<'PY'
+from pathlib import Path
+import sys
+
+runtime_root = Path(sys.argv[1])
+template = """# https://github.com/containerd/containerd/blob/main/docs/hosts.md
+server = "https://registry-1.docker.io"
+
+[host."https://registry-1.docker.io"]
+  capabilities = ["pull", "resolve"]
+"""
+
+targets = [
+    runtime_root / "roles/containerd/templates/docker.io/hosts.toml.j2",
+    Path("/etc/kubeasz/roles/containerd/templates/docker.io/hosts.toml.j2"),
+    Path("/etc/containerd/certs.d/docker.io/hosts.toml"),
+]
+
+for path in targets:
+    if not path.exists():
+        continue
+    if path.read_text() == template:
+        continue
+    path.write_text(template)
 PY
 }
 
@@ -811,6 +886,18 @@ remote_sudo_ssh_retry() {
   return 1
 }
 
+remote_containerd_runtime_ready() {
+  local node_name="$1"
+
+  remote_sudo_ssh "$node_name" "
+set -euo pipefail
+
+command -v ctr >/dev/null 2>&1
+[[ -S /run/containerd/containerd.sock ]]
+ctr --address /run/containerd/containerd.sock version >/dev/null 2>&1
+" >/dev/null 2>&1
+}
+
 remote_pull_k8s_image() {
   local node_name="$1"
   local image_ref="$2"
@@ -858,6 +945,90 @@ cleanup_image_refs
 rm -f \"\$pull_log\"
 exit 1
 "
+}
+
+prewarm_cluster_system_images_on_node() {
+  local node_name="$1"
+  local node_arch_value="${2:-$(node_arch "$node_name")}"
+  local calico_ver
+  local dns_node_cache_ver
+  local coredns_ver
+  local coredns_tag
+  local metrics_ver
+  local sandbox_image_ref
+
+  calico_ver="$(kubeasz_config_value calico_ver || true)"
+  dns_node_cache_ver="$(kubeasz_config_value dnsNodeCacheVer || true)"
+  coredns_ver="$(kubeasz_config_value corednsVer || true)"
+  coredns_tag="$coredns_ver"
+  if [[ -n "$coredns_tag" && "$coredns_tag" != v* ]]; then
+    coredns_tag="v${coredns_tag}"
+  fi
+  metrics_ver="$(kubeasz_config_value metricsVer || true)"
+  sandbox_image_ref="$(sandbox_image)"
+
+  if ! remote_containerd_runtime_ready "$node_name"; then
+    echo "WARN: 节点 $node_name 的 containerd 尚未就绪，跳过系统镜像预热。"
+    return 0
+  fi
+
+  print_step "预热系统镜像到节点 $node_name"
+
+  remote_pull_k8s_image "$node_name" "$sandbox_image_ref" "linux/$node_arch_value"
+
+  if [[ -n "$calico_ver" ]]; then
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/cni:${calico_ver}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/cni:${calico_ver}"
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/node:${calico_ver}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/node:${calico_ver}"
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/kube-controllers:${calico_ver}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/kube-controllers:${calico_ver}"
+  fi
+
+  if [[ -n "$dns_node_cache_ver" ]]; then
+    remote_pull_k8s_image \
+      "$node_name" \
+      "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}"
+  fi
+
+  if [[ -n "$coredns_tag" ]]; then
+    remote_pull_k8s_image \
+      "$node_name" \
+      "registry.k8s.io/coredns/coredns:${coredns_tag}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/coredns:${coredns_ver}"
+  fi
+
+  if [[ -n "$metrics_ver" ]]; then
+    remote_pull_k8s_image \
+      "$node_name" \
+      "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}" \
+      "linux/$node_arch_value" \
+      "easzlab.io.local:5000/easzlab/metrics-server:${metrics_ver}"
+  fi
+}
+
+best_effort_prewarm_cluster_system_images_on_node() {
+  local node_name="$1"
+  shift
+
+  if prewarm_cluster_system_images_on_node "$node_name" "$@"; then
+    return 0
+  fi
+
+  echo "WARN: 节点 $node_name 的系统镜像预热失败，将继续后续步骤。"
+  return 0
 }
 
 remote_scp() {
@@ -914,6 +1085,7 @@ reconcile_mixed_arch_cluster_components() {
   cluster_has_mixed_arch_nodes_configured || return 0
 
   local calico_ver
+  local sandbox_image_ref
   local dns_node_cache_ver
   local coredns_ver
   local coredns_tag
@@ -928,19 +1100,21 @@ reconcile_mixed_arch_cluster_components() {
     coredns_tag="v${coredns_tag}"
   fi
   metrics_ver="$(kubeasz_config_value metricsVer || true)"
+  sandbox_image_ref="$(sandbox_image)"
   [[ -n "$calico_ver" ]] || return 0
 
   while IFS= read -r node_name; do
     [[ -n "$node_name" ]] || continue
-    if [[ "$(node_arch "$node_name")" == "$(local_arch)" ]]; then
-      continue
-    fi
 
     if ! kubectl_remote "get node $node_name >/dev/null 2>&1"; then
       continue
     fi
 
     echo "Preparing multi-arch Calico images on $node_name ..."
+    remote_pull_k8s_image \
+      "$node_name" \
+      "$sandbox_image_ref" \
+      "linux/$(node_arch "$node_name")"
     remote_pull_k8s_image \
       "$node_name" \
       "docker.io/calico/cni:${calico_ver}" \
@@ -951,6 +1125,11 @@ reconcile_mixed_arch_cluster_components() {
       "docker.io/calico/node:${calico_ver}" \
       "linux/$(node_arch "$node_name")" \
       "easzlab.io.local:5000/easzlab/node:${calico_ver}"
+    remote_pull_k8s_image \
+      "$node_name" \
+      "docker.io/calico/kube-controllers:${calico_ver}" \
+      "linux/$(node_arch "$node_name")" \
+      "easzlab.io.local:5000/easzlab/kube-controllers:${calico_ver}"
 
     if [[ -n "$dns_node_cache_ver" ]]; then
       remote_pull_k8s_image \
@@ -959,11 +1138,32 @@ reconcile_mixed_arch_cluster_components() {
         "linux/$(node_arch "$node_name")" \
         "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}"
     fi
+
+    if [[ -n "$coredns_tag" ]]; then
+      remote_pull_k8s_image \
+        "$node_name" \
+        "registry.k8s.io/coredns/coredns:${coredns_tag}" \
+        "linux/$(node_arch "$node_name")" \
+        "easzlab.io.local:5000/easzlab/coredns:${coredns_ver}"
+    fi
+
+    if [[ -n "$metrics_ver" ]]; then
+      remote_pull_k8s_image \
+        "$node_name" \
+        "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}" \
+        "linux/$(node_arch "$node_name")" \
+        "easzlab.io.local:5000/easzlab/metrics-server:${metrics_ver}"
+    fi
   done < <(cluster_query nodeNames)
 
   if kubectl_remote "get ds calico-node -n kube-system >/dev/null 2>&1"; then
     kubectl_remote \
       "set image ds/calico-node -n kube-system install-cni=docker.io/calico/cni:${calico_ver} mount-bpffs=docker.io/calico/node:${calico_ver} calico-node=docker.io/calico/node:${calico_ver} >/dev/null"
+  fi
+
+  if kubectl_remote "get deploy calico-kube-controllers -n kube-system >/dev/null 2>&1"; then
+    kubectl_remote \
+      "set image deploy/calico-kube-controllers -n kube-system calico-kube-controllers=docker.io/calico/kube-controllers:${calico_ver} >/dev/null"
   fi
 
   if [[ -n "$dns_node_cache_ver" ]] && kubectl_remote "get ds node-local-dns -n kube-system >/dev/null 2>&1"; then

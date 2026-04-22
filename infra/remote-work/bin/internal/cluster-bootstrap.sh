@@ -209,6 +209,8 @@ fi
 
 ensure_local_script_executable "$KUBEASZ_DIR/ezdown"
 ensure_local_script_executable "$KUBEASZ_DIR/ezctl"
+patch_kubeasz_prepare_compatibility
+patch_kubeasz_registry_mirrors
 prepare_kubeasz_docker_bundle
 
 print_step "下载 kubeasz 依赖"
@@ -242,6 +244,8 @@ fi
 
 init_cluster_dir_without_ansible
 patch_kubeasz_compatibility
+patch_kubeasz_prepare_compatibility
+patch_kubeasz_registry_mirrors
 
 print_step "渲染并同步 inventory"
 render_cluster_inventory

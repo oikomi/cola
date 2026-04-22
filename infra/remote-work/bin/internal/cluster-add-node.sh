@@ -131,6 +131,8 @@ node "$ROOT_DIR/bin/update-node-list.mjs" \
 render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
 copy_hosts_into_kubeasz
 
+best_effort_prewarm_cluster_system_images_on_node "$NAME" "$ARCH"
+
 if cluster_has_mixed_arch_nodes_configured; then
   print_step "调整 mixed-arch 集群系统组件镜像"
   reconcile_mixed_arch_cluster_components

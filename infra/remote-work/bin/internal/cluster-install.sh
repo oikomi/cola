@@ -76,10 +76,19 @@ if [[ -f "$BOOTSTRAP_SUMMARY" ]]; then
 fi
 
 print_step "开始安装 Kubernetes 集群"
+for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do
+  best_effort_prewarm_cluster_system_images_on_node "$node_name"
+done
+
 (
   cd "$KUBEASZ_DIR"
   run_kubeasz_ezctl setup "$CLUSTER_NAME" all
 )
+
+print_step "安装完成后补充预热系统镜像"
+for node_name in "${BOOTSTRAP_NODE_LIST[@]}"; do
+  best_effort_prewarm_cluster_system_images_on_node "$node_name"
+done
 
 print_step "同步用户可读 kubeconfig"
 sync_user_kubeconfig

@@ -124,6 +124,7 @@ prepare_arm64_secondary_arch_runtime() {
 
   ensure_secondary_arch_host_packages
   patch_kubeasz_compatibility
+  patch_kubeasz_registry_mirrors
   enable_system_nginx_stream_module
 
   sudo sed -i \

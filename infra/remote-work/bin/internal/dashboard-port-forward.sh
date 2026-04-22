@@ -17,6 +17,8 @@ SHOW_STATUS=0
 STOP_RUNNING=0
 PID_FILE="$RUNTIME_DIR/k8s-dashboard-port-forward.pid"
 LOG_FILE="$RUNTIME_DIR/k8s-dashboard-port-forward.log"
+KUBECTL_BIN="$(kubectl_bin_path)"
+DASHBOARD_KUBECONFIG="$(user_kubeconfig_path)"
 
 usage() {
   cat <<'EOF'
@@ -46,6 +48,10 @@ is_running() {
   pid="$(cat "$PID_FILE" 2>/dev/null || true)"
   [[ -n "$pid" ]] || return 1
   kill -0 "$pid" >/dev/null 2>&1
+}
+
+run_dashboard_kubectl() {
+  KUBECONFIG="$DASHBOARD_KUBECONFIG" "$KUBECTL_BIN" "$@"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -94,6 +100,9 @@ done
 
 ensure_runtime_dirs
 
+[[ -r "$DASHBOARD_KUBECONFIG" ]] || \
+  die "找不到可读的用户 kubeconfig: $DASHBOARD_KUBECONFIG"
+
 if [[ "$SHOW_STATUS" -eq 1 ]]; then
   if is_running; then
     echo "Dashboard port-forward is running."
@@ -116,11 +125,11 @@ if [[ "$STOP_RUNNING" -eq 1 ]]; then
   exit 0
 fi
 
-run_cluster_kubectl -n "$NAMESPACE" get service "$SERVICE_NAME" >/dev/null
+run_dashboard_kubectl -n "$NAMESPACE" get service "$SERVICE_NAME" >/dev/null
 
 if [[ "$FOREGROUND" -eq 1 ]]; then
   echo "Port-forward listening on ${ADDRESS}:${LOCAL_PORT} -> svc/${SERVICE_NAME}:${REMOTE_PORT}"
-  run_cluster_kubectl -n "$NAMESPACE" port-forward --address "$ADDRESS" "svc/${SERVICE_NAME}" "${LOCAL_PORT}:${REMOTE_PORT}"
+  run_dashboard_kubectl -n "$NAMESPACE" port-forward --address "$ADDRESS" "svc/${SERVICE_NAME}" "${LOCAL_PORT}:${REMOTE_PORT}"
   exit 0
 fi
 
@@ -133,12 +142,12 @@ fi
 
 BACKGROUND_COMMAND=$(
   printf '%s' "set -euo pipefail; "
-  printf '%s' "source $(printf '%q' "$ROOT_DIR/bin/lib.sh"); "
   printf '%s' "echo $(printf '%q' "Port-forward listening on ${ADDRESS}:${LOCAL_PORT} -> svc/${SERVICE_NAME}:${REMOTE_PORT}"); "
-  printf '%s' "run_cluster_kubectl -n $(printf '%q' "$NAMESPACE") port-forward --address $(printf '%q' "$ADDRESS") svc/$(printf '%q' "$SERVICE_NAME") $(printf '%q' "${LOCAL_PORT}:${REMOTE_PORT}")"
+  printf '%s' "exec env KUBECONFIG=$(printf '%q' "$DASHBOARD_KUBECONFIG") "
+  printf '%s' "$(printf '%q' "$KUBECTL_BIN") -n $(printf '%q' "$NAMESPACE") port-forward --address $(printf '%q' "$ADDRESS") svc/$(printf '%q' "$SERVICE_NAME") $(printf '%q' "${LOCAL_PORT}:${REMOTE_PORT}")"
 )
 
-nohup bash -lc "$BACKGROUND_COMMAND" >"$LOG_FILE" 2>&1 </dev/null &
+setsid bash -lc "$BACKGROUND_COMMAND" >"$LOG_FILE" 2>&1 < /dev/null &
 echo "$!" > "$PID_FILE"
 
 sleep 1
