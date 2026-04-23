@@ -569,7 +569,7 @@ function buildDeepSpeedConfig(stage: number | null) {
 
 function buildTrainingShellCommand() {
   return [
-    "set -euo pipefail",
+    "set -eu",
     'mkdir -p "$COLA_ARTIFACT_DIR"',
     'export COLA_NODE_RANK="${JOB_COMPLETION_INDEX:-0}"',
     'if [ "$COLA_LAUNCHER_TYPE" = "torchrun" ]; then',
