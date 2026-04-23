@@ -54,7 +54,10 @@ import {
   defaultInferenceImage,
   inferenceDeploymentEngineLabels,
   inferenceDeploymentStatusLabels,
-  isHuggingFaceModelRef,
+  isValidInferenceModelRef,
+  llamaCppModelRefExample,
+  llamaCppModelRoot,
+  llamaCppRemoteModelRefExample,
 } from "@/server/deployments/catalog";
 import { api, type RouterOutputs } from "@/trpc/react";
 
@@ -80,6 +83,68 @@ const defaultDraft: DraftState = {
   gpuCount: "1",
   replicaCount: "1",
 };
+
+function modelRefHint(engine: DraftState["engine"]) {
+  switch (engine) {
+    case "llama.cpp":
+      return `支持 ${llamaCppModelRoot} 下的本地 GGUF，或可直接下载的 GGUF 来源，例如 ${llamaCppModelRefExample}、${llamaCppRemoteModelRefExample}。`;
+    case "vllm":
+    case "sglang":
+      return "仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
+    default:
+      return "输入模型引用。";
+  }
+}
+
+function modelRefPlaceholder(engine: DraftState["engine"]) {
+  switch (engine) {
+    case "llama.cpp":
+      return llamaCppRemoteModelRefExample;
+    case "vllm":
+    case "sglang":
+      return "Qwen/Qwen3-8B-Instruct";
+    default:
+      return "输入模型引用";
+  }
+}
+
+function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
+  if (valid) return "模型引用格式正确";
+
+  switch (engine) {
+    case "llama.cpp":
+      return "请输入合法的本地 GGUF 路径、hf:// 文件引用或 https:// GGUF 地址";
+    case "vllm":
+    case "sglang":
+      return "请输入合法的 Hugging Face 模型 ID";
+    default:
+      return "请输入合法的模型引用";
+  }
+}
+
+function runtimeDialogDescription(engine: DraftState["engine"]) {
+  switch (engine) {
+    case "llama.cpp":
+      return `llama.cpp 既支持 ${llamaCppModelRoot} 下的本地 GGUF，也支持启动前自动下载远端 GGUF。创建后会先保存为草稿，点击上线时再拉起 Pod。`;
+    case "vllm":
+    case "sglang":
+      return "当前运行时使用 Hugging Face 模型引用。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
+    default:
+      return "创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
+  }
+}
+
+function gpuMinimum(engine: DraftState["engine"]) {
+  return engine === "llama.cpp" ? 0 : 1;
+}
+
+function gpuRequirementCopy(engine: DraftState["engine"]) {
+  if (engine === "llama.cpp") {
+    return "llama.cpp 支持 CPU-only 或 GPU 模式。GPU 填 0 表示只用 CPU，填大于 0 时会切换到 CUDA 镜像并申请对应 GPU。";
+  }
+
+  return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
+}
 
 function statusTone(status: DeploymentRow["status"]) {
   switch (status) {
@@ -457,9 +522,16 @@ export function DeploymentsShell() {
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
-  const modelRefValid = isHuggingFaceModelRef(trimmedModelRef);
+  const modelRefValid = isValidInferenceModelRef(draft.engine, trimmedModelRef);
+  const minGpuCount = gpuMinimum(draft.engine);
   const effectiveGpuCount =
-    Number.isInteger(parsedGpuCount) && parsedGpuCount > 0 ? parsedGpuCount : 1;
+    Number.isInteger(parsedGpuCount) && parsedGpuCount >= 0
+      ? parsedGpuCount
+      : minGpuCount;
+  const gpuCountValid =
+    Number.isInteger(parsedGpuCount) &&
+    parsedGpuCount >= minGpuCount &&
+    parsedGpuCount <= 16;
   const defaultImageForDraft = defaultInferenceImage(
     draft.engine,
     effectiveGpuCount,
@@ -471,9 +543,7 @@ export function DeploymentsShell() {
     draft.cpu.trim().length >= 1 &&
     Number.isInteger(parsedMemoryGi) &&
     parsedMemoryGi > 0 &&
-    Number.isInteger(parsedGpuCount) &&
-    parsedGpuCount >= 1 &&
-    parsedGpuCount <= 16 &&
+    gpuCountValid &&
     Number.isInteger(parsedReplicaCount) &&
     parsedReplicaCount >= 1 &&
     parsedReplicaCount <= 16;
@@ -507,7 +577,7 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Inference Ops"
         title="推理部署"
-        description="管理基于 Hugging Face 模型引用的 vLLM 与 SGLang 运行时，集中查看入口、资源和服务状态。"
+        description="管理基于 Hugging Face 模型 ID 的 vLLM / SGLang，以及支持本地或直链 GGUF 的 llama.cpp 运行时，集中查看入口、资源和服务状态。"
         icon={BlocksIcon}
         size="compact"
         density="dense"
@@ -619,7 +689,7 @@ export function DeploymentsShell() {
         {!deploymentsQuery.isLoading && rows.length === 0 ? (
           <ModuleEmptyState
             title="还没有推理部署"
-            description="先选择一个 runtime，把 Hugging Face 模型、镜像和资源规格固化成可上线的 K8s 部署。"
+            description="先选择一个 runtime，把模型引用、镜像和资源规格固化成可上线的 K8s 部署。"
             action={
               <Button
                 disabled={!available}
@@ -648,7 +718,9 @@ export function DeploymentsShell() {
                 const canStart = ["draft", "paused", "failed"].includes(
                   row.status,
                 );
-                const canStop = ["serving", "starting"].includes(row.status);
+                const canStop = ["serving", "starting", "failed"].includes(
+                  row.status,
+                );
                 const canOpenApi =
                   row.status === "serving" && Boolean(row.endpoint);
 
@@ -701,7 +773,7 @@ export function DeploymentsShell() {
                     const canStart = ["draft", "paused", "failed"].includes(
                       row.status,
                     );
-                    const canStop = ["serving", "starting"].includes(
+                    const canStop = ["serving", "starting", "failed"].includes(
                       row.status,
                     );
                     const canOpenApi =
@@ -809,8 +881,7 @@ export function DeploymentsShell() {
                   创建推理部署
                 </DialogTitle>
                 <DialogDescription className="max-w-3xl text-sm leading-5 text-slate-600">
-                  当前只支持 Hugging Face
-                  模型引用。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。
+                  {runtimeDialogDescription(draft.engine)}
                 </DialogDescription>
               </div>
 
@@ -880,7 +951,7 @@ export function DeploymentsShell() {
 
               <Field
                 label="模型引用"
-                hint="仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。"
+                hint={modelRefHint(draft.engine)}
               >
                 <Input
                   className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
@@ -891,7 +962,7 @@ export function DeploymentsShell() {
                       modelRef: event.target.value,
                     }))
                   }
-                  placeholder="Qwen/Qwen3-8B-Instruct"
+                  placeholder={modelRefPlaceholder(draft.engine)}
                 />
               </Field>
 
@@ -908,7 +979,7 @@ export function DeploymentsShell() {
                       image: event.target.value,
                     }))
                   }
-                  placeholder="vllm/vllm-openai:latest"
+                  placeholder={defaultImageForDraft}
                 />
               </Field>
             </FormSection>
@@ -953,7 +1024,7 @@ export function DeploymentsShell() {
                   <Input
                     className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
                     type="number"
-                    min={1}
+                    min={minGpuCount}
                     max={16}
                     value={draft.gpuCount}
                     onChange={(event) =>
@@ -966,7 +1037,7 @@ export function DeploymentsShell() {
                         ),
                       }))
                     }
-                    placeholder="1"
+                    placeholder={String(minGpuCount)}
                   />
                 </Field>
 
@@ -989,7 +1060,7 @@ export function DeploymentsShell() {
               </div>
 
               <div className="rounded-2xl border border-slate-200/80 bg-slate-50/85 px-4 py-3 text-[13px] leading-5 text-slate-600">
-                当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。
+                {gpuRequirementCopy(draft.engine)}
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -1002,9 +1073,7 @@ export function DeploymentsShell() {
                       : "border-amber-200 bg-amber-50 text-amber-700",
                   )}
                 >
-                  {modelRefValid
-                    ? "模型引用格式正确"
-                    : "请输入合法的 Hugging Face 模型 ID"}
+                  {modelRefValidationLabel(draft.engine, modelRefValid)}
                 </Badge>
                 <Badge
                   variant="outline"

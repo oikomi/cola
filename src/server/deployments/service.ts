@@ -20,7 +20,20 @@ import {
   type InferenceDeploymentStatus,
   inferenceDeploymentEngineValues,
   isHuggingFaceModelRef,
+  isLlamaCppLocalModelRef,
+  isLlamaCppModelRef,
+  isLlamaCppRemoteModelRef,
+  llamaCppModelRefExample,
+  llamaCppRemoteModelRefExample,
 } from "@/server/deployments/catalog";
+import {
+  assertLlamaCppModelFileExists,
+  DEFAULT_INFERENCE_CACHE_ROOT,
+  DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
+  isInferencePodFailed,
+  resolveLlamaDownloadUrl,
+  resolveLlamaRuntimeModelPath,
+} from "@/server/deployments/runtime-utils";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -34,8 +47,8 @@ const METADATA_PREFIX = "cola.dev";
 const MODEL_CACHE_ROOT =
   process.env.INFERENCE_MODEL_CACHE_ROOT ??
   "/var/lib/remote-work/inference-cache";
-const MODEL_ROOT =
-  process.env.INFERENCE_MODEL_ROOT ?? "/var/lib/remote-work/models";
+const LLAMA_CPP_DOWNLOAD_IMAGE =
+  process.env.LLAMA_CPP_DOWNLOAD_IMAGE ?? "curlimages/curl:8.12.1";
 
 const INFERENCE_METADATA = {
   engine: `${METADATA_PREFIX}/inference-engine`,
@@ -218,14 +231,27 @@ function normalizeReplicaCount(replicaCount: number) {
 
 function normalizeCreateEngine(engine: InferenceDeploymentEngine) {
   if (!canCreateInferenceDeploymentWithEngine(engine)) {
-    throw new Error("当前创建推理部署只支持 vLLM 和 SGLang。");
+    throw new Error("当前运行时还不能通过创建流程直接部署。");
   }
 
   return engine;
 }
 
-function normalizeModelRef(input: string) {
+function normalizeModelRef(
+  engine: InferenceDeploymentEngine,
+  input: string,
+) {
   const value = input.trim();
+
+  if (engine === "llama.cpp") {
+    if (!isLlamaCppModelRef(value)) {
+      throw new Error(
+        `llama.cpp 只支持 /models 下的 GGUF 文件路径，或可直接下载的 GGUF 来源，例如 ${llamaCppModelRefExample}、${llamaCppRemoteModelRefExample}。`,
+      );
+    }
+
+    return value;
+  }
 
   if (!isHuggingFaceModelRef(value)) {
     throw new Error(
@@ -432,12 +458,6 @@ function deploymentAnnotations(input: {
   };
 }
 
-function resolveLlamaModelPath(modelRef: string) {
-  return modelRef.startsWith("/")
-    ? modelRef
-    : path.posix.join("/models", modelRef);
-}
-
 function buildRuntimeCommand(input: {
   name: string;
   engine: InferenceDeploymentEngine;
@@ -464,7 +484,7 @@ function buildRuntimeCommand(input: {
       return {
         args: [
           "-m",
-          resolveLlamaModelPath(input.modelRef),
+          resolveLlamaRuntimeModelPath(input.name, input.modelRef),
           "--host",
           "0.0.0.0",
           "--port",
@@ -497,6 +517,61 @@ function buildRuntimeCommand(input: {
   }
 }
 
+function buildInitContainers(input: {
+  name: string;
+  engine: InferenceDeploymentEngine;
+  modelRef: string;
+}) {
+  if (
+    input.engine !== "llama.cpp" ||
+    !isLlamaCppRemoteModelRef(input.modelRef)
+  ) {
+    return [];
+  }
+
+  const downloadUrl = resolveLlamaDownloadUrl(input.modelRef);
+  const targetPath = resolveLlamaRuntimeModelPath(input.name, input.modelRef);
+
+  return [
+    {
+      name: "gguf-downloader",
+      image: LLAMA_CPP_DOWNLOAD_IMAGE,
+      imagePullPolicy: "IfNotPresent",
+      command: ["sh", "-lc"],
+      args: [
+        `set -eu
+target="$COLA_GGUF_TARGET_PATH"
+url="$COLA_GGUF_DOWNLOAD_URL"
+mkdir -p "$(dirname "$target")"
+if [ -s "$target" ]; then
+  echo "GGUF already present: $target"
+  exit 0
+fi
+tmp="\${target}.part"
+rm -f "$tmp"
+curl -fL --retry 5 --retry-delay 2 --output "$tmp" "$url"
+mv "$tmp" "$target"`,
+      ],
+      env: [
+        {
+          name: "COLA_GGUF_DOWNLOAD_URL",
+          value: downloadUrl,
+        },
+        {
+          name: "COLA_GGUF_TARGET_PATH",
+          value: targetPath,
+        },
+      ],
+      volumeMounts: [
+        {
+          name: "hf-cache",
+          mountPath: DEFAULT_INFERENCE_CACHE_ROOT,
+        },
+      ],
+    },
+  ];
+}
+
 function buildInferenceDeployment(input: {
   name: string;
   engine: InferenceDeploymentEngine;
@@ -513,6 +588,11 @@ function buildInferenceDeployment(input: {
     engine: input.engine,
     modelRef: input.modelRef,
     gpuCount: input.gpuCount,
+  });
+  const initContainers = buildInitContainers({
+    name: input.name,
+    engine: input.engine,
+    modelRef: input.modelRef,
   });
 
   return {
@@ -540,6 +620,7 @@ function buildInferenceDeployment(input: {
         },
         spec: {
           ...(input.gpuCount > 0 ? { runtimeClassName: "nvidia" } : {}),
+          ...(initContainers.length > 0 ? { initContainers } : {}),
           affinity: {
             nodeAffinity: {
               requiredDuringSchedulingIgnoredDuringExecution: {
@@ -586,11 +667,11 @@ function buildInferenceDeployment(input: {
                 },
                 {
                   name: "HF_HOME",
-                  value: "/root/.cache/huggingface",
+                  value: DEFAULT_INFERENCE_CACHE_ROOT,
                 },
                 {
                   name: "TRANSFORMERS_CACHE",
-                  value: "/root/.cache/huggingface",
+                  value: DEFAULT_INFERENCE_CACHE_ROOT,
                 },
               ],
               readinessProbe: {
@@ -622,7 +703,7 @@ function buildInferenceDeployment(input: {
               volumeMounts: [
                 {
                   name: "hf-cache",
-                  mountPath: "/root/.cache/huggingface",
+                  mountPath: DEFAULT_INFERENCE_CACHE_ROOT,
                 },
                 {
                   name: "models",
@@ -692,7 +773,10 @@ function buildInferenceService(input: { name: string; nodePort: number }) {
   } satisfies V1Service;
 }
 
-function inferenceStatus(deployment: V1Deployment): InferenceDeploymentStatus {
+function inferenceStatus(
+  deployment: V1Deployment,
+  relatedPods: V1Pod[] = [],
+): InferenceDeploymentStatus {
   const desiredReplicas = deployment.spec?.replicas ?? 0;
   const readyReplicas = deployment.status?.readyReplicas ?? 0;
   const conditions = deployment.status?.conditions ?? [];
@@ -701,8 +785,12 @@ function inferenceStatus(deployment: V1Deployment): InferenceDeploymentStatus {
       condition.type === "ReplicaFailure" ||
       (condition.type === "Progressing" && condition.status === "False"),
   );
+  const podFailed =
+    desiredReplicas > 0 &&
+    readyReplicas < desiredReplicas &&
+    relatedPods.some((pod) => isInferencePodFailed(pod));
 
-  if (failed) return "failed";
+  if (failed || podFailed) return "failed";
   if (desiredReplicas === 0) {
     return deployment.metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]
       ? "paused"
@@ -849,9 +937,15 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
   );
 
   const podNodesByName = new Map<string, Set<string>>();
+  const podsByName = new Map<string, V1Pod[]>();
   for (const pod of pods) {
     const name = pod.metadata?.labels?.["cola.dev/inference-name"];
     if (!name) continue;
+
+    if (!podsByName.has(name)) {
+      podsByName.set(name, []);
+    }
+    podsByName.get(name)?.push(pod);
 
     if (!podNodesByName.has(name)) {
       podNodesByName.set(name, new Set<string>());
@@ -894,7 +988,7 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
         engine: inferenceDeploymentEngineValues.includes(engine)
           ? engine
           : "vllm",
-        status: inferenceStatus(deployment),
+        status: inferenceStatus(deployment, podsByName.get(name) ?? []),
         modelRef:
           deployment.metadata?.annotations?.[INFERENCE_METADATA.modelRef] ??
           name,
@@ -937,7 +1031,7 @@ export async function createInferenceDeployment(
 
   validateInferenceName(input.name);
   const engine = normalizeCreateEngine(input.engine);
-  const modelRef = normalizeModelRef(input.modelRef);
+  const modelRef = normalizeModelRef(engine, input.modelRef);
   const cpu = normalizeCpu(input.cpu);
   const memory = normalizeMemoryGi(input.memoryGi);
   const gpuCount = normalizeGpuCount(engine, input.gpuCount);
@@ -1020,6 +1114,14 @@ async function readInferenceDeployment(ctx: KubeContext, name: string) {
   });
 }
 
+async function listInferencePods(ctx: KubeContext, name: string) {
+  const pods = await ctx.coreApi.listNamespacedPod({
+    namespace: ctx.namespace,
+    labelSelector: `cola.dev/inference-name=${name}`,
+  });
+  return pods.items ?? [];
+}
+
 function buildReplacementDeployment(input: {
   deployment: V1Deployment;
   name: string;
@@ -1043,6 +1145,7 @@ function buildReplacementDeployment(input: {
       | undefined) ?? "vllm";
   const modelRef =
     metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? input.name;
+  const refreshedAt = input.refreshStartedAt ? new Date().toISOString() : null;
 
   return {
     apiVersion: input.deployment.apiVersion,
@@ -1056,8 +1159,8 @@ function buildReplacementDeployment(input: {
         engine,
         modelRef,
         desiredReplicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
-        ...(input.refreshStartedAt
-          ? { lastStartedAt: new Date().toISOString() }
+        ...(refreshedAt
+          ? { lastStartedAt: refreshedAt }
           : metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]
             ? {
                 lastStartedAt:
@@ -1069,7 +1172,20 @@ function buildReplacementDeployment(input: {
     spec: {
       ...spec,
       selector: spec.selector,
-      template: spec.template,
+      template: {
+        ...spec.template,
+        metadata: {
+          ...spec.template.metadata,
+          annotations: {
+            ...(spec.template.metadata?.annotations ?? {}),
+            ...(refreshedAt
+              ? {
+                  [INFERENCE_METADATA.lastStartedAt]: refreshedAt,
+                }
+              : {}),
+          },
+        },
+      },
       replicas: input.replicas,
     },
   } satisfies V1Deployment;
@@ -1085,12 +1201,31 @@ export async function startInferenceDeployment(name: string) {
       "1",
     10,
   );
+  const engine =
+    (deployment.metadata?.annotations?.[INFERENCE_METADATA.engine] as
+      | InferenceDeploymentEngine
+      | undefined) ?? "vllm";
+  const modelRef =
+    deployment.metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? name;
+  const currentReplicas = deployment.spec?.replicas ?? 0;
 
-  if ((deployment.spec?.replicas ?? 0) > 0) {
-    return {
-      name,
-      message: "推理部署已经在线上服务中。",
-    };
+  if (engine === "llama.cpp") {
+    if (isLlamaCppLocalModelRef(modelRef)) {
+      assertLlamaCppModelFileExists(modelRef);
+    }
+  }
+
+  if (currentReplicas > 0) {
+    const pods = await listInferencePods(ctx, name);
+    if (inferenceStatus(deployment, pods) !== "failed") {
+      return {
+        name,
+        message:
+          (deployment.status?.readyReplicas ?? 0) >= currentReplicas
+            ? "推理部署已经在线上服务中。"
+            : "推理部署已在启动中。",
+      };
+    }
   }
 
   await ctx.appsApi.replaceNamespacedDeployment({
@@ -1106,7 +1241,8 @@ export async function startInferenceDeployment(name: string) {
 
   return {
     name,
-    message: "推理部署已上线。",
+    message:
+      currentReplicas > 0 ? "推理部署已重新触发上线。" : "推理部署已上线。",
   };
 }
 
