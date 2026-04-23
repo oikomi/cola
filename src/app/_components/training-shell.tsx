@@ -17,11 +17,9 @@ import { type ReactNode, useState } from "react";
 
 import {
   ModuleEmptyState,
-  ModuleHero,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
-import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -268,27 +266,109 @@ function TrainingMetricStripItem(props: {
   const Icon = props.icon;
 
   return (
-    <div className="rounded-[20px] border border-slate-200/90 bg-white/88 px-3.5 py-3 shadow-[0_10px_20px_rgba(15,23,42,0.03)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-            {props.label}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <p className="text-[1.35rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
-              {props.value}
-            </p>
-            <p className="text-[11px] leading-5 text-slate-500">
-              {props.description}
-            </p>
+    <div className="flex min-w-0 items-center gap-2.5 rounded-full border border-slate-200/85 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(15,23,42,0.025)]">
+      <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+        <Icon className="size-3" />
+      </div>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">
+          {props.label}
+        </p>
+        <p className="text-[1rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+          {props.value}
+        </p>
+        <p className="text-[11px] leading-5 text-slate-500">
+          {props.description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TrainingTopBar(props: {
+  totalJobs: number;
+  runningCount: number;
+  draftCount: number;
+  activeGpuCount: number;
+  isRefreshing: boolean;
+  onRefresh: () => void;
+  onCreate: () => void;
+  onOpenStudio: () => void;
+}) {
+  return (
+    <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.86))] px-4 py-3 shadow-[0_14px_34px_rgba(15,23,42,0.042)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_14%_10%,rgba(96,165,250,0.1),transparent_24%),radial-gradient(circle_at_88%_0%,rgba(14,165,233,0.06),transparent_18%)]" />
+
+      <div className="relative flex flex-col gap-2.5">
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
+              <BrainCircuitIcon className="size-3.5" />
+            </div>
+
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <h1 className="mr-1 text-[1.34rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+                训练平台
+              </h1>
+              <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
+                Training Jobs
+              </Badge>
+              <Badge
+                variant="outline"
+                className="border-border/80 bg-background/60"
+              >
+                Unsloth / Kubernetes
+              </Badge>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:rounded-full [&_[data-slot=button]]:px-3.5 [&_[data-slot=button]]:text-[13px]">
+            <Button variant="outline" onClick={props.onRefresh}>
+              <RefreshCwIcon
+                className={cn(props.isRefreshing ? "animate-spin" : undefined)}
+                data-icon="inline-start"
+              />
+              刷新
+            </Button>
+            <Button onClick={props.onCreate}>
+              <PlusIcon data-icon="inline-start" />
+              新建任务
+            </Button>
+            <Button variant="outline" onClick={props.onOpenStudio}>
+              <ArrowUpRightIcon data-icon="inline-start" />
+              Unsloth Studio
+            </Button>
           </div>
         </div>
 
-        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-          <Icon className="size-3.5" />
+        <div className="flex flex-wrap gap-2 border-t border-slate-200/80 pt-2.5">
+          <TrainingMetricStripItem
+            label="任务总数"
+            value={String(props.totalJobs)}
+            description="已登记"
+            icon={BrainCircuitIcon}
+          />
+          <TrainingMetricStripItem
+            label="运行中"
+            value={String(props.runningCount)}
+            description="占用训练资源"
+            icon={PlayIcon}
+          />
+          <TrainingMetricStripItem
+            label="草稿"
+            value={String(props.draftCount)}
+            description="待启动"
+            icon={SquareIcon}
+          />
+          <TrainingMetricStripItem
+            label="活跃 GPU"
+            value={String(props.activeGpuCount)}
+            description="运行中占用"
+            icon={LoaderCircleIcon}
+          />
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1328,82 +1408,16 @@ export function TrainingShell() {
 
   return (
     <ModulePageShell>
-      <ModuleHero
-        size="compact"
-        density="dense"
-        eyebrow="Training Jobs"
-        title="训练平台"
-        description="统一收口训练任务、模型、数据集与 GPU 配额。"
-        icon={BrainCircuitIcon}
-        surfaceHeader={<ProductAreaHeader embedded />}
-        badges={
-          <Badge
-            variant="outline"
-            className="border-border/80 bg-background/60"
-          >
-            Unsloth / Kubernetes
-          </Badge>
-        }
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              className="h-9 rounded-full px-4"
-              onClick={() => void jobsQuery.refetch()}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  jobsQuery.isFetching ? "animate-spin" : undefined,
-                )}
-                data-icon="inline-start"
-              />
-              刷新列表
-            </Button>
-            <Button
-              className="h-9 rounded-full px-4"
-              onClick={() => setIsCreateOpen(true)}
-            >
-              <PlusIcon data-icon="inline-start" />
-              创建训练任务
-            </Button>
-            <Button
-              variant="outline"
-              className="h-9 rounded-full px-4"
-              onClick={openUnslothStudio}
-            >
-              <ArrowUpRightIcon data-icon="inline-start" />
-              进入 Unsloth Studio
-            </Button>
-          </div>
-        }
-      >
-        <div className="grid gap-2.5 md:grid-cols-2 lg:grid-cols-4">
-          <TrainingMetricStripItem
-            label="任务总数"
-            value={String(jobs.length)}
-            description="已登记任务"
-            icon={BrainCircuitIcon}
-          />
-          <TrainingMetricStripItem
-            label="运行中"
-            value={String(runningCount)}
-            description="正在消耗训练资源"
-            icon={PlayIcon}
-          />
-          <TrainingMetricStripItem
-            label="草稿"
-            value={String(draftCount)}
-            description="已配置，待启动"
-            icon={SquareIcon}
-          />
-          <TrainingMetricStripItem
-            label="活跃 GPU"
-            value={String(activeGpuCount)}
-            description="运行中任务占用 GPU"
-            icon={LoaderCircleIcon}
-          />
-        </div>
-      </ModuleHero>
+      <TrainingTopBar
+        totalJobs={jobs.length}
+        runningCount={runningCount}
+        draftCount={draftCount}
+        activeGpuCount={activeGpuCount}
+        isRefreshing={jobsQuery.isFetching}
+        onRefresh={() => void jobsQuery.refetch()}
+        onCreate={() => setIsCreateOpen(true)}
+        onOpenStudio={openUnslothStudio}
+      />
 
       {jobsQuery.error ? (
         <Alert variant="destructive">
