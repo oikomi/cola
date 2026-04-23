@@ -15,3 +15,6 @@ sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeas
 
 
 sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeasz/bin/kubectl get pods -owide --all-namespaces
+
+
+sudo ctr -n k8s.io images ls | grep openclaw

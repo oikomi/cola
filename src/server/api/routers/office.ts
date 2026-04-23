@@ -288,7 +288,7 @@ async function resolveDeviceDashboardUrl(
       containerName,
       "sh",
       "-lc",
-      "openclaw dashboard --no-open",
+      "OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw dashboard --no-open",
     ]);
     const dashboardLine = stdout
       .split("\n")

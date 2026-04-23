@@ -36,6 +36,8 @@ const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
+const OPENCLAW_DASHBOARD_COMMAND =
+  "OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw dashboard --no-open";
 
 type ClusterConfig = {
   clusterName?: string;
@@ -274,7 +276,7 @@ async function execOpenClawDashboardUrl(options: {
         options.namespace,
         podName,
         RUNNER_CONTAINER_NAME,
-        ["sh", "-lc", "openclaw dashboard --no-open"],
+        ["sh", "-lc", OPENCLAW_DASHBOARD_COMMAND],
         stdout,
         stderr,
         null,
