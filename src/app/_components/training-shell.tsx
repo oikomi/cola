@@ -2284,7 +2284,10 @@ export function TrainingShell() {
             </div>
           </div>
 
-          <DialogFooter className="border-slate-200/80 bg-white/72 px-4 py-4 sm:px-6">
+          <DialogFooter
+            bleed={false}
+            className="border-slate-200/80 bg-white/72 px-4 py-4 sm:px-6"
+          >
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
             </Button>
