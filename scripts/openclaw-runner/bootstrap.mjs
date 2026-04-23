@@ -53,9 +53,19 @@ const openClawDefaultConfigPath =
 const openClawWorkspaceDir =
   process.env.OPENCLAW_WORKSPACE_DIR ?? path.join(openClawStateDir, "workspace");
 const openClawMainAgentDir = path.join(openClawStateDir, "agents", "main", "agent");
+const openClawMainSessionsDir = path.join(
+  openClawStateDir,
+  "agents",
+  "main",
+  "sessions",
+);
 const openClawAuthProfilesPath = path.join(
   openClawMainAgentDir,
   "auth-profiles.json",
+);
+const openClawSessionsIndexPath = path.join(
+  openClawMainSessionsDir,
+  "sessions.json",
 );
 const openClawBootstrapPath = path.join(openClawWorkspaceDir, "BOOTSTRAP.md");
 const openClawIdentityPath = path.join(openClawWorkspaceDir, "IDENTITY.md");
@@ -213,6 +223,30 @@ async function ensureOpenClawAuthProfiles(modelConfig) {
   );
 }
 
+async function resetMainSessionsAfterBootstrap() {
+  await mkdir(openClawMainSessionsDir, { recursive: true });
+
+  const entries = existsSync(openClawMainSessionsDir)
+    ? readJsonIfExists(openClawSessionsIndexPath, {})
+    : {};
+  const sessionFiles =
+    entries &&
+    typeof entries === "object" &&
+    entries["agent:main:main"] &&
+    typeof entries["agent:main:main"] === "object" &&
+    typeof entries["agent:main:main"].sessionFile === "string"
+      ? [entries["agent:main:main"].sessionFile]
+      : [];
+
+  for (const sessionFile of sessionFiles) {
+    await rm(sessionFile, { force: true });
+    await rm(`${sessionFile}.lock`, { force: true });
+  }
+
+  await writeFile(openClawSessionsIndexPath, "{}");
+  await logLine("reset OpenClaw main session cache after bootstrap");
+}
+
 async function prepareOpenClawConfig() {
   const modelConfig = loadCodexModelConfig();
   resolvedModelRef = `${modelConfig.providerId}/${modelConfig.model}`;
@@ -282,6 +316,7 @@ async function completeWorkspaceBootstrapIfNeeded() {
   await writeFile(openClawIdentityPath, buildIdentityMarkdown());
   await writeFile(openClawUserPath, buildUserMarkdown());
   await rm(openClawBootstrapPath, { force: true });
+  await resetMainSessionsAfterBootstrap();
   await logLine(
     `completed OpenClaw workspace bootstrap for ${colaAgentName}`,
   );
