@@ -1103,15 +1103,23 @@ export function TrainingShell() {
         ) : null}
 
         {!jobsQuery.isLoading && filteredJobs.length > 0 ? (
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>任务</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>模型 / 数据集</TableHead>
-                <TableHead>资源</TableHead>
-                <TableHead>时间</TableHead>
-                <TableHead className="text-right">操作</TableHead>
+                <TableHead className="w-[38%] whitespace-normal">
+                  任务
+                </TableHead>
+                <TableHead className="w-24 whitespace-normal">状态</TableHead>
+                <TableHead className="w-[22%] whitespace-normal">
+                  模型 / 数据集
+                </TableHead>
+                <TableHead className="w-[14%] whitespace-normal">
+                  资源
+                </TableHead>
+                <TableHead className="w-28 whitespace-normal">时间</TableHead>
+                <TableHead className="w-44 text-right whitespace-normal">
+                  操作
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1130,8 +1138,8 @@ export function TrainingShell() {
 
                 return (
                   <TableRow key={job.id} className="border-border/70">
-                    <TableCell className="align-top">
-                      <div className="flex max-w-[26rem] flex-col gap-2">
+                    <TableCell className="align-top whitespace-normal">
+                      <div className="flex min-w-0 flex-col gap-2 pr-4">
                         <div className="flex flex-col gap-1">
                           <p className="text-foreground font-medium">
                             {job.title}
@@ -1147,18 +1155,18 @@ export function TrainingShell() {
                           {job.objective}
                         </p>
                         {job.runtimeJobName ? (
-                          <p className="text-muted-foreground text-xs leading-5">
+                          <p className="text-muted-foreground text-xs leading-5 break-all">
                             K8s Job: {job.runtimeNamespace ?? "default"}/
                             {job.runtimeJobName}
                           </p>
                         ) : null}
                         {job.runtimeServiceName ? (
-                          <p className="text-muted-foreground text-xs leading-5">
+                          <p className="text-muted-foreground text-xs leading-5 break-all">
                             Headless Service: {job.runtimeServiceName}
                           </p>
                         ) : null}
                         {job.artifactPath ? (
-                          <p className="text-muted-foreground text-xs leading-5">
+                          <p className="text-muted-foreground text-xs leading-5 break-all">
                             产物目录: {job.artifactPath}
                           </p>
                         ) : null}
@@ -1177,17 +1185,19 @@ export function TrainingShell() {
                                 </span>
                               ) : null}
                             </div>
-                            <div className="mt-1">{job.runtimeSummary}</div>
+                            <div className="mt-1 break-words">
+                              {job.runtimeSummary}
+                            </div>
                           </div>
                         ) : null}
                         {job.lastError ? (
-                          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+                          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 break-words text-rose-700">
                             {job.lastError}
                           </div>
                         ) : null}
                       </div>
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="align-top whitespace-normal">
                       <Badge
                         variant="outline"
                         className={cn("rounded-full", statusTone(status))}
@@ -1195,17 +1205,17 @@ export function TrainingShell() {
                         {trainingJobStatusLabels[status]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="align-top">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-foreground font-medium">
+                    <TableCell className="align-top whitespace-normal">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span className="text-foreground font-medium break-all">
                           {job.baseModel}
                         </span>
-                        <span className="text-muted-foreground text-sm">
+                        <span className="text-muted-foreground text-sm break-all">
                           {job.datasetName}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="align-top whitespace-normal">
                       <div className="flex flex-col gap-1 text-sm">
                         <span className="text-foreground font-medium">
                           {job.nodeCount} 节点 x {job.gpusPerNode} GPU
@@ -1234,7 +1244,7 @@ export function TrainingShell() {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top">
+                    <TableCell className="align-top whitespace-normal">
                       <div className="flex flex-col gap-1 text-sm">
                         <span className="text-foreground font-medium">
                           {formatTime(job.updatedAt ?? job.createdAt)}
@@ -1244,8 +1254,8 @@ export function TrainingShell() {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="align-top">
-                      <div className="flex justify-end gap-2">
+                    <TableCell className="align-top whitespace-normal">
+                      <div className="flex flex-wrap justify-end gap-2">
                         {job.runtimeJobName ? (
                           <Button
                             variant="outline"
@@ -1304,7 +1314,9 @@ export function TrainingShell() {
                             isStopping ||
                             isDeleting
                           }
-                          onClick={() => void handleDeleteJob(job.id, job.title)}
+                          onClick={() =>
+                            void handleDeleteJob(job.id, job.title)
+                          }
                         >
                           {isDeleting ? (
                             <LoaderCircleIcon
