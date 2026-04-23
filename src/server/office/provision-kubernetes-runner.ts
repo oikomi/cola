@@ -601,7 +601,7 @@ function buildOpenClawCommand(nodePort: number) {
     });
   }
 
-  return `openclaw config set --batch-json '${JSON.stringify(configPatches)}' --strict-json >/tmp/openclaw-config.log 2>&1 && ((if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 &) && exec openclaw gateway --allow-unconfigured --bind lan --port ${OPENCLAW_DASHBOARD_PORT}`;
+  return `openclaw config set --batch-json '${JSON.stringify(configPatches)}' --strict-json >/tmp/openclaw-config.log 2>&1 && (if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 && ((if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 &) && exec env OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw gateway --allow-unconfigured --bind lan --port ${OPENCLAW_DASHBOARD_PORT}`;
 }
 
 function buildHermesCommand() {

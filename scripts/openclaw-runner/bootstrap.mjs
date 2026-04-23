@@ -47,6 +47,9 @@ const generatedOpenClawConfigPath =
   process.env.OPENCLAW_GENERATED_CONFIG_PATH ?? "/tmp/openclaw.generated.json";
 const openClawStateDir =
   process.env.OPENCLAW_STATE_DIR ?? path.join(homedir(), ".openclaw");
+const openClawDefaultConfigPath =
+  process.env.OPENCLAW_DEFAULT_CONFIG_PATH ??
+  path.join(openClawStateDir, "openclaw.json");
 const openClawWorkspaceDir =
   process.env.OPENCLAW_WORKSPACE_DIR ?? path.join(openClawStateDir, "workspace");
 const openClawMainAgentDir = path.join(openClawStateDir, "agents", "main", "agent");
@@ -61,6 +64,10 @@ const colaAgentName = process.env.COLA_AGENT_NAME?.trim() || "OpenClaw Agent";
 const colaRoleLabel = process.env.COLA_AGENT_ROLE_LABEL?.trim() || "执行";
 const colaWorkspaceOwnerName =
   process.env.COLA_WORKSPACE_OWNER_NAME?.trim() || "Cola Operator";
+const workspaceBootstrapPollIntervalMs = Number(
+  process.env.OPENCLAW_WORKSPACE_BOOTSTRAP_POLL_INTERVAL_MS ?? "5000",
+);
+const prepareOnly = process.argv.includes("--prepare-only");
 
 let deviceId = "";
 let sessionId = "";
@@ -83,6 +90,16 @@ function mapWireApiToOpenClawApi(wireApi) {
       return "openai-completions";
     default:
       return "openai-responses";
+  }
+}
+
+function readJsonIfExists(filePath, fallbackValue) {
+  if (!existsSync(filePath)) return fallbackValue;
+
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"));
+  } catch {
+    return fallbackValue;
   }
 }
 
@@ -196,6 +213,28 @@ async function ensureOpenClawAuthProfiles(modelConfig) {
   );
 }
 
+async function prepareOpenClawConfig() {
+  const modelConfig = loadCodexModelConfig();
+  resolvedModelRef = `${modelConfig.providerId}/${modelConfig.model}`;
+  await ensureOpenClawAuthProfiles(modelConfig);
+
+  const existingConfig = readJsonIfExists(openClawDefaultConfigPath, {});
+  const mergedConfig = {
+    ...(existingConfig && typeof existingConfig === "object"
+      ? existingConfig
+      : {}),
+    models: modelConfig.config.models,
+    env: modelConfig.config.env,
+  };
+
+  await writeFile(
+    generatedOpenClawConfigPath,
+    JSON.stringify(mergedConfig, null, 2),
+  );
+
+  return modelConfig;
+}
+
 function buildIdentityMarkdown() {
   return `# IDENTITY.md - Who Am I?
 
@@ -237,7 +276,7 @@ async function completeWorkspaceBootstrapIfNeeded() {
   await mkdir(openClawWorkspaceDir, { recursive: true });
 
   if (!existsSync(openClawBootstrapPath)) {
-    return;
+    return false;
   }
 
   await writeFile(openClawIdentityPath, buildIdentityMarkdown());
@@ -246,6 +285,23 @@ async function completeWorkspaceBootstrapIfNeeded() {
   await logLine(
     `completed OpenClaw workspace bootstrap for ${colaAgentName}`,
   );
+  return true;
+}
+
+async function startWorkspaceBootstrapLoop() {
+  while (true) {
+    try {
+      await completeWorkspaceBootstrapIfNeeded();
+    } catch (error) {
+      await logLine(
+        `workspace bootstrap sync failed: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+    }
+
+    await sleep(workspaceBootstrapPollIntervalMs);
+  }
 }
 
 function sleep(ms) {
@@ -403,13 +459,7 @@ async function probeOpenClaw() {
   }
 
   try {
-    const modelConfig = loadCodexModelConfig();
-    resolvedModelRef = `${modelConfig.providerId}/${modelConfig.model}`;
-    await ensureOpenClawAuthProfiles(modelConfig);
-    await writeFile(
-      generatedOpenClawConfigPath,
-      JSON.stringify(modelConfig.config, null, 2),
-    );
+    await prepareOpenClawConfig();
     await shell(readyCommand);
     return {
       status: "online",
@@ -659,6 +709,14 @@ async function main() {
   await logLine(`starting ${runtimeLabel} OpenClaw bootstrap`);
   await completeWorkspaceBootstrapIfNeeded();
 
+  if (prepareOnly) {
+    await prepareOpenClawConfig();
+    await logLine(
+      `prepared OpenClaw config for gateway with model ${resolvedModelRef}`,
+    );
+    return;
+  }
+
   const probe = await probeOpenClaw();
   await registerRunner(probe.summary, probe.status);
   currentStatus = probe.status;
@@ -669,7 +727,11 @@ async function main() {
     await runBootCommand();
   }
 
-  await Promise.all([startHeartbeatLoop(), startTaskLoop()]);
+  await Promise.all([
+    startWorkspaceBootstrapLoop(),
+    startHeartbeatLoop(),
+    startTaskLoop(),
+  ]);
 }
 
 main().catch(async (error) => {
