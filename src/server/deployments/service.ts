@@ -537,6 +537,10 @@ function buildInitContainers(input: {
       name: "gguf-downloader",
       image: LLAMA_CPP_DOWNLOAD_IMAGE,
       imagePullPolicy: "IfNotPresent",
+      securityContext: {
+        runAsUser: 0,
+        runAsGroup: 0,
+      },
       command: ["sh", "-lc"],
       args: [
         `set -eu
@@ -609,6 +613,13 @@ function buildInferenceDeployment(input: {
     },
     spec: {
       replicas: 0,
+      strategy: {
+        type: "RollingUpdate",
+        rollingUpdate: {
+          maxSurge: 0,
+          maxUnavailable: 1,
+        },
+      },
       selector: {
         matchLabels: {
           "cola.dev/inference-name": input.name,
