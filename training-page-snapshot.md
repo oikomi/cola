@@ -1,0 +1,63 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - img "XDream Cloud" [ref=e7]
+          - generic [ref=e8]:
+            - paragraph [ref=e9]: XDream
+            - paragraph [ref=e10]: Cloud Console
+        - generic [ref=e12]:
+          - link "虚拟 Office 统一查看 agent、任务、审批、执行状态和 workspace 路由。" [ref=e13] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e14]
+          - link "远程工作区 集中管理 remote workspace、浏览器桌面、入口地址与节点资源。" [ref=e24] [cursor=pointer]:
+            - /url: /workspace
+            - generic [ref=e25]
+          - link "训练作业 Active 统一管理训练任务、数据集、优先级和 GPU 消耗。" [ref=e34] [cursor=pointer]:
+            - /url: /training
+            - generic [ref=e35]
+          - link "推理部署 管理模型服务、规格、入口地址和服务状态。" [ref=e54] [cursor=pointer]:
+            - /url: /deployments
+            - generic [ref=e55]
+          - link "集群管理 跳转 Kubernetes Dashboard 查看集群对象与工作负载。" [ref=e64] [cursor=pointer]:
+            - /url: /system
+            - generic [ref=e65]
+    - main [ref=e74]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e82]:
+            - generic [ref=e83]
+            - generic [ref=e102]
+          - generic [ref=e106]:
+            - generic [ref=e108]
+            - generic [ref=e129]
+          - generic [ref=e134]:
+            - generic [ref=e135]
+            - generic [ref=e154]
+            - generic [ref=e163]
+            - generic [ref=e172]
+        - alert [ref=e256]:
+          - generic [ref=e257]: 训练任务读取失败
+        - generic [ref=e181]:
+          - generic [ref=e182]:
+            - generic [ref=e183]
+            - generic [ref=e187]
+          - generic [ref=e258]:
+            - paragraph [ref=e259]: 还没有训练任务
+            - paragraph [ref=e260]: 先创建一个任务，把模型、数据集和 GPU 配额记录进去。
+            - button "创建第一个任务" [ref=e262]
+  - generic [ref=e267] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e268]:
+      - img [ref=e269]
+    - generic [ref=e272]:
+      - button "Open issues overlay" [ref=e273]:
+        - generic [ref=e274]:
+          - generic [ref=e275]: "3"
+          - generic [ref=e276]: "4"
+        - generic [ref=e277]:
+          - text: Issue
+          - generic [ref=e278]: s
+      - button "Collapse issues badge" [ref=e279]:
+        - img [ref=e280]
+  - alert [ref=e255]

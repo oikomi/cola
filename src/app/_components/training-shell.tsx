@@ -3,6 +3,8 @@
 import {
   ArrowUpRightIcon,
   BrainCircuitIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   LoaderCircleIcon,
   PlayIcon,
   PlusIcon,
@@ -42,14 +44,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { priorityLabels, priorityValues } from "@/server/office/catalog";
@@ -252,33 +246,408 @@ function FormSection(props: {
   );
 }
 
+function SurfaceLabel(props: { children: ReactNode; className?: string }) {
+  return (
+    <p
+      className={cn(
+        "text-[11px] font-semibold tracking-[0.14em] text-slate-400 uppercase",
+        props.className,
+      )}
+    >
+      {props.children}
+    </p>
+  );
+}
+
+function JobInfoBlock(props: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+  contentClassName?: string;
+}) {
+  return (
+    <div className={cn("grid gap-1.5", props.className)}>
+      <SurfaceLabel>{props.label}</SurfaceLabel>
+      <div
+        className={cn(
+          "min-w-0 text-sm leading-6 text-slate-700",
+          props.contentClassName,
+        )}
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+function jobHasAttentionState(job: TrainingJobItem) {
+  return (
+    job.status === "failed" ||
+    Boolean(job.lastError) ||
+    job.runtimeSummaryTone === "warning" ||
+    job.runtimeSummaryTone === "error" ||
+    job.runtimeSummaryCategory === "scheduling"
+  );
+}
+
+function TrainingJobCard(props: {
+  job: TrainingJobItem;
+  isStarting: boolean;
+  isStopping: boolean;
+  isDeleting: boolean;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+  onOpenRuntime: () => void;
+  onStart: () => void;
+  onStop: () => void;
+  onDelete: () => void;
+}) {
+  const { job, isStarting, isStopping, isDeleting, isExpanded } = props;
+  const status: keyof typeof trainingJobStatusLabels = job.status;
+  const canStart =
+    status === "draft" || status === "stopped" || status === "failed";
+  const distributedBackend =
+    trainingDistributedBackendLabels[
+      job.distributedBackend as keyof typeof trainingDistributedBackendLabels
+    ];
+  const launcherType =
+    trainingLauncherTypeLabels[
+      job.launcherType as keyof typeof trainingLauncherTypeLabels
+    ];
+  const precision =
+    trainingPrecisionLabels[
+      (job.precision ?? "auto") as keyof typeof trainingPrecisionLabels
+    ];
+
+  return (
+    <article
+      className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.045)]"
+      role="listitem"
+    >
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h3 className="min-w-0 text-[1.15rem] leading-7 font-semibold tracking-[-0.04em] text-slate-950">
+              {job.title}
+            </h3>
+            <Badge
+              variant="outline"
+              className={cn(
+                "h-7 rounded-full px-3 text-xs",
+                statusTone(status),
+              )}
+            >
+              {trainingJobStatusLabels[status]}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="h-7 rounded-full border-slate-200/90 bg-white/85 px-3 text-slate-600"
+            >
+              {trainingJobTypeLabels[job.jobType]}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn(
+                "h-7 rounded-full border-transparent bg-slate-100/90 px-3",
+                priorityTone(job.priority),
+              )}
+            >
+              {priorityLabels[job.priority]}优先级
+            </Badge>
+          </div>
+          <p
+            className={cn(
+              "mt-2 max-w-4xl text-sm leading-7 text-slate-600",
+              isExpanded ? undefined : "line-clamp-2",
+            )}
+          >
+            {job.objective}
+          </p>
+        </div>
+
+        <div className="flex w-full flex-col gap-3 xl:w-auto xl:min-w-[420px] xl:items-end">
+          <div className="rounded-[22px] border border-slate-200/85 bg-white/82 px-4 py-3 text-sm shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+            <SurfaceLabel>最近更新时间</SurfaceLabel>
+            <p className="mt-1 text-[15px] font-semibold tracking-[-0.03em] text-slate-950">
+              {formatTime(job.updatedAt ?? job.createdAt)}
+            </p>
+            <p className="mt-2 text-slate-500">
+              启动: {formatTime(job.startedAt)}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 xl:justify-end">
+            {job.runtimeJobName ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full bg-white/80 px-3"
+                disabled={isStarting || isStopping || isDeleting}
+                onClick={props.onOpenRuntime}
+              >
+                运行态
+              </Button>
+            ) : null}
+
+            {canStart ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full bg-white/80 px-3"
+                disabled={isStarting || isStopping || isDeleting}
+                onClick={props.onStart}
+              >
+                {isStarting ? (
+                  <LoaderCircleIcon
+                    className="animate-spin"
+                    data-icon="inline-start"
+                  />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
+                {isStarting ? "启动中" : "启动"}
+              </Button>
+            ) : null}
+
+            {job.status === "running" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full bg-white/80 px-3"
+                disabled={isStarting || isStopping || isDeleting}
+                onClick={props.onStop}
+              >
+                {isStopping ? (
+                  <LoaderCircleIcon
+                    className="animate-spin"
+                    data-icon="inline-start"
+                  />
+                ) : (
+                  <SquareIcon data-icon="inline-start" />
+                )}
+                {isStopping ? "停止中" : "停止"}
+              </Button>
+            ) : null}
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full bg-white/80 px-3"
+              aria-expanded={isExpanded}
+              onClick={props.onToggleExpanded}
+            >
+              {isExpanded ? (
+                <ChevronUpIcon data-icon="inline-start" />
+              ) : (
+                <ChevronDownIcon data-icon="inline-start" />
+              )}
+              {isExpanded ? "收起详情" : "展开详情"}
+            </Button>
+
+            <Button
+              size="sm"
+              variant="destructive"
+              className="rounded-full px-3"
+              disabled={
+                job.status === "running" ||
+                isStarting ||
+                isStopping ||
+                isDeleting
+              }
+              onClick={props.onDelete}
+            >
+              {isDeleting ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <Trash2Icon data-icon="inline-start" />
+              )}
+              {isDeleting ? "删除中" : "删除"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.95fr)_minmax(240px,0.8fr)]">
+        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <SurfaceLabel>运行摘要</SurfaceLabel>
+          <div className="mt-3 grid gap-3">
+            {job.runtimeSummary ? (
+              <div
+                className={cn(
+                  "rounded-[20px] border px-3.5 py-3 text-sm leading-6",
+                  runtimeSummaryTone(job.runtimeSummaryTone),
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">最近运行态</span>
+                  {job.runtimeSummaryAt ? (
+                    <span className="text-xs opacity-80">
+                      {formatTime(job.runtimeSummaryAt)}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-1 break-words">{job.runtimeSummary}</div>
+              </div>
+            ) : (
+              <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/85 px-3.5 py-3 text-sm leading-6 text-slate-500">
+                还没有可展示的运行态摘要。
+              </div>
+            )}
+
+            {job.lastError ? (
+              <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm leading-6 text-rose-700">
+                <SurfaceLabel className="text-rose-400">最近错误</SurfaceLabel>
+                <div className="mt-1 break-words">{job.lastError}</div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <SurfaceLabel>模型 / 数据集</SurfaceLabel>
+          <div className="mt-3 grid gap-4">
+            <JobInfoBlock
+              label="基础模型"
+              contentClassName="break-all text-[15px] leading-6 font-medium text-slate-900"
+            >
+              {job.baseModel}
+            </JobInfoBlock>
+            <JobInfoBlock
+              label="数据集"
+              contentClassName={cn(
+                "break-all font-mono text-[13px] leading-6 text-slate-700",
+                isExpanded ? undefined : "line-clamp-2",
+              )}
+            >
+              {job.datasetName}
+            </JobInfoBlock>
+          </div>
+        </section>
+
+        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <SurfaceLabel>资源计划</SurfaceLabel>
+          <div className="mt-3 grid gap-4">
+            <JobInfoBlock
+              label="并行规模"
+              contentClassName="text-[15px] leading-6 font-semibold text-slate-950"
+            >
+              {job.nodeCount} 节点 x {job.gpusPerNode} GPU
+            </JobInfoBlock>
+            <JobInfoBlock label="总 GPU / 后端">
+              总计 {job.gpuCount} GPU · {distributedBackend}
+            </JobInfoBlock>
+            <JobInfoBlock label="启动器 / 精度">
+              {launcherType} · {precision}
+            </JobInfoBlock>
+          </div>
+        </section>
+      </div>
+
+      {isExpanded ? (
+        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <section className="rounded-[24px] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+            <SurfaceLabel>编排详情</SurfaceLabel>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <JobInfoBlock
+                label="K8s Job"
+                contentClassName="break-all font-mono text-[13px] leading-6 text-slate-700"
+              >
+                {job.runtimeJobName ? (
+                  `${job.runtimeNamespace ?? "default"}/${job.runtimeJobName}`
+                ) : (
+                  <span className="font-sans text-sm text-slate-500">
+                    未创建
+                  </span>
+                )}
+              </JobInfoBlock>
+              <JobInfoBlock
+                label="Headless Service"
+                contentClassName="break-all font-mono text-[13px] leading-6 text-slate-700"
+              >
+                {job.runtimeServiceName ?? (
+                  <span className="font-sans text-sm text-slate-500">
+                    未分配
+                  </span>
+                )}
+              </JobInfoBlock>
+              <JobInfoBlock
+                label="产物目录"
+                className="sm:col-span-2"
+                contentClassName="break-all font-mono text-[13px] leading-6 text-slate-700"
+              >
+                {job.artifactPath ?? (
+                  <span className="font-sans text-sm text-slate-500">
+                    等待首次运行后生成
+                  </span>
+                )}
+              </JobInfoBlock>
+            </div>
+          </section>
+
+          <section className="rounded-[24px] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+            <SurfaceLabel>运行清单</SurfaceLabel>
+            <div className="mt-3 grid gap-3">
+              <JobInfoBlock label="运行命名空间">
+                {job.runtimeNamespace ?? "default"}
+              </JobInfoBlock>
+              <JobInfoBlock
+                label="基础模型（完整）"
+                contentClassName="break-all font-mono text-[13px] leading-6 text-slate-700"
+              >
+                {job.baseModel}
+              </JobInfoBlock>
+              <JobInfoBlock
+                label="数据集（完整）"
+                contentClassName="break-all font-mono text-[13px] leading-6 text-slate-700"
+              >
+                {job.datasetName}
+              </JobInfoBlock>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function LoadingRows() {
   return (
     <div className="grid gap-3">
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`training-skeleton-${index}`}
-          className="border-border/70 bg-background/70 rounded-3xl border p-4"
+          className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5"
         >
-          <div className="grid gap-3 md:grid-cols-[1.4fr_110px_1fr_110px_140px_220px] md:items-center">
-            <div className="grid gap-2">
-              <Skeleton className="h-6 w-48" />
-              <Skeleton className="h-4 w-40" />
+          <div className="flex flex-col gap-4 xl:flex-row xl:justify-between">
+            <div className="grid gap-3 xl:flex-1">
+              <div className="flex flex-wrap gap-2">
+                <Skeleton className="h-8 w-56" />
+                <Skeleton className="h-7 w-20 rounded-full" />
+                <Skeleton className="h-7 w-24 rounded-full" />
+                <Skeleton className="h-7 w-24 rounded-full" />
+              </div>
+              <Skeleton className="h-5 w-full max-w-3xl" />
+              <Skeleton className="h-5 w-2/3 max-w-2xl" />
             </div>
-            <Skeleton className="h-6 w-20 rounded-full" />
-            <div className="grid gap-2">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-4 w-28" />
+
+            <div className="grid gap-3 xl:w-[420px]">
+              <Skeleton className="h-24 rounded-[22px]" />
+              <div className="flex gap-2">
+                <Skeleton className="h-7 w-20 rounded-full" />
+                <Skeleton className="h-7 w-20 rounded-full" />
+                <Skeleton className="h-7 w-20 rounded-full" />
+                <Skeleton className="h-7 w-24 rounded-full" />
+              </div>
             </div>
-            <Skeleton className="h-5 w-16" />
-            <div className="grid gap-2">
-              <Skeleton className="h-5 w-24" />
-              <Skeleton className="h-4 w-20" />
-            </div>
-            <div className="flex gap-2">
-              <Skeleton className="h-9 w-20 rounded-full" />
-              <Skeleton className="h-9 w-20 rounded-full" />
-            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.95fr)_minmax(240px,0.8fr)]">
+            <Skeleton className="h-40 rounded-[24px]" />
+            <Skeleton className="h-40 rounded-[24px]" />
+            <Skeleton className="h-40 rounded-[24px]" />
           </div>
         </div>
       ))}
@@ -679,6 +1048,9 @@ export function TrainingShell() {
   });
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [listFilter, setListFilter] = useState<TrainingListFilter>("all");
+  const [expandedJobDetails, setExpandedJobDetails] = useState<
+    Record<string, boolean>
+  >({});
   const [runtimeDialog, setRuntimeDialog] = useState<{
     jobId: string;
     title: string;
@@ -913,6 +1285,13 @@ export function TrainingShell() {
     setSelectedRuntimePodName(undefined);
   }
 
+  function toggleJobDetails(jobId: string, nextExpanded: boolean) {
+    setExpandedJobDetails((current) => ({
+      ...current,
+      [jobId]: nextExpanded,
+    }));
+  }
+
   const handleDeleteJob = async (jobId: string, title: string) => {
     const confirmed = await confirm({
       title: `确认删除训练任务「${title}」？`,
@@ -1031,36 +1410,40 @@ export function TrainingShell() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              size="sm"
               variant={listFilter === "all" ? "default" : "outline"}
-              className="rounded-full"
+              className="rounded-full px-3"
               onClick={() => setListFilter("all")}
             >
               全部 {jobs.length}
             </Button>
             <Button
+              size="sm"
               variant={listFilter === "running" ? "default" : "outline"}
-              className="rounded-full"
+              className="rounded-full px-3"
               onClick={() => setListFilter("running")}
             >
               运行中 {runningCount}
             </Button>
             <Button
+              size="sm"
               variant={listFilter === "issues" ? "default" : "outline"}
-              className="rounded-full"
+              className="rounded-full px-3"
               onClick={() => setListFilter("issues")}
             >
               异常任务 {issueCount}
             </Button>
             <Button
+              size="sm"
               variant={listFilter === "scheduling" ? "default" : "outline"}
-              className="rounded-full"
+              className="rounded-full px-3"
               onClick={() => setListFilter("scheduling")}
             >
               调度失败 {schedulingIssueCount}
             </Button>
             <Badge
               variant="outline"
-              className="border-border/80 bg-background/60"
+              className="border-border/80 bg-background/60 h-7 rounded-full px-3"
             >
               已完成 {completedCount}
             </Badge>
@@ -1103,238 +1486,34 @@ export function TrainingShell() {
         ) : null}
 
         {!jobsQuery.isLoading && filteredJobs.length > 0 ? (
-          <Table className="table-fixed">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="w-[38%] whitespace-normal">
-                  任务
-                </TableHead>
-                <TableHead className="w-24 whitespace-normal">状态</TableHead>
-                <TableHead className="w-[22%] whitespace-normal">
-                  模型 / 数据集
-                </TableHead>
-                <TableHead className="w-[14%] whitespace-normal">
-                  资源
-                </TableHead>
-                <TableHead className="w-28 whitespace-normal">时间</TableHead>
-                <TableHead className="w-44 text-right whitespace-normal">
-                  操作
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredJobs.map((job) => {
-                const isStarting =
-                  startJob.isPending && startJob.variables?.jobId === job.id;
-                const isStopping =
-                  stopJob.isPending && stopJob.variables?.jobId === job.id;
-                const isDeleting =
-                  deleteJob.isPending && deleteJob.variables?.jobId === job.id;
-                const status: keyof typeof trainingJobStatusLabels = job.status;
-                const canStart =
-                  status === "draft" ||
-                  status === "stopped" ||
-                  status === "failed";
+          <div className="grid gap-4" role="list">
+            {filteredJobs.map((job) => {
+              const isStarting =
+                startJob.isPending && startJob.variables?.jobId === job.id;
+              const isStopping =
+                stopJob.isPending && stopJob.variables?.jobId === job.id;
+              const isDeleting =
+                deleteJob.isPending && deleteJob.variables?.jobId === job.id;
+              const isExpanded =
+                expandedJobDetails[job.id] ?? jobHasAttentionState(job);
 
-                return (
-                  <TableRow key={job.id} className="border-border/70">
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex min-w-0 flex-col gap-2 pr-4">
-                        <div className="flex flex-col gap-1">
-                          <p className="text-foreground font-medium">
-                            {job.title}
-                          </p>
-                          <p className="text-muted-foreground text-sm">
-                            {trainingJobTypeLabels[job.jobType]} ·{" "}
-                            <span className={priorityTone(job.priority)}>
-                              {priorityLabels[job.priority]}优先级
-                            </span>
-                          </p>
-                        </div>
-                        <p className="text-muted-foreground line-clamp-2 text-sm leading-6">
-                          {job.objective}
-                        </p>
-                        {job.runtimeJobName ? (
-                          <p className="text-muted-foreground text-xs leading-5 break-all">
-                            K8s Job: {job.runtimeNamespace ?? "default"}/
-                            {job.runtimeJobName}
-                          </p>
-                        ) : null}
-                        {job.runtimeServiceName ? (
-                          <p className="text-muted-foreground text-xs leading-5 break-all">
-                            Headless Service: {job.runtimeServiceName}
-                          </p>
-                        ) : null}
-                        {job.artifactPath ? (
-                          <p className="text-muted-foreground text-xs leading-5 break-all">
-                            产物目录: {job.artifactPath}
-                          </p>
-                        ) : null}
-                        {job.runtimeSummary ? (
-                          <div
-                            className={cn(
-                              "rounded-2xl border px-3 py-2 text-xs leading-5",
-                              runtimeSummaryTone(job.runtimeSummaryTone),
-                            )}
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">最近运行态</span>
-                              {job.runtimeSummaryAt ? (
-                                <span className="opacity-80">
-                                  {formatTime(job.runtimeSummaryAt)}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-1 break-words">
-                              {job.runtimeSummary}
-                            </div>
-                          </div>
-                        ) : null}
-                        {job.lastError ? (
-                          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 break-words text-rose-700">
-                            {job.lastError}
-                          </div>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <Badge
-                        variant="outline"
-                        className={cn("rounded-full", statusTone(status))}
-                      >
-                        {trainingJobStatusLabels[status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="text-foreground font-medium break-all">
-                          {job.baseModel}
-                        </span>
-                        <span className="text-muted-foreground text-sm break-all">
-                          {job.datasetName}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex flex-col gap-1 text-sm">
-                        <span className="text-foreground font-medium">
-                          {job.nodeCount} 节点 x {job.gpusPerNode} GPU
-                        </span>
-                        <span className="text-muted-foreground">
-                          总计 {job.gpuCount} GPU ·{" "}
-                          {
-                            trainingDistributedBackendLabels[
-                              job.distributedBackend as keyof typeof trainingDistributedBackendLabels
-                            ]
-                          }
-                        </span>
-                        <span className="text-muted-foreground">
-                          {
-                            trainingLauncherTypeLabels[
-                              job.launcherType as keyof typeof trainingLauncherTypeLabels
-                            ]
-                          }{" "}
-                          ·{" "}
-                          {
-                            trainingPrecisionLabels[
-                              (job.precision ??
-                                "auto") as keyof typeof trainingPrecisionLabels
-                            ]
-                          }
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex flex-col gap-1 text-sm">
-                        <span className="text-foreground font-medium">
-                          {formatTime(job.updatedAt ?? job.createdAt)}
-                        </span>
-                        <span className="text-muted-foreground">
-                          启动: {formatTime(job.startedAt)}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top whitespace-normal">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {job.runtimeJobName ? (
-                          <Button
-                            variant="outline"
-                            className="rounded-full"
-                            disabled={isStarting || isStopping || isDeleting}
-                            onClick={() => openRuntimeDialog(job)}
-                          >
-                            运行态
-                          </Button>
-                        ) : null}
-
-                        {canStart ? (
-                          <Button
-                            variant="outline"
-                            className="rounded-full"
-                            disabled={isStarting || isStopping || isDeleting}
-                            onClick={() => startJob.mutate({ jobId: job.id })}
-                          >
-                            {isStarting ? (
-                              <LoaderCircleIcon
-                                className="animate-spin"
-                                data-icon="inline-start"
-                              />
-                            ) : (
-                              <PlayIcon data-icon="inline-start" />
-                            )}
-                            {isStarting ? "启动中" : "启动"}
-                          </Button>
-                        ) : null}
-
-                        {job.status === "running" ? (
-                          <Button
-                            variant="outline"
-                            className="rounded-full"
-                            disabled={isStarting || isStopping || isDeleting}
-                            onClick={() => stopJob.mutate({ jobId: job.id })}
-                          >
-                            {isStopping ? (
-                              <LoaderCircleIcon
-                                className="animate-spin"
-                                data-icon="inline-start"
-                              />
-                            ) : (
-                              <SquareIcon data-icon="inline-start" />
-                            )}
-                            {isStopping ? "停止中" : "停止"}
-                          </Button>
-                        ) : null}
-
-                        <Button
-                          variant="destructive"
-                          className="rounded-full"
-                          disabled={
-                            job.status === "running" ||
-                            isStarting ||
-                            isStopping ||
-                            isDeleting
-                          }
-                          onClick={() =>
-                            void handleDeleteJob(job.id, job.title)
-                          }
-                        >
-                          {isDeleting ? (
-                            <LoaderCircleIcon
-                              className="animate-spin"
-                              data-icon="inline-start"
-                            />
-                          ) : (
-                            <Trash2Icon data-icon="inline-start" />
-                          )}
-                          {isDeleting ? "删除中" : "删除"}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+              return (
+                <TrainingJobCard
+                  key={job.id}
+                  job={job}
+                  isStarting={isStarting}
+                  isStopping={isStopping}
+                  isDeleting={isDeleting}
+                  isExpanded={isExpanded}
+                  onToggleExpanded={() => toggleJobDetails(job.id, !isExpanded)}
+                  onOpenRuntime={() => openRuntimeDialog(job)}
+                  onStart={() => startJob.mutate({ jobId: job.id })}
+                  onStop={() => stopJob.mutate({ jobId: job.id })}
+                  onDelete={() => void handleDeleteJob(job.id, job.title)}
+                />
+              );
+            })}
+          </div>
         ) : null}
       </ModuleSection>
 
