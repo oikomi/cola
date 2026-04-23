@@ -1438,14 +1438,15 @@ export function TrainingShell() {
       ) : null}
 
       <ModuleSection
+        density="compact"
         title="任务列表"
-        description="查看运行态、优先级、数据集和动作入口。错误信息会直接内嵌在任务行里。"
+        description="运行态、优先级、数据集和动作入口。"
         action={
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant={listFilter === "all" ? "default" : "outline"}
-              className="rounded-full px-3"
+              className="h-8 rounded-full px-3 text-[13px]"
               onClick={() => setListFilter("all")}
             >
               全部 {jobs.length}
@@ -1453,7 +1454,7 @@ export function TrainingShell() {
             <Button
               size="sm"
               variant={listFilter === "running" ? "default" : "outline"}
-              className="rounded-full px-3"
+              className="h-8 rounded-full px-3 text-[13px]"
               onClick={() => setListFilter("running")}
             >
               运行中 {runningCount}
@@ -1461,7 +1462,7 @@ export function TrainingShell() {
             <Button
               size="sm"
               variant={listFilter === "issues" ? "default" : "outline"}
-              className="rounded-full px-3"
+              className="h-8 rounded-full px-3 text-[13px]"
               onClick={() => setListFilter("issues")}
             >
               异常任务 {issueCount}
@@ -1469,14 +1470,14 @@ export function TrainingShell() {
             <Button
               size="sm"
               variant={listFilter === "scheduling" ? "default" : "outline"}
-              className="rounded-full px-3"
+              className="h-8 rounded-full px-3 text-[13px]"
               onClick={() => setListFilter("scheduling")}
             >
               调度失败 {schedulingIssueCount}
             </Button>
             <Badge
               variant="outline"
-              className="border-border/80 bg-background/60 h-7 rounded-full px-3"
+              className="h-8 rounded-full border-border/80 bg-background/60 px-3 text-[13px]"
             >
               已完成 {completedCount}
             </Badge>
