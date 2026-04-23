@@ -42,6 +42,19 @@ export function ProductAreaHeader({
   const activeAreaMeta =
     PRODUCT_AREAS.find((area) => area.key === activeArea) ?? PRODUCT_AREAS[0]!;
   const Icon = areaIcons[activeAreaMeta.key];
+  const contextBadges = (
+    <>
+      <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
+        Kubernetes
+      </Badge>
+      <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
+        Master Node
+      </Badge>
+      <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
+        XDream Cloud
+      </Badge>
+    </>
+  );
   const content = (
     <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div className="flex items-start gap-3">
@@ -65,21 +78,34 @@ export function ProductAreaHeader({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
-          Kubernetes
-        </Badge>
-        <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
-          Master Node
-        </Badge>
-        <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
-          XDream Cloud
-        </Badge>
+        {contextBadges}
       </div>
     </div>
   );
 
   if (embedded) {
-    return <div>{content}</div>;
+    return (
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
+            <Icon className="size-4" />
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium tracking-[0.24em] text-slate-500 uppercase">
+              {areaEyebrows[activeAreaMeta.key]}
+            </p>
+            <h2 className="mt-1 text-[1.02rem] leading-none font-semibold tracking-[-0.04em] text-slate-950">
+              {activeAreaMeta.title}
+            </h2>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 [&_[data-slot=badge]]:h-6 [&_[data-slot=badge]]:px-2.5 [&_[data-slot=badge]]:text-[11px]">
+          {contextBadges}
+        </div>
+      </div>
+    );
   }
 
   return (

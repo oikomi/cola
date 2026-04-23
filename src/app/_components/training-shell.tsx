@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type LucideIcon,
   ArrowUpRightIcon,
   BrainCircuitIcon,
   ChevronDownIcon,
@@ -17,7 +18,6 @@ import { type ReactNode, useState } from "react";
 import {
   ModuleEmptyState,
   ModuleHero,
-  ModuleMetricCard,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
@@ -259,6 +259,39 @@ function SurfaceLabel(props: { children: ReactNode; className?: string }) {
   );
 }
 
+function TrainingMetricStripItem(props: {
+  label: string;
+  value: string;
+  description: string;
+  icon: LucideIcon;
+}) {
+  const Icon = props.icon;
+
+  return (
+    <div className="rounded-[20px] border border-slate-200/90 bg-white/88 px-3.5 py-3 shadow-[0_10px_20px_rgba(15,23,42,0.03)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+            {props.label}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <p className="text-[1.35rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+              {props.value}
+            </p>
+            <p className="text-[11px] leading-5 text-slate-500">
+              {props.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+          <Icon className="size-3.5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function JobInfoBlock(props: {
   label: string;
   children: ReactNode;
@@ -277,16 +310,6 @@ function JobInfoBlock(props: {
         {props.children}
       </div>
     </div>
-  );
-}
-
-function jobHasAttentionState(job: TrainingJobItem) {
-  return (
-    job.status === "failed" ||
-    Boolean(job.lastError) ||
-    job.runtimeSummaryTone === "warning" ||
-    job.runtimeSummaryTone === "error" ||
-    job.runtimeSummaryCategory === "scheduling"
   );
 }
 
@@ -1310,7 +1333,7 @@ export function TrainingShell() {
         density="dense"
         eyebrow="Training Jobs"
         title="训练平台"
-        description="把训练任务、基础模型、数据集和分布式 GPU 配额统一收口到一张作业表里。"
+        description="统一收口训练任务、模型、数据集与 GPU 配额。"
         icon={BrainCircuitIcon}
         surfaceHeader={<ProductAreaHeader embedded />}
         badges={
@@ -1354,33 +1377,29 @@ export function TrainingShell() {
           </div>
         }
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ModuleMetricCard
-            size="compact"
+        <div className="grid gap-2.5 md:grid-cols-2 lg:grid-cols-4">
+          <TrainingMetricStripItem
             label="任务总数"
             value={String(jobs.length)}
-            description="当前训练控制面中记录的全部任务。"
+            description="已登记任务"
             icon={BrainCircuitIcon}
           />
-          <ModuleMetricCard
-            size="compact"
+          <TrainingMetricStripItem
             label="运行中"
             value={String(runningCount)}
-            description="已经提交并正在实际执行的训练作业。"
+            description="正在消耗训练资源"
             icon={PlayIcon}
           />
-          <ModuleMetricCard
-            size="compact"
+          <TrainingMetricStripItem
             label="草稿"
             value={String(draftCount)}
-            description="参数已配置但还未开始执行的任务。"
+            description="已配置，待启动"
             icon={SquareIcon}
           />
-          <ModuleMetricCard
-            size="compact"
+          <TrainingMetricStripItem
             label="活跃 GPU"
             value={String(activeGpuCount)}
-            description="按照运行中训练任务累计的 GPU 使用量。"
+            description="运行中任务占用 GPU"
             icon={LoaderCircleIcon}
           />
         </div>
@@ -1494,8 +1513,7 @@ export function TrainingShell() {
                 stopJob.isPending && stopJob.variables?.jobId === job.id;
               const isDeleting =
                 deleteJob.isPending && deleteJob.variables?.jobId === job.id;
-              const isExpanded =
-                expandedJobDetails[job.id] ?? jobHasAttentionState(job);
+              const isExpanded = expandedJobDetails[job.id] ?? false;
 
               return (
                 <TrainingJobCard
