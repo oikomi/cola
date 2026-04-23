@@ -673,12 +673,12 @@ export function DeploymentsShell() {
       ) : null}
 
       <ModuleSection
+        density="compact"
         title="运行时列表"
-        description="查看模型引用、节点落点、外部入口与副本状态，并在同一行完成上线、暂停或删除。"
         action={
           <Badge
             variant="outline"
-            className="border-border/80 bg-background/60"
+            className="h-8 rounded-full border-border/80 bg-background/60 px-3 text-[13px]"
           >
             已暂停 {pausedCount}
           </Badge>

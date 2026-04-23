@@ -269,7 +269,7 @@ export function ModuleSection({
   density = "default",
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -307,16 +307,18 @@ export function ModuleSection({
           >
             {title}
           </h2>
-          <p
-            className={cn(
-              "text-slate-600",
-              isCompact
-                ? "max-w-3xl text-[13px] leading-5"
-                : "max-w-2xl text-sm leading-6",
-            )}
-          >
-            {description}
-          </p>
+          {description ? (
+            <p
+              className={cn(
+                "text-slate-600",
+                isCompact
+                  ? "max-w-3xl text-[13px] leading-5"
+                  : "max-w-2xl text-sm leading-6",
+              )}
+            >
+              {description}
+            </p>
+          ) : null}
         </div>
         {action ? (
           <div

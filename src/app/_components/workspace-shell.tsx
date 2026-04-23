@@ -66,20 +66,20 @@ const ALERT_SURFACE_CLASS =
 const METRIC_TONE_STYLES = {
   sky: {
     container:
-      "border-sky-200/80 bg-[linear-gradient(180deg,rgba(247,251,255,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_32px_rgba(59,130,246,0.08),0_4px_12px_rgba(15,23,42,0.03)]",
-    glow: "bg-sky-100/90 shadow-[0_0_0_8px_rgba(219,234,254,0.55)]",
+      "border-sky-200/80 bg-[linear-gradient(180deg,rgba(247,251,255,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(59,130,246,0.07),0_3px_10px_rgba(15,23,42,0.03)]",
+    glow: "bg-sky-100/90 shadow-[0_0_0_6px_rgba(219,234,254,0.52)]",
     dot: "bg-sky-500",
   },
   emerald: {
     container:
-      "border-emerald-200/85 bg-[linear-gradient(180deg,rgba(237,252,245,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_34px_rgba(16,185,129,0.1),0_4px_12px_rgba(15,23,42,0.03)]",
-    glow: "bg-emerald-100/90 shadow-[0_0_0_8px_rgba(209,250,229,0.58)]",
+      "border-emerald-200/85 bg-[linear-gradient(180deg,rgba(237,252,245,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(16,185,129,0.08),0_3px_10px_rgba(15,23,42,0.03)]",
+    glow: "bg-emerald-100/90 shadow-[0_0_0_6px_rgba(209,250,229,0.54)]",
     dot: "bg-emerald-500",
   },
   amber: {
     container:
-      "border-amber-200/85 bg-[linear-gradient(180deg,rgba(255,249,235,0.96),rgba(255,255,255,0.92))] shadow-[0_18px_34px_rgba(245,158,11,0.11),0_4px_12px_rgba(15,23,42,0.03)]",
-    glow: "bg-amber-100/90 shadow-[0_0_0_8px_rgba(254,243,199,0.62)]",
+      "border-amber-200/85 bg-[linear-gradient(180deg,rgba(255,249,235,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(245,158,11,0.09),0_3px_10px_rgba(15,23,42,0.03)]",
+    glow: "bg-amber-100/90 shadow-[0_0_0_6px_rgba(254,243,199,0.58)]",
     dot: "bg-amber-500",
   },
 } as const;
@@ -102,30 +102,32 @@ function WorkspaceMetric({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[22px] px-5 py-4",
+        "relative overflow-hidden rounded-[20px] px-4 py-3.5",
         styles.container,
       )}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/75" />
 
-      <div className="relative flex items-start justify-between gap-4">
+      <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-medium tracking-[0.2em] text-slate-600 uppercase">
             {label}
           </p>
-          <p className="mt-2 text-[2.2rem] leading-none font-semibold tracking-[-0.07em] text-slate-950">
+          <p className="mt-1.5 text-[1.85rem] leading-none font-semibold tracking-[-0.07em] text-slate-950">
             {value}
           </p>
-          <p className="mt-3 text-[12px] leading-5 text-slate-600">{caption}</p>
+          <p className="mt-2 text-[12px] leading-[1.2rem] text-slate-600">
+            {caption}
+          </p>
         </div>
 
         <span
           className={cn(
-            "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full",
+            "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full",
             styles.glow,
           )}
         >
-          <span className={cn("size-2 rounded-full", styles.dot)} />
+          <span className={cn("size-1.5 rounded-full", styles.dot)} />
         </span>
       </div>
     </div>
@@ -334,6 +336,7 @@ export function WorkspaceShell() {
     <ModulePageShell className="gap-5 xl:gap-6">
       <ModuleHero
         size="compact"
+        density="dense"
         eyebrow="Workspace Control"
         title="远程工作区"
         description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
@@ -402,7 +405,7 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-2.5 md:grid-cols-3">
           <WorkspaceMetric
             label="工作区总数"
             value={String(rows.length)}
