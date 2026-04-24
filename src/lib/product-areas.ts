@@ -3,6 +3,7 @@ import type { DockerRunnerEngine } from "@/server/office/catalog";
 export type ProductAreaKey =
   | "office"
   | "workspace"
+  | "cmdb"
   | "training"
   | "deployments"
   | "system";
@@ -24,6 +25,12 @@ export const PRODUCT_AREAS: Array<{
     href: "/workspace",
     title: "远程工作区",
     description: "集中管理 remote workspace、浏览器桌面、入口地址与节点资源。",
+  },
+  {
+    key: "cmdb",
+    href: "/cmdb",
+    title: "CMDB",
+    description: "统一管理服务器资产、GitLab 项目、代码部署和运行监控。",
   },
   {
     key: "training",
@@ -70,6 +77,10 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/workspace")) {
     return "workspace";
+  }
+
+  if (pathname.startsWith("/cmdb")) {
+    return "cmdb";
   }
 
   if (pathname.startsWith("/training")) {

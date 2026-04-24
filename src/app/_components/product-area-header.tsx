@@ -6,6 +6,7 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   MonitorSmartphoneIcon,
+  ServerIcon,
   Settings2Icon,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ import {
 const areaIcons = {
   office: Building2Icon,
   workspace: MonitorSmartphoneIcon,
+  cmdb: ServerIcon,
   training: BrainCircuitIcon,
   deployments: BlocksIcon,
   system: Settings2Icon,
@@ -27,6 +29,7 @@ const areaIcons = {
 const areaEyebrows: Record<ProductAreaKey, string> = {
   office: "Operations Control",
   workspace: "Workspace Control",
+  cmdb: "CMDB Ops",
   training: "Training Ops",
   deployments: "Inference Ops",
   system: "Cluster Surface",

@@ -8,6 +8,8 @@ export const env = createEnv({
    */
   server: {
     DATABASE_URL: z.string().url(),
+    GITLAB_URL: z.string().url().optional(),
+    GITLAB_API_TOKEN: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -31,6 +33,8 @@ export const env = createEnv({
    */
   runtimeEnv: {
     DATABASE_URL: process.env.DATABASE_URL,
+    GITLAB_URL: process.env.GITLAB_URL,
+    GITLAB_API_TOKEN: process.env.GITLAB_API_TOKEN,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_OPENCLAW_NATIVE_URL:
       process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,

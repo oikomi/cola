@@ -1,3 +1,4 @@
+import { cmdbRouter } from "@/server/api/routers/cmdb";
 import { deploymentsRouter } from "@/server/api/routers/deployments";
 import { officeRouter } from "@/server/api/routers/office";
 import { postRouter } from "@/server/api/routers/post";
@@ -12,6 +13,7 @@ import { workspaceRouter } from "@/server/api/routers/workspace";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
+  cmdb: cmdbRouter,
   deployments: deploymentsRouter,
   office: officeRouter,
   post: postRouter,

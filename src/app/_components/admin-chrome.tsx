@@ -8,6 +8,7 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   MonitorSmartphoneIcon,
+  ServerIcon,
   Settings2Icon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -23,6 +24,7 @@ import {
 const areaIcons = {
   office: Building2Icon,
   workspace: MonitorSmartphoneIcon,
+  cmdb: ServerIcon,
   training: BrainCircuitIcon,
   deployments: BlocksIcon,
   system: Settings2Icon,

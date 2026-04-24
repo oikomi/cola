@@ -14,7 +14,7 @@ function hostNameFromHeader(rawHost: string | null) {
   }
 
   const [host] = normalized.split(":");
-  return host || "masterIP";
+  return host ?? "masterIP";
 }
 
 export default async function SystemPage() {

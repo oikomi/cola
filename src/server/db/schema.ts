@@ -55,6 +55,19 @@ export const inferenceDeploymentStatusEnum = pgEnum(
   "cola_inference_deployment_status",
   inferenceDeploymentStatusValues,
 );
+export const cmdbDeployTargetEnum = pgEnum("cola_cmdb_deploy_target", [
+  "k8s",
+  "ssh",
+  "docker",
+  "none",
+]);
+export const cmdbReleaseStatusEnum = pgEnum("cola_cmdb_release_status", [
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "canceled",
+]);
 export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
 export const deviceStatusEnum = pgEnum("cola_device_status", deviceStatusValues);
 export const sessionStatusEnum = pgEnum(
@@ -215,6 +228,83 @@ export const inferenceDeployments = createTable(
     index("inference_deployment_status_idx").on(t.status),
     index("inference_deployment_name_idx").on(t.name),
     index("inference_deployment_created_idx").on(t.createdAt),
+  ],
+);
+
+export type CmdbProjectConfig = {
+  triggerToken?: string;
+  customVariables?: Record<string, string>;
+  targetAssetName?: string;
+  deployEnv?: string;
+  healthUrl?: string;
+  monitorUrl?: string;
+  k8sNamespace?: string;
+  k8sDeployment?: string;
+  dockerImage?: string;
+  sshPath?: string;
+  sshDeployCommand?: string;
+};
+
+export const cmdbProjects = createTable(
+  "cmdb_project",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    name: d.varchar({ length: 256 }).notNull(),
+    gitlabProjectId: d.integer(),
+    gitlabPath: d.varchar({ length: 512 }).notNull().unique(),
+    gitlabWebUrl: d.text(),
+    description: d.text(),
+    defaultBranch: d.varchar({ length: 128 }).notNull().default("main"),
+    enabled: d.boolean().notNull().default(true),
+    deployTarget: cmdbDeployTargetEnum().notNull().default("none"),
+    config: d.jsonb().$type<CmdbProjectConfig>(),
+    lastSyncedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_project_name_idx").on(t.name),
+    index("cmdb_project_path_idx").on(t.gitlabPath),
+    index("cmdb_project_enabled_idx").on(t.enabled),
+    index("cmdb_project_target_idx").on(t.deployTarget),
+  ],
+);
+
+export const cmdbReleases = createTable(
+  "cmdb_release",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    projectId: d
+      .integer()
+      .notNull()
+      .references(() => cmdbProjects.id, { onDelete: "cascade" }),
+    ref: d.varchar({ length: 128 }).notNull(),
+    deployEnv: d.varchar({ length: 64 }),
+    gitlabPipelineId: d.integer(),
+    gitlabPipelineUrl: d.text(),
+    gitlabStatus: d.varchar({ length: 64 }),
+    status: cmdbReleaseStatusEnum().notNull().default("pending"),
+    variables: d.jsonb().$type<Record<string, string>>(),
+    triggeredBy: d.varchar({ length: 256 }),
+    lastError: d.text(),
+    startedAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    completedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_release_project_idx").on(t.projectId),
+    index("cmdb_release_status_idx").on(t.status),
+    index("cmdb_release_created_idx").on(t.createdAt),
   ],
 );
 
