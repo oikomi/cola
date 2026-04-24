@@ -12,12 +12,14 @@ import {
 import {
   dockerRunnerDeviceTypeByEngine,
   dockerRunnerEngineLabels,
-  dockerRunnerEngineValues,
-  type DockerRunnerEngine,
   runnerRuntimeLabels,
-  runnerRuntimeValues,
-  type RunnerRuntime,
 } from "@/server/office/catalog";
+import {
+  mergeMetadata,
+  parseRunnerMetadata,
+  resolveDockerRunnerEngine,
+  resolveRunnerRuntime,
+} from "@/server/office/domain";
 import type {
   HeartbeatInput,
   PullNextTaskInput,
@@ -27,51 +29,9 @@ import type {
 
 type Database = typeof db;
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function mergeMetadata(
-  current: unknown,
-  patch: Record<string, string>,
-): Record<string, unknown> {
-  return {
-    ...(isPlainRecord(current) ? current : {}),
-    ...patch,
-  };
-}
-
-function resolveDockerRunnerEngine(engine: unknown): DockerRunnerEngine {
-  if (
-    typeof engine === "string" &&
-    dockerRunnerEngineValues.includes(engine as DockerRunnerEngine)
-  ) {
-    return engine as DockerRunnerEngine;
-  }
-
-  return "openclaw";
-}
-
-function resolveRunnerRuntime(runtime: unknown): RunnerRuntime {
-  if (
-    typeof runtime === "string" &&
-    runnerRuntimeValues.includes(runtime as RunnerRuntime)
-  ) {
-    return runtime as RunnerRuntime;
-  }
-
-  return "docker";
-}
-
 function linkedAgentMetadata(metadata: unknown) {
-  const record = isPlainRecord(metadata) ? metadata : null;
-
-  return {
-    agentId:
-      record && typeof record.agentId === "string" ? record.agentId : null,
-    agentName:
-      record && typeof record.agentName === "string" ? record.agentName : null,
-  };
+  const { agentId, agentName } = parseRunnerMetadata(metadata);
+  return { agentId, agentName };
 }
 
 async function syncLinkedAgentReadiness(
@@ -289,20 +249,21 @@ export async function heartbeatRunner(
   }
 
   const previousStatus = device.status;
-  const currentMetadata = isPlainRecord(device.metadata)
-    ? device.metadata
-    : null;
+  const currentMetadata = parseRunnerMetadata(device.metadata);
   const engine = resolveDockerRunnerEngine(
-    input.engine ?? currentMetadata?.engine,
+    input.engine ?? currentMetadata.engine,
   );
   const engineLabel = dockerRunnerEngineLabels[engine];
-  const runtime = resolveRunnerRuntime(input.runtime ?? currentMetadata?.runtime);
+  const runtime = resolveRunnerRuntime(
+    input.runtime ?? currentMetadata.runtime,
+  );
   const runtimeLabel = runnerRuntimeLabels[runtime];
   const metadataPatch = {
     runtime,
     engine,
     healthSummary:
-      input.healthSummary ?? `${runtimeLabel} runner 心跳正常，等待下一次调度。`,
+      input.healthSummary ??
+      `${runtimeLabel} runner 心跳正常，等待下一次调度。`,
     ...(input.containerName ? { containerName: input.containerName } : {}),
     ...(input.image ? { image: input.image } : {}),
   };
@@ -544,10 +505,9 @@ export async function pullNextTaskForRunner(
     });
   }
 
-  const metadata = isPlainRecord(device.metadata) ? device.metadata : null;
-  const engine = resolveDockerRunnerEngine(metadata?.engine);
-  const agentId =
-    metadata && typeof metadata.agentId === "string" ? metadata.agentId : null;
+  const metadata = parseRunnerMetadata(device.metadata);
+  const engine = resolveDockerRunnerEngine(metadata.engine);
+  const agentId = metadata.agentId;
 
   if (!agentId) {
     return { task: null };
