@@ -19,6 +19,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { trainingJobs } from "@/server/db/schema";
 import {
+  type GpuAllocationSpec,
+  usesGpuAcceleration,
+} from "@/lib/gpu-allocation";
+import {
+  buildHamiGpuResources,
+  normalizeGpuAllocation,
+} from "@/server/gpu/hami";
+import {
   type TrainingDistributedBackend,
   type TrainingJobStatus,
   type TrainingLauncherType,
@@ -68,8 +76,10 @@ type TrainingRuntimeLaunch = {
 type ResolvedTrainingConfig = {
   datasetSplit: string;
   datasetTextField: string;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   nodeCount: number;
   gpusPerNode: number;
+  gpuMemoryGi: number | null;
   launcherType: TrainingLauncherType;
   distributedBackend: TrainingDistributedBackend;
   deepspeedStage: number | null;
@@ -329,8 +339,13 @@ function resolveWorkVolume() {
 }
 
 function resolveTrainingConfig(job: TrainingJobRecord): ResolvedTrainingConfig {
+  const gpuAllocation = normalizeGpuAllocation({
+    gpuAllocationMode: job.gpuAllocationMode,
+    gpuCount: Math.max(1, job.gpusPerNode ?? Math.max(1, job.gpuCount)),
+    gpuMemoryGi: job.gpuMemoryGi,
+  });
   const nodeCount = Math.max(1, job.nodeCount ?? 1);
-  const gpusPerNode = Math.max(1, job.gpusPerNode ?? Math.max(1, job.gpuCount));
+  const gpusPerNode = gpuAllocation.gpuCount;
   const datasetSplit = job.datasetSplit?.trim();
   const datasetTextField = job.datasetTextField?.trim();
   const precision = job.precision?.trim();
@@ -354,8 +369,10 @@ function resolveTrainingConfig(job: TrainingJobRecord): ResolvedTrainingConfig {
         : undefined) ??
       process.env.COLA_TRAINING_DATASET_TEXT_FIELD?.trim() ??
       "text",
+    gpuAllocationMode: gpuAllocation.gpuAllocationMode,
     nodeCount,
     gpusPerNode,
+    gpuMemoryGi: gpuAllocation.gpuMemoryGi,
     launcherType,
     distributedBackend,
     deepspeedStage:
@@ -395,7 +412,9 @@ function buildJobSpecPayload(
     datasetSplit: config.datasetSplit,
     datasetTextField: config.datasetTextField,
     objective: job.objective,
+    gpuAllocationMode: config.gpuAllocationMode,
     gpuCount: job.gpuCount,
+    gpuMemoryGi: config.gpuMemoryGi,
     nodeCount: config.nodeCount,
     gpusPerNode: config.gpusPerNode,
     launcherType: config.launcherType,
@@ -662,6 +681,11 @@ function buildTrainingRuntime(
   const hfHome =
     process.env.COLA_TRAINING_HF_HOME ?? path.posix.join(mountPath, ".hf");
   const runtimeClassName = resolveTrainingRuntimeClassName();
+  const gpuSpec = {
+    gpuAllocationMode: config.gpuAllocationMode,
+    gpuCount: config.gpusPerNode,
+    gpuMemoryGi: config.gpuMemoryGi,
+  } satisfies GpuAllocationSpec;
 
   const env: Array<{
     name: string;
@@ -681,6 +705,7 @@ function buildTrainingRuntime(
     { name: "COLA_ARTIFACT_DIR", value: artifactPath },
     { name: "COLA_DATASET_SPLIT", value: config.datasetSplit },
     { name: "COLA_DATASET_TEXT_FIELD", value: config.datasetTextField },
+    { name: "COLA_GPU_ALLOCATION_MODE", value: config.gpuAllocationMode },
     { name: "COLA_NODE_COUNT", value: String(config.nodeCount) },
     { name: "COLA_GPUS_PER_NODE", value: String(config.gpusPerNode) },
     { name: "COLA_MASTER_ADDR", value: masterAddress },
@@ -719,6 +744,13 @@ function buildTrainingRuntime(
     },
   ];
 
+  if (config.gpuMemoryGi) {
+    env.push({
+      name: "COLA_GPU_MEMORY_GI",
+      value: String(config.gpuMemoryGi),
+    });
+  }
+
   if (config.deepspeedStage) {
     env.push({
       name: "COLA_DEEPSPEED_CONFIG_PATH",
@@ -744,16 +776,17 @@ function buildTrainingRuntime(
     }
   }
 
+  const gpuResources = buildHamiGpuResources(gpuSpec);
   const resources = {
     requests: {
       cpu: cpuRequest,
       memory: memoryRequest,
-      "nvidia.com/gpu": `${config.gpusPerNode}`,
+      ...gpuResources,
     },
     limits: {
       cpu: process.env.COLA_TRAINING_CPU_LIMIT?.trim() ?? cpuRequest,
       memory: process.env.COLA_TRAINING_MEMORY_LIMIT?.trim() ?? memoryRequest,
-      "nvidia.com/gpu": `${config.gpusPerNode}`,
+      ...gpuResources,
     },
   };
 
@@ -793,7 +826,9 @@ function buildTrainingRuntime(
         spec: {
           restartPolicy: "Never",
           subdomain: runtimeServiceName,
-          ...(runtimeClassName ? { runtimeClassName } : {}),
+          ...(runtimeClassName && usesGpuAcceleration(gpuSpec)
+            ? { runtimeClassName }
+            : {}),
           ...(process.env.COLA_TRAINING_SERVICE_ACCOUNT?.trim()
             ? {
                 serviceAccountName:

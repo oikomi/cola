@@ -48,6 +48,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  formatGpuAllocationLabel,
+  gpuAllocationModeLabels,
+  gpuAllocationModeValues,
+} from "@/lib/gpu-allocation";
 import { cn } from "@/lib/utils";
 import {
   creatableInferenceDeploymentEngineValues,
@@ -69,7 +74,9 @@ type DraftState = {
   image: string;
   cpu: string;
   memoryGi: string;
+  gpuAllocationMode: (typeof gpuAllocationModeValues)[number];
   gpuCount: string;
+  gpuMemoryGi: string;
   replicaCount: string;
 };
 
@@ -80,7 +87,9 @@ const defaultDraft: DraftState = {
   image: defaultInferenceImage("vllm", 1),
   cpu: "8",
   memoryGi: "32",
+  gpuAllocationMode: "whole",
   gpuCount: "1",
+  gpuMemoryGi: "",
   replicaCount: "1",
 };
 
@@ -134,11 +143,21 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
   }
 }
 
-function gpuMinimum(engine: DraftState["engine"]) {
-  return engine === "llama.cpp" ? 0 : 1;
+function gpuMinimum(
+  engine: DraftState["engine"],
+  gpuAllocationMode: DraftState["gpuAllocationMode"],
+) {
+  return engine === "llama.cpp" && gpuAllocationMode === "whole" ? 0 : 1;
 }
 
-function gpuRequirementCopy(engine: DraftState["engine"]) {
+function gpuRequirementCopy(
+  engine: DraftState["engine"],
+  gpuAllocationMode: DraftState["gpuAllocationMode"],
+) {
+  if (gpuAllocationMode === "memory") {
+    return "显存模式会通过 HAMi 按 GPU 份额申请资源。数量表示每个 Pod 需要的 GPU 份额数，显存表示每个份额的显存上限。";
+  }
+
   if (engine === "llama.cpp") {
     return "llama.cpp 支持 CPU-only 或 GPU 模式。GPU 填 0 表示只用 CPU，填大于 0 时会切换到 CUDA 镜像并申请对应 GPU。";
   }
@@ -221,7 +240,11 @@ function FormSection(props: {
 }
 
 function resourceLabel(row: DeploymentRow) {
-  return `${row.gpuCount} GPU · ${row.cpu} CPU · ${row.memory}`;
+  return `${formatGpuAllocationLabel({
+    gpuAllocationMode: row.gpuAllocationMode,
+    gpuCount: row.gpuCount,
+    gpuMemoryGi: row.gpuMemoryGi,
+  })} · ${row.cpu} CPU · ${row.memory}`;
 }
 
 function nodeLabel(row: DeploymentRow) {
@@ -516,14 +539,27 @@ export function DeploymentsShell() {
   const activeGpuCount = rows
     .filter((row) => row.status === "serving" || row.status === "starting")
     .reduce((total, row) => total + row.gpuCount * row.desiredReplicas, 0);
+  const activeGpuMemoryGi = rows
+    .filter(
+      (row) =>
+        (row.status === "serving" || row.status === "starting") &&
+        row.gpuAllocationMode === "memory" &&
+        Boolean(row.gpuMemoryGi),
+    )
+    .reduce(
+      (total, row) =>
+        total + row.desiredReplicas * row.gpuCount * (row.gpuMemoryGi ?? 0),
+      0,
+    );
 
   const parsedMemoryGi = Number.parseInt(draft.memoryGi, 10);
+  const parsedGpuMemoryGi = Number.parseInt(draft.gpuMemoryGi, 10);
   const parsedGpuCount = Number.parseInt(draft.gpuCount, 10);
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
   const modelRefValid = isValidInferenceModelRef(draft.engine, trimmedModelRef);
-  const minGpuCount = gpuMinimum(draft.engine);
+  const minGpuCount = gpuMinimum(draft.engine, draft.gpuAllocationMode);
   const effectiveGpuCount =
     Number.isInteger(parsedGpuCount) && parsedGpuCount >= 0
       ? parsedGpuCount
@@ -532,6 +568,11 @@ export function DeploymentsShell() {
     Number.isInteger(parsedGpuCount) &&
     parsedGpuCount >= minGpuCount &&
     parsedGpuCount <= 16;
+  const gpuMemoryValid =
+    draft.gpuAllocationMode !== "memory" ||
+    (Number.isInteger(parsedGpuMemoryGi) &&
+      parsedGpuMemoryGi >= 1 &&
+      parsedGpuMemoryGi <= 1024);
   const defaultImageForDraft = defaultInferenceImage(
     draft.engine,
     effectiveGpuCount,
@@ -544,6 +585,7 @@ export function DeploymentsShell() {
     Number.isInteger(parsedMemoryGi) &&
     parsedMemoryGi > 0 &&
     gpuCountValid &&
+    gpuMemoryValid &&
     Number.isInteger(parsedReplicaCount) &&
     parsedReplicaCount >= 1 &&
     parsedReplicaCount <= 16;
@@ -556,7 +598,10 @@ export function DeploymentsShell() {
       image: draft.image.trim(),
       cpu: draft.cpu.trim(),
       memoryGi: parsedMemoryGi,
+      gpuAllocationMode: draft.gpuAllocationMode,
       gpuCount: parsedGpuCount,
+      gpuMemoryGi:
+        draft.gpuAllocationMode === "memory" ? parsedGpuMemoryGi : null,
       replicaCount: parsedReplicaCount,
     });
   };
@@ -623,6 +668,14 @@ export function DeploymentsShell() {
             >
               活跃 GPU {activeGpuCount}
             </Badge>
+            {activeGpuMemoryGi > 0 ? (
+              <Badge
+                variant="outline"
+                className="border-border/80 bg-background/60"
+              >
+                活跃显存 {activeGpuMemoryGi} Gi
+              </Badge>
+            ) : null}
           </>
         }
         actions={
@@ -926,7 +979,11 @@ export function DeploymentsShell() {
                         engine: value,
                         image: defaultInferenceImage(
                           value,
-                          Number.parseInt(current.gpuCount, 10) || 0,
+                          Number.parseInt(current.gpuCount, 10) ||
+                            gpuMinimum(
+                              value,
+                              current.gpuAllocationMode,
+                            ),
                         ),
                       }));
                     }}
@@ -989,6 +1046,54 @@ export function DeploymentsShell() {
               description="桌面端直接在一屏内确认目标规格与创建结果。"
             >
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+                <Field
+                  label="GPU 分配方式"
+                  hint="整卡模式使用完整 GPU；显存模式通过 HAMi 按 GPU 份额申请资源。"
+                  className="sm:col-span-2"
+                >
+                  <Select
+                    value={draft.gpuAllocationMode}
+                    onValueChange={(value) =>
+                      setDraft((current) => {
+                        const nextMode = value === "memory" ? "memory" : "whole";
+                        const nextMinGpu = gpuMinimum(current.engine, nextMode);
+                        return {
+                          ...current,
+                          gpuAllocationMode: nextMode,
+                          gpuMemoryGi:
+                            nextMode === "memory"
+                              ? current.gpuMemoryGi || "8"
+                              : "",
+                          gpuCount:
+                            Number.parseInt(current.gpuCount, 10) >= nextMinGpu
+                              ? current.gpuCount
+                              : String(nextMinGpu),
+                          image: defaultInferenceImage(
+                            current.engine,
+                            Math.max(
+                              Number.parseInt(current.gpuCount, 10) || 0,
+                              nextMinGpu,
+                            ),
+                          ),
+                        };
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none">
+                      <SelectValue placeholder="选择分配方式" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {gpuAllocationModeValues.map((mode) => (
+                          <SelectItem key={mode} value={mode}>
+                            {gpuAllocationModeLabels[mode]}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+
                 <Field label="CPU">
                   <Input
                     className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
@@ -1020,7 +1125,11 @@ export function DeploymentsShell() {
                   />
                 </Field>
 
-                <Field label="GPU">
+                <Field
+                  label={
+                    draft.gpuAllocationMode === "memory" ? "GPU 份额" : "GPU"
+                  }
+                >
                   <Input
                     className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
                     type="number"
@@ -1033,11 +1142,40 @@ export function DeploymentsShell() {
                         gpuCount: event.target.value,
                         image: defaultInferenceImage(
                           current.engine,
-                          Number.parseInt(event.target.value, 10) || 0,
+                          Math.max(
+                            Number.parseInt(event.target.value, 10) || 0,
+                            gpuMinimum(
+                              current.engine,
+                              current.gpuAllocationMode,
+                            ),
+                          ),
                         ),
                       }))
                     }
                     placeholder={String(minGpuCount)}
+                  />
+                </Field>
+
+                <Field label="每份额显存 (Gi)">
+                  <Input
+                    className={cn(
+                      "h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none",
+                      draft.gpuAllocationMode !== "memory"
+                        ? "bg-slate-100/90 text-slate-400"
+                        : undefined,
+                    )}
+                    type="number"
+                    min={1}
+                    max={1024}
+                    value={draft.gpuMemoryGi}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        gpuMemoryGi: event.target.value,
+                      }))
+                    }
+                    placeholder="8"
+                    disabled={draft.gpuAllocationMode !== "memory"}
                   />
                 </Field>
 
@@ -1060,7 +1198,7 @@ export function DeploymentsShell() {
               </div>
 
               <div className="rounded-2xl border border-slate-200/80 bg-slate-50/85 px-4 py-3 text-[13px] leading-5 text-slate-600">
-                {gpuRequirementCopy(draft.engine)}
+                {gpuRequirementCopy(draft.engine, draft.gpuAllocationMode)}
               </div>
 
               <div className="flex flex-wrap gap-2">

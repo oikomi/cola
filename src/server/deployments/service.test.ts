@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   assertLlamaCppModelFileExists,
   isInferencePodFailed,
+  isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
   resolveLlamaHostModelPath,
   resolveLlamaRemoteModelPath,
@@ -123,5 +124,44 @@ void test("inference pod failure detection catches crash loops", () => {
       },
     }),
     false,
+  );
+});
+
+void test("inference pod progress detection treats running init containers as progress", () => {
+  assert.equal(
+    isInferencePodMakingProgress({
+      status: {
+        phase: "Pending",
+        initContainerStatuses: [
+          {
+            name: "gguf-downloader",
+            ready: false,
+            restartCount: 0,
+            image: "curlimages/curl:8.12.1",
+            imageID: "curlimages/curl@sha256:test",
+            state: {
+              running: {
+                startedAt: new Date(),
+              },
+            },
+          },
+        ],
+        containerStatuses: [
+          {
+            name: "server",
+            ready: false,
+            restartCount: 0,
+            image: "ghcr.io/ggml-org/llama.cpp:server-cuda",
+            imageID: "ghcr.io/ggml-org/llama.cpp@sha256:test",
+            state: {
+              waiting: {
+                reason: "PodInitializing",
+              },
+            },
+          },
+        ],
+      },
+    }),
+    true,
   );
 });

@@ -22,6 +22,7 @@ import {
   trainingJobStatusValues,
   trainingJobTypeValues,
 } from "@/server/training/catalog";
+import { gpuAllocationModeValues } from "@/lib/gpu-allocation";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -45,6 +46,10 @@ export const trainingJobTypeEnum = pgEnum(
 export const trainingJobStatusEnum = pgEnum(
   "cola_training_job_status",
   trainingJobStatusValues,
+);
+export const gpuAllocationModeEnum = pgEnum(
+  "cola_gpu_allocation_mode",
+  gpuAllocationModeValues,
 );
 export const inferenceDeploymentStatusEnum = pgEnum(
   "cola_inference_deployment_status",
@@ -149,7 +154,9 @@ export const trainingJobs = createTable(
     datasetSplit: d.varchar({ length: 32 }).notNull().default("train"),
     datasetTextField: d.varchar({ length: 64 }).notNull().default("text"),
     objective: d.text().notNull(),
+    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
     gpuCount: d.integer().notNull().default(1),
+    gpuMemoryGi: d.integer(),
     nodeCount: d.integer().notNull().default(1),
     gpusPerNode: d.integer().notNull().default(1),
     configSource: d.varchar({ length: 32 }).notNull().default("manual"),
@@ -193,7 +200,9 @@ export const inferenceDeployments = createTable(
     imageTag: d.varchar({ length: 160 }).notNull(),
     endpoint: d.varchar({ length: 255 }).notNull(),
     objective: d.text().notNull(),
+    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
     gpuCount: d.integer().notNull().default(1),
+    gpuMemoryGi: d.integer(),
     replicaCount: d.integer().notNull().default(1),
     startedAt: d.timestamp({ withTimezone: true }),
     createdAt: d

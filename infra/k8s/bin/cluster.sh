@@ -15,7 +15,7 @@ Groups and actions:
   cluster add-node         Add a worker or worker,gpu node
   cluster clean            Destroy the cluster and clean runtime state
 
-  gpu enable               Enable NVIDIA runtime and device plugin
+  gpu enable               Enable NVIDIA runtime and HAMi
   image build-and-load     Build and load the workspace image
 
   secondary-arch export    Export a kubeasz bundle for another architecture
@@ -27,11 +27,14 @@ Groups and actions:
   dashboard token          Print the Dashboard admin token
   dashboard port-forward   Start or control Dashboard port-forward
   dashboard prepull-images Pre-pull Dashboard images to cluster nodes
+  monitoring deploy        Install Prometheus and HAMi-WebUI
+  monitoring port-forward  Start or control HAMi-WebUI port-forward
 
 Examples:
   ./bin/cluster.sh cluster bootstrap
   ./bin/cluster.sh cluster install
   ./bin/cluster.sh gpu enable
+  ./bin/cluster.sh monitoring deploy
   ./bin/cluster.sh image build-and-load
   ./bin/cluster.sh stack up
   ./bin/cluster.sh dashboard port-forward --status
@@ -108,6 +111,12 @@ case "$GROUP:$ACTION" in
     ;;
   dashboard:prepull-images)
     exec "$SCRIPT_DIR/internal/dashboard-prepull-images.sh" "$@"
+    ;;
+  monitoring:deploy)
+    exec "$SCRIPT_DIR/internal/monitoring-deploy.sh" "$@"
+    ;;
+  monitoring:port-forward)
+    exec "$SCRIPT_DIR/internal/monitoring-port-forward.sh" "$@"
     ;;
   *)
     echo "未知命令: $GROUP $ACTION" >&2

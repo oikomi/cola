@@ -6,6 +6,11 @@ import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import type { db } from "@/server/db";
 import { events, trainingJobs } from "@/server/db/schema";
 import {
+  formatDistributedGpuAllocationLabel,
+  gpuAllocationModeValues,
+  MAX_GPU_MEMORY_GI,
+} from "@/lib/gpu-allocation";
+import {
   priorityValues,
   priorityLabels,
 } from "@/server/office/catalog";
@@ -40,8 +45,10 @@ const createTrainingJobInput = z.object({
   datasetName: z.string().trim().min(2).max(120),
   datasetSplit: z.string().trim().min(1).max(32).default("train"),
   datasetTextField: z.string().trim().min(1).max(64).default("text"),
+  gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
   nodeCount: z.number().int().min(1).max(32),
   gpusPerNode: z.number().int().min(1).max(16),
+  gpuMemoryGi: z.number().int().min(1).max(MAX_GPU_MEMORY_GI).nullable(),
   configSource: z.enum(trainingConfigSourceValues).default("manual"),
   launcherType: z.enum(trainingLauncherTypeValues).default("torchrun"),
   distributedBackend: z
@@ -52,6 +59,14 @@ const createTrainingJobInput = z.object({
   loadIn4bit: z.boolean().default(true),
   studioConfigSnapshot: z.unknown().optional(),
   trainingConfigSnapshot: z.unknown().optional(),
+}).superRefine((input, ctx) => {
+  if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["gpuMemoryGi"],
+      message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+    });
+  }
 });
 
 const trainingJobActionInput = z.object({
@@ -77,7 +92,13 @@ function buildTrainingJobSelection(runtimeColumns: TrainingRuntimeColumnSupport)
     baseModel: trainingJobs.baseModel,
     datasetName: trainingJobs.datasetName,
     objective: trainingJobs.objective,
+    ...(runtimeColumns.gpuAllocationMode
+      ? { gpuAllocationMode: trainingJobs.gpuAllocationMode }
+      : {}),
     gpuCount: trainingJobs.gpuCount,
+    ...(runtimeColumns.gpuMemoryGi
+      ? { gpuMemoryGi: trainingJobs.gpuMemoryGi }
+      : {}),
     lastError: trainingJobs.lastError,
     startedAt: trainingJobs.startedAt,
     finishedAt: trainingJobs.finishedAt,
@@ -146,7 +167,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function buildTrainingConfigSnapshot(input: CreateTrainingJobInput) {
   const totalGpuCount = input.nodeCount * input.gpusPerNode;
   const baseSnapshot = {
-    version: 1,
+    version: 2,
     source: input.configSource,
     jobType: input.jobType,
     baseModel: input.baseModel,
@@ -156,15 +177,25 @@ function buildTrainingConfigSnapshot(input: CreateTrainingJobInput) {
       split: input.datasetSplit,
       textField: input.datasetTextField,
     },
+    gpu: {
+      allocationMode: input.gpuAllocationMode,
+      countPerNode: input.gpusPerNode,
+      totalGpuCount,
+      memoryGiPerGpu:
+        input.gpuAllocationMode === "memory" ? input.gpuMemoryGi : null,
+    },
     model: {
       loadIn4bit: input.loadIn4bit,
     },
     distributed: {
       launcher: input.launcherType,
       backend: input.distributedBackend,
+      gpuAllocationMode: input.gpuAllocationMode,
       nodeCount: input.nodeCount,
       gpusPerNode: input.gpusPerNode,
       totalGpuCount,
+      gpuMemoryGi:
+        input.gpuAllocationMode === "memory" ? input.gpuMemoryGi : null,
       deepspeedStage:
         input.distributedBackend === "deepspeed" ? input.deepspeedStage : null,
       precision: input.precision,
@@ -268,6 +299,9 @@ export const trainingRouter = createTRPCRouter({
             priority: input.priority,
             baseModel: input.baseModel,
             datasetName: input.datasetName,
+            ...(runtimeColumns.gpuAllocationMode
+              ? { gpuAllocationMode: input.gpuAllocationMode }
+              : {}),
             gpuCount: totalGpuCount,
             status: "draft",
             createdAt: now,
@@ -280,6 +314,14 @@ export const trainingRouter = createTRPCRouter({
             ...(runtimeColumns.nodeCount ? { nodeCount: input.nodeCount } : {}),
             ...(runtimeColumns.gpusPerNode
               ? { gpusPerNode: input.gpusPerNode }
+              : {}),
+            ...(runtimeColumns.gpuMemoryGi
+              ? {
+                  gpuMemoryGi:
+                    input.gpuAllocationMode === "memory"
+                      ? input.gpuMemoryGi
+                      : null,
+                }
               : {}),
             ...(runtimeColumns.configSource
               ? { configSource: input.configSource }
@@ -325,7 +367,17 @@ export const trainingRouter = createTRPCRouter({
           entityId: createdJob.id,
           severity: "info",
           title: `已创建训练任务：${createdJob.title}`,
-          description: `${trainingJobTypeLabels[input.jobType]} · ${input.baseModel} · ${input.nodeCount} 节点 x ${input.gpusPerNode} GPU · ${trainingDistributedBackendLabels[input.distributedBackend]} · ${priorityLabels[input.priority]}优先级`,
+          description: `${trainingJobTypeLabels[input.jobType]} · ${input.baseModel} · ${formatDistributedGpuAllocationLabel(
+            input.nodeCount,
+            {
+              gpuAllocationMode: input.gpuAllocationMode,
+              gpuCount: input.gpusPerNode,
+              gpuMemoryGi:
+                input.gpuAllocationMode === "memory"
+                  ? input.gpuMemoryGi
+                  : null,
+            },
+          )} · ${trainingDistributedBackendLabels[input.distributedBackend]} · ${priorityLabels[input.priority]}优先级`,
           occurredAt: now,
         });
 
@@ -420,7 +472,14 @@ export const trainingRouter = createTRPCRouter({
             entityId: job.id,
             severity: "info",
             title: `训练任务已启动：${job.title}`,
-            description: `${trainingJobStatusLabels.running} · ${job.nodeCount} 节点 x ${job.gpusPerNode} GPU · ${runtime.jobName}`,
+            description: `${trainingJobStatusLabels.running} · ${formatDistributedGpuAllocationLabel(
+              job.nodeCount,
+              {
+                gpuAllocationMode: job.gpuAllocationMode,
+                gpuCount: job.gpusPerNode,
+                gpuMemoryGi: job.gpuMemoryGi,
+              },
+            )} · ${runtime.jobName}`,
             occurredAt: now,
           });
 

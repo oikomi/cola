@@ -3,7 +3,7 @@
 这套脚本把 GPU 远程工作环境拆成四层：
 
 1. 用 `kubeasz` 初始化和扩容 Kubernetes 集群
-2. 在 GPU 节点上安装 `nvidia-container-toolkit`，并在集群里启用 NVIDIA device plugin
+2. 在 GPU 节点上安装 `nvidia-container-toolkit`，并在集群里启用 HAMi GPU 共享调度
 3. 构建一个基于 Ubuntu + XFCE + x11vnc + noVNC 的远程桌面镜像
 4. 通过脚本在指定节点上创建独立工作区，每个工作区都有自己的 NodePort、密码和宿主机持久目录
 
@@ -57,6 +57,8 @@ runtime/workspace            # 工作区业务运行时产物
 - `./bin/cluster.sh stack up`
 - `./bin/cluster.sh dashboard deploy`
 - `./bin/cluster.sh dashboard port-forward`
+- `./bin/cluster.sh monitoring deploy`
+- `./bin/cluster.sh monitoring port-forward`
 - `./scripts/workspace-image.sh build-and-load`
 
 如果你只是想把基础设施一次拉起来，可以直接执行：
@@ -70,6 +72,8 @@ runtime/workspace            # 工作区业务运行时产物
 - `./bin/cluster.sh cluster bootstrap`
 - `./bin/cluster.sh cluster install`
 - `./bin/cluster.sh gpu enable`
+- `./bin/cluster.sh monitoring deploy`
+- `./bin/cluster.sh monitoring port-forward`
 - `./bin/cluster.sh dashboard deploy`
 - `./bin/cluster.sh dashboard port-forward`
 
@@ -83,6 +87,7 @@ runtime/workspace            # 工作区业务运行时产物
 
 - `--with-images`：传给 `cluster bootstrap`
 - `--with-workspace-image`：在 `stack up` 里额外执行工作区镜像构建和分发
+- `--skip-monitoring`：跳过 Prometheus 和 HAMi-WebUI 安装
 - `--skip-dashboard`：跳过 Dashboard 安装与 port-forward
 - `--skip-port-forward`：安装 Dashboard，但不启动 port-forward
 - `--port-forward-foreground`：以前台模式运行 Dashboard port-forward
@@ -199,9 +204,13 @@ cd infra/k8s
 - 安装 `nvidia-container-toolkit`
 - 配置 containerd 的 `nvidia` runtime
 - 重启 containerd
-- 给节点打上 `remote-work/workspace=true` 与 `remote-work/gpu=true`
-- 优先把 `nvcr.io/nvidia/k8s-device-plugin` 同步到本地 registry，并在 GPU 节点预拉
-- 在集群里部署 `nvidia-device-plugin`
+- 给节点打上 `remote-work/workspace=true`、`remote-work/gpu=true` 和 `gpu=on`
+- 保留 `RuntimeClass nvidia`
+- 使用 Helm 在集群里部署 HAMi（device plugin + scheduler）
+
+可选项：
+
+- `--chart-version <ver>`：指定 HAMi chart 版本
 
 ## 5. 构建并分发 noVNC 工作区镜像
 
@@ -272,6 +281,57 @@ https://<部署机IP>:8443/
 - 这里按 Kubernetes 官方文档推荐的方式接入：Helm 安装 + `port-forward`
 - 不再默认改成 `NodePort`
 - 如果当前网络环境下 Dashboard Pod 拉镜像失败，可先执行 `./bin/cluster.sh dashboard prepull-images` 再重跑安装
+
+## 6.1 GPU 监控（Prometheus + HAMi-WebUI）
+
+如果你希望在项目内直接部署 GPU 监控面板，可以执行：
+
+```bash
+./bin/cluster.sh monitoring deploy
+```
+
+`./bin/cluster.sh stack up` 现在默认也会执行这一步；如果你只想拉起基础集群和 Dashboard，可以改用 `--skip-monitoring`。
+
+默认行为：
+
+- 在 `monitoring` namespace 安装 `kube-prometheus-stack`
+- 默认关闭 `Grafana` 和 `Alertmanager`
+- 在 `kube-system` 安装 `HAMi-WebUI`
+- 自动把 HAMi-WebUI 的 Prometheus 地址指向
+  `http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090`
+
+可选项：
+
+- `--prom-chart-version <ver>`：指定 `kube-prometheus-stack` chart 版本
+- `--webui-chart-version <ver>`：指定 `HAMi-WebUI` chart 版本
+- `--enable-grafana`：同时启用 Grafana
+- `--enable-alertmanager`：同时启用 Alertmanager
+
+启动 HAMi-WebUI 端口转发：
+
+```bash
+./bin/cluster.sh monitoring port-forward
+```
+
+默认行为：
+
+- 监听 `0.0.0.0:3000`
+- 在后台运行
+- 日志写到 `runtime/hami-webui-port-forward.log`
+
+浏览器地址：
+
+```text
+http://<部署机IP>:3000/
+```
+
+常用控制命令：
+
+```bash
+./bin/cluster.sh monitoring port-forward --status
+./bin/cluster.sh monitoring port-forward --stop
+./bin/cluster.sh monitoring port-forward --foreground
+```
 
 ## 7. 创建一个远程工作区
 
@@ -418,5 +478,6 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 - 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点
 - `gpu enable` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
+- 训练任务和推理部署的“显存模式”依赖 HAMi；如果 Helm 仓库不可达，显存份额调度不会生效
 - 混合架构场景下，主集群初始化和次级架构 `add-node` 必须在对应架构的部署机上执行
 - 这套脚本没有在当前仓库 CI 中接真实服务器执行，交付的是静态校验通过的部署资产

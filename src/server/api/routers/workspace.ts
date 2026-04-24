@@ -1,6 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import {
+  gpuAllocationModeValues,
+  MAX_GPU_MEMORY_GI,
+} from "@/lib/gpu-allocation";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import {
   createWorkspace,
@@ -12,8 +16,18 @@ const createWorkspaceInput = z.object({
   name: z.string().trim().min(2).max(63),
   cpu: z.string().trim().min(1).max(20),
   memoryGi: z.number().int().positive().max(2048),
-  gpu: z.number().int().nonnegative().max(16),
+  gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
+  gpuCount: z.number().int().nonnegative().max(16),
+  gpuMemoryGi: z.number().int().positive().max(MAX_GPU_MEMORY_GI).nullable(),
   resolution: z.string().trim().min(9).max(20),
+}).superRefine((input, ctx) => {
+  if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["gpuMemoryGi"],
+      message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+    });
+  }
 });
 
 const deleteWorkspaceInput = z.object({

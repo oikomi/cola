@@ -161,3 +161,22 @@ export function isInferencePodFailed(pod: Pick<V1Pod, "status">) {
     return reason ? FAILED_POD_WAITING_REASONS.has(reason) : false;
   });
 }
+
+export function isInferencePodMakingProgress(pod: Pick<V1Pod, "status">) {
+  if (isInferencePodFailed(pod)) return false;
+
+  if (pod.status?.phase === "Running") return true;
+
+  const initStatuses = pod.status?.initContainerStatuses ?? [];
+  const containerStatuses = pod.status?.containerStatuses ?? [];
+
+  if (
+    [...initStatuses, ...containerStatuses].some((status) => status.state?.running)
+  ) {
+    return true;
+  }
+
+  return initStatuses.some(
+    (status) => (status.state?.terminated?.exitCode ?? 1) === 0,
+  );
+}

@@ -44,6 +44,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  formatDistributedGpuAllocationLabel,
+  gpuAllocationModeLabels,
+  gpuAllocationModeValues,
+  type GpuAllocationSpec,
+} from "@/lib/gpu-allocation";
 import { priorityLabels, priorityValues } from "@/server/office/catalog";
 import {
   trainingConfigSourceLabels,
@@ -70,8 +76,10 @@ type TrainingDraft = {
   datasetName: string;
   datasetSplit: string;
   datasetTextField: string;
+  gpuAllocationMode: (typeof gpuAllocationModeValues)[number];
   nodeCount: string;
   gpusPerNode: string;
+  gpuMemoryGi: string;
   launcherType: (typeof trainingLauncherTypeValues)[number];
   distributedBackend: (typeof trainingDistributedBackendValues)[number];
   deepspeedStage: string;
@@ -93,8 +101,10 @@ const defaultDraft: TrainingDraft = {
   datasetName: "",
   datasetSplit: "train",
   datasetTextField: "text",
+  gpuAllocationMode: "whole",
   nodeCount: "1",
   gpusPerNode: "1",
+  gpuMemoryGi: "",
   launcherType: "torchrun",
   distributedBackend: "deepspeed",
   deepspeedStage: "2",
@@ -115,8 +125,10 @@ const minimalQwenLoraExample = {
     "/workspace/cola-training/datasets/qwen2.5-0.5b-lora-minimal.jsonl",
   datasetSplit: "train",
   datasetTextField: "text",
+  gpuAllocationMode: "whole",
   nodeCount: "1",
   gpusPerNode: "1",
+  gpuMemoryGi: "",
   launcherType: "torchrun" as const,
   distributedBackend: "deepspeed" as const,
   deepspeedStage: "2",
@@ -187,6 +199,18 @@ function runtimeSummaryTone(
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
+}
+
+function gpuSpecFromJob(job: TrainingJobItem): GpuAllocationSpec {
+  return {
+    gpuAllocationMode: job.gpuAllocationMode,
+    gpuCount: job.gpusPerNode,
+    gpuMemoryGi: job.gpuMemoryGi,
+  };
+}
+
+function trainingPlanLabel(job: TrainingJobItem) {
+  return formatDistributedGpuAllocationLabel(job.nodeCount, gpuSpecFromJob(job));
 }
 
 function Field(props: {
@@ -290,6 +314,7 @@ function TrainingTopBar(props: {
   runningCount: number;
   draftCount: number;
   activeGpuCount: number;
+  activeGpuDescription: string;
   isRefreshing: boolean;
   onRefresh: () => void;
   onCreate: () => void;
@@ -363,7 +388,7 @@ function TrainingTopBar(props: {
           <TrainingMetricStripItem
             label="活跃 GPU"
             value={String(props.activeGpuCount)}
-            description="运行中占用"
+            description={props.activeGpuDescription}
             icon={LoaderCircleIcon}
           />
         </div>
@@ -637,10 +662,13 @@ function TrainingJobCard(props: {
               label="并行规模"
               contentClassName="text-[15px] leading-6 font-semibold text-slate-950"
             >
-              {job.nodeCount} 节点 x {job.gpusPerNode} GPU
+              {trainingPlanLabel(job)}
             </JobInfoBlock>
             <JobInfoBlock label="总 GPU / 后端">
-              总计 {job.gpuCount} GPU · {distributedBackend}
+              总计 {job.gpuCount} GPU 申请 · {distributedBackend}
+              {job.gpuAllocationMode === "memory" && job.gpuMemoryGi ? (
+                <> · 总显存 {job.gpuCount * job.gpuMemoryGi} Gi</>
+              ) : null}
             </JobInfoBlock>
             <JobInfoBlock label="启动器 / 精度">
               {launcherType} · {precision}
@@ -1047,6 +1075,28 @@ function inferDraftFromStudioConfig(
     applied.push("文本字段");
   }
 
+  const gpuMemoryGi = asPositiveIntegerString(
+    pickFirstValue(source, [
+      ["gpuMemoryGi"],
+      ["gpu_memory_gi"],
+      ["gpuMemoryGb"],
+      ["gpu_memory_gb"],
+      ["distributed", "gpuMemoryGi"],
+      ["distributed", "gpu_memory_gi"],
+      ["distributed", "gpuMemoryGb"],
+      ["distributed", "gpu_memory_gb"],
+      ["gpu", "memoryGi"],
+      ["gpu", "memory_gi"],
+      ["gpu", "memoryGb"],
+      ["gpu", "memory_gb"],
+    ]),
+  );
+  if (gpuMemoryGi) {
+    nextDraft.gpuAllocationMode = "memory";
+    nextDraft.gpuMemoryGi = gpuMemoryGi;
+    applied.push("显存规格");
+  }
+
   const nodeCount = asPositiveIntegerString(
     pickFirstValue(source, [
       ["nodeCount"],
@@ -1261,11 +1311,35 @@ export function TrainingShell() {
   const activeGpuCount = jobs
     .filter((job) => job.status === "running")
     .reduce((total, job) => total + job.gpuCount, 0);
+  const activeGpuMemoryGi = jobs
+    .filter(
+      (job) =>
+        job.status === "running" &&
+        job.gpuAllocationMode === "memory" &&
+        Boolean(job.gpuMemoryGi),
+    )
+    .reduce(
+      (total, job) => total + job.gpuCount * (job.gpuMemoryGi ?? 0),
+      0,
+    );
 
+  const isMemoryMode = draft.gpuAllocationMode === "memory";
   const parsedNodeCount = Number(draft.nodeCount);
   const parsedGpusPerNode = Number(draft.gpusPerNode);
+  const parsedGpuMemoryGi = Number(draft.gpuMemoryGi);
   const parsedDeepspeedStage = Number(draft.deepspeedStage);
   const totalGpuCount = parsedNodeCount * parsedGpusPerNode;
+  const gpuMemoryReady =
+    !isMemoryMode ||
+    (Number.isInteger(parsedGpuMemoryGi) &&
+      parsedGpuMemoryGi >= 1 &&
+      parsedGpuMemoryGi <= 1024);
+  const summaryGpuMemoryPerShare =
+    isMemoryMode && gpuMemoryReady ? parsedGpuMemoryGi : null;
+  const summaryTotalGpuMemoryGi =
+    summaryGpuMemoryPerShare && Number.isFinite(totalGpuCount)
+      ? totalGpuCount * summaryGpuMemoryPerShare
+      : null;
   const canSubmit =
     draft.title.trim().length >= 3 &&
     draft.objective.trim().length >= 8 &&
@@ -1281,6 +1355,7 @@ export function TrainingShell() {
     parsedGpusPerNode <= 16 &&
     totalGpuCount >= 1 &&
     totalGpuCount <= 128 &&
+    gpuMemoryReady &&
     (draft.distributedBackend !== "deepspeed" ||
       (Number.isInteger(parsedDeepspeedStage) &&
         parsedDeepspeedStage >= 2 &&
@@ -1299,7 +1374,8 @@ export function TrainingShell() {
     parsedGpusPerNode >= 1 &&
     parsedGpusPerNode <= 16 &&
     totalGpuCount >= 1 &&
-    totalGpuCount <= 128;
+    totalGpuCount <= 128 &&
+    gpuMemoryReady;
 
   function applyMinimalExample() {
     setDraft(minimalQwenLoraExample);
@@ -1413,6 +1489,11 @@ export function TrainingShell() {
         runningCount={runningCount}
         draftCount={draftCount}
         activeGpuCount={activeGpuCount}
+        activeGpuDescription={
+          activeGpuMemoryGi > 0
+            ? `含 ${activeGpuMemoryGi} Gi 显存份额`
+            : "运行中占用"
+        }
         isRefreshing={jobsQuery.isFetching}
         onRefresh={() => void jobsQuery.refetch()}
         onCreate={() => setIsCreateOpen(true)}
@@ -2140,9 +2221,44 @@ export function TrainingShell() {
                 <FormSection
                   eyebrow="Compute Plan"
                   title="资源与分布式配置"
-                  description="按节点、GPU、启动器和后端组织执行规格。右侧摘要会实时反映当前 GPU 申请量。"
+                  description="按节点、整卡或显存份额、启动器和后端组织执行规格。右侧摘要会实时反映当前 GPU 申请量。"
                 >
                   <div className="grid gap-4 md:grid-cols-2">
+                    <Field
+                      label="GPU 分配方式"
+                      hint="整卡模式会独占完整 GPU；显存模式会通过 HAMi 申请 GPU 份额。"
+                    >
+                      <Select
+                        value={draft.gpuAllocationMode}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            gpuAllocationMode:
+                              value === "memory" ? "memory" : "whole",
+                            gpuMemoryGi:
+                              value === "memory"
+                                ? current.gpuMemoryGi || "8"
+                                : "",
+                          }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={cn("w-full", dialogControlClassName)}
+                        >
+                          <SelectValue placeholder="选择分配方式" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {gpuAllocationModeValues.map((mode) => (
+                              <SelectItem key={mode} value={mode}>
+                                {gpuAllocationModeLabels[mode]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+
                     <Field label="节点数" hint="范围 1-32">
                       <Input
                         className={dialogControlClassName}
@@ -2160,7 +2276,14 @@ export function TrainingShell() {
                       />
                     </Field>
 
-                    <Field label="每节点 GPU" hint="范围 1-16">
+                    <Field
+                      label={
+                        draft.gpuAllocationMode === "memory"
+                          ? "每节点 GPU 份额"
+                          : "每节点 GPU"
+                      }
+                      hint="范围 1-16"
+                    >
                       <Input
                         className={dialogControlClassName}
                         type="number"
@@ -2174,6 +2297,32 @@ export function TrainingShell() {
                           }))
                         }
                         placeholder="1"
+                      />
+                    </Field>
+
+                    <Field
+                      label="每份额显存 (Gi)"
+                      hint="仅显存模式生效，范围 1-1024。"
+                    >
+                      <Input
+                        className={cn(
+                          dialogControlClassName,
+                          draft.gpuAllocationMode !== "memory"
+                            ? "bg-slate-100/90 text-slate-400"
+                            : undefined,
+                        )}
+                        type="number"
+                        min={1}
+                        max={1024}
+                        value={draft.gpuMemoryGi}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            gpuMemoryGi: event.target.value,
+                          }))
+                        }
+                        placeholder="8"
+                        disabled={draft.gpuAllocationMode !== "memory"}
                       />
                     </Field>
 
@@ -2280,10 +2429,23 @@ export function TrainingShell() {
                     <span className="mx-1 font-semibold text-slate-950">
                       {summaryGpuCount ?? "-"}
                     </span>
-                    张 GPU，规格为
+                    个 GPU 申请，规格为
                     <span className="mx-1 font-semibold text-slate-950">
-                      {draft.nodeCount} 节点 x {draft.gpusPerNode} GPU
+                      {formatDistributedGpuAllocationLabel(parsedNodeCount || 0, {
+                        gpuAllocationMode: draft.gpuAllocationMode,
+                        gpuCount: parsedGpusPerNode || 0,
+                        gpuMemoryGi: summaryGpuMemoryPerShare,
+                      })}
                     </span>
+                    {summaryTotalGpuMemoryGi ? (
+                      <>
+                        ，总显存约
+                        <span className="mx-1 font-semibold text-slate-950">
+                          {summaryTotalGpuMemoryGi}
+                        </span>
+                        Gi
+                      </>
+                    ) : null}
                     ，执行方式为
                     <span className="mx-1 font-semibold text-slate-950">
                       {trainingLauncherTypeLabels[draft.launcherType]}
@@ -2307,7 +2469,7 @@ export function TrainingShell() {
                 >
                   <Field
                     label="Unsloth Studio JSON"
-                    hint="宽松兼容解析会优先识别模型、数据集、文本字段、节点数、每节点 GPU、精度、DeepSpeed Stage 和 4-bit 设置。"
+                    hint="宽松兼容解析会优先识别模型、数据集、文本字段、节点数、GPU 分配方式、每节点 GPU、显存规格、精度、DeepSpeed Stage 和 4-bit 设置。"
                   >
                     <Textarea
                       className={cn(
@@ -2373,7 +2535,19 @@ export function TrainingShell() {
                         {summaryGpuCount ?? "--"}
                       </p>
                       <p className="mt-2 text-sm text-slate-500">
-                        {draft.nodeCount} 节点 x {draft.gpusPerNode} GPU
+                        {formatDistributedGpuAllocationLabel(parsedNodeCount || 0, {
+                          gpuAllocationMode: draft.gpuAllocationMode,
+                          gpuCount: parsedGpusPerNode || 0,
+                          gpuMemoryGi: summaryGpuMemoryPerShare,
+                        })}
+                      </p>
+                      {summaryTotalGpuMemoryGi ? (
+                        <p className="mt-1 text-sm text-slate-500">
+                          总显存约 {summaryTotalGpuMemoryGi} Gi
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-sm text-slate-500">
+                        分配方式：{gpuAllocationModeLabels[draft.gpuAllocationMode]}
                       </p>
                     </div>
 
@@ -2445,8 +2619,10 @@ export function TrainingShell() {
                         label: "资源规格",
                         ready: resourcePlanReady,
                         detail: resourcePlanReady
-                          ? `${summaryGpuCount ?? "-"} GPU 可提交`
-                          : "节点数 / GPU 数量超出范围",
+                          ? summaryTotalGpuMemoryGi
+                            ? `${summaryGpuCount ?? "-"} GPU 申请 / ${summaryTotalGpuMemoryGi} Gi 显存可提交`
+                            : `${summaryGpuCount ?? "-"} GPU 可提交`
+                          : "节点数 / GPU 数量 / 显存规格超出范围",
                       },
                       {
                         label: "Studio JSON",
@@ -2522,8 +2698,13 @@ export function TrainingShell() {
                   datasetName: draft.datasetName.trim(),
                   datasetSplit: draft.datasetSplit.trim(),
                   datasetTextField: draft.datasetTextField.trim(),
+                  gpuAllocationMode: draft.gpuAllocationMode,
                   nodeCount: parsedNodeCount,
                   gpusPerNode: parsedGpusPerNode,
+                  gpuMemoryGi:
+                    draft.gpuAllocationMode === "memory"
+                      ? parsedGpuMemoryGi
+                      : null,
                   launcherType: draft.launcherType,
                   distributedBackend: draft.distributedBackend,
                   deepspeedStage:

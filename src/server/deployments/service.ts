@@ -14,6 +14,10 @@ import {
 } from "@kubernetes/client-node";
 
 import {
+  type GpuAllocationSpec,
+  usesGpuAcceleration,
+} from "@/lib/gpu-allocation";
+import {
   canCreateInferenceDeploymentWithEngine,
   defaultInferenceImage,
   type InferenceDeploymentEngine,
@@ -31,9 +35,15 @@ import {
   DEFAULT_INFERENCE_CACHE_ROOT,
   DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
   isInferencePodFailed,
+  isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
   resolveLlamaRuntimeModelPath,
 } from "@/server/deployments/runtime-utils";
+import {
+  buildHamiGpuResources,
+  normalizeGpuAllocation,
+  parseGpuAllocationFromResources,
+} from "@/server/gpu/hami";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -54,6 +64,8 @@ const INFERENCE_METADATA = {
   engine: `${METADATA_PREFIX}/inference-engine`,
   modelRef: `${METADATA_PREFIX}/inference-model-ref`,
   desiredReplicas: `${METADATA_PREFIX}/inference-desired-replicas`,
+  gpuAllocationMode: `${METADATA_PREFIX}/inference-gpu-allocation-mode`,
+  gpuMemoryGi: `${METADATA_PREFIX}/inference-gpu-memory-gi`,
   lastStartedAt: `${METADATA_PREFIX}/inference-last-started-at`,
 } as const;
 
@@ -89,7 +101,9 @@ export type InferenceDeploymentItem = {
   image: string;
   cpu: string;
   memory: string;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
+  gpuMemoryGi: number | null;
   desiredReplicas: number;
   readyReplicas: number;
   nodeNames: string[];
@@ -111,7 +125,9 @@ export type CreateInferenceDeploymentInput = {
   image: string;
   cpu: string;
   memoryGi: number;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
+  gpuMemoryGi: number | null;
   replicaCount: number;
 };
 
@@ -202,19 +218,14 @@ function normalizeMemoryGi(input: number) {
   return `${input}Gi`;
 }
 
-function normalizeGpuCount(
+function normalizeInferenceGpuAllocation(
   engine: InferenceDeploymentEngine,
-  gpuCount: number,
+  spec: GpuAllocationSpec,
 ) {
-  if (!Number.isInteger(gpuCount) || gpuCount < 0 || gpuCount > 16) {
-    throw new Error("GPU 数量必须是 0 到 16 之间的整数。");
-  }
-
-  if ((engine === "vllm" || engine === "sglang") && gpuCount < 1) {
-    throw new Error(`${engine} 至少需要 1 张 GPU。`);
-  }
-
-  return gpuCount;
+  return normalizeGpuAllocation(spec, {
+    minGpuCount:
+      engine === "llama.cpp" && spec.gpuAllocationMode === "whole" ? 0 : 1,
+  });
 }
 
 function normalizeReplicaCount(replicaCount: number) {
@@ -326,7 +337,7 @@ function selectEligibleInferenceNodes(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
   deployments: V1Deployment[];
-  requestedGpu: number;
+  requestedGpuSpec: GpuAllocationSpec;
   gpuLabelKey: string;
 }) {
   const liveNodeMap = new Map(
@@ -354,8 +365,11 @@ function selectEligibleInferenceNodes(params: {
     })
     .filter((entry) => entry.live && entry.ready)
     .filter((entry) =>
-      params.requestedGpu > 0
-        ? entry.gpuCapable && entry.allocatableGpu >= params.requestedGpu
+      usesGpuAcceleration(params.requestedGpuSpec)
+        ? entry.gpuCapable &&
+          (params.requestedGpuSpec.gpuAllocationMode === "memory"
+            ? entry.allocatableGpu >= 1
+            : entry.allocatableGpu >= params.requestedGpuSpec.gpuCount)
         : true,
     );
 
@@ -364,7 +378,7 @@ function selectEligibleInferenceNodes(params: {
 
   if (preferred.length === 0) {
     throw new Error(
-      params.requestedGpu > 0
+      usesGpuAcceleration(params.requestedGpuSpec)
         ? "没有找到满足 GPU 需求的 Ready worker 节点。"
         : "没有找到可用的 Ready worker 节点。",
     );
@@ -446,12 +460,18 @@ function deploymentAnnotations(input: {
   engine: InferenceDeploymentEngine;
   modelRef: string;
   desiredReplicas: number;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
+  gpuMemoryGi: number | null;
   lastStartedAt?: string;
 }) {
   return {
     [INFERENCE_METADATA.engine]: input.engine,
     [INFERENCE_METADATA.modelRef]: input.modelRef,
     [INFERENCE_METADATA.desiredReplicas]: String(input.desiredReplicas),
+    [INFERENCE_METADATA.gpuAllocationMode]: input.gpuAllocationMode,
+    ...(input.gpuMemoryGi
+      ? { [INFERENCE_METADATA.gpuMemoryGi]: String(input.gpuMemoryGi) }
+      : {}),
     ...(input.lastStartedAt
       ? { [INFERENCE_METADATA.lastStartedAt]: input.lastStartedAt }
       : {}),
@@ -462,7 +482,7 @@ function buildRuntimeCommand(input: {
   name: string;
   engine: InferenceDeploymentEngine;
   modelRef: string;
-  gpuCount: number;
+  gpuSpec: GpuAllocationSpec;
 }) {
   switch (input.engine) {
     case "vllm":
@@ -477,7 +497,7 @@ function buildRuntimeCommand(input: {
           "--port",
           "8000",
           "--tensor-parallel-size",
-          String(Math.max(input.gpuCount, 1)),
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
         ],
       };
     case "llama.cpp":
@@ -491,7 +511,7 @@ function buildRuntimeCommand(input: {
           "8000",
           "-c",
           process.env.LLAMA_CPP_CONTEXT_SIZE ?? "4096",
-          ...(input.gpuCount > 0
+          ...(usesGpuAcceleration(input.gpuSpec)
             ? ["--n-gpu-layers", process.env.LLAMA_CPP_GPU_LAYERS ?? "999"]
             : []),
         ],
@@ -507,7 +527,7 @@ function buildRuntimeCommand(input: {
           "--port",
           "8000",
           "--tp",
-          String(Math.max(input.gpuCount, 1)),
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
         ],
       };
     default:
@@ -583,15 +603,22 @@ function buildInferenceDeployment(input: {
   image: string;
   cpu: string;
   memory: string;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
+  gpuMemoryGi: number | null;
   replicaCount: number;
   eligibleNodeNames: string[];
 }) {
+  const gpuSpec = {
+    gpuAllocationMode: input.gpuAllocationMode,
+    gpuCount: input.gpuCount,
+    gpuMemoryGi: input.gpuMemoryGi,
+  } satisfies GpuAllocationSpec;
   const runtimeCommand = buildRuntimeCommand({
     name: input.name,
     engine: input.engine,
     modelRef: input.modelRef,
-    gpuCount: input.gpuCount,
+    gpuSpec,
   });
   const initContainers = buildInitContainers({
     name: input.name,
@@ -609,6 +636,8 @@ function buildInferenceDeployment(input: {
         engine: input.engine,
         modelRef: input.modelRef,
         desiredReplicas: input.replicaCount,
+        gpuAllocationMode: input.gpuAllocationMode,
+        gpuMemoryGi: input.gpuMemoryGi,
       }),
     },
     spec: {
@@ -630,7 +659,7 @@ function buildInferenceDeployment(input: {
           labels: deploymentLabels(input.name, input.engine),
         },
         spec: {
-          ...(input.gpuCount > 0 ? { runtimeClassName: "nvidia" } : {}),
+          ...(usesGpuAcceleration(gpuSpec) ? { runtimeClassName: "nvidia" } : {}),
           ...(initContainers.length > 0 ? { initContainers } : {}),
           affinity: {
             nodeAffinity: {
@@ -699,16 +728,12 @@ function buildInferenceDeployment(input: {
                 requests: {
                   cpu: input.cpu,
                   memory: input.memory,
-                  ...(input.gpuCount > 0
-                    ? { "nvidia.com/gpu": `${input.gpuCount}` }
-                    : {}),
+                  ...buildHamiGpuResources(gpuSpec),
                 },
                 limits: {
                   cpu: input.cpu,
                   memory: input.memory,
-                  ...(input.gpuCount > 0
-                    ? { "nvidia.com/gpu": `${input.gpuCount}` }
-                    : {}),
+                  ...buildHamiGpuResources(gpuSpec),
                 },
               },
               volumeMounts: [
@@ -791,17 +816,26 @@ function inferenceStatus(
   const desiredReplicas = deployment.spec?.replicas ?? 0;
   const readyReplicas = deployment.status?.readyReplicas ?? 0;
   const conditions = deployment.status?.conditions ?? [];
-  const failed = conditions.some(
+  const replicaFailure = conditions.some(
+    (condition) => condition.type === "ReplicaFailure",
+  );
+  const progressTimedOut = conditions.some(
     (condition) =>
-      condition.type === "ReplicaFailure" ||
-      (condition.type === "Progressing" && condition.status === "False"),
+      condition.type === "Progressing" &&
+      condition.status === "False" &&
+      condition.reason === "ProgressDeadlineExceeded",
   );
   const podFailed =
     desiredReplicas > 0 &&
     readyReplicas < desiredReplicas &&
     relatedPods.some((pod) => isInferencePodFailed(pod));
+  const podMakingProgress =
+    desiredReplicas > 0 &&
+    readyReplicas < desiredReplicas &&
+    relatedPods.some((pod) => isInferencePodMakingProgress(pod));
 
-  if (failed || podFailed) return "failed";
+  if (replicaFailure || podFailed) return "failed";
+  if (progressTimedOut && !podMakingProgress) return "failed";
   if (desiredReplicas === 0) {
     return deployment.metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]
       ? "paused"
@@ -982,6 +1016,19 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
         ] ?? String(deployment.spec?.replicas ?? 0),
         10,
       );
+      const parsedGpuResources = parseGpuAllocationFromResources(
+        limits as Record<string, string | number | null | undefined>,
+      );
+      const gpuAllocationMode =
+        (deployment.metadata?.annotations?.[
+          INFERENCE_METADATA.gpuAllocationMode
+        ] as GpuAllocationSpec["gpuAllocationMode"] | undefined) ??
+        parsedGpuResources.gpuAllocationMode;
+      const gpuMemoryGiFromAnnotation = Number.parseInt(
+        deployment.metadata?.annotations?.[INFERENCE_METADATA.gpuMemoryGi] ??
+          "",
+        10,
+      );
       const engine =
         (deployment.metadata?.annotations?.[INFERENCE_METADATA.engine] as
           | InferenceDeploymentEngine
@@ -1005,12 +1052,19 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
           name,
         image:
           container?.image ??
-          defaultInferenceImage(engine, Number(limits["nvidia.com/gpu"] ?? 0)),
+          defaultInferenceImage(engine, parsedGpuResources.gpuCount),
         cpu: String(limits.cpu ?? container?.resources?.requests?.cpu ?? "0"),
         memory: String(
           limits.memory ?? container?.resources?.requests?.memory ?? "0Gi",
         ),
-        gpuCount: Number(limits["nvidia.com/gpu"] ?? 0) || 0,
+        gpuAllocationMode,
+        gpuCount: parsedGpuResources.gpuCount,
+        gpuMemoryGi:
+          gpuAllocationMode === "memory"
+            ? Number.isFinite(gpuMemoryGiFromAnnotation)
+              ? gpuMemoryGiFromAnnotation
+              : parsedGpuResources.gpuMemoryGi
+            : null,
         desiredReplicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 0,
         readyReplicas: deployment.status?.readyReplicas ?? 0,
         nodeNames: [...(podNodesByName.get(name) ?? new Set<string>())].sort(),
@@ -1045,7 +1099,11 @@ export async function createInferenceDeployment(
   const modelRef = normalizeModelRef(engine, input.modelRef);
   const cpu = normalizeCpu(input.cpu);
   const memory = normalizeMemoryGi(input.memoryGi);
-  const gpuCount = normalizeGpuCount(engine, input.gpuCount);
+  const gpuSpec = normalizeInferenceGpuAllocation(engine, {
+    gpuAllocationMode: input.gpuAllocationMode,
+    gpuCount: input.gpuCount,
+    gpuMemoryGi: input.gpuMemoryGi,
+  });
   const replicaCount = normalizeReplicaCount(input.replicaCount);
 
   await ensureNamespace(ctx.coreApi, ctx.namespace);
@@ -1065,7 +1123,7 @@ export async function createInferenceDeployment(
     configNodes: ctx.nodes,
     liveNodes,
     deployments,
-    requestedGpu: gpuCount,
+    requestedGpuSpec: gpuSpec,
     gpuLabelKey: ctx.config.gpuLabelKey,
   });
   const nodePort = resolveInferenceNodePort(services);
@@ -1079,7 +1137,9 @@ export async function createInferenceDeployment(
       image: input.image,
       cpu,
       memory,
-      gpuCount,
+      gpuAllocationMode: gpuSpec.gpuAllocationMode,
+      gpuCount: gpuSpec.gpuCount,
+      gpuMemoryGi: gpuSpec.gpuMemoryGi,
       replicaCount,
       eligibleNodeNames,
     }),
@@ -1156,6 +1216,12 @@ function buildReplacementDeployment(input: {
       | undefined) ?? "vllm";
   const modelRef =
     metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? input.name;
+  const container = spec.template.spec?.containers?.[0];
+  const gpuSpec = parseGpuAllocationFromResources(
+    (container?.resources?.limits ??
+      container?.resources?.requests ??
+      {}) as Record<string, string | number | null | undefined>,
+  );
   const refreshedAt = input.refreshStartedAt ? new Date().toISOString() : null;
 
   return {
@@ -1170,6 +1236,14 @@ function buildReplacementDeployment(input: {
         engine,
         modelRef,
         desiredReplicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
+        gpuAllocationMode:
+          (metadata?.annotations?.[INFERENCE_METADATA.gpuAllocationMode] as
+            | GpuAllocationSpec["gpuAllocationMode"]
+            | undefined) ?? gpuSpec.gpuAllocationMode,
+        gpuMemoryGi: Number.parseInt(
+          metadata?.annotations?.[INFERENCE_METADATA.gpuMemoryGi] ?? "",
+          10,
+        ) || gpuSpec.gpuMemoryGi,
         ...(refreshedAt
           ? { lastStartedAt: refreshedAt }
           : metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]

@@ -14,6 +14,16 @@ import {
   type V1Service,
 } from "@kubernetes/client-node";
 
+import {
+  type GpuAllocationSpec,
+  usesGpuAcceleration,
+} from "@/lib/gpu-allocation";
+import {
+  buildHamiGpuResources,
+  normalizeGpuAllocation,
+  parseGpuAllocationFromResources,
+} from "@/server/gpu/hami";
+
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -51,7 +61,9 @@ export type WorkspaceItem = {
   status: "running" | "starting" | "error";
   cpu: string;
   memory: string;
-  gpu: number;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
+  gpuCount: number;
+  gpuMemoryGi: number | null;
   resolution: string;
   nodeName: string | null;
   nodeIp: string | null;
@@ -70,7 +82,9 @@ export type CreateWorkspaceInput = {
   name: string;
   cpu: string;
   memoryGi: number;
-  gpu: number;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
+  gpuCount: number;
+  gpuMemoryGi: number | null;
   resolution: string;
 };
 
@@ -176,12 +190,10 @@ function normalizeMemoryGi(input: number) {
   return `${input}Gi`;
 }
 
-function normalizeGpu(input: number) {
-  if (!Number.isInteger(input) || input < 0) {
-    throw new Error("GPU 必须是大于等于 0 的整数。");
-  }
-
-  return input;
+function normalizeWorkspaceGpuAllocation(spec: GpuAllocationSpec) {
+  return normalizeGpuAllocation(spec, {
+    minGpuCount: spec.gpuAllocationMode === "whole" ? 0 : 1,
+  });
 }
 
 function normalizeResolution(input: string) {
@@ -247,7 +259,7 @@ function selectWorkspaceNode(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
   deployments: V1Deployment[];
-  requestedGpu: number;
+  requestedGpuSpec: GpuAllocationSpec;
   workspaceLabelKey: string;
   gpuLabelKey: string;
 }) {
@@ -274,8 +286,11 @@ function selectWorkspaceNode(params: {
     })
     .filter((entry) => entry.live && entry.ready)
     .filter((entry) =>
-      params.requestedGpu > 0
-        ? entry.allocatableGpu >= params.requestedGpu
+      usesGpuAcceleration(params.requestedGpuSpec)
+        ? entry.gpuCapable &&
+          (params.requestedGpuSpec.gpuAllocationMode === "memory"
+            ? entry.allocatableGpu >= 1
+            : entry.allocatableGpu >= params.requestedGpuSpec.gpuCount)
         : true,
     );
 
@@ -285,7 +300,7 @@ function selectWorkspaceNode(params: {
 
   if (preferred.length === 0) {
     throw new Error(
-      params.requestedGpu > 0
+      usesGpuAcceleration(params.requestedGpuSpec)
         ? "没有找到满足 GPU 需求的 Ready worker 节点。"
         : "没有找到可用的 Ready worker 节点。",
     );
@@ -463,11 +478,19 @@ function buildWorkspaceDeployment(input: {
   nodeName: string;
   cpu: string;
   memory: string;
-  gpu: number;
+  gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
+  gpuCount: number;
+  gpuMemoryGi: number | null;
   resolution: string;
 }) {
   const workspaceRoot =
     process.env.REMOTE_WORKSPACE_ROOT ?? "/var/lib/remote-work/workspaces";
+  const gpuSpec = {
+    gpuAllocationMode: input.gpuAllocationMode,
+    gpuCount: input.gpuCount,
+    gpuMemoryGi: input.gpuMemoryGi,
+  } satisfies GpuAllocationSpec;
+  const gpuResources = buildHamiGpuResources(gpuSpec);
 
   return {
     apiVersion: "apps/v1",
@@ -494,7 +517,7 @@ function buildWorkspaceDeployment(input: {
           },
         },
         spec: {
-          ...(input.gpu > 0 ? { runtimeClassName: "nvidia" } : {}),
+          ...(usesGpuAcceleration(gpuSpec) ? { runtimeClassName: "nvidia" } : {}),
           nodeSelector: {
             "kubernetes.io/hostname": input.nodeName,
           },
@@ -536,16 +559,12 @@ function buildWorkspaceDeployment(input: {
                 requests: {
                   cpu: input.cpu,
                   memory: input.memory,
-                  ...(input.gpu > 0
-                    ? { "nvidia.com/gpu": `${input.gpu}` }
-                    : {}),
+                  ...gpuResources,
                 },
                 limits: {
                   cpu: input.cpu,
                   memory: input.memory,
-                  ...(input.gpu > 0
-                    ? { "nvidia.com/gpu": `${input.gpu}` }
-                    : {}),
+                  ...gpuResources,
                 },
               },
               volumeMounts: [
@@ -674,6 +693,9 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
       const container = deployment.spec?.template?.spec?.containers?.[0];
       const limits =
         container?.resources?.limits ?? container?.resources?.requests ?? {};
+      const gpuAllocation = parseGpuAllocationFromResources(
+        limits as Record<string, string | number | null | undefined>,
+      );
       const resolution =
         container?.env?.find((entry) => entry.name === "RESOLUTION")?.value ??
         process.env.REMOTE_WORKSPACE_RESOLUTION ??
@@ -695,7 +717,9 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
         memory: String(
           limits.memory ?? container?.resources?.requests?.memory ?? "0Gi",
         ),
-        gpu: Number(limits["nvidia.com/gpu"] ?? 0) || 0,
+        gpuAllocationMode: gpuAllocation.gpuAllocationMode,
+        gpuCount: gpuAllocation.gpuCount,
+        gpuMemoryGi: gpuAllocation.gpuMemoryGi,
         resolution,
         nodeName,
         nodeIp,
@@ -730,7 +754,11 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
   validateWorkspaceName(input.name);
   const cpu = normalizeCpu(input.cpu);
   const memory = normalizeMemoryGi(input.memoryGi);
-  const gpu = normalizeGpu(input.gpu);
+  const gpuSpec = normalizeWorkspaceGpuAllocation({
+    gpuAllocationMode: input.gpuAllocationMode,
+    gpuCount: input.gpuCount,
+    gpuMemoryGi: input.gpuMemoryGi,
+  });
   const resolution = normalizeResolution(input.resolution);
 
   await ensureNamespace(ctx.coreApi, namespace);
@@ -750,7 +778,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     configNodes: ctx.nodes,
     liveNodes,
     deployments,
-    requestedGpu: gpu,
+    requestedGpuSpec: gpuSpec,
     workspaceLabelKey: ctx.config.workspaceLabelKey,
     gpuLabelKey: ctx.config.gpuLabelKey,
   });
@@ -765,7 +793,9 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
       nodeName: selectedNode.node.name,
       cpu,
       memory,
-      gpu,
+      gpuAllocationMode: gpuSpec.gpuAllocationMode,
+      gpuCount: gpuSpec.gpuCount,
+      gpuMemoryGi: gpuSpec.gpuMemoryGi,
       resolution,
     }),
   });

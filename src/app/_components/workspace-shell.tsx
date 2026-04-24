@@ -44,10 +44,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  formatGpuAllocationLabel,
+  gpuAllocationModeLabels,
+  gpuAllocationModeValues,
+} from "@/lib/gpu-allocation";
 import { cn } from "@/lib/utils";
 import { api, type RouterOutputs } from "@/trpc/react";
 
 type WorkspaceRow = RouterOutputs["workspace"]["list"]["items"][number];
+type WorkspaceDraft = {
+  name: string;
+  cpu: string;
+  memoryGi: string;
+  gpuAllocationMode: (typeof gpuAllocationModeValues)[number];
+  gpuCount: string;
+  gpuMemoryGi: string;
+  resolution: string;
+  resolutionPreset: string;
+};
 
 const WORKSPACE_STATUS_POLL_INTERVAL_MS = 5000;
 const CUSTOM_RESOLUTION_VALUE = "__custom__";
@@ -191,7 +206,11 @@ function statusLabel(status: WorkspaceRow["status"]) {
 }
 
 function specLabel(workspace: WorkspaceRow) {
-  return `${workspace.gpu} GPU · ${workspace.cpu} CPU · ${workspace.memory}`;
+  return `${formatGpuAllocationLabel({
+    gpuAllocationMode: workspace.gpuAllocationMode,
+    gpuCount: workspace.gpuCount,
+    gpuMemoryGi: workspace.gpuMemoryGi,
+  })} · ${workspace.cpu} CPU · ${workspace.memory}`;
 }
 
 function LoadingRows() {
@@ -232,11 +251,13 @@ export function WorkspaceShell() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingDeletedWorkspaceNames, setPendingDeletedWorkspaceNames] =
     useState<string[]>([]);
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<WorkspaceDraft>({
     name: "",
     cpu: "4",
     memoryGi: "16",
-    gpu: "0",
+    gpuAllocationMode: "whole",
+    gpuCount: "0",
+    gpuMemoryGi: "",
     resolution: "1600x900x24",
     resolutionPreset: "1600x900x24",
   });
@@ -256,7 +277,9 @@ export function WorkspaceShell() {
         name: "",
         cpu: "4",
         memoryGi: "16",
-        gpu: "0",
+        gpuAllocationMode: "whole",
+        gpuCount: "0",
+        gpuMemoryGi: "",
         resolution: "1600x900x24",
         resolutionPreset: "1600x900x24",
       });
@@ -296,6 +319,26 @@ export function WorkspaceShell() {
   const readyCount = rows.filter((workspace) =>
     Boolean(workspace.loginUrl),
   ).length;
+  const parsedMemoryGi = Number.parseInt(draft.memoryGi, 10);
+  const parsedGpuCount = Number.parseInt(draft.gpuCount, 10);
+  const parsedGpuMemoryGi = Number.parseInt(draft.gpuMemoryGi, 10);
+  const gpuCountMin = draft.gpuAllocationMode === "memory" ? 1 : 0;
+  const gpuCountValid =
+    Number.isInteger(parsedGpuCount) &&
+    parsedGpuCount >= gpuCountMin &&
+    parsedGpuCount <= 16;
+  const gpuMemoryValid =
+    draft.gpuAllocationMode !== "memory" ||
+    (Number.isInteger(parsedGpuMemoryGi) &&
+      parsedGpuMemoryGi >= 1 &&
+      parsedGpuMemoryGi <= 1024);
+  const canSubmit =
+    available &&
+    draft.name.length >= 2 &&
+    Number.isInteger(parsedMemoryGi) &&
+    parsedMemoryGi > 0 &&
+    gpuCountValid &&
+    gpuMemoryValid;
 
   useEffect(() => {
     const liveNames = new Set(
@@ -309,14 +352,14 @@ export function WorkspaceShell() {
   }, [workspaceQuery.data?.items]);
 
   const handleCreate = async () => {
-    const memoryGi = Number.parseInt(draft.memoryGi, 10);
-    const gpu = Number.parseInt(draft.gpu, 10);
-
     await createWorkspace.mutateAsync({
       name: draft.name,
       cpu: draft.cpu,
-      memoryGi,
-      gpu,
+      memoryGi: parsedMemoryGi,
+      gpuAllocationMode: draft.gpuAllocationMode,
+      gpuCount: parsedGpuCount,
+      gpuMemoryGi:
+        draft.gpuAllocationMode === "memory" ? parsedGpuMemoryGi : null,
       resolution: draft.resolution,
     });
   };
@@ -631,8 +674,8 @@ export function WorkspaceShell() {
           <DialogHeader>
             <DialogTitle>创建远程桌面</DialogTitle>
             <DialogDescription>
-              指定 CPU、Memory、GPU 和分辨率后，系统会在 Kubernetes
-              中创建新的远程工作区。
+              指定 CPU、Memory、整卡或显存份额和分辨率后，系统会在
+              Kubernetes 中创建新的远程工作区。
             </DialogDescription>
           </DialogHeader>
 
@@ -650,7 +693,7 @@ export function WorkspaceShell() {
               />
             </FormField>
 
-            <div className="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.8fr)_minmax(0,1.35fr)] md:items-start">
+            <div className="grid gap-4 md:grid-cols-2 md:items-start">
               <FormField label="CPU">
                 <Input
                   inputMode="decimal"
@@ -677,16 +720,65 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="GPU">
+              <FormField label="GPU 分配方式">
+                <Select
+                  value={draft.gpuAllocationMode}
+                  onValueChange={(value) =>
+                    setDraft((current) => ({
+                      ...current,
+                      gpuAllocationMode: value === "memory" ? "memory" : "whole",
+                      gpuCount:
+                        value === "memory" && Number.parseInt(current.gpuCount, 10) < 1
+                          ? "1"
+                          : current.gpuCount,
+                      gpuMemoryGi:
+                        value === "memory" ? current.gpuMemoryGi || "8" : "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full min-w-0 bg-white/80">
+                    <SelectValue placeholder="选择分配方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {gpuAllocationModeValues.map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {gpuAllocationModeLabels[mode]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              <FormField
+                label={
+                  draft.gpuAllocationMode === "memory" ? "GPU 份额" : "GPU"
+                }
+              >
                 <Input
                   inputMode="numeric"
-                  value={draft.gpu}
+                  value={draft.gpuCount}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
-                      gpu: event.target.value,
+                      gpuCount: event.target.value,
                     }))
                   }
+                />
+              </FormField>
+
+              <FormField label="每份额显存 Gi">
+                <Input
+                  inputMode="numeric"
+                  value={draft.gpuMemoryGi}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      gpuMemoryGi: event.target.value,
+                    }))
+                  }
+                  disabled={draft.gpuAllocationMode !== "memory"}
                 />
               </FormField>
 
@@ -751,9 +843,7 @@ export function WorkspaceShell() {
             </Button>
             <Button
               className={PRIMARY_ACTION_CLASS}
-              disabled={
-                createWorkspace.isPending || !available || draft.name.length < 2
-              }
+              disabled={createWorkspace.isPending || !canSubmit}
               onClick={() => void handleCreate()}
             >
               {createWorkspace.isPending ? (

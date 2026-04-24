@@ -4,8 +4,10 @@ import type { trainingJobs } from "@/server/db/schema";
 type OptionalRuntimeColumn =
   | "datasetSplit"
   | "datasetTextField"
+  | "gpuAllocationMode"
   | "nodeCount"
   | "gpusPerNode"
+  | "gpuMemoryGi"
   | "configSource"
   | "launcherType"
   | "distributedBackend"
@@ -33,8 +35,10 @@ type PartialTrainingJobRecord = Omit<
 const DEFAULT_COLUMN_SUPPORT: TrainingRuntimeColumnSupport = {
   datasetSplit: true,
   datasetTextField: true,
+  gpuAllocationMode: true,
   nodeCount: true,
   gpusPerNode: true,
+  gpuMemoryGi: true,
   configSource: true,
   launcherType: true,
   distributedBackend: true,
@@ -74,8 +78,10 @@ export async function getTrainingRuntimeColumnSupport() {
         and column_name in (
           'datasetSplit',
           'datasetTextField',
+          'gpuAllocationMode',
           'nodeCount',
           'gpusPerNode',
+          'gpuMemoryGi',
           'configSource',
           'launcherType',
           'distributedBackend',
@@ -98,8 +104,10 @@ export async function getTrainingRuntimeColumnSupport() {
     const value: TrainingRuntimeColumnSupport = {
       datasetSplit: availableColumns.has("datasetSplit"),
       datasetTextField: availableColumns.has("datasetTextField"),
+      gpuAllocationMode: availableColumns.has("gpuAllocationMode"),
       nodeCount: availableColumns.has("nodeCount"),
       gpusPerNode: availableColumns.has("gpusPerNode"),
+      gpuMemoryGi: availableColumns.has("gpuMemoryGi"),
       configSource: availableColumns.has("configSource"),
       launcherType: availableColumns.has("launcherType"),
       distributedBackend: availableColumns.has("distributedBackend"),
@@ -134,8 +142,10 @@ export function normalizeTrainingJobRecord(row: PartialTrainingJobRecord) {
     ...row,
     datasetSplit: row.datasetSplit ?? "train",
     datasetTextField: row.datasetTextField ?? "text",
+    gpuAllocationMode: row.gpuAllocationMode ?? "whole",
     nodeCount: row.nodeCount ?? 1,
     gpusPerNode: row.gpusPerNode ?? Math.max(1, row.gpuCount ?? 1),
+    gpuMemoryGi: row.gpuMemoryGi ?? null,
     configSource: row.configSource ?? "manual",
     launcherType: row.launcherType ?? "python",
     distributedBackend: row.distributedBackend ?? "none",

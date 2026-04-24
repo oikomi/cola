@@ -13,12 +13,15 @@ Run the default bring-up flow in order:
   1. cluster bootstrap
   2. cluster install
   3. gpu enable
-  4. dashboard deploy
-  5. dashboard port-forward
+  4. monitoring deploy
+  5. monitoring port-forward
+  6. dashboard deploy
+  7. dashboard port-forward
 
 Options:
   --with-images              Pass through to 'cluster bootstrap --with-images'
   --with-workspace-image     Also run './scripts/workspace-image.sh build-and-load'
+  --skip-monitoring          Skip Prometheus and HAMi-WebUI install
   --skip-dashboard           Skip dashboard deploy and port-forward
   --skip-port-forward        Deploy dashboard but do not start port-forward
   --port-forward-foreground  Run dashboard port-forward in foreground
@@ -56,6 +59,7 @@ run_command_or_exit() {
 
 WITH_IMAGES=0
 WITH_WORKSPACE_IMAGE=0
+SKIP_MONITORING=0
 SKIP_DASHBOARD=0
 SKIP_PORT_FORWARD=0
 PORT_FORWARD_FOREGROUND=0
@@ -79,6 +83,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-workspace-image)
       WITH_WORKSPACE_IMAGE=1
+      shift
+      ;;
+    --skip-monitoring)
+      SKIP_MONITORING=1
       shift
       ;;
     --skip-dashboard)
@@ -120,6 +128,7 @@ done
 
 bootstrap_args=(cluster bootstrap)
 image_args=(build-and-load)
+monitoring_port_forward_args=(monitoring port-forward)
 dashboard_port_forward_args=(dashboard port-forward)
 
 if [[ "$WITH_IMAGES" -eq 1 ]]; then
@@ -149,17 +158,17 @@ fi
 
 run_command_or_exit \
   "Bootstrap cluster assets" \
-  "cluster install、gpu enable、dashboard deploy、dashboard port-forward" \
+  "cluster install、gpu enable、monitoring deploy、monitoring port-forward、dashboard deploy、dashboard port-forward" \
   "$ENTRYPOINT" \
   "${bootstrap_args[@]}"
 run_command_or_exit \
   "Install cluster" \
-  "gpu enable、dashboard deploy、dashboard port-forward" \
+  "gpu enable、monitoring deploy、monitoring port-forward、dashboard deploy、dashboard port-forward" \
   "$ENTRYPOINT" \
   cluster install
 run_command_or_exit \
   "Enable GPU support" \
-  "dashboard deploy、dashboard port-forward" \
+  "monitoring deploy、monitoring port-forward、dashboard deploy、dashboard port-forward" \
   "$ENTRYPOINT" \
   gpu enable
 
@@ -167,9 +176,26 @@ if [[ "$WITH_WORKSPACE_IMAGE" -eq 1 ]]; then
   if ! run_command "Build and distribute workspace image" "$WORKSPACE_IMAGE_ENTRYPOINT" "${image_args[@]}"; then
     echo >&2
     echo "ERROR: 步骤失败: Build and distribute workspace image" >&2
-    echo "ERROR: 因此未继续执行: dashboard deploy、dashboard port-forward" >&2
+    echo "ERROR: 因此未继续执行: monitoring deploy、monitoring port-forward、dashboard deploy、dashboard port-forward" >&2
     exit 1
   fi
+fi
+
+if [[ "$SKIP_MONITORING" -eq 1 ]]; then
+  print_step "Skip monitoring install"
+  echo "已跳过 monitoring deploy 和 monitoring port-forward。"
+else
+  run_command_or_exit \
+    "Deploy Prometheus and HAMi-WebUI" \
+    "monitoring port-forward、dashboard deploy、dashboard port-forward" \
+    "$ENTRYPOINT" \
+    monitoring deploy
+
+  run_command_or_exit \
+    "Start HAMi-WebUI port-forward" \
+    "dashboard deploy、dashboard port-forward" \
+    "$ENTRYPOINT" \
+    "${monitoring_port_forward_args[@]}"
 fi
 
 if [[ "$SKIP_DASHBOARD" -eq 1 ]]; then
