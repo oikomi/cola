@@ -4,12 +4,27 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { cmdbProjects } from "@/server/db/schema";
 import {
+  cmdbAssetStatusValues,
   cmdbDeployTargetValues,
   createCmdbRelease,
+  deleteCmdbAsset,
   getCmdbDashboard,
   listGitLabCatalog,
+  testCmdbAssetConnectivity,
+  upsertCmdbAsset,
   upsertCmdbProject,
 } from "@/server/cmdb/service";
+
+const assetSchema = z.object({
+  id: z.number().optional(),
+  name: z.string().min(1).max(128),
+  ip: z.string().min(1).max(128),
+  sshUser: z.string().optional(),
+  sshPort: z.number().int().positive().optional(),
+  roles: z.array(z.string()).default([]),
+  arch: z.string().optional(),
+  status: z.enum(cmdbAssetStatusValues),
+});
 
 const projectConfigSchema = z.object({
   triggerToken: z.string().optional(),
@@ -29,6 +44,29 @@ export const cmdbRouter = createTRPCRouter({
   dashboard: publicProcedure.query(async ({ ctx }) => {
     return getCmdbDashboard(ctx.db);
   }),
+
+  saveAsset: publicProcedure
+    .input(assetSchema)
+    .mutation(async ({ ctx, input }) => {
+      return upsertCmdbAsset(ctx.db, input);
+    }),
+
+  testAssetConnectivity: publicProcedure
+    .input(
+      z.object({
+        ip: z.string().min(1).max(128),
+        sshPort: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return testCmdbAssetConnectivity(input);
+    }),
+
+  deleteAsset: publicProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return deleteCmdbAsset(ctx.db, input.id);
+    }),
 
   gitlabCatalog: publicProcedure
     .input(

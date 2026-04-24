@@ -1,8 +1,6 @@
 import { index, pgEnum, pgTableCreator } from "drizzle-orm/pg-core";
 
-import {
-  inferenceDeploymentStatusValues,
-} from "@/server/deployments/catalog";
+import { inferenceDeploymentStatusValues } from "@/server/deployments/catalog";
 import {
   agentRoleValues,
   agentStatusValues,
@@ -68,8 +66,16 @@ export const cmdbReleaseStatusEnum = pgEnum("cola_cmdb_release_status", [
   "failed",
   "canceled",
 ]);
+export const cmdbAssetStatusEnum = pgEnum("cola_cmdb_asset_status", [
+  "connected",
+  "planned",
+  "unknown",
+]);
 export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
-export const deviceStatusEnum = pgEnum("cola_device_status", deviceStatusValues);
+export const deviceStatusEnum = pgEnum(
+  "cola_device_status",
+  deviceStatusValues,
+);
 export const sessionStatusEnum = pgEnum(
   "cola_execution_session_status",
   sessionStatusValues,
@@ -244,6 +250,30 @@ export type CmdbProjectConfig = {
   sshPath?: string;
   sshDeployCommand?: string;
 };
+
+export const cmdbAssets = createTable(
+  "cmdb_asset",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    name: d.varchar({ length: 128 }).notNull().unique(),
+    ip: d.varchar({ length: 128 }).notNull(),
+    sshUser: d.varchar({ length: 128 }),
+    sshPort: d.integer().notNull().default(22),
+    roles: d.jsonb().$type<string[]>(),
+    arch: d.varchar({ length: 64 }),
+    status: cmdbAssetStatusEnum().notNull().default("connected"),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_asset_name_idx").on(t.name),
+    index("cmdb_asset_status_idx").on(t.status),
+    index("cmdb_asset_ip_idx").on(t.ip),
+  ],
+);
 
 export const cmdbProjects = createTable(
   "cmdb_project",

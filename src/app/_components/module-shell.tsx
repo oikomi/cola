@@ -115,7 +115,9 @@ export function ModuleHero({
                 <p
                   className={cn(
                     "max-w-[44rem] text-slate-600",
-                    isDense ? "mt-1.5 text-[13px] leading-5" : "mt-2 text-sm leading-6",
+                    isDense
+                      ? "mt-1.5 text-[13px] leading-5"
+                      : "mt-2 text-sm leading-6",
                   )}
                 >
                   {description}
@@ -261,6 +263,7 @@ export function ModuleMetricCard({
 }
 
 export function ModuleSection({
+  id,
   title,
   description,
   action,
@@ -268,6 +271,7 @@ export function ModuleSection({
   className,
   density = "default",
 }: {
+  id?: string;
   title: string;
   description?: string;
   action?: ReactNode;
@@ -279,6 +283,7 @@ export function ModuleSection({
 
   return (
     <section
+      id={id}
       className={cn(
         "overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/84 shadow-[0_18px_56px_rgba(15,23,42,0.055)]",
         className,
@@ -332,7 +337,9 @@ export function ModuleSection({
         ) : null}
       </div>
 
-      <div className={cn(isCompact ? "px-5 py-5 md:px-6" : "px-6 py-6 md:px-8")}>
+      <div
+        className={cn(isCompact ? "px-5 py-5 md:px-6" : "px-6 py-6 md:px-8")}
+      >
         {children}
       </div>
     </section>

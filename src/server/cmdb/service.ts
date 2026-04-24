@@ -1,5 +1,4 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
+import net from "node:net";
 
 import { desc, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -7,12 +6,18 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { env } from "@/env";
 import type * as DbSchema from "@/server/db/schema";
 import {
+  cmdbAssets,
   cmdbProjects,
   cmdbReleases,
   type CmdbProjectConfig,
 } from "@/server/db/schema";
 
 export const cmdbDeployTargetValues = ["k8s", "ssh", "docker", "none"] as const;
+export const cmdbAssetStatusValues = [
+  "connected",
+  "planned",
+  "unknown",
+] as const;
 export const cmdbReleaseStatusValues = [
   "pending",
   "running",
@@ -22,6 +27,7 @@ export const cmdbReleaseStatusValues = [
 ] as const;
 
 type Database = PostgresJsDatabase<typeof DbSchema>;
+type CmdbAssetStatus = (typeof cmdbAssetStatusValues)[number];
 type CmdbReleaseStatus = (typeof cmdbReleaseStatusValues)[number];
 type CmdbProjectRow = typeof cmdbProjects.$inferSelect;
 type CmdbReleaseRow = typeof cmdbReleases.$inferSelect;
@@ -39,24 +45,6 @@ type GitLabPipeline = {
   id: number;
   status: string;
   web_url?: string | null;
-};
-
-type ClusterNode = {
-  name: string;
-  ip: string;
-  sshUser?: string;
-  sshPassword?: string;
-  sshPort?: number;
-  roles?: string[];
-  arch?: string;
-};
-
-type ClusterSummary = {
-  clusterName?: string;
-  controllerIp?: string;
-  kubernetesVersion?: string;
-  includedNodes?: ClusterNode[];
-  skippedNodes?: ClusterNode[];
 };
 
 function gitlabBaseUrl() {
@@ -81,7 +69,10 @@ function cleanString(value: string | null | undefined) {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
-function buildGitLabProjectUrl(projectPath: string, fallbackUrl?: string | null) {
+function buildGitLabProjectUrl(
+  projectPath: string,
+  fallbackUrl?: string | null,
+) {
   if (fallbackUrl) return fallbackUrl;
 
   const baseUrl = gitlabBaseUrl();
@@ -90,57 +81,75 @@ function buildGitLabProjectUrl(projectPath: string, fallbackUrl?: string | null)
   return `${baseUrl}/${projectPath}`;
 }
 
-async function readJsonFile<T>(filePath: string): Promise<T | null> {
-  try {
-    const raw = await readFile(filePath, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
+function normalizeAssetRoles(roles: string[] | null | undefined) {
+  return Array.from(
+    new Set(
+      (roles ?? [])
+        .map((role) => cleanString(role))
+        .filter((role): role is string => Boolean(role)),
+    ),
+  );
 }
 
-function repoPath(...segments: string[]) {
-  return path.join(process.cwd(), ...segments);
-}
-
-async function loadClusterInventory() {
-  const [nodeList, clusterSummary] = await Promise.all([
-    readJsonFile<ClusterNode[]>(repoPath("infra", "k8s", "cluster", "nodes.json")),
-    readJsonFile<ClusterSummary>(
-      repoPath("infra", "k8s", "runtime", "generated", "cluster-summary.json"),
-    ),
-  ]);
-
-  const nodes = new Map<string, ClusterNode>();
-
-  for (const node of nodeList ?? []) {
-    nodes.set(node.name, node);
+export async function testCmdbAssetConnectivity(input: {
+  ip: string;
+  sshPort?: number;
+}) {
+  const host = cleanString(input.ip);
+  if (!host) {
+    throw new Error("请先填写服务器 IP 或主机地址。");
   }
 
-  for (const node of clusterSummary?.includedNodes ?? []) {
-    if (!nodes.has(node.name)) {
-      nodes.set(node.name, node);
-    }
+  const port = input.sshPort ?? 22;
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error("SSH 端口必须是大于 0 的整数。");
   }
 
-  for (const node of clusterSummary?.skippedNodes ?? []) {
-    if (!nodes.has(node.name)) {
-      nodes.set(node.name, node);
-    }
-  }
+  const startedAt = Date.now();
 
-  return {
-    clusterName: clusterSummary?.clusterName ?? null,
-    controllerIp: clusterSummary?.controllerIp ?? null,
-    kubernetesVersion: clusterSummary?.kubernetesVersion ?? null,
-    nodes,
-    includedNodeNames: new Set(
-      (clusterSummary?.includedNodes ?? []).map((node) => node.name),
-    ),
-    skippedNodeNames: new Set(
-      (clusterSummary?.skippedNodes ?? []).map((node) => node.name),
-    ),
-  };
+  return new Promise<{
+    status: "connected" | "unknown";
+    message: string;
+    durationMs: number;
+  }>((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+
+    const finish = (result: {
+      status: "connected" | "unknown";
+      message: string;
+    }) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({
+        ...result,
+        durationMs: Date.now() - startedAt,
+      });
+    };
+
+    socket.setTimeout(2500);
+    socket.once("connect", () => {
+      finish({
+        status: "connected",
+        message: `TCP ${host}:${port} 可达`,
+      });
+    });
+    socket.once("timeout", () => {
+      finish({
+        status: "unknown",
+        message: `连接 ${host}:${port} 超时`,
+      });
+    });
+    socket.once("error", (error) => {
+      finish({
+        status: "unknown",
+        message: error instanceof Error ? error.message : "连接失败",
+      });
+    });
+
+    socket.connect(port, host);
+  });
 }
 
 async function gitlabApiFetch<T>(
@@ -150,7 +159,9 @@ async function gitlabApiFetch<T>(
   const apiBaseUrl = gitlabApiBaseUrl();
 
   if (!apiBaseUrl || !env.GITLAB_API_TOKEN) {
-    throw new Error("GitLab API 未配置，请设置 GITLAB_URL 和 GITLAB_API_TOKEN。");
+    throw new Error(
+      "GitLab API 未配置，请设置 GITLAB_URL 和 GITLAB_API_TOKEN。",
+    );
   }
 
   const response = await fetch(`${apiBaseUrl}${pathname}`, {
@@ -164,9 +175,10 @@ async function gitlabApiFetch<T>(
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { message?: unknown; error?: unknown }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      message?: unknown;
+      error?: unknown;
+    } | null;
     const rawMessage = payload?.message ?? payload?.error;
     const message =
       typeof rawMessage === "string"
@@ -181,7 +193,9 @@ async function gitlabApiFetch<T>(
   return response.json() as Promise<T>;
 }
 
-function normalizePipelineStatus(status: string | null | undefined): CmdbReleaseStatus {
+function normalizePipelineStatus(
+  status: string | null | undefined,
+): CmdbReleaseStatus {
   switch (status) {
     case "running":
       return "running";
@@ -206,7 +220,9 @@ function normalizePipelineStatus(status: string | null | undefined): CmdbRelease
 
 async function fetchGitLabProject(projectPath: string) {
   const encodedPath = encodeURIComponent(projectPath);
-  const project = await gitlabApiFetch<GitLabProject>(`/projects/${encodedPath}`);
+  const project = await gitlabApiFetch<GitLabProject>(
+    `/projects/${encodedPath}`,
+  );
 
   return {
     gitlabProjectId: project.id,
@@ -230,7 +246,9 @@ export async function listGitLabCatalog(query?: string) {
     params.set("search", normalizedQuery);
   }
 
-  const items = await gitlabApiFetch<GitLabProject[]>(`/projects?${params.toString()}`);
+  const items = await gitlabApiFetch<GitLabProject[]>(
+    `/projects?${params.toString()}`,
+  );
 
   return items.map((project) => ({
     id: project.id,
@@ -254,7 +272,8 @@ export async function triggerGitLabPipeline(args: {
     throw new Error("GitLab 未配置，请先设置 GITLAB_URL。");
   }
 
-  const projectRef = args.gitlabProjectId ?? encodeURIComponent(args.gitlabPath);
+  const projectRef =
+    args.gitlabProjectId ?? encodeURIComponent(args.gitlabPath);
   const normalizedRef = args.ref.trim();
 
   if (args.triggerToken) {
@@ -278,9 +297,10 @@ export async function triggerGitLabPipeline(args: {
     );
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as
-        | { message?: unknown; error?: unknown }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        message?: unknown;
+        error?: unknown;
+      } | null;
       const rawMessage = payload?.message ?? payload?.error;
       const message =
         typeof rawMessage === "string"
@@ -295,7 +315,8 @@ export async function triggerGitLabPipeline(args: {
     const pipeline = (await response.json()) as GitLabPipeline;
     return {
       pipelineId: pipeline.id,
-      pipelineUrl: pipeline.web_url ?? buildGitLabProjectUrl(args.gitlabPath, null),
+      pipelineUrl:
+        pipeline.web_url ?? buildGitLabProjectUrl(args.gitlabPath, null),
       gitlabStatus: pipeline.status ?? "pending",
       status: normalizePipelineStatus(pipeline.status),
     };
@@ -316,14 +337,18 @@ export async function triggerGitLabPipeline(args: {
     })),
   };
 
-  const pipeline = await gitlabApiFetch<GitLabPipeline>(`/projects/${projectRef}/pipeline`, {
-    method: "POST",
-    body: JSON.stringify(requestBody),
-  });
+  const pipeline = await gitlabApiFetch<GitLabPipeline>(
+    `/projects/${projectRef}/pipeline`,
+    {
+      method: "POST",
+      body: JSON.stringify(requestBody),
+    },
+  );
 
   return {
     pipelineId: pipeline.id,
-    pipelineUrl: pipeline.web_url ?? buildGitLabProjectUrl(args.gitlabPath, null),
+    pipelineUrl:
+      pipeline.web_url ?? buildGitLabProjectUrl(args.gitlabPath, null),
     gitlabStatus: pipeline.status ?? "pending",
     status: normalizePipelineStatus(pipeline.status),
   };
@@ -353,7 +378,9 @@ export async function refreshRunningCmdbReleases(database: Database) {
 
       const nextStatus = normalizePipelineStatus(pipeline.status);
       const completedAt =
-        nextStatus === "pending" || nextStatus === "running" ? null : new Date();
+        nextStatus === "pending" || nextStatus === "running"
+          ? null
+          : new Date();
 
       if (
         nextStatus !== item.release.status ||
@@ -375,7 +402,9 @@ export async function refreshRunningCmdbReleases(database: Database) {
   }
 }
 
-async function probeProjectHealth(config: CmdbProjectConfig | null | undefined) {
+async function probeProjectHealth(
+  config: CmdbProjectConfig | null | undefined,
+) {
   const healthUrl = cleanString(config?.healthUrl);
 
   if (!healthUrl) {
@@ -493,15 +522,19 @@ function buildReleaseVariables(
   return variables;
 }
 
-export async function createCmdbRelease(database: Database, args: {
-  project: CmdbProjectRow;
-  ref?: string;
-  deployEnv?: string;
-  variables?: Record<string, string>;
-  triggeredBy?: string;
-}) {
+export async function createCmdbRelease(
+  database: Database,
+  args: {
+    project: CmdbProjectRow;
+    ref?: string;
+    deployEnv?: string;
+    variables?: Record<string, string>;
+    triggeredBy?: string;
+  },
+) {
   const ref = cleanString(args.ref) ?? args.project.defaultBranch;
-  const deployEnv = cleanString(args.deployEnv) ?? args.project.config?.deployEnv;
+  const deployEnv =
+    cleanString(args.deployEnv) ?? args.project.config?.deployEnv;
   const variables = buildReleaseVariables(args.project, args.variables);
 
   const [release] = await database
@@ -555,32 +588,171 @@ export async function createCmdbRelease(database: Database, args: {
   }
 }
 
-export async function upsertCmdbProject(database: Database, input: {
-  id?: number;
-  name?: string;
-  gitlabPath: string;
-  description?: string;
-  defaultBranch?: string;
-  enabled: boolean;
-  deployTarget: (typeof cmdbDeployTargetValues)[number];
-  config?: Partial<CmdbProjectConfig>;
-  syncWithGitLab: boolean;
-}) {
+async function syncAssetNameToProjects(
+  database: Database,
+  previousName: string,
+  nextName: string,
+) {
+  if (previousName === nextName) return;
+
+  const projectRows = await database.select().from(cmdbProjects);
+
+  for (const project of projectRows) {
+    if (cleanString(project.config?.targetAssetName) !== previousName) continue;
+
+    await database
+      .update(cmdbProjects)
+      .set({
+        config: normalizeProjectConfig({
+          ...project.config,
+          targetAssetName: nextName,
+        }),
+      })
+      .where(eq(cmdbProjects.id, project.id));
+  }
+}
+
+export async function upsertCmdbAsset(
+  database: Database,
+  input: {
+    id?: number;
+    name: string;
+    ip: string;
+    sshUser?: string;
+    sshPort?: number;
+    roles?: string[];
+    arch?: string;
+    status: CmdbAssetStatus;
+  },
+) {
+  const name = cleanString(input.name);
+  if (!name) {
+    throw new Error("请填写服务器资产名称。");
+  }
+
+  const ip = cleanString(input.ip);
+  if (!ip) {
+    throw new Error("请填写服务器 IP 或主机地址。");
+  }
+
+  const sshPort = input.sshPort ?? 22;
+  if (!Number.isInteger(sshPort) || sshPort <= 0) {
+    throw new Error("SSH 端口必须是大于 0 的整数。");
+  }
+
+  const [sameNameAsset] = await database
+    .select()
+    .from(cmdbAssets)
+    .where(eq(cmdbAssets.name, name));
+
+  if (sameNameAsset && sameNameAsset.id !== input.id) {
+    throw new Error(`资产名称 ${name} 已存在，请使用其他名称。`);
+  }
+
+  const values = {
+    name,
+    ip,
+    sshUser: cleanString(input.sshUser) ?? null,
+    sshPort,
+    roles: normalizeAssetRoles(input.roles),
+    arch: cleanString(input.arch) ?? null,
+    status: input.status,
+  };
+
+  if (input.id) {
+    const [existingAsset] = await database
+      .select()
+      .from(cmdbAssets)
+      .where(eq(cmdbAssets.id, input.id));
+
+    if (!existingAsset) {
+      throw new Error("资产不存在，无法更新。");
+    }
+
+    const [updatedAsset] = await database
+      .update(cmdbAssets)
+      .set(values)
+      .where(eq(cmdbAssets.id, input.id))
+      .returning();
+
+    if (!updatedAsset) {
+      throw new Error("资产不存在，无法更新。");
+    }
+
+    await syncAssetNameToProjects(
+      database,
+      existingAsset.name,
+      updatedAsset.name,
+    );
+
+    return updatedAsset;
+  }
+
+  const [createdAsset] = await database
+    .insert(cmdbAssets)
+    .values(values)
+    .returning();
+
+  if (!createdAsset) {
+    throw new Error("创建资产失败。");
+  }
+
+  return createdAsset;
+}
+
+export async function deleteCmdbAsset(database: Database, id: number) {
+  const [asset] = await database
+    .select()
+    .from(cmdbAssets)
+    .where(eq(cmdbAssets.id, id));
+
+  if (!asset) {
+    throw new Error("资产不存在，无法删除。");
+  }
+
+  const attachedProjects = await database.select().from(cmdbProjects);
+  const linkedProjectCount = attachedProjects.filter(
+    (project) => cleanString(project.config?.targetAssetName) === asset.name,
+  ).length;
+
+  if (linkedProjectCount > 0) {
+    throw new Error(
+      `资产 ${asset.name} 已关联 ${linkedProjectCount} 个项目，请先解除关联后再删除。`,
+    );
+  }
+
+  await database.delete(cmdbAssets).where(eq(cmdbAssets.id, id));
+
+  return { success: true };
+}
+
+export async function upsertCmdbProject(
+  database: Database,
+  input: {
+    id?: number;
+    name?: string;
+    gitlabPath: string;
+    description?: string;
+    defaultBranch?: string;
+    enabled: boolean;
+    deployTarget: (typeof cmdbDeployTargetValues)[number];
+    config?: Partial<CmdbProjectConfig>;
+    syncWithGitLab: boolean;
+  },
+) {
   const gitlabPath = cleanString(input.gitlabPath);
   if (!gitlabPath) {
     throw new Error("请填写 GitLab 项目路径，例如 group/project。");
   }
 
-  let gitlabMeta:
-    | {
-        gitlabProjectId: number;
-        name: string;
-        path: string;
-        description: string | null;
-        defaultBranch: string;
-        webUrl: string;
-      }
-    | null = null;
+  let gitlabMeta: {
+    gitlabProjectId: number;
+    name: string;
+    path: string;
+    description: string | null;
+    defaultBranch: string;
+    webUrl: string;
+  } | null = null;
 
   if (input.syncWithGitLab) {
     gitlabMeta = await fetchGitLabProject(gitlabPath);
@@ -596,7 +768,8 @@ export async function upsertCmdbProject(database: Database, input: {
     gitlabProjectId: gitlabMeta?.gitlabProjectId,
     gitlabPath: gitlabMeta?.path ?? gitlabPath,
     gitlabWebUrl: gitlabMeta?.webUrl,
-    description: cleanString(input.description) ?? gitlabMeta?.description ?? null,
+    description:
+      cleanString(input.description) ?? gitlabMeta?.description ?? null,
     defaultBranch:
       cleanString(input.defaultBranch) ?? gitlabMeta?.defaultBranch ?? "main",
     enabled: input.enabled,
@@ -634,7 +807,8 @@ export async function upsertCmdbProject(database: Database, input: {
 export async function getCmdbDashboard(database: Database) {
   await refreshRunningCmdbReleases(database);
 
-  const [projectRows, releaseRows] = await Promise.all([
+  const [assetRows, projectRows, releaseRows] = await Promise.all([
+    database.select().from(cmdbAssets).orderBy(cmdbAssets.name),
     database
       .select()
       .from(cmdbProjects)
@@ -649,7 +823,6 @@ export async function getCmdbDashboard(database: Database) {
     }
   }
 
-  const assetInventory = await loadClusterInventory();
   const attachedProjectCountByAsset = new Map<string, number>();
 
   for (const project of projectRows) {
@@ -661,31 +834,22 @@ export async function getCmdbDashboard(database: Database) {
     );
   }
 
-  const assets = Array.from(assetInventory.nodes.values())
-    .map((node) => {
-      const roles = node.roles ?? [];
-      let status: "connected" | "planned" | "unknown" = "unknown";
-
-      if (assetInventory.includedNodeNames.has(node.name)) {
-        status = "connected";
-      } else if (assetInventory.skippedNodeNames.has(node.name)) {
-        status = "planned";
-      } else if (assetInventory.nodes.size > 0) {
-        status = "planned";
-      }
+  const assets = assetRows
+    .map((asset) => {
+      const roles = normalizeAssetRoles(asset.roles);
 
       return {
-        name: node.name,
-        ip: node.ip,
-        sshUser: cleanString(node.sshUser) ?? null,
-        sshPort: node.sshPort ?? 22,
+        id: asset.id,
+        name: asset.name,
+        ip: asset.ip,
+        sshUser: cleanString(asset.sshUser) ?? null,
+        sshPort: asset.sshPort ?? 22,
         roles,
-        arch: cleanString(node.arch) ?? null,
+        arch: cleanString(asset.arch) ?? null,
         hasGpu: roles.includes("gpu"),
-        isController:
-          node.ip === assetInventory.controllerIp || roles.includes("master"),
-        attachedProjectCount: attachedProjectCountByAsset.get(node.name) ?? 0,
-        status,
+        isController: roles.includes("master"),
+        attachedProjectCount: attachedProjectCountByAsset.get(asset.name) ?? 0,
+        status: asset.status,
       };
     })
     .sort((left, right) => {
@@ -698,14 +862,18 @@ export async function getCmdbDashboard(database: Database) {
   const projects = await Promise.all(
     projectRows.map(async (project) => ({
       ...project,
-      gitlabWebUrl: buildGitLabProjectUrl(project.gitlabPath, project.gitlabWebUrl),
+      gitlabWebUrl: buildGitLabProjectUrl(
+        project.gitlabPath,
+        project.gitlabWebUrl,
+      ),
       latestRelease: latestReleaseByProject.get(project.id) ?? null,
       monitor: await probeProjectHealth(project.config),
     })),
   );
 
   const recentReleases = releaseRows.slice(0, 12).map((release) => {
-    const project = projectRows.find((item) => item.id === release.projectId) ?? null;
+    const project =
+      projectRows.find((item) => item.id === release.projectId) ?? null;
 
     return {
       ...release,
@@ -732,14 +900,15 @@ export async function getCmdbDashboard(database: Database) {
       hasApiToken: Boolean(env.GITLAB_API_TOKEN),
     },
     cluster: {
-      clusterName: assetInventory.clusterName,
-      controllerIp: assetInventory.controllerIp,
-      kubernetesVersion: assetInventory.kubernetesVersion,
+      clusterName: null,
+      controllerIp: null,
+      kubernetesVersion: null,
     },
     overview: {
       assetTotal: assets.length,
-      connectedAssetTotal: assets.filter((asset) => asset.status === "connected")
-        .length,
+      connectedAssetTotal: assets.filter(
+        (asset) => asset.status === "connected",
+      ).length,
       gpuAssetTotal: assets.filter((asset) => asset.hasGpu).length,
       projectTotal: projects.length,
       monitoredProjectTotal: projects.filter((project) =>
@@ -748,11 +917,13 @@ export async function getCmdbDashboard(database: Database) {
       healthyProjectTotal: projects.filter(
         (project) => project.monitor.status === "healthy",
       ).length,
-      runningReleaseTotal: releaseRows.filter((release) =>
-        release.status === "pending" || release.status === "running",
+      runningReleaseTotal: releaseRows.filter(
+        (release) =>
+          release.status === "pending" || release.status === "running",
       ).length,
-      failedReleaseTotal: releaseRows.filter((release) => release.status === "failed")
-        .length,
+      failedReleaseTotal: releaseRows.filter(
+        (release) => release.status === "failed",
+      ).length,
     },
     assets,
     projects,

@@ -71,6 +71,13 @@
       "when": 1776931200000,
       "tag": "0009_cmdb_gitlab",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777003200000,
+      "tag": "0010_cmdb_manual_assets",
+      "breakpoints": true
     }
   ]
 }
