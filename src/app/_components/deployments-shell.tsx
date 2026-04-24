@@ -747,16 +747,16 @@ export function DeploymentsShell() {
             </div>
 
             <div className="hidden lg:block">
-              <Table className="min-w-[1040px]">
+              <Table className="min-w-[1280px] table-fixed">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead>部署</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>Runtime / 模型</TableHead>
-                    <TableHead>资源 / 节点</TableHead>
-                    <TableHead>入口</TableHead>
-                    <TableHead>更新时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
+                    <TableHead className="w-[170px]">部署</TableHead>
+                    <TableHead className="w-[105px]">状态</TableHead>
+                    <TableHead className="w-[390px]">Runtime / 模型</TableHead>
+                    <TableHead className="w-[260px]">资源 / 节点</TableHead>
+                    <TableHead className="w-[210px]">入口</TableHead>
+                    <TableHead className="w-[145px]">更新时间</TableHead>
+                    <TableHead className="w-[180px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -781,8 +781,8 @@ export function DeploymentsShell() {
 
                     return (
                       <TableRow key={row.id} className="border-border/70">
-                        <TableCell className="align-top">
-                          <div className="flex flex-col gap-1">
+                        <TableCell className="align-top whitespace-normal">
+                          <div className="flex min-w-0 flex-col gap-1">
                             <p className="text-foreground font-medium">
                               {row.name}
                             </p>
@@ -803,43 +803,43 @@ export function DeploymentsShell() {
                             {inferenceDeploymentStatusLabels[row.status]}
                           </Badge>
                         </TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex max-w-[24rem] flex-col gap-1">
+                        <TableCell className="align-top whitespace-normal">
+                          <div className="flex min-w-0 flex-col gap-1">
                             <span className="text-foreground font-medium">
                               {inferenceDeploymentEngineLabels[row.engine]}
                             </span>
-                            <span className="text-muted-foreground text-sm break-all">
+                            <span className="text-muted-foreground text-sm leading-5 break-all">
                               {row.modelRef}
                             </span>
-                            <span className="text-muted-foreground/85 text-xs break-all">
+                            <span className="text-muted-foreground/85 text-xs leading-5 break-all">
                               {row.image}
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-foreground font-medium">
+                        <TableCell className="align-top whitespace-normal">
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="text-foreground font-medium leading-5">
                               {resourceLabel(row)}
                             </span>
-                            <span className="text-muted-foreground text-sm">
+                            <span className="text-muted-foreground text-sm leading-5 break-all">
                               {nodeLabel(row)}
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex flex-col gap-1">
+                        <TableCell className="align-top whitespace-normal">
+                          <div className="flex min-w-0 flex-col gap-1">
                             <span className="text-foreground font-medium">
                               {row.nodePort ? `:${row.nodePort}` : "-"}
                             </span>
-                            <span className="text-muted-foreground text-sm break-all">
+                            <span className="text-muted-foreground text-sm leading-5 break-all">
                               {row.endpoint ?? "-"}
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-muted-foreground align-top">
+                        <TableCell className="text-muted-foreground align-top whitespace-normal">
                           {row.updatedAt ?? "-"}
                         </TableCell>
-                        <TableCell className="align-top">
+                        <TableCell className="align-top whitespace-normal">
                           <DeploymentActionButtons
                             row={row}
                             canOpenApi={canOpenApi}
