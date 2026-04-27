@@ -1,7 +1,7 @@
-import net from "node:net";
-
 import { desc, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { Client } from "ssh2";
+import type { ConnectConfig } from "ssh2";
 
 import { env } from "@/env";
 import type * as DbSchema from "@/server/db/schema";
@@ -91,65 +91,183 @@ function normalizeAssetRoles(roles: string[] | null | undefined) {
   );
 }
 
-export async function testCmdbAssetConnectivity(input: {
+function normalizeTargetAssetNames(
+  assetNames: string[] | null | undefined,
+  fallbackName?: string | null,
+) {
+  const normalized = [
+    ...(assetNames ?? []),
+    ...(fallbackName ? [fallbackName] : []),
+  ]
+    .map((assetName) => cleanString(assetName))
+    .filter((assetName): assetName is string => Boolean(assetName));
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizeSshPort(port: number | null | undefined) {
+  const normalizedPort = port ?? 22;
+  if (
+    !Number.isInteger(normalizedPort) ||
+    normalizedPort < 1 ||
+    normalizedPort > 65535
+  ) {
+    throw new Error("SSH 端口必须是 1-65535 的整数。");
+  }
+
+  return normalizedPort;
+}
+
+function buildSshConfig(input: {
   ip: string;
+  sshUser?: string | null;
+  sshPassword?: string | null;
   sshPort?: number;
-}) {
+}): ConnectConfig {
   const host = cleanString(input.ip);
   if (!host) {
     throw new Error("请先填写服务器 IP 或主机地址。");
   }
 
-  const port = input.sshPort ?? 22;
-  if (!Number.isInteger(port) || port <= 0) {
-    throw new Error("SSH 端口必须是大于 0 的整数。");
+  const username = cleanString(input.sshUser);
+  if (!username) {
+    throw new Error("请填写 SSH 用户。");
   }
 
+  const password = input.sshPassword;
+  if (!password) {
+    throw new Error("请填写 SSH 密码。");
+  }
+
+  return {
+    host,
+    port: normalizeSshPort(input.sshPort),
+    username,
+    password,
+    readyTimeout: 5000,
+    keepaliveInterval: 10000,
+  };
+}
+
+function sshErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) return "SSH 登录失败";
+
+  if (/authentication/i.test(error.message)) {
+    return "SSH 用户名或密码认证失败";
+  }
+  if (/timed out|timeout/i.test(error.message)) {
+    return "SSH 登录超时";
+  }
+
+  return error.message;
+}
+
+function sshExec(
+  input: {
+    ip: string;
+    sshUser?: string | null;
+    sshPassword?: string | null;
+    sshPort?: number;
+  },
+  command?: string,
+) {
+  const config = buildSshConfig(input);
   const startedAt = Date.now();
 
   return new Promise<{
-    status: "connected" | "unknown";
-    message: string;
+    stdout: string;
+    stderr: string;
+    code: number | null;
+    signal: string | null;
     durationMs: number;
-  }>((resolve) => {
-    const socket = new net.Socket();
+  }>((resolve, reject) => {
+    const client = new Client();
     let settled = false;
 
-    const finish = (result: {
-      status: "connected" | "unknown";
-      message: string;
-    }) => {
+    const finish = (
+      error: Error | null,
+      result?: {
+        stdout: string;
+        stderr: string;
+        code: number | null;
+        signal: string | null;
+      },
+    ) => {
       if (settled) return;
       settled = true;
-      socket.destroy();
+      client.end();
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
       resolve({
-        ...result,
+        stdout: result?.stdout ?? "",
+        stderr: result?.stderr ?? "",
+        code: result?.code ?? 0,
+        signal: result?.signal ?? null,
         durationMs: Date.now() - startedAt,
       });
     };
 
-    socket.setTimeout(2500);
-    socket.once("connect", () => {
-      finish({
-        status: "connected",
-        message: `TCP ${host}:${port} 可达`,
-      });
-    });
-    socket.once("timeout", () => {
-      finish({
-        status: "unknown",
-        message: `连接 ${host}:${port} 超时`,
-      });
-    });
-    socket.once("error", (error) => {
-      finish({
-        status: "unknown",
-        message: error instanceof Error ? error.message : "连接失败",
+    client.once("ready", () => {
+      if (!command) {
+        finish(null);
+        return;
+      }
+
+      client.exec(command, (error, stream) => {
+        if (error) {
+          finish(error);
+          return;
+        }
+
+        let stdout = "";
+        let stderr = "";
+
+        stream.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString("utf8");
+        });
+        stream.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf8");
+        });
+        stream.once("close", (code: number | null, signal: string | null) => {
+          finish(null, { stdout, stderr, code, signal });
+        });
       });
     });
 
-    socket.connect(port, host);
+    client.once("error", (error) => {
+      finish(error);
+    });
+
+    client.connect(config);
   });
+}
+
+export async function testCmdbAssetConnectivity(input: {
+  ip: string;
+  sshUser?: string;
+  sshPassword?: string;
+  sshPort?: number;
+}) {
+  const startedAt = Date.now();
+
+  try {
+    const result = await sshExec(input);
+    return {
+      status: "connected" as const,
+      message: "SSH 登录成功",
+      durationMs: result.durationMs,
+    };
+  } catch (error) {
+    return {
+      status: "unknown" as const,
+      message: sshErrorMessage(error),
+      durationMs: Date.now() - startedAt,
+    };
+  }
 }
 
 async function gitlabApiFetch<T>(
@@ -455,7 +573,14 @@ export function normalizeProjectConfig(
 
   const normalized: CmdbProjectConfig = {
     triggerToken: cleanString(config.triggerToken),
-    targetAssetName: cleanString(config.targetAssetName),
+    targetAssetName: normalizeTargetAssetNames(
+      config.targetAssetNames,
+      config.targetAssetName,
+    )[0],
+    targetAssetNames: normalizeTargetAssetNames(
+      config.targetAssetNames,
+      config.targetAssetName,
+    ),
     deployEnv: cleanString(config.deployEnv),
     healthUrl: cleanString(config.healthUrl),
     monitorUrl: cleanString(config.monitorUrl),
@@ -479,7 +604,8 @@ export function normalizeProjectConfig(
   return hasValue ? normalized : undefined;
 }
 
-function buildReleaseVariables(
+async function buildReleaseVariables(
+  database: Database,
   project: Pick<CmdbProjectRow, "deployTarget" | "config">,
   overrides?: Record<string, string>,
 ) {
@@ -493,8 +619,71 @@ function buildReleaseVariables(
   if (project.config?.deployEnv) {
     variables.DEPLOY_ENV = project.config.deployEnv;
   }
-  if (project.config?.targetAssetName) {
-    variables.DEPLOY_HOST = project.config.targetAssetName;
+  const targetAssetName = cleanString(project.config?.targetAssetName);
+  const targetAssetNames = normalizeTargetAssetNames(
+    project.config?.targetAssetNames,
+    targetAssetName,
+  );
+  if (targetAssetNames.length > 0) {
+    variables.DEPLOY_ASSET_NAME = targetAssetNames[0]!;
+    variables.DEPLOY_ASSET_NAMES = targetAssetNames.join(",");
+    variables.DEPLOY_TARGET_COUNT = String(targetAssetNames.length);
+    variables.DEPLOY_HOST = targetAssetNames[0]!;
+
+    const assetRows = await database
+      .select()
+      .from(cmdbAssets)
+      .where(inArray(cmdbAssets.name, targetAssetNames));
+    const assetByName = new Map(assetRows.map((asset) => [asset.name, asset]));
+    const deployTargets = targetAssetNames
+      .map((assetName) => assetByName.get(assetName))
+      .filter((asset): asset is (typeof assetRows)[number] => Boolean(asset))
+      .map((asset) => ({
+        name: asset.name,
+        host: asset.ip,
+        sshHost: asset.ip,
+        sshPort: asset.sshPort ?? 22,
+        sshUser: cleanString(asset.sshUser) ?? "",
+        sshPassword: asset.sshPassword ?? "",
+        roles: normalizeAssetRoles(asset.roles),
+        arch: cleanString(asset.arch) ?? "",
+      }));
+
+    if (deployTargets.length > 0) {
+      const [primaryTarget] = deployTargets;
+      variables.DEPLOY_TARGETS_JSON = JSON.stringify(deployTargets);
+      variables.DEPLOY_HOSTS = deployTargets
+        .map((target) => target.host)
+        .join(",");
+      variables.DEPLOY_SSH_HOSTS = deployTargets
+        .map((target) => target.sshHost)
+        .join(",");
+      variables.DEPLOY_SSH_PORTS = deployTargets
+        .map((target) => String(target.sshPort))
+        .join(",");
+      variables.DEPLOY_SSH_USERS = deployTargets
+        .map((target) => target.sshUser)
+        .join(",");
+
+      if (primaryTarget) {
+        variables.DEPLOY_ASSET_NAME = primaryTarget.name;
+        variables.DEPLOY_HOST = primaryTarget.host;
+        variables.DEPLOY_SSH_HOST = primaryTarget.sshHost;
+        variables.DEPLOY_SSH_PORT = String(primaryTarget.sshPort);
+        if (primaryTarget.sshUser) {
+          variables.DEPLOY_SSH_USER = primaryTarget.sshUser;
+        }
+        if (primaryTarget.sshPassword) {
+          variables.DEPLOY_SSH_PASSWORD = primaryTarget.sshPassword;
+        }
+        if (primaryTarget.roles.length > 0) {
+          variables.DEPLOY_ASSET_ROLES = primaryTarget.roles.join(",");
+        }
+        if (primaryTarget.arch) {
+          variables.DEPLOY_ASSET_ARCH = primaryTarget.arch;
+        }
+      }
+    }
   }
   if (project.config?.k8sNamespace) {
     variables.K8S_NAMESPACE = project.config.k8sNamespace;
@@ -530,12 +719,17 @@ export async function createCmdbRelease(
     deployEnv?: string;
     variables?: Record<string, string>;
     triggeredBy?: string;
+    throwOnPipelineError?: boolean;
   },
 ) {
   const ref = cleanString(args.ref) ?? args.project.defaultBranch;
   const deployEnv =
     cleanString(args.deployEnv) ?? args.project.config?.deployEnv;
-  const variables = buildReleaseVariables(args.project, args.variables);
+  const variables = await buildReleaseVariables(
+    database,
+    args.project,
+    args.variables,
+  );
 
   const [release] = await database
     .insert(cmdbReleases)
@@ -575,17 +769,130 @@ export async function createCmdbRelease(
 
     return updatedRelease ?? release;
   } catch (error) {
-    await database
+    const [failedRelease] = await database
       .update(cmdbReleases)
       .set({
         status: "failed",
         lastError: error instanceof Error ? error.message : "发布失败",
         completedAt: new Date(),
       })
-      .where(eq(cmdbReleases.id, release.id));
+      .where(eq(cmdbReleases.id, release.id))
+      .returning();
+
+    if (args.throwOnPipelineError === false) {
+      return failedRelease ?? release;
+    }
 
     throw error;
   }
+}
+
+export async function createCmdbTopicRelease(
+  database: Database,
+  args: {
+    projectIds: number[];
+    topic?: string;
+    ref?: string;
+    deployEnv?: string;
+    variables?: Record<string, string>;
+    triggeredBy?: string;
+  },
+) {
+  const projectIds = Array.from(new Set(args.projectIds));
+  if (projectIds.length === 0) {
+    throw new Error("请选择至少一个要发布的项目。");
+  }
+
+  const topic = cleanString(args.topic);
+  const projectRows = await database
+    .select()
+    .from(cmdbProjects)
+    .where(inArray(cmdbProjects.id, projectIds));
+  const projectsById = new Map(
+    projectRows.map((project) => [project.id, project]),
+  );
+  const topicVariables = {
+    ...(args.variables ?? {}),
+    ...(topic ? { CMDB_RELEASE_TOPIC: topic } : {}),
+  };
+
+  const results: Array<{
+    projectId: number;
+    projectName?: string;
+    gitlabPath?: string;
+    releaseId?: number;
+    status: CmdbReleaseStatus | "skipped";
+    pipelineUrl?: string | null;
+    error?: string | null;
+  }> = [];
+
+  for (const projectId of projectIds) {
+    const project = projectsById.get(projectId);
+
+    if (!project) {
+      results.push({
+        projectId,
+        status: "skipped",
+        error: "项目不存在。",
+      });
+      continue;
+    }
+
+    if (!project.enabled) {
+      results.push({
+        projectId,
+        projectName: project.name,
+        gitlabPath: project.gitlabPath,
+        status: "skipped",
+        error: "项目已禁用。",
+      });
+      continue;
+    }
+
+    try {
+      const release = await createCmdbRelease(database, {
+        project,
+        ref: args.ref,
+        deployEnv: args.deployEnv,
+        variables: topicVariables,
+        triggeredBy:
+          cleanString(args.triggeredBy) ??
+          (topic ? `主题发布：${topic}` : "主题发布"),
+        throwOnPipelineError: false,
+      });
+
+      results.push({
+        projectId: project.id,
+        projectName: project.name,
+        gitlabPath: project.gitlabPath,
+        releaseId: release.id,
+        status: release.status,
+        pipelineUrl: release.gitlabPipelineUrl,
+        error: release.lastError,
+      });
+    } catch (error) {
+      results.push({
+        projectId: project.id,
+        projectName: project.name,
+        gitlabPath: project.gitlabPath,
+        status: "failed",
+        error: error instanceof Error ? error.message : "发布失败",
+      });
+    }
+  }
+
+  const successTotal = results.filter(
+    (result) => result.status !== "failed" && result.status !== "skipped",
+  ).length;
+  const failedTotal = results.length - successTotal;
+
+  return {
+    topic: topic ?? null,
+    total: results.length,
+    successTotal,
+    failedTotal,
+    results,
+  };
 }
 
 async function syncAssetNameToProjects(
@@ -598,14 +905,24 @@ async function syncAssetNameToProjects(
   const projectRows = await database.select().from(cmdbProjects);
 
   for (const project of projectRows) {
-    if (cleanString(project.config?.targetAssetName) !== previousName) continue;
+    const targetAssetNames = normalizeTargetAssetNames(
+      project.config?.targetAssetNames,
+      project.config?.targetAssetName,
+    );
+    if (!targetAssetNames.includes(previousName)) continue;
 
     await database
       .update(cmdbProjects)
       .set({
         config: normalizeProjectConfig({
           ...project.config,
-          targetAssetName: nextName,
+          targetAssetName:
+            cleanString(project.config?.targetAssetName) === previousName
+              ? nextName
+              : project.config?.targetAssetName,
+          targetAssetNames: targetAssetNames.map((assetName) =>
+            assetName === previousName ? nextName : assetName,
+          ),
         }),
       })
       .where(eq(cmdbProjects.id, project.id));
@@ -619,6 +936,7 @@ export async function upsertCmdbAsset(
     name: string;
     ip: string;
     sshUser?: string;
+    sshPassword?: string;
     sshPort?: number;
     roles?: string[];
     arch?: string;
@@ -635,9 +953,18 @@ export async function upsertCmdbAsset(
     throw new Error("请填写服务器 IP 或主机地址。");
   }
 
+  const sshUser = cleanString(input.sshUser);
+  if (!sshUser) {
+    throw new Error("请填写 SSH 用户。");
+  }
+
+  if (!input.sshPassword) {
+    throw new Error("请填写 SSH 密码。");
+  }
+
   const sshPort = input.sshPort ?? 22;
-  if (!Number.isInteger(sshPort) || sshPort <= 0) {
-    throw new Error("SSH 端口必须是大于 0 的整数。");
+  if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) {
+    throw new Error("SSH 端口必须是 1-65535 的整数。");
   }
 
   const [sameNameAsset] = await database
@@ -652,7 +979,8 @@ export async function upsertCmdbAsset(
   const values = {
     name,
     ip,
-    sshUser: cleanString(input.sshUser) ?? null,
+    sshUser,
+    sshPassword: input.sshPassword,
     sshPort,
     roles: normalizeAssetRoles(input.roles),
     arch: cleanString(input.arch) ?? null,
@@ -711,8 +1039,11 @@ export async function deleteCmdbAsset(database: Database, id: number) {
   }
 
   const attachedProjects = await database.select().from(cmdbProjects);
-  const linkedProjectCount = attachedProjects.filter(
-    (project) => cleanString(project.config?.targetAssetName) === asset.name,
+  const linkedProjectCount = attachedProjects.filter((project) =>
+    normalizeTargetAssetNames(
+      project.config?.targetAssetNames,
+      project.config?.targetAssetName,
+    ).includes(asset.name),
   ).length;
 
   if (linkedProjectCount > 0) {
@@ -826,12 +1157,15 @@ export async function getCmdbDashboard(database: Database) {
   const attachedProjectCountByAsset = new Map<string, number>();
 
   for (const project of projectRows) {
-    const assetName = cleanString(project.config?.targetAssetName);
-    if (!assetName) continue;
-    attachedProjectCountByAsset.set(
-      assetName,
-      (attachedProjectCountByAsset.get(assetName) ?? 0) + 1,
-    );
+    for (const assetName of normalizeTargetAssetNames(
+      project.config?.targetAssetNames,
+      project.config?.targetAssetName,
+    )) {
+      attachedProjectCountByAsset.set(
+        assetName,
+        (attachedProjectCountByAsset.get(assetName) ?? 0) + 1,
+      );
+    }
   }
 
   const assets = assetRows
@@ -843,6 +1177,7 @@ export async function getCmdbDashboard(database: Database) {
         name: asset.name,
         ip: asset.ip,
         sshUser: cleanString(asset.sshUser) ?? null,
+        sshPassword: asset.sshPassword ?? null,
         sshPort: asset.sshPort ?? 22,
         roles,
         arch: cleanString(asset.arch) ?? null,

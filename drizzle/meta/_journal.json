@@ -78,6 +78,13 @@
       "when": 1777003200000,
       "tag": "0010_cmdb_manual_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777272409000,
+      "tag": "0011_cmdb_asset_ssh_password",
+      "breakpoints": true
     }
   ]
 }

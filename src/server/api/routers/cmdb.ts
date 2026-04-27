@@ -6,6 +6,7 @@ import { cmdbProjects } from "@/server/db/schema";
 import {
   cmdbAssetStatusValues,
   cmdbDeployTargetValues,
+  createCmdbTopicRelease,
   createCmdbRelease,
   deleteCmdbAsset,
   getCmdbDashboard,
@@ -20,6 +21,7 @@ const assetSchema = z.object({
   name: z.string().min(1).max(128),
   ip: z.string().min(1).max(128),
   sshUser: z.string().optional(),
+  sshPassword: z.string().optional(),
   sshPort: z.number().int().positive().optional(),
   roles: z.array(z.string()).default([]),
   arch: z.string().optional(),
@@ -30,6 +32,7 @@ const projectConfigSchema = z.object({
   triggerToken: z.string().optional(),
   customVariables: z.record(z.string()).optional(),
   targetAssetName: z.string().optional(),
+  targetAssetNames: z.array(z.string()).optional(),
   deployEnv: z.string().optional(),
   healthUrl: z.string().optional(),
   monitorUrl: z.string().optional(),
@@ -55,6 +58,8 @@ export const cmdbRouter = createTRPCRouter({
     .input(
       z.object({
         ip: z.string().min(1).max(128),
+        sshUser: z.string().min(1).max(128),
+        sshPassword: z.string().min(1),
         sshPort: z.number().int().positive().optional(),
       }),
     )
@@ -131,6 +136,28 @@ export const cmdbRouter = createTRPCRouter({
 
       return createCmdbRelease(ctx.db, {
         project,
+        ref: input.ref,
+        deployEnv: input.deployEnv,
+        variables: input.variables,
+        triggeredBy: input.triggeredBy,
+      });
+    }),
+
+  triggerTopicRelease: publicProcedure
+    .input(
+      z.object({
+        topic: z.string().optional(),
+        projectIds: z.array(z.number()).min(1).max(50),
+        ref: z.string().optional(),
+        deployEnv: z.string().optional(),
+        variables: z.record(z.string()).optional(),
+        triggeredBy: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return createCmdbTopicRelease(ctx.db, {
+        topic: input.topic,
+        projectIds: input.projectIds,
         ref: input.ref,
         deployEnv: input.deployEnv,
         variables: input.variables,

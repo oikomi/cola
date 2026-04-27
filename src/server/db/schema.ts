@@ -241,6 +241,7 @@ export type CmdbProjectConfig = {
   triggerToken?: string;
   customVariables?: Record<string, string>;
   targetAssetName?: string;
+  targetAssetNames?: string[];
   deployEnv?: string;
   healthUrl?: string;
   monitorUrl?: string;
@@ -258,6 +259,7 @@ export const cmdbAssets = createTable(
     name: d.varchar({ length: 128 }).notNull().unique(),
     ip: d.varchar({ length: 128 }).notNull(),
     sshUser: d.varchar({ length: 128 }),
+    sshPassword: d.text(),
     sshPort: d.integer().notNull().default(22),
     roles: d.jsonb().$type<string[]>(),
     arch: d.varchar({ length: 64 }),

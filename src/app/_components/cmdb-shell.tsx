@@ -7,12 +7,15 @@ import {
   CircleDotIcon,
   ExternalLinkIcon,
   GitBranchIcon,
+  KeyRoundIcon,
+  ListChecksIcon,
   LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   RocketIcon,
   ServerIcon,
+  ShieldCheckIcon,
   Trash2Icon,
   XIcon,
   type LucideIcon,
@@ -59,6 +62,7 @@ type AssetRow = DashboardData["assets"][number];
 type ProjectRow = DashboardData["projects"][number];
 type ReleaseRow = DashboardData["releases"][number];
 type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
+type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const UNSET_ARCH_VALUE = "__unset_arch__";
@@ -106,7 +110,7 @@ type ProjectDraft = {
   defaultBranch: string;
   enabled: "true" | "false";
   deployTarget: "k8s" | "ssh" | "docker" | "none";
-  targetAssetName: string;
+  targetAssetNames: string[];
   deployEnv: string;
   healthUrl: string;
   monitorUrl: string;
@@ -124,6 +128,7 @@ type AssetDraft = {
   name: string;
   ip: string;
   sshUser: string;
+  sshPassword: string;
   sshPort: string;
   rolesText: string;
   arch: string;
@@ -138,6 +143,14 @@ type ReleaseDraft = {
   variablesText: string;
 };
 
+type TopicReleaseDraft = {
+  topic: string;
+  projectIds: number[];
+  ref: string;
+  deployEnv: string;
+  variablesText: string;
+};
+
 function emptyProjectDraft(): ProjectDraft {
   return {
     name: "",
@@ -146,7 +159,7 @@ function emptyProjectDraft(): ProjectDraft {
     defaultBranch: "main",
     enabled: "true",
     deployTarget: "k8s",
-    targetAssetName: UNASSIGNED_VALUE,
+    targetAssetNames: [],
     deployEnv: "prod",
     healthUrl: "",
     monitorUrl: "",
@@ -165,6 +178,7 @@ function emptyAssetDraft(): AssetDraft {
     name: "",
     ip: "",
     sshUser: "",
+    sshPassword: "",
     sshPort: "22",
     rolesText: "",
     arch: "",
@@ -177,6 +191,16 @@ function emptyReleaseDraft(): ReleaseDraft {
     projectName: "",
     ref: "main",
     deployEnv: "prod",
+    variablesText: "",
+  };
+}
+
+function emptyTopicReleaseDraft(): TopicReleaseDraft {
+  return {
+    topic: "",
+    projectIds: [],
+    ref: "",
+    deployEnv: "",
     variablesText: "",
   };
 }
@@ -225,12 +249,38 @@ function parseAssetRoles(raw: string) {
   );
 }
 
+function normalizeTargetAssetNames(
+  assetNames: string[] | null | undefined,
+  fallbackName?: string | null,
+) {
+  const normalized = [
+    ...(assetNames ?? []),
+    ...(fallbackName ? [fallbackName] : []),
+  ]
+    .map((assetName) => assetName.trim())
+    .filter(
+      (assetName) => assetName.length > 0 && assetName !== UNASSIGNED_VALUE,
+    );
+
+  return Array.from(new Set(normalized));
+}
+
+function parseSshPort(raw: string) {
+  const normalized = raw.trim();
+  if (normalized.length === 0) return 22;
+  if (!/^\d+$/.test(normalized)) return null;
+
+  const parsed = Number.parseInt(normalized, 10);
+  return parsed >= 1 && parsed <= 65535 ? parsed : null;
+}
+
 function assetDraftFromRow(asset: AssetRow): AssetDraft {
   return {
     id: asset.id,
     name: asset.name,
     ip: asset.ip,
     sshUser: asset.sshUser ?? "",
+    sshPassword: asset.sshPassword ?? "",
     sshPort: String(asset.sshPort ?? 22),
     rolesText: serializeAssetRoles(asset.roles),
     arch: asset.arch ?? "",
@@ -247,7 +297,10 @@ function projectDraftFromRow(project: ProjectRow): ProjectDraft {
     defaultBranch: project.defaultBranch,
     enabled: project.enabled ? "true" : "false",
     deployTarget: project.deployTarget,
-    targetAssetName: project.config?.targetAssetName ?? UNASSIGNED_VALUE,
+    targetAssetNames: normalizeTargetAssetNames(
+      project.config?.targetAssetNames,
+      project.config?.targetAssetName,
+    ),
     deployEnv: project.config?.deployEnv ?? "prod",
     healthUrl: project.config?.healthUrl ?? "",
     monitorUrl: project.config?.monitorUrl ?? "",
@@ -374,6 +427,19 @@ function releaseLabel(status: ReleaseRow["status"]) {
   }
 }
 
+function topicReleaseStatusTone(status: ReleaseRow["status"] | "skipped") {
+  if (status === "skipped") {
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+
+  return releaseTone(status);
+}
+
+function topicReleaseStatusLabel(status: ReleaseRow["status"] | "skipped") {
+  if (status === "skipped") return "已跳过";
+  return releaseLabel(status);
+}
+
 function projectStatusLabel(value: ProjectDraft["enabled"]) {
   return value === "true" ? "启用" : "禁用";
 }
@@ -391,8 +457,53 @@ function draftDeployTargetLabel(value: ProjectDraft["deployTarget"]) {
   }
 }
 
-function targetAssetLabel(value: string) {
-  return value === UNASSIGNED_VALUE ? "未指定资产" : value;
+function targetAssetsLabel(assetNames: string[]) {
+  if (assetNames.length === 0) return "未指定资产";
+  if (assetNames.length === 1) return assetNames[0]!;
+  return `${assetNames.length} 台资产`;
+}
+
+function projectTargetAssetNames(config: ProjectRow["config"]) {
+  return normalizeTargetAssetNames(
+    config?.targetAssetNames,
+    config?.targetAssetName,
+  );
+}
+
+function projectTargetAssetsLabel(config: ProjectRow["config"]) {
+  const assetNames = projectTargetAssetNames(config);
+  return assetNames.length > 0 ? assetNames.join(", ") : "未指定资产";
+}
+
+function projectDraftSshDeploymentIssue(draft: ProjectDraft) {
+  if (draft.deployTarget !== "ssh") return null;
+
+  if (draft.targetAssetNames.length === 0) {
+    return "SSH 发布需要至少选择一台目标资产。";
+  }
+
+  return null;
+}
+
+function savedProjectSshDeploymentIssue(project: ProjectRow) {
+  if (project.deployTarget !== "ssh") return null;
+
+  if (projectTargetAssetNames(project.config).length === 0) {
+    return "SSH 发布需要至少选择一台目标资产。";
+  }
+
+  return null;
+}
+
+function projectReleaseIssue(
+  project: ProjectRow,
+  canTriggerPipelines: boolean,
+) {
+  if (!canTriggerPipelines) {
+    return "GitLab 未配置，无法触发 .gitlab-ci.yml。";
+  }
+
+  return savedProjectSshDeploymentIssue(project);
 }
 
 function ratioLabel(value: number, total: number) {
@@ -645,6 +756,54 @@ function assetConnectivityTone(
   }
 }
 
+function AssetReadinessItem(props: {
+  ok: boolean;
+  label: string;
+  description: string;
+}) {
+  const Icon = props.ok ? CheckCircle2Icon : CircleDotIcon;
+
+  return (
+    <div
+      className={cn(
+        "flex gap-3 rounded-[12px] border px-3 py-3",
+        props.ok
+          ? "border-emerald-200 bg-emerald-50/70"
+          : "border-slate-200 bg-white",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
+          props.ok
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-slate-100 text-slate-400",
+        )}
+      >
+        <Icon className="size-3.5" />
+      </div>
+      <div className="min-w-0">
+        <p
+          className={cn(
+            "text-sm font-medium",
+            props.ok ? "text-emerald-900" : "text-slate-800",
+          )}
+        >
+          {props.label}
+        </p>
+        <p
+          className={cn(
+            "mt-0.5 text-xs leading-5",
+            props.ok ? "text-emerald-700" : "text-slate-500",
+          )}
+        >
+          {props.description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function CmdbEmptyState(props: {
   icon: LucideIcon;
   title: string;
@@ -724,6 +883,7 @@ export function CmdbShell() {
   const [assetDialogOpen, setAssetDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
+  const [topicReleaseDialogOpen, setTopicReleaseDialogOpen] = useState(false);
   const [activeArea, setActiveArea] = useState<CmdbAreaKey>("assets");
   const [projectDraftPanel, setProjectDraftPanel] =
     useState<ProjectDraftPanelKey>("basic");
@@ -738,6 +898,11 @@ export function CmdbShell() {
     useState<ProjectDraft>(emptyProjectDraft);
   const [releaseDraft, setReleaseDraft] =
     useState<ReleaseDraft>(emptyReleaseDraft);
+  const [topicReleaseDraft, setTopicReleaseDraft] = useState<TopicReleaseDraft>(
+    emptyTopicReleaseDraft,
+  );
+  const [topicReleaseResult, setTopicReleaseResult] =
+    useState<TopicReleaseResult | null>(null);
   const [gitlabSearch, setGitlabSearch] = useState("");
   const deferredGitlabSearch = useDeferredValue(gitlabSearch.trim());
 
@@ -834,6 +999,17 @@ export function CmdbShell() {
     },
   });
 
+  const triggerTopicRelease = api.cmdb.triggerTopicRelease.useMutation({
+    onSuccess: async (result) => {
+      await utils.cmdb.dashboard.invalidate();
+      setTopicReleaseResult(result);
+      setErrorMessage(null);
+    },
+    onError: (error) => {
+      setErrorMessage(error.message);
+    },
+  });
+
   const data = dashboardQuery.data;
   const dashboardUnavailable = Boolean(dashboardQuery.error && !data);
   const assets = data?.assets ?? [];
@@ -857,13 +1033,18 @@ export function CmdbShell() {
       }
     : null;
   const projectPathMissing = projectDraft.gitlabPath.trim().length === 0;
-  const projectSaveDisabled = saveProject.isPending || projectPathMissing;
+  const projectSshDeploymentIssue =
+    projectDraftSshDeploymentIssue(projectDraft);
+  const projectSaveDisabled =
+    saveProject.isPending ||
+    projectPathMissing ||
+    Boolean(projectSshDeploymentIssue);
   const projectDeploymentSummary =
     projectDraft.deployTarget === "none"
       ? "不触发部署"
       : `${draftDeployTargetLabel(projectDraft.deployTarget)} · ${
           projectDraft.deployEnv.trim() || "未指定环境"
-        }`;
+        } · ${targetAssetsLabel(projectDraft.targetAssetNames)}`;
   const gitlabConfigured = Boolean(data?.gitlab.baseUrl);
   const gitlabBadgeLabel = data
     ? gitlabConfigured
@@ -880,9 +1061,26 @@ export function CmdbShell() {
       ? "border-rose-200 bg-rose-50 text-rose-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
   const assetRoleTags = parseAssetRoles(assetDraft.rolesText);
+  const assetSshPortPreview = parseSshPort(assetDraft.sshPort);
+  const assetSshPortValid = assetSshPortPreview !== null;
+  const assetNameReady = assetDraft.name.trim().length > 0;
+  const assetHostReady = assetDraft.ip.trim().length > 0;
+  const assetSshUserReady = assetDraft.sshUser.trim().length > 0;
+  const assetSshPasswordReady = assetDraft.sshPassword.length > 0;
+  const assetRolesReady = assetRoleTags.length > 0;
+  const assetCanTestConnectivity =
+    assetHostReady &&
+    assetSshUserReady &&
+    assetSshPasswordReady &&
+    assetSshPortValid;
   const assetDetectedStatus =
     assetConnectionResult?.status ??
     (assetDraft.id ? assetDraft.status : "planned");
+  const assetConnectivityReady = assetConnectionResult
+    ? assetConnectionResult.status === "connected"
+    : assetDraft.id
+      ? assetDraft.status === "connected"
+      : false;
   const assetConnectivityLabel = assetConnectionResult
     ? assetStatusLabel(assetConnectionResult.status)
     : assetDraft.id
@@ -892,7 +1090,7 @@ export function CmdbShell() {
     assetConnectionResult?.message ??
     (assetDraft.id
       ? `当前记录状态：${assetStatusLabel(assetDraft.status)}`
-      : "新增资产时建议先做一次 SSH 端口连通性测试。");
+      : "建议保存前做一次 SSH 登录测试，确认账号密码可用。");
   const assetArchSelectValue =
     assetDraft.arch === "amd64" || assetDraft.arch === "arm64"
       ? assetDraft.arch
@@ -902,6 +1100,16 @@ export function CmdbShell() {
   const enabledProjectTotal = projects.filter(
     (project) => project.enabled,
   ).length;
+  const canTriggerPipelines = Boolean(data?.gitlab.canTriggerPipelines);
+  const topicReleaseSelectedIds = new Set(topicReleaseDraft.projectIds);
+  const releasableProjects = projects.filter(
+    (project) => !projectReleaseIssue(project, canTriggerPipelines),
+  );
+  const selectedTopicProjects = projects.filter((project) =>
+    topicReleaseSelectedIds.has(project.id),
+  );
+  const topicReleaseCanSubmit =
+    topicReleaseDraft.projectIds.length > 0 && !triggerTopicRelease.isPending;
   const connectedAssetTotal =
     data?.overview.connectedAssetTotal ??
     assets.filter((asset) => asset.status === "connected").length;
@@ -922,7 +1130,7 @@ export function CmdbShell() {
       ? "未完成同步"
       : "等待首次同步";
   const dashboardErrorMessage =
-    dashboardQuery.error?.message?.trim() ||
+    dashboardQuery.error?.message?.trim() ??
     "无法读取 CMDB 数据，请检查 DATABASE_URL、数据库服务和 Drizzle 迁移状态。";
   const overviewCards = [
     {
@@ -1051,8 +1259,53 @@ export function CmdbShell() {
   }
 
   function openReleaseModal(project: ProjectRow) {
+    const releaseIssue = projectReleaseIssue(project, canTriggerPipelines);
+    if (releaseIssue) {
+      setErrorMessage(releaseIssue);
+      return;
+    }
+
     setReleaseDraft(releaseDraftFromRow(project));
     setReleaseDialogOpen(true);
+  }
+
+  function openTopicReleaseDialog(initialProjectIds: number[] = []) {
+    setTopicReleaseDraft({
+      ...emptyTopicReleaseDraft(),
+      projectIds: initialProjectIds,
+    });
+    setTopicReleaseResult(null);
+    setTopicReleaseDialogOpen(true);
+  }
+
+  function toggleTopicReleaseProject(projectId: number) {
+    setTopicReleaseDraft((current) => {
+      const exists = current.projectIds.includes(projectId);
+
+      return {
+        ...current,
+        projectIds: exists
+          ? current.projectIds.filter((item) => item !== projectId)
+          : [...current.projectIds, projectId],
+      };
+    });
+    setTopicReleaseResult(null);
+  }
+
+  function selectAllTopicReleaseProjects() {
+    setTopicReleaseDraft((current) => ({
+      ...current,
+      projectIds: releasableProjects.map((project) => project.id),
+    }));
+    setTopicReleaseResult(null);
+  }
+
+  function clearTopicReleaseProjects() {
+    setTopicReleaseDraft((current) => ({
+      ...current,
+      projectIds: [],
+    }));
+    setTopicReleaseResult(null);
   }
 
   function applyGitLabCandidate(candidate: GitLabCatalogRow) {
@@ -1108,33 +1361,54 @@ export function CmdbShell() {
     replaceAssetRoles(assetRoleTags.filter((item) => item !== role));
   }
 
-  function runAssetConnectivityTest() {
-    const normalizedSshPort = assetDraft.sshPort.trim();
-    const parsedSshPort =
-      normalizedSshPort.length > 0
-        ? Number.parseInt(normalizedSshPort, 10)
-        : 22;
+  function addProjectTargetAsset(assetName: string) {
+    if (assetName === UNASSIGNED_VALUE) return;
 
-    if (!Number.isInteger(parsedSshPort) || parsedSshPort <= 0) {
-      setErrorMessage("SSH 端口必须是大于 0 的整数。");
+    setProjectDraft((current) => ({
+      ...current,
+      targetAssetNames: Array.from(
+        new Set([...current.targetAssetNames, assetName]),
+      ),
+    }));
+  }
+
+  function removeProjectTargetAsset(assetName: string) {
+    setProjectDraft((current) => ({
+      ...current,
+      targetAssetNames: current.targetAssetNames.filter(
+        (item) => item !== assetName,
+      ),
+    }));
+  }
+
+  function clearProjectTargetAssets() {
+    setProjectDraft((current) => ({
+      ...current,
+      targetAssetNames: [],
+    }));
+  }
+
+  function runAssetConnectivityTest() {
+    const parsedSshPort = parseSshPort(assetDraft.sshPort);
+
+    if (parsedSshPort === null) {
+      setErrorMessage("SSH 端口必须是 1-65535 的整数。");
       return;
     }
 
     testAssetConnectivity.mutate({
       ip: assetDraft.ip,
+      sshUser: assetDraft.sshUser,
+      sshPassword: assetDraft.sshPassword,
       sshPort: parsedSshPort,
     });
   }
 
   function saveAssetDraft() {
-    const normalizedSshPort = assetDraft.sshPort.trim();
-    const parsedSshPort =
-      normalizedSshPort.length > 0
-        ? Number.parseInt(normalizedSshPort, 10)
-        : 22;
+    const parsedSshPort = parseSshPort(assetDraft.sshPort);
 
-    if (!Number.isInteger(parsedSshPort) || parsedSshPort <= 0) {
-      setErrorMessage("SSH 端口必须是大于 0 的整数。");
+    if (parsedSshPort === null) {
+      setErrorMessage("SSH 端口必须是 1-65535 的整数。");
       return;
     }
 
@@ -1143,6 +1417,7 @@ export function CmdbShell() {
       name: assetDraft.name,
       ip: assetDraft.ip,
       sshUser: assetDraft.sshUser || undefined,
+      sshPassword: assetDraft.sshPassword || undefined,
       sshPort: parsedSshPort,
       roles: assetRoleTags,
       arch: assetDraft.arch || undefined,
@@ -1153,6 +1428,18 @@ export function CmdbShell() {
   }
 
   function saveProjectDraft() {
+    if (projectPathMissing) {
+      setProjectDraftPanel("basic");
+      setErrorMessage("请填写 GitLab 项目路径。");
+      return;
+    }
+
+    if (projectSshDeploymentIssue) {
+      setProjectDraftPanel("deploy");
+      setErrorMessage(projectSshDeploymentIssue);
+      return;
+    }
+
     saveProject.mutate({
       id: projectDraft.id,
       name: projectDraft.name || undefined,
@@ -1163,10 +1450,11 @@ export function CmdbShell() {
       deployTarget: projectDraft.deployTarget,
       syncWithGitLab: Boolean(data?.gitlab.canBrowseCatalog),
       config: {
-        targetAssetName:
-          projectDraft.targetAssetName === UNASSIGNED_VALUE
-            ? undefined
-            : projectDraft.targetAssetName,
+        targetAssetName: projectDraft.targetAssetNames[0],
+        targetAssetNames:
+          projectDraft.targetAssetNames.length > 0
+            ? projectDraft.targetAssetNames
+            : undefined,
         deployEnv: projectDraft.deployEnv || undefined,
         healthUrl: projectDraft.healthUrl || undefined,
         monitorUrl: projectDraft.monitorUrl || undefined,
@@ -1192,6 +1480,21 @@ export function CmdbShell() {
       ref: releaseDraft.ref || undefined,
       deployEnv: releaseDraft.deployEnv || undefined,
       variables: parseVariables(releaseDraft.variablesText),
+    });
+  }
+
+  function triggerTopicReleaseDraftAction() {
+    if (topicReleaseDraft.projectIds.length === 0) {
+      setErrorMessage("请选择至少一个要发布的项目。");
+      return;
+    }
+
+    triggerTopicRelease.mutate({
+      topic: topicReleaseDraft.topic || undefined,
+      projectIds: topicReleaseDraft.projectIds,
+      ref: topicReleaseDraft.ref || undefined,
+      deployEnv: topicReleaseDraft.deployEnv || undefined,
+      variables: parseVariables(topicReleaseDraft.variablesText),
     });
   }
 
@@ -1402,14 +1705,17 @@ export function CmdbShell() {
           density="compact"
           className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
           action={
-            <div className="flex flex-wrap gap-2">
-              <Badge className="border border-slate-200 bg-white text-slate-700">
-                已纳管 {assets.length} 台
-              </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-slate-500">
+                <span className="font-semibold text-slate-950">
+                  {assets.length}
+                </span>{" "}
+                台已纳管
+              </span>
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-[10px]"
+                className="rounded-[9px] border-slate-300 bg-white"
                 onClick={openCreateAssetDialog}
               >
                 <PlusIcon data-icon="inline-start" />
@@ -1634,10 +1940,14 @@ export function CmdbShell() {
           density="compact"
           className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
           action={
-            <div className="flex flex-wrap gap-2">
-              <Badge className="border border-slate-200 bg-white text-slate-700">
-                启用中 {enabledProjectTotal} / {projects.length}
-              </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-slate-500">
+                启用中{" "}
+                <span className="font-semibold text-slate-950">
+                  {enabledProjectTotal}
+                </span>
+                /{projects.length}
+              </span>
               {data.gitlab.baseUrl ? (
                 <a
                   href={data.gitlab.baseUrl}
@@ -1645,7 +1955,7 @@ export function CmdbShell() {
                   rel="noreferrer"
                   className={cn(
                     buttonVariants({ variant: "outline", size: "sm" }),
-                    "rounded-[10px]",
+                    "rounded-[9px] border-slate-300 bg-white",
                   )}
                 >
                   <ExternalLinkIcon data-icon="inline-start" />
@@ -1655,7 +1965,22 @@ export function CmdbShell() {
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-[10px]"
+                className="rounded-[9px] border-slate-300 bg-white"
+                onClick={() => openTopicReleaseDialog()}
+                disabled={releasableProjects.length === 0}
+                title={
+                  releasableProjects.length === 0
+                    ? "当前没有可发布的项目。"
+                    : undefined
+                }
+              >
+                <ListChecksIcon data-icon="inline-start" />
+                主题发布
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-[9px] border-slate-300 bg-white"
                 onClick={openCreateDialog}
               >
                 <PlusIcon data-icon="inline-start" />
@@ -1718,7 +2043,7 @@ export function CmdbShell() {
                       <div className="flex items-start justify-between gap-3">
                         <span className="text-slate-500">目标位置</span>
                         <span className="max-w-[62%] text-right font-medium break-words text-slate-800">
-                          {project.config?.targetAssetName ?? "未指定资产"}
+                          {projectTargetAssetsLabel(project.config)}
                           <br />
                           <span className="font-normal text-slate-500">
                             {project.deployTarget === "k8s"
@@ -1785,7 +2110,18 @@ export function CmdbShell() {
                         size="sm"
                         className="rounded-[10px]"
                         onClick={() => openReleaseModal(project)}
-                        disabled={!data.gitlab.canTriggerPipelines}
+                        disabled={Boolean(
+                          projectReleaseIssue(
+                            project,
+                            data.gitlab.canTriggerPipelines,
+                          ),
+                        )}
+                        title={
+                          projectReleaseIssue(
+                            project,
+                            data.gitlab.canTriggerPipelines,
+                          ) ?? undefined
+                        }
                       >
                         <RocketIcon data-icon="inline-start" />
                         发布
@@ -1884,9 +2220,7 @@ export function CmdbShell() {
                           </div>
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
-                          <div>
-                            {project.config?.targetAssetName ?? "未指定资产"}
-                          </div>
+                          <div>{projectTargetAssetsLabel(project.config)}</div>
                           <div>
                             {project.deployTarget === "k8s"
                               ? `${project.config?.k8sNamespace ?? "default"} / ${project.config?.k8sDeployment ?? "-"}`
@@ -1946,7 +2280,18 @@ export function CmdbShell() {
                               size="sm"
                               className="rounded-[10px]"
                               onClick={() => openReleaseModal(project)}
-                              disabled={!data.gitlab.canTriggerPipelines}
+                              disabled={Boolean(
+                                projectReleaseIssue(
+                                  project,
+                                  data.gitlab.canTriggerPipelines,
+                                ),
+                              )}
+                              title={
+                                projectReleaseIssue(
+                                  project,
+                                  data.gitlab.canTriggerPipelines,
+                                ) ?? undefined
+                              }
                             >
                               <RocketIcon data-icon="inline-start" />
                               发布
@@ -2019,20 +2364,40 @@ export function CmdbShell() {
           density="compact"
           className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
           action={
-            <div className="flex flex-wrap gap-2">
-              <Badge className="border border-slate-200 bg-white text-slate-700">
-                运行中 {data.overview.runningReleaseTotal}
-              </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-slate-500">
+                运行中{" "}
+                <span className="font-semibold text-slate-950">
+                  {data.overview.runningReleaseTotal}
+                </span>
+              </span>
               {projects.length > 0 ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-[10px]"
-                  onClick={() => setActiveArea("projects")}
-                >
-                  <GitBranchIcon data-icon="inline-start" />
-                  去项目区发起发布
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-[9px] border-slate-300 bg-white"
+                    onClick={() => openTopicReleaseDialog()}
+                    disabled={releasableProjects.length === 0}
+                    title={
+                      releasableProjects.length === 0
+                        ? "当前没有可发布的项目。"
+                        : undefined
+                    }
+                  >
+                    <ListChecksIcon data-icon="inline-start" />
+                    主题发布
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-[9px] border-slate-300 bg-white"
+                    onClick={() => setActiveArea("projects")}
+                  >
+                    <GitBranchIcon data-icon="inline-start" />
+                    去项目区
+                  </Button>
+                </>
               ) : null}
             </div>
           }
@@ -2203,293 +2568,468 @@ export function CmdbShell() {
       <Dialog open={assetDialogOpen} onOpenChange={setAssetDialogOpen}>
         <DialogContent
           initialFocus={false}
-          className="max-w-[920px] gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]"
+          className="flex max-h-[calc(100vh-1rem)] max-w-[1120px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]"
         >
-          <DialogHeader className="gap-2 border-b border-slate-200/90 px-5 py-4">
-            <DialogTitle>
-              {assetDraft.id ? "编辑服务器资产" : "新增服务器资产"}
-            </DialogTitle>
-            <DialogDescription className="max-w-3xl text-sm leading-6 text-slate-600">
-              维护服务器资产的基础身份、SSH
-              连通性和运行画像，供项目部署目标选择与筛选使用。
-            </DialogDescription>
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.03em]">
+                  {assetDraft.id ? "编辑服务器资产" : "新增服务器资产"}
+                </DialogTitle>
+                <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  维护服务器身份、SSH
+                  端口可达性和运行画像，供部署目标选择与筛选使用。
+                </DialogDescription>
+              </div>
+              <Badge className="w-fit border border-slate-200 bg-slate-50 text-slate-700">
+                真实 SSH 登录
+              </Badge>
+            </div>
           </DialogHeader>
 
-          <div className="max-h-[calc(100vh-11rem)] overflow-y-auto px-5 py-5">
-            <div className="grid gap-5">
-              <section className="grid gap-4 rounded-[12px] border border-slate-200 bg-white p-4">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-950">
-                    资产身份与连通性
-                  </h3>
-                  <p className="text-sm leading-6 text-slate-500">
-                    记录资产名称、主机地址和 SSH 信息，并在保存前确认连通性。
-                  </p>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <ProjectDraftField label="资产名称">
-                    <Input
-                      value={assetDraft.name}
-                      onChange={(event) =>
-                        setAssetDraft((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                      placeholder="例如 prod-web-01"
-                    />
-                  </ProjectDraftField>
-                  <ProjectDraftField label="IP / 主机地址">
-                    <Input
-                      value={assetDraft.ip}
-                      onChange={(event) =>
-                        setAssetDraft((current) => ({
-                          ...current,
-                          ip: event.target.value,
-                        }))
-                      }
-                      placeholder="192.168.5.23"
-                    />
-                  </ProjectDraftField>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-[minmax(0,180px)_120px_140px_auto] md:items-end">
-                  <ProjectDraftField label="SSH 用户">
-                    <Input
-                      value={assetDraft.sshUser}
-                      onChange={(event) =>
-                        setAssetDraft((current) => ({
-                          ...current,
-                          sshUser: event.target.value,
-                        }))
-                      }
-                      placeholder="root"
-                    />
-                  </ProjectDraftField>
-                  <ProjectDraftField label="SSH 端口">
-                    <Input
-                      value={assetDraft.sshPort}
-                      onChange={(event) =>
-                        setAssetDraft((current) => ({
-                          ...current,
-                          sshPort: event.target.value,
-                        }))
-                      }
-                      placeholder="22"
-                    />
-                  </ProjectDraftField>
-                  <ProjectDraftField label="检测结果">
-                    <div className="flex h-8 items-center">
-                      <Badge
-                        className={cn(
-                          "border",
-                          assetConnectivityTone(
-                            assetDetectedStatus,
-                            Boolean(assetConnectionResult),
-                          ),
-                        )}
-                      >
-                        {assetConnectivityLabel}
-                      </Badge>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-5">
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="grid gap-5">
+                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-slate-950">
+                        资产身份与 SSH 登录
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        记录主机地址、SSH 用户和密码，并用真实登录验证部署入口。
+                      </p>
                     </div>
-                  </ProjectDraftField>
-                  <div className="flex justify-start md:justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="rounded-[10px]"
-                      onClick={runAssetConnectivityTest}
-                      disabled={
-                        testAssetConnectivity.isPending ||
-                        assetDraft.ip.trim().length === 0
-                      }
-                    >
-                      {testAssetConnectivity.isPending ? (
-                        <LoaderCircleIcon
-                          className="animate-spin"
-                          data-icon="inline-start"
-                        />
-                      ) : (
-                        <RefreshCwIcon data-icon="inline-start" />
-                      )}
-                      测试连接
-                    </Button>
+                    <Badge className="w-fit border border-slate-200 bg-white text-slate-700">
+                      必填
+                    </Badge>
                   </div>
-                </div>
 
-                <div className="rounded-[10px] bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-                  {assetConnectionMessage}
-                  {assetConnectionResult ? (
-                    <span className="ml-2 text-slate-500">
-                      · {assetConnectionResult.durationMs} ms
-                    </span>
-                  ) : null}
-                </div>
-              </section>
-
-              <section className="grid gap-4 rounded-[12px] border border-slate-200 bg-white p-4">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-slate-950">
-                    运行画像
-                  </h3>
-                  <p className="text-sm leading-6 text-slate-500">
-                    用角色标签和架构信息描述这台机器，方便后续筛选和分配部署目标。
-                  </p>
-                </div>
-
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(240px,0.85fr)]">
-                  <ProjectDraftField
-                    label="角色标签"
-                    hint="输入后按 Enter 或逗号确认，支持快速删除和常用角色补全。"
-                  >
-                    <div className="grid gap-3 rounded-[10px] border border-slate-200 bg-slate-50 px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        {assetRoleTags.length > 0 ? (
-                          assetRoleTags.map((role) => (
-                            <Badge
-                              key={role}
-                              className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
-                            >
-                              {role}
-                              <button
-                                type="button"
-                                className="text-slate-400 hover:text-slate-700"
-                                onClick={() => removeAssetRole(role)}
-                                aria-label={`移除角色 ${role}`}
-                              >
-                                <XIcon className="size-3.5" />
-                              </button>
-                            </Badge>
-                          ))
-                        ) : (
-                          <span className="text-sm text-slate-400">
-                            还没有添加角色标签
-                          </span>
-                        )}
-                      </div>
-
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <ProjectDraftField label="资产名称">
                       <Input
-                        value={assetRoleInput}
+                        value={assetDraft.name}
                         onChange={(event) =>
-                          setAssetRoleInput(event.target.value)
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === ",") {
-                            event.preventDefault();
-                            addAssetRole(assetRoleInput);
-                          }
-
-                          if (
-                            event.key === "Backspace" &&
-                            assetRoleInput.length === 0 &&
-                            assetRoleTags.length > 0
-                          ) {
-                            removeAssetRole(
-                              assetRoleTags[assetRoleTags.length - 1]!,
-                            );
-                          }
-                        }}
-                        placeholder="输入角色后按 Enter，例如 master"
-                      />
-
-                      <div className="flex flex-wrap gap-2">
-                        {["master", "worker", "gpu", "etcd"].map((role) => (
-                          <Button
-                            key={role}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="rounded-[10px]"
-                            onClick={() => addAssetRole(role)}
-                            disabled={assetRoleTags.includes(role)}
-                          >
-                            + {role}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  </ProjectDraftField>
-
-                  <div className="grid content-start gap-4">
-                    <ProjectDraftField label="架构">
-                      <Select
-                        value={assetArchSelectValue ?? undefined}
-                        onValueChange={(value) => {
-                          if (!value) return;
-
-                          if (value === UNSET_ARCH_VALUE) {
-                            setAssetDraft((current) => ({
-                              ...current,
-                              arch: "",
-                            }));
-                            return;
-                          }
-
-                          if (value === CUSTOM_ARCH_VALUE) {
-                            setAssetDraft((current) => ({
-                              ...current,
-                              arch:
-                                current.arch.trim().length > 0 &&
-                                current.arch !== "amd64" &&
-                                current.arch !== "arm64"
-                                  ? current.arch
-                                  : "other",
-                            }));
-                            return;
-                          }
-
                           setAssetDraft((current) => ({
                             ...current,
-                            arch: value,
-                          }));
-                        }}
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="例如 prod-web-01"
+                        autoComplete="off"
+                      />
+                    </ProjectDraftField>
+                    <ProjectDraftField label="IP / 主机地址">
+                      <Input
+                        value={assetDraft.ip}
+                        onChange={(event) =>
+                          setAssetDraft((current) => ({
+                            ...current,
+                            ip: event.target.value,
+                          }))
+                        }
+                        placeholder="192.168.5.23"
+                        autoComplete="off"
+                      />
+                    </ProjectDraftField>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_150px]">
+                    <ProjectDraftField label="SSH 用户">
+                      <Input
+                        value={assetDraft.sshUser}
+                        onChange={(event) =>
+                          setAssetDraft((current) => ({
+                            ...current,
+                            sshUser: event.target.value,
+                          }))
+                        }
+                        placeholder="root"
+                        autoComplete="off"
+                      />
+                    </ProjectDraftField>
+                    <ProjectDraftField label="SSH 密码">
+                      <Input
+                        type="password"
+                        value={assetDraft.sshPassword}
+                        onChange={(event) =>
+                          setAssetDraft((current) => ({
+                            ...current,
+                            sshPassword: event.target.value,
+                          }))
+                        }
+                        placeholder="服务器登录密码"
+                        autoComplete="new-password"
+                      />
+                    </ProjectDraftField>
+                    <ProjectDraftField
+                      label="SSH 端口"
+                      hint={
+                        assetSshPortValid ? "默认 22" : "请输入 1-65535 的整数"
+                      }
+                    >
+                      <Input
+                        value={assetDraft.sshPort}
+                        onChange={(event) =>
+                          setAssetDraft((current) => ({
+                            ...current,
+                            sshPort: event.target.value,
+                          }))
+                        }
+                        placeholder="22"
+                        autoComplete="off"
+                        aria-invalid={!assetSshPortValid}
+                        className={cn(
+                          !assetSshPortValid &&
+                            "border-rose-300 text-rose-900 focus-visible:ring-rose-200",
+                        )}
+                      />
+                    </ProjectDraftField>
+                  </div>
+
+                  <div className="mt-4 rounded-[12px] border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="flex min-w-0 gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-white text-slate-600 ring-1 ring-slate-200">
+                          <RefreshCwIcon className="size-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium text-slate-900">
+                              SSH 登录验证
+                            </p>
+                            <Badge
+                              className={cn(
+                                "border",
+                                assetConnectivityTone(
+                                  assetDetectedStatus,
+                                  Boolean(assetConnectionResult),
+                                ),
+                              )}
+                            >
+                              {assetConnectivityLabel}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">
+                            {assetConnectionMessage}
+                            {assetConnectionResult ? (
+                              <span className="ml-2 text-slate-500">
+                                · {assetConnectionResult.durationMs} ms
+                              </span>
+                            ) : null}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-fit rounded-[10px]"
+                        onClick={runAssetConnectivityTest}
+                        disabled={
+                          testAssetConnectivity.isPending ||
+                          !assetCanTestConnectivity
+                        }
                       >
-                        <SelectTrigger className="w-full rounded-[10px]">
-                          <SelectValue placeholder="选择架构" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-[12px]">
-                          <SelectGroup>
-                            <SelectItem value={UNSET_ARCH_VALUE}>
-                              未指定
-                            </SelectItem>
-                            <SelectItem value="amd64">
-                              amd64 / x86_64
-                            </SelectItem>
-                            <SelectItem value="arm64">
-                              arm64 / aarch64
-                            </SelectItem>
-                            <SelectItem value={CUSTOM_ARCH_VALUE}>
-                              其他
-                            </SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
+                        {testAssetConnectivity.isPending ? (
+                          <LoaderCircleIcon
+                            className="animate-spin"
+                            data-icon="inline-start"
+                          />
+                        ) : (
+                          <RefreshCwIcon data-icon="inline-start" />
+                        )}
+                        登录测试
+                      </Button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-semibold text-slate-950">
+                      运行画像
+                    </h3>
+                    <p className="text-sm leading-6 text-slate-500">
+                      用角色标签和架构信息描述这台机器，方便后续筛选和分配部署目标。
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.18fr)_minmax(220px,0.82fr)]">
+                    <ProjectDraftField
+                      label="角色标签"
+                      hint="输入后按 Enter 或逗号确认，支持快速删除和常用角色补全。"
+                    >
+                      <div className="grid gap-3 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
+                        <div className="flex min-h-7 flex-wrap gap-2">
+                          {assetRoleTags.length > 0 ? (
+                            assetRoleTags.map((role) => (
+                              <Badge
+                                key={role}
+                                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
+                              >
+                                {role}
+                                <button
+                                  type="button"
+                                  className="text-slate-400 hover:text-slate-700"
+                                  onClick={() => removeAssetRole(role)}
+                                  aria-label={`移除角色 ${role}`}
+                                >
+                                  <XIcon className="size-3.5" />
+                                </button>
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-sm text-slate-400">
+                              还没有添加角色标签
+                            </span>
+                          )}
+                        </div>
+
+                        <Input
+                          value={assetRoleInput}
+                          onChange={(event) =>
+                            setAssetRoleInput(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === ",") {
+                              event.preventDefault();
+                              addAssetRole(assetRoleInput);
+                            }
+
+                            if (
+                              event.key === "Backspace" &&
+                              assetRoleInput.length === 0 &&
+                              assetRoleTags.length > 0
+                            ) {
+                              removeAssetRole(
+                                assetRoleTags[assetRoleTags.length - 1]!,
+                              );
+                            }
+                          }}
+                          placeholder="输入角色后按 Enter，例如 master"
+                        />
+
+                        <div className="flex flex-wrap gap-2">
+                          {["master", "worker", "gpu", "etcd"].map((role) => (
+                            <Button
+                              key={role}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-[10px]"
+                              onClick={() => addAssetRole(role)}
+                              disabled={assetRoleTags.includes(role)}
+                            >
+                              + {role}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
                     </ProjectDraftField>
 
-                    {assetArchSelectValue === CUSTOM_ARCH_VALUE ? (
-                      <ProjectDraftField label="自定义架构">
-                        <Input
-                          value={assetDraft.arch}
-                          onChange={(event) =>
+                    <div className="grid content-start gap-4">
+                      <ProjectDraftField label="架构">
+                        <Select
+                          value={assetArchSelectValue ?? undefined}
+                          onValueChange={(value) => {
+                            if (!value) return;
+
+                            if (value === UNSET_ARCH_VALUE) {
+                              setAssetDraft((current) => ({
+                                ...current,
+                                arch: "",
+                              }));
+                              return;
+                            }
+
+                            if (value === CUSTOM_ARCH_VALUE) {
+                              setAssetDraft((current) => ({
+                                ...current,
+                                arch:
+                                  current.arch.trim().length > 0 &&
+                                  current.arch !== "amd64" &&
+                                  current.arch !== "arm64"
+                                    ? current.arch
+                                    : "other",
+                              }));
+                              return;
+                            }
+
                             setAssetDraft((current) => ({
                               ...current,
-                              arch: event.target.value,
-                            }))
-                          }
-                          placeholder="例如 riscv64"
-                        />
+                              arch: value,
+                            }));
+                          }}
+                        >
+                          <SelectTrigger className="w-full rounded-[10px]">
+                            <SelectValue placeholder="选择架构" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-[12px]">
+                            <SelectGroup>
+                              <SelectItem value={UNSET_ARCH_VALUE}>
+                                未指定
+                              </SelectItem>
+                              <SelectItem value="amd64">
+                                amd64 / x86_64
+                              </SelectItem>
+                              <SelectItem value="arm64">
+                                arm64 / aarch64
+                              </SelectItem>
+                              <SelectItem value={CUSTOM_ARCH_VALUE}>
+                                其他
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </ProjectDraftField>
-                    ) : null}
+
+                      {assetArchSelectValue === CUSTOM_ARCH_VALUE ? (
+                        <ProjectDraftField label="自定义架构">
+                          <Input
+                            value={assetDraft.arch}
+                            onChange={(event) =>
+                              setAssetDraft((current) => ({
+                                ...current,
+                                arch: event.target.value,
+                              }))
+                            }
+                            placeholder="例如 riscv64"
+                          />
+                        </ProjectDraftField>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+              </div>
+
+              <aside className="grid content-start gap-4 xl:sticky xl:top-0">
+                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-700">
+                      <ShieldCheckIcon className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-950">
+                        保存前检查
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        必填项补齐后即可保存，登录测试用于提前暴露账号或网络问题。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2">
+                    <AssetReadinessItem
+                      ok={assetNameReady}
+                      label="资产名称"
+                      description={
+                        assetNameReady
+                          ? "已填写唯一识别名"
+                          : "用于列表检索和部署目标选择"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetHostReady}
+                      label="主机地址"
+                      description={
+                        assetHostReady
+                          ? "已填写 IP 或主机名"
+                          : "需要一个可访问的 IP 或 DNS 名称"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetSshPortValid}
+                      label="SSH 端口"
+                      description={
+                        assetSshPortValid
+                          ? `将使用 ${assetSshPortPreview} 端口`
+                          : "端口必须是 1-65535 的整数"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetSshUserReady}
+                      label="SSH 用户"
+                      description={
+                        assetSshUserReady
+                          ? "已填写登录用户"
+                          : "用于登录服务器执行部署命令"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetSshPasswordReady}
+                      label="SSH 密码"
+                      description={
+                        assetSshPasswordReady
+                          ? "已填写登录密码"
+                          : "需要密码才能完成真实 SSH 登录"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetConnectivityReady}
+                      label="SSH 登录测试"
+                      description={
+                        assetConnectionResult
+                          ? `最近一次结果：${assetConnectivityLabel}`
+                          : assetDraft.id
+                            ? `当前记录状态：${assetConnectivityLabel}`
+                            : "建议保存前完成一次真实登录"
+                      }
+                    />
+                    <AssetReadinessItem
+                      ok={assetRolesReady}
+                      label="角色标签"
+                      description={
+                        assetRolesReady
+                          ? `${assetRoleTags.length} 个标签已添加`
+                          : "可选，但建议标记 master、worker 或 gpu"
+                      }
+                    />
+                  </div>
+                </section>
+
+                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                      <KeyRoundIcon className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-950">
+                        SSH 部署凭据
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        后续 SSH 部署会使用这里保存的账号密码。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[12px] border border-sky-100 bg-sky-50/70 px-3 py-3 text-sm leading-6 text-slate-700">
+                    当前 CMDB 会保存 SSH 用户、密码和端口；“登录测试”会真正建立
+                    SSH 会话。部署目标选择 SSH
+                    时，会连接目标资产并执行项目里的部署命令。
+                  </div>
+
+                  <div className="mt-3 grid gap-2 text-xs text-slate-600">
+                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50 px-3 py-2">
+                      <span>当前测试</span>
+                      <span className="font-medium text-slate-800">
+                        SSH 登录
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50 px-3 py-2">
+                      <span>部署使用</span>
+                      <span className="font-medium text-slate-800">
+                        密码 + 部署命令
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              </aside>
             </div>
           </div>
 
           <DialogFooter
             bleed={false}
-            className="border-slate-200/90 bg-slate-50 px-5 py-4"
+            className="border-slate-200/90 bg-white px-5 py-4"
           >
             <Button
               variant="outline"
@@ -2504,8 +3044,11 @@ export function CmdbShell() {
               disabled={
                 saveAsset.isPending ||
                 testAssetConnectivity.isPending ||
-                assetDraft.name.trim().length === 0 ||
-                assetDraft.ip.trim().length === 0
+                !assetNameReady ||
+                !assetHostReady ||
+                !assetSshUserReady ||
+                !assetSshPasswordReady ||
+                !assetSshPortValid
               }
             >
               {saveAsset.isPending ? (
@@ -2551,7 +3094,7 @@ export function CmdbShell() {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="grid items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
               <section className="grid content-start gap-4 self-start rounded-[12px] border border-slate-200 bg-slate-50/70 p-4 xl:sticky xl:top-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
@@ -2602,7 +3145,7 @@ export function CmdbShell() {
                       ))}
                     </div>
                   ) : gitlabCatalogItems.length > 0 ? (
-                    <div className="grid max-h-[220px] gap-2 overflow-y-auto pr-1 sm:max-h-[300px]">
+                    <div className="grid max-h-[160px] gap-2 overflow-y-auto pr-1 sm:max-h-[300px]">
                       {gitlabCatalogItems.slice(0, 8).map((item) => {
                         const active = projectDraft.gitlabPath === item.path;
 
@@ -2700,8 +3243,8 @@ export function CmdbShell() {
                 </div>
               </section>
 
-              <div className="grid gap-4">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <div className="flex min-w-0 flex-col gap-4 self-start">
+                <div className="flex gap-1 overflow-x-auto rounded-[12px] border border-slate-200 bg-slate-50/90 p-1">
                   {projectDraftPanels.map((panel) => {
                     const Icon = panel.icon;
                     const active = projectDraftPanel === panel.key;
@@ -2712,29 +3255,21 @@ export function CmdbShell() {
                         type="button"
                         onClick={() => setProjectDraftPanel(panel.key)}
                         className={cn(
-                          "flex min-w-0 items-center gap-2 rounded-[10px] border px-3 py-2 text-left transition",
+                          "flex h-10 min-w-[112px] flex-1 items-center justify-center gap-2 rounded-[9px] px-3 text-left transition",
                           active
-                            ? "border-slate-900 bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.16)]"
-                            : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white",
+                            ? "bg-white text-slate-950 shadow-[0_4px_14px_rgba(15,23,42,0.08)] ring-1 ring-slate-200"
+                            : "text-slate-600 hover:bg-white/70 hover:text-slate-950",
                         )}
                       >
                         <Icon
                           className={cn(
                             "size-4 shrink-0",
-                            active ? "text-white" : "text-slate-500",
+                            active ? "text-sky-700" : "text-slate-500",
                           )}
                         />
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">
                             {panel.label}
-                          </span>
-                          <span
-                            className={cn(
-                              "hidden truncate text-[11px] md:block",
-                              active ? "text-white/70" : "text-slate-500",
-                            )}
-                          >
-                            {panel.summary}
                           </span>
                         </span>
                       </button>
@@ -2847,7 +3382,7 @@ export function CmdbShell() {
                         部署配置
                       </h3>
                       <p className="text-sm leading-6 text-slate-500">
-                        目标、资产、环境和触发凭据。
+                        默认触发仓库里的 .gitlab-ci.yml，并注入部署目标变量。
                       </p>
                     </div>
 
@@ -2880,38 +3415,87 @@ export function CmdbShell() {
                           </SelectContent>
                         </Select>
                       </ProjectDraftField>
-                      <ProjectDraftField label="目标资产">
-                        <Select
-                          value={projectDraft.targetAssetName}
-                          onValueChange={(value) => {
-                            if (!value) return;
-                            setProjectDraft((current) => ({
-                              ...current,
-                              targetAssetName: value,
-                            }));
-                          }}
-                        >
-                          <SelectTrigger className="w-full rounded-[10px]">
-                            <SelectValue placeholder="选择资产">
-                              {targetAssetLabel(projectDraft.targetAssetName)}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent className="rounded-[12px]">
-                            <SelectGroup>
-                              <SelectItem value={UNASSIGNED_VALUE}>
-                                未指定资产
-                              </SelectItem>
-                              {assets.map((asset) => (
-                                <SelectItem
-                                  key={`cmdb-asset-${asset.name}`}
-                                  value={asset.name}
+                      <ProjectDraftField
+                        label="目标资产"
+                        hint="可选择多台服务器，发布时会作为 DEPLOY_TARGETS_JSON 传入 Pipeline。"
+                      >
+                        <div className="grid gap-2 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
+                          <div className="flex min-h-7 flex-wrap gap-2">
+                            {projectDraft.targetAssetNames.length > 0 ? (
+                              projectDraft.targetAssetNames.map((assetName) => (
+                                <Badge
+                                  key={`target-asset-${assetName}`}
+                                  className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
                                 >
-                                  {asset.name} ({asset.ip})
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
+                                  {assetName}
+                                  <button
+                                    type="button"
+                                    className="text-slate-400 hover:text-slate-700"
+                                    onClick={() =>
+                                      removeProjectTargetAsset(assetName)
+                                    }
+                                    aria-label={`移除目标资产 ${assetName}`}
+                                  >
+                                    <XIcon className="size-3.5" />
+                                  </button>
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-slate-400">
+                                还没有选择目标资产
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Select
+                              value={UNASSIGNED_VALUE}
+                              onValueChange={(value) => {
+                                if (!value) return;
+                                addProjectTargetAsset(value);
+                              }}
+                            >
+                              <SelectTrigger className="w-full rounded-[10px] bg-white">
+                                <SelectValue placeholder="添加目标资产">
+                                  添加目标资产
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent className="rounded-[12px]">
+                                <SelectGroup>
+                                  <SelectItem value={UNASSIGNED_VALUE}>
+                                    选择资产
+                                  </SelectItem>
+                                  {assets
+                                    .filter(
+                                      (asset) =>
+                                        !projectDraft.targetAssetNames.includes(
+                                          asset.name,
+                                        ),
+                                    )
+                                    .map((asset) => (
+                                      <SelectItem
+                                        key={`cmdb-asset-${asset.name}`}
+                                        value={asset.name}
+                                      >
+                                        {asset.name} ({asset.ip})
+                                      </SelectItem>
+                                    ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                            {projectDraft.targetAssetNames.length > 0 ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="rounded-[10px] bg-white"
+                                onClick={clearProjectTargetAssets}
+                              >
+                                清空
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
                       </ProjectDraftField>
                       <ProjectDraftField label="部署环境">
                         <Input
@@ -2927,7 +3511,7 @@ export function CmdbShell() {
                       </ProjectDraftField>
                       <ProjectDraftField
                         label="Trigger Token"
-                        hint="可选；未配置则使用全局 GitLab API Token。"
+                        hint="可选；用于触发 .gitlab-ci.yml，未配置则使用全局 GitLab API Token。"
                       >
                         <Input
                           value={projectDraft.triggerToken}
@@ -2993,31 +3577,50 @@ export function CmdbShell() {
                     ) : null}
 
                     {projectDraft.deployTarget === "ssh" ? (
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <ProjectDraftField label="部署路径">
-                          <Input
-                            value={projectDraft.sshPath}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                sshPath: event.target.value,
-                              }))
-                            }
-                            placeholder="/srv/cola"
-                          />
-                        </ProjectDraftField>
-                        <ProjectDraftField label="部署命令">
-                          <Input
-                            value={projectDraft.sshDeployCommand}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                sshDeployCommand: event.target.value,
-                              }))
-                            }
-                            placeholder="docker compose up -d --build"
-                          />
-                        </ProjectDraftField>
+                      <div className="grid gap-4">
+                        <Alert className="border-sky-200 bg-sky-50 text-sky-900">
+                          <GitBranchIcon className="size-4" />
+                          <AlertTitle>默认使用 .gitlab-ci.yml 发布</AlertTitle>
+                          <AlertDescription>
+                            发布时会触发 GitLab Pipeline，并注入
+                            DEPLOY_HOST、DEPLOY_SSH_USER、DEPLOY_SSH_PASSWORD、DEPLOY_SSH_PORT
+                            等变量。部署路径和部署命令可留空，由仓库里的
+                            .gitlab-ci.yml 决定。
+                          </AlertDescription>
+                        </Alert>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <ProjectDraftField
+                            label="部署路径变量"
+                            hint="可选；会作为 DEPLOY_PATH 传入 Pipeline。"
+                          >
+                            <Input
+                              value={projectDraft.sshPath}
+                              onChange={(event) =>
+                                setProjectDraft((current) => ({
+                                  ...current,
+                                  sshPath: event.target.value,
+                                }))
+                              }
+                              placeholder="/srv/cola"
+                            />
+                          </ProjectDraftField>
+                          <ProjectDraftField
+                            label="部署命令变量"
+                            hint="可选；会作为 DEPLOY_COMMAND 传入 Pipeline。"
+                          >
+                            <Input
+                              value={projectDraft.sshDeployCommand}
+                              onChange={(event) =>
+                                setProjectDraft((current) => ({
+                                  ...current,
+                                  sshDeployCommand: event.target.value,
+                                }))
+                              }
+                              placeholder="docker compose up -d --build"
+                            />
+                          </ProjectDraftField>
+                        </div>
                       </div>
                     ) : null}
                   </section>
@@ -3145,7 +3748,8 @@ export function CmdbShell() {
           <DialogHeader>
             <DialogTitle>触发代码发布</DialogTitle>
             <DialogDescription>
-              当前发布将直接触发 GitLab Pipeline，并自动注入部署目标和默认变量。
+              当前发布将触发 GitLab Pipeline，默认由仓库里的 .gitlab-ci.yml
+              执行部署，并自动注入 CMDB 部署目标变量。
             </DialogDescription>
           </DialogHeader>
 
@@ -3217,6 +3821,291 @@ export function CmdbShell() {
                 <RocketIcon data-icon="inline-start" />
               )}
               触发发布
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={topicReleaseDialogOpen}
+        onOpenChange={(open) => {
+          setTopicReleaseDialogOpen(open);
+          if (!open) {
+            setTopicReleaseResult(null);
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[calc(100vh-1rem)] max-w-[920px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
+            <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.03em]">
+              主题发布
+            </DialogTitle>
+            <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              圈选多个项目后统一触发 GitLab Pipeline。Ref
+              留空时使用各项目默认分支，环境留空时使用项目默认环境。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-5">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <section className="grid content-start gap-4 rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-950">
+                    发布主题
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    本次批量发布会写入 CMDB_RELEASE_TOPIC
+                    变量，便于流水线和发布记录追踪。
+                  </p>
+                </div>
+
+                <ProjectDraftField label="主题名称">
+                  <Input
+                    value={topicReleaseDraft.topic}
+                    onChange={(event) => {
+                      setTopicReleaseDraft((current) => ({
+                        ...current,
+                        topic: event.target.value,
+                      }));
+                      setTopicReleaseResult(null);
+                    }}
+                    placeholder="例如 Vision MVP 发布"
+                  />
+                </ProjectDraftField>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <ProjectDraftField
+                    label="Ref / Branch / Tag"
+                    hint="留空使用各项目默认分支。"
+                  >
+                    <Input
+                      value={topicReleaseDraft.ref}
+                      onChange={(event) => {
+                        setTopicReleaseDraft((current) => ({
+                          ...current,
+                          ref: event.target.value,
+                        }));
+                        setTopicReleaseResult(null);
+                      }}
+                      placeholder="main / v1.2.0"
+                    />
+                  </ProjectDraftField>
+                  <ProjectDraftField
+                    label="部署环境"
+                    hint="留空使用项目默认环境。"
+                  >
+                    <Input
+                      value={topicReleaseDraft.deployEnv}
+                      onChange={(event) => {
+                        setTopicReleaseDraft((current) => ({
+                          ...current,
+                          deployEnv: event.target.value,
+                        }));
+                        setTopicReleaseResult(null);
+                      }}
+                      placeholder="prod"
+                    />
+                  </ProjectDraftField>
+                </div>
+
+                <ProjectDraftField
+                  label="附加变量"
+                  hint="每行一个 KEY=VALUE，会覆盖各项目默认变量。"
+                >
+                  <Textarea
+                    value={topicReleaseDraft.variablesText}
+                    onChange={(event) => {
+                      setTopicReleaseDraft((current) => ({
+                        ...current,
+                        variablesText: event.target.value,
+                      }));
+                      setTopicReleaseResult(null);
+                    }}
+                    placeholder={"IMAGE_TAG=2026.04.27\nROLLOUT_BATCH=blue"}
+                    className="min-h-[120px]"
+                  />
+                </ProjectDraftField>
+
+                {topicReleaseResult ? (
+                  <div className="rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-950">
+                        发布结果
+                      </p>
+                      <span className="text-xs text-slate-500">
+                        成功 {topicReleaseResult.successTotal} / 总计{" "}
+                        {topicReleaseResult.total}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {topicReleaseResult.results.map((result) => (
+                        <div
+                          key={`${result.projectId}-${result.releaseId ?? "none"}`}
+                          className="flex items-start justify-between gap-3 rounded-[10px] bg-white px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-900">
+                              {result.projectName ?? `项目 ${result.projectId}`}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {result.gitlabPath ?? result.error ?? "-"}
+                            </p>
+                          </div>
+                          <Badge
+                            className={cn(
+                              "border",
+                              topicReleaseStatusTone(result.status),
+                            )}
+                          >
+                            {topicReleaseStatusLabel(result.status)}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="grid content-start gap-4 rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-950">
+                      选择项目
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      当前可发布 {releasableProjects.length} 个，已选择{" "}
+                      {selectedTopicProjects.length} 个。
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[9px]"
+                      onClick={selectAllTopicReleaseProjects}
+                      disabled={releasableProjects.length === 0}
+                    >
+                      全选
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-[9px]"
+                      onClick={clearTopicReleaseProjects}
+                      disabled={topicReleaseDraft.projectIds.length === 0}
+                    >
+                      清空
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid max-h-[430px] gap-2 overflow-y-auto pr-1">
+                  {projects.map((project) => {
+                    const selected = topicReleaseSelectedIds.has(project.id);
+                    const releaseIssue = projectReleaseIssue(
+                      project,
+                      canTriggerPipelines,
+                    );
+
+                    return (
+                      <label
+                        key={`topic-release-${project.id}`}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-[12px] border px-3 py-3 transition",
+                          selected
+                            ? "border-sky-200 bg-sky-50/70"
+                            : "border-slate-200 bg-white hover:border-slate-300",
+                          releaseIssue &&
+                            "cursor-not-allowed bg-slate-50 opacity-70 hover:border-slate-200",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={selected}
+                          disabled={Boolean(releaseIssue)}
+                          onChange={() => toggleTopicReleaseProject(project.id)}
+                        />
+                        <span
+                          className={cn(
+                            "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border",
+                            selected
+                              ? "border-sky-300 bg-white text-sky-700"
+                              : "border-slate-200 bg-slate-50 text-slate-400",
+                          )}
+                        >
+                          {selected ? (
+                            <CheckCircle2Icon className="size-4" />
+                          ) : (
+                            <CircleDotIcon className="size-3.5" />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-slate-950">
+                              {project.name}
+                            </span>
+                            <Badge className="border border-slate-200 bg-white text-slate-700">
+                              {deployTargetLabel(project.deployTarget)}
+                            </Badge>
+                            {!project.enabled ? (
+                              <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
+                                已禁用
+                              </Badge>
+                            ) : null}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-slate-500">
+                            {project.gitlabPath}
+                          </span>
+                          <span className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                            <span>默认分支 {project.defaultBranch}</span>
+                            <span>环境 {project.config?.deployEnv ?? "-"}</span>
+                            {releaseIssue ? (
+                              <span className="text-rose-600">
+                                {releaseIssue}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <DialogFooter
+            bleed={false}
+            className="border-slate-200/90 bg-white px-5 py-4"
+          >
+            <div className="mr-auto hidden items-center gap-2 text-sm text-slate-500 md:flex">
+              <ListChecksIcon className="size-4 text-slate-400" />
+              <span>{selectedTopicProjects.length} 个项目已圈选</span>
+            </div>
+            <Button
+              variant="outline"
+              className="rounded-[10px]"
+              onClick={() => setTopicReleaseDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              className="rounded-[10px]"
+              onClick={triggerTopicReleaseDraftAction}
+              disabled={!topicReleaseCanSubmit}
+            >
+              {triggerTopicRelease.isPending ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <RocketIcon data-icon="inline-start" />
+              )}
+              一键发布
             </Button>
           </DialogFooter>
         </DialogContent>
