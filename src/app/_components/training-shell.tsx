@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { cn, optionLabel } from "@/lib/utils";
 import {
   formatDistributedGpuAllocationLabel,
   gpuAllocationModeLabels,
@@ -210,7 +210,10 @@ function gpuSpecFromJob(job: TrainingJobItem): GpuAllocationSpec {
 }
 
 function trainingPlanLabel(job: TrainingJobItem) {
-  return formatDistributedGpuAllocationLabel(job.nodeCount, gpuSpecFromJob(job));
+  return formatDistributedGpuAllocationLabel(
+    job.nodeCount,
+    gpuSpecFromJob(job),
+  );
 }
 
 function Field(props: {
@@ -1318,10 +1321,7 @@ export function TrainingShell() {
         job.gpuAllocationMode === "memory" &&
         Boolean(job.gpuMemoryGi),
     )
-    .reduce(
-      (total, job) => total + job.gpuCount * (job.gpuMemoryGi ?? 0),
-      0,
-    );
+    .reduce((total, job) => total + job.gpuCount * (job.gpuMemoryGi ?? 0), 0);
 
   const isMemoryMode = draft.gpuAllocationMode === "memory";
   const parsedNodeCount = Number(draft.nodeCount);
@@ -1558,7 +1558,7 @@ export function TrainingShell() {
             </Button>
             <Badge
               variant="outline"
-              className="h-8 rounded-full border-border/80 bg-background/60 px-3 text-[13px]"
+              className="border-border/80 bg-background/60 h-8 rounded-full px-3 text-[13px]"
             >
               已完成 {completedCount}
             </Badge>
@@ -1637,7 +1637,7 @@ export function TrainingShell() {
           if (!open) closeRuntimeDialog();
         }}
       >
-        <DialogContent className="border-border/70 bg-background/95 text-foreground max-w-[1040px] p-0 backdrop-blur-xl">
+        <DialogContent className="border-border/70 bg-background text-foreground max-w-[1040px] p-0">
           <DialogHeader className="border-border/70 border-b px-6 py-5">
             <DialogTitle className="text-2xl tracking-[-0.04em]">
               训练运行态
@@ -1924,7 +1924,7 @@ export function TrainingShell() {
       </Dialog>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-h-[min(92vh,980px)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)_auto] border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(243,247,252,0.95))] p-0 text-slate-950 shadow-[0_32px_80px_rgba(15,23,42,0.16)] backdrop-blur-xl sm:max-w-[1120px]">
+        <DialogContent className="max-h-[min(92vh,980px)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)_auto] border-slate-200/85 bg-[linear-gradient(180deg,#ffffff,#f3f7fc)] p-0 text-slate-950 shadow-[0_32px_80px_rgba(15,23,42,0.16)] sm:max-w-[1120px]">
           <DialogHeader className="relative overflow-hidden border-b border-slate-200/80 px-4 py-5 sm:px-6">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.15),transparent_32%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.11),transparent_24%)]" />
             <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -2020,7 +2020,12 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择配置来源" />
+                          <SelectValue placeholder="选择配置来源">
+                            {optionLabel(
+                              trainingConfigSourceLabels,
+                              "选择配置来源",
+                            )}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2050,7 +2055,9 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择训练类型" />
+                          <SelectValue placeholder="选择训练类型">
+                            {optionLabel(trainingJobTypeLabels, "选择训练类型")}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2077,7 +2084,9 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择优先级" />
+                          <SelectValue placeholder="选择优先级">
+                            {optionLabel(priorityLabels, "选择优先级")}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2104,7 +2113,9 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择精度" />
+                          <SelectValue placeholder="选择精度">
+                            {optionLabel(trainingPrecisionLabels, "选择精度")}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2135,7 +2146,11 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择量化策略" />
+                          <SelectValue placeholder="选择量化策略">
+                            {(value) =>
+                              value === "false" ? "关闭 4-bit" : "启用 4-bit"
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2245,7 +2260,12 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择分配方式" />
+                          <SelectValue placeholder="选择分配方式">
+                            {optionLabel(
+                              gpuAllocationModeLabels,
+                              "选择分配方式",
+                            )}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2339,7 +2359,12 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择启动器" />
+                          <SelectValue placeholder="选择启动器">
+                            {optionLabel(
+                              trainingLauncherTypeLabels,
+                              "选择启动器",
+                            )}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2370,7 +2395,12 @@ export function TrainingShell() {
                         <SelectTrigger
                           className={cn("w-full", dialogControlClassName)}
                         >
-                          <SelectValue placeholder="选择后端" />
+                          <SelectValue placeholder="选择后端">
+                            {optionLabel(
+                              trainingDistributedBackendLabels,
+                              "选择后端",
+                            )}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2412,7 +2442,15 @@ export function TrainingShell() {
                               : undefined,
                           )}
                         >
-                          <SelectValue placeholder="选择 Stage" />
+                          <SelectValue placeholder="选择 Stage">
+                            {(value) =>
+                              value === "3"
+                                ? "ZeRO-3"
+                                : value === "2"
+                                  ? "ZeRO-2"
+                                  : "选择 Stage"
+                            }
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
@@ -2431,11 +2469,14 @@ export function TrainingShell() {
                     </span>
                     个 GPU 申请，规格为
                     <span className="mx-1 font-semibold text-slate-950">
-                      {formatDistributedGpuAllocationLabel(parsedNodeCount || 0, {
-                        gpuAllocationMode: draft.gpuAllocationMode,
-                        gpuCount: parsedGpusPerNode || 0,
-                        gpuMemoryGi: summaryGpuMemoryPerShare,
-                      })}
+                      {formatDistributedGpuAllocationLabel(
+                        parsedNodeCount || 0,
+                        {
+                          gpuAllocationMode: draft.gpuAllocationMode,
+                          gpuCount: parsedGpusPerNode || 0,
+                          gpuMemoryGi: summaryGpuMemoryPerShare,
+                        },
+                      )}
                     </span>
                     {summaryTotalGpuMemoryGi ? (
                       <>
@@ -2535,11 +2576,14 @@ export function TrainingShell() {
                         {summaryGpuCount ?? "--"}
                       </p>
                       <p className="mt-2 text-sm text-slate-500">
-                        {formatDistributedGpuAllocationLabel(parsedNodeCount || 0, {
-                          gpuAllocationMode: draft.gpuAllocationMode,
-                          gpuCount: parsedGpusPerNode || 0,
-                          gpuMemoryGi: summaryGpuMemoryPerShare,
-                        })}
+                        {formatDistributedGpuAllocationLabel(
+                          parsedNodeCount || 0,
+                          {
+                            gpuAllocationMode: draft.gpuAllocationMode,
+                            gpuCount: parsedGpusPerNode || 0,
+                            gpuMemoryGi: summaryGpuMemoryPerShare,
+                          },
+                        )}
                       </p>
                       {summaryTotalGpuMemoryGi ? (
                         <p className="mt-1 text-sm text-slate-500">
@@ -2547,7 +2591,8 @@ export function TrainingShell() {
                         </p>
                       ) : null}
                       <p className="mt-1 text-sm text-slate-500">
-                        分配方式：{gpuAllocationModeLabels[draft.gpuAllocationMode]}
+                        分配方式：
+                        {gpuAllocationModeLabels[draft.gpuAllocationMode]}
                       </p>
                     </div>
 

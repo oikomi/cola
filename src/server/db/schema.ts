@@ -288,7 +288,7 @@ export const cmdbProjects = createTable(
     description: d.text(),
     defaultBranch: d.varchar({ length: 128 }).notNull().default("main"),
     enabled: d.boolean().notNull().default(true),
-    deployTarget: cmdbDeployTargetEnum().notNull().default("none"),
+    deployTarget: cmdbDeployTargetEnum().notNull().default("docker"),
     config: d.jsonb().$type<CmdbProjectConfig>(),
     lastSyncedAt: d.timestamp({ withTimezone: true }),
     createdAt: d

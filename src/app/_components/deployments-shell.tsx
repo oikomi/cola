@@ -53,7 +53,7 @@ import {
   gpuAllocationModeLabels,
   gpuAllocationModeValues,
 } from "@/lib/gpu-allocation";
-import { cn } from "@/lib/utils";
+import { cn, optionLabel } from "@/lib/utils";
 import {
   creatableInferenceDeploymentEngineValues,
   defaultInferenceImage,
@@ -218,7 +218,7 @@ function FormSection(props: {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-slate-200/85 bg-white/88 p-4 shadow-[0_14px_28px_rgba(15,23,42,0.03)] md:p-5",
+        "rounded-[24px] border border-slate-200/85 bg-white p-4 shadow-[0_14px_28px_rgba(15,23,42,0.03)] md:p-5",
         props.className,
       )}
     >
@@ -443,7 +443,7 @@ function LoadingRows() {
           key={`deployment-skeleton-${index}`}
           className="border-border/70 bg-background/70 rounded-3xl border p-4"
         >
-          <div className="grid gap-3 md:grid-cols-[1.2fr_110px_1fr_180px_1fr_140px_260px] md:items-center">
+          <div className="grid gap-3 2xl:grid-cols-[1.2fr_110px_1fr_180px_1fr_140px_260px] 2xl:items-center">
             <div className="grid gap-2">
               <Skeleton className="h-6 w-44" />
               <Skeleton className="h-4 w-32" />
@@ -731,7 +731,7 @@ export function DeploymentsShell() {
         action={
           <Badge
             variant="outline"
-            className="h-8 rounded-full border-border/80 bg-background/60 px-3 text-[13px]"
+            className="border-border/80 bg-background/60 h-8 rounded-full px-3 text-[13px]"
           >
             已暂停 {pausedCount}
           </Badge>
@@ -757,7 +757,7 @@ export function DeploymentsShell() {
 
         {!deploymentsQuery.isLoading && rows.length > 0 ? (
           <>
-            <div className="grid gap-3 lg:hidden">
+            <div className="grid gap-3 2xl:hidden">
               {rows.map((row) => {
                 const isStarting =
                   startDeployment.isPending &&
@@ -799,17 +799,17 @@ export function DeploymentsShell() {
               })}
             </div>
 
-            <div className="hidden lg:block">
-              <Table className="min-w-[1280px] table-fixed">
+            <div className="hidden 2xl:block">
+              <Table className="min-w-[1080px] table-fixed">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[170px]">部署</TableHead>
-                    <TableHead className="w-[105px]">状态</TableHead>
-                    <TableHead className="w-[390px]">Runtime / 模型</TableHead>
-                    <TableHead className="w-[260px]">资源 / 节点</TableHead>
-                    <TableHead className="w-[210px]">入口</TableHead>
-                    <TableHead className="w-[145px]">更新时间</TableHead>
-                    <TableHead className="w-[180px] text-right">操作</TableHead>
+                    <TableHead className="w-[145px]">部署</TableHead>
+                    <TableHead className="w-[95px]">状态</TableHead>
+                    <TableHead className="w-[300px]">Runtime / 模型</TableHead>
+                    <TableHead className="w-[190px]">资源 / 节点</TableHead>
+                    <TableHead className="w-[160px]">入口</TableHead>
+                    <TableHead className="w-[110px]">更新时间</TableHead>
+                    <TableHead className="w-[160px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -871,7 +871,7 @@ export function DeploymentsShell() {
                         </TableCell>
                         <TableCell className="align-top whitespace-normal">
                           <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-foreground font-medium leading-5">
+                            <span className="text-foreground leading-5 font-medium">
                               {resourceLabel(row)}
                             </span>
                             <span className="text-muted-foreground text-sm leading-5 break-all">
@@ -926,8 +926,8 @@ export function DeploymentsShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 bg-background/95 text-foreground max-h-[calc(100svh-2rem)] max-w-[1120px] gap-0 overflow-y-auto p-0 backdrop-blur-xl">
-          <DialogHeader className="border-border/70 border-b px-5 py-5 pr-14 md:px-6">
+        <DialogContent className="border-border/70 grid max-h-[calc(100svh-2rem)] max-w-[1120px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-white p-0 text-slate-950">
+          <DialogHeader className="border-border/70 border-b bg-white px-5 py-5 pr-14 md:px-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2">
                 <DialogTitle className="text-[1.7rem] tracking-[-0.04em]">
@@ -947,7 +947,7 @@ export function DeploymentsShell() {
             </div>
           </DialogHeader>
 
-          <div className="grid gap-4 px-5 py-5 md:px-6 xl:grid-cols-[minmax(0,1.08fr)_320px] xl:items-start">
+          <div className="grid min-h-0 gap-4 overflow-y-auto bg-white px-5 py-5 md:px-6 xl:grid-cols-[minmax(0,1.08fr)_320px] xl:items-start">
             <FormSection
               title="部署信息"
               description="名称、模型与镜像会直接决定后续上线行为。"
@@ -980,16 +980,18 @@ export function DeploymentsShell() {
                         image: defaultInferenceImage(
                           value,
                           Number.parseInt(current.gpuCount, 10) ||
-                            gpuMinimum(
-                              value,
-                              current.gpuAllocationMode,
-                            ),
+                            gpuMinimum(value, current.gpuAllocationMode),
                         ),
                       }));
                     }}
                   >
                     <SelectTrigger className="h-10 w-full rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none">
-                      <SelectValue placeholder="选择运行时" />
+                      <SelectValue placeholder="选择运行时">
+                        {optionLabel(
+                          inferenceDeploymentEngineLabels,
+                          "选择运行时",
+                        )}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -1006,10 +1008,7 @@ export function DeploymentsShell() {
                 </Field>
               </div>
 
-              <Field
-                label="模型引用"
-                hint={modelRefHint(draft.engine)}
-              >
+              <Field label="模型引用" hint={modelRefHint(draft.engine)}>
                 <Input
                   className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
                   value={draft.modelRef}
@@ -1055,7 +1054,8 @@ export function DeploymentsShell() {
                     value={draft.gpuAllocationMode}
                     onValueChange={(value) =>
                       setDraft((current) => {
-                        const nextMode = value === "memory" ? "memory" : "whole";
+                        const nextMode =
+                          value === "memory" ? "memory" : "whole";
                         const nextMinGpu = gpuMinimum(current.engine, nextMode);
                         return {
                           ...current,
@@ -1080,7 +1080,9 @@ export function DeploymentsShell() {
                     }
                   >
                     <SelectTrigger className="h-10 w-full rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none">
-                      <SelectValue placeholder="选择分配方式" />
+                      <SelectValue placeholder="选择分配方式">
+                        {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -1227,14 +1229,18 @@ export function DeploymentsShell() {
                     <p className="text-[11px] font-medium tracking-[0.08em] text-slate-500">
                       调度策略
                     </p>
-                    <p className="mt-1">推理 Pod 会优先调度到非 master worker。</p>
+                    <p className="mt-1">
+                      推理 Pod 会优先调度到非 master worker。
+                    </p>
                   </div>
 
                   <div>
                     <p className="text-[11px] font-medium tracking-[0.08em] text-slate-500">
                       服务入口
                     </p>
-                    <p className="mt-1">外部服务统一通过 master NodePort 暴露。</p>
+                    <p className="mt-1">
+                      外部服务统一通过 master NodePort 暴露。
+                    </p>
                   </div>
 
                   <div>
@@ -1252,7 +1258,7 @@ export function DeploymentsShell() {
 
           <DialogFooter
             bleed={false}
-            className="border-border/70 bg-muted/30 border-t px-5 py-3 md:px-6"
+            className="border-border/70 border-t bg-white px-5 py-3 md:px-6"
           >
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消

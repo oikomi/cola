@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-// @ts-ignore Node --experimental-strip-types requires an explicit .ts specifier here.
 import {
   assertLlamaCppModelFileExists,
   isInferencePodFailed,

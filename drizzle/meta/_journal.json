@@ -85,6 +85,13 @@
       "when": 1777272409000,
       "tag": "0011_cmdb_asset_ssh_password",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777277163997,
+      "tag": "0012_cmdb_default_docker_deploy",
+      "breakpoints": true
     }
   ]
 }

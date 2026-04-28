@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// @ts-ignore Node --experimental-strip-types requires an explicit .ts specifier here.
 import {
   canCreateInferenceDeploymentWithEngine,
   creatableInferenceDeploymentEngineValues,
@@ -26,25 +25,28 @@ void test("create flow exposes all supported runtimes", () => {
 
 void test("Hugging Face model refs reject local paths", () => {
   assert.equal(isHuggingFaceModelRef("Qwen/Qwen3-8B-Instruct"), true);
+  assert.equal(isHuggingFaceModelRef("meta-llama/Llama-3.1-8B-Instruct"), true);
   assert.equal(
-    isHuggingFaceModelRef("meta-llama/Llama-3.1-8B-Instruct"),
-    true,
+    isHuggingFaceModelRef("/var/lib/remote-work/models/qwen.gguf"),
+    false,
   );
-  assert.equal(isHuggingFaceModelRef("/var/lib/remote-work/models/qwen.gguf"), false);
-  assert.equal(isHuggingFaceModelRef("llama-3.1-8b-instruct-q4_k_m.gguf"), false);
+  assert.equal(
+    isHuggingFaceModelRef("llama-3.1-8b-instruct-q4_k_m.gguf"),
+    false,
+  );
   assert.equal(isHuggingFaceModelRef("Qwen/Qwen3-8B-Instruct/weights"), false);
 });
 
 void test("llama.cpp model refs accept local gguf paths under /models", () => {
   assert.equal(isLlamaCppModelRef(llamaCppModelRefExample), true);
-  assert.equal(
-    isLlamaCppModelRef(`/models/${llamaCppModelRefExample}`),
-    true,
-  );
+  assert.equal(isLlamaCppModelRef(`/models/${llamaCppModelRefExample}`), true);
   assert.equal(isLlamaCppModelRef("Qwen/Qwen3-8B-Instruct"), false);
   assert.equal(isLlamaCppModelRef("../qwen3.gguf"), false);
   assert.equal(isLlamaCppModelRef("/models/../qwen3.gguf"), false);
-  assert.equal(isLlamaCppModelRef("/var/lib/remote-work/models/qwen3.gguf"), false);
+  assert.equal(
+    isLlamaCppModelRef("/var/lib/remote-work/models/qwen3.gguf"),
+    false,
+  );
   assert.equal(isLlamaCppModelRef("qwen3/qwen3-8b-instruct"), false);
 });
 
@@ -81,10 +83,7 @@ void test("model ref validation follows runtime selection", () => {
     true,
   );
   assert.equal(
-    isValidInferenceModelRef(
-      "llama.cpp",
-      llamaCppModelRefExample,
-    ),
+    isValidInferenceModelRef("llama.cpp", llamaCppModelRefExample),
     true,
   );
   assert.equal(

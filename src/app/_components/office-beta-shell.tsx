@@ -7,11 +7,14 @@ import {
   LoaderCircleIcon,
   PlusIcon,
   RadarIcon,
+  RotateCcwIcon,
   ShieldAlertIcon,
   SparklesIcon,
   Trash2Icon,
   UserRoundPlusIcon,
   UsersIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
 } from "lucide-react";
 import * as PIXI from "pixi.js";
 import { gsap } from "gsap";
@@ -40,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
-import { cn } from "@/lib/utils";
+import { cn, optionLabel } from "@/lib/utils";
 import {
   agentRoleValues,
   agentStatusLabels,
@@ -280,14 +283,14 @@ const ZONE_SCENE: Record<ZoneKey, ZoneSceneConfig> = {
     decor: "people",
   },
   vendor: {
-    anchor: { x: 13.05, y: 6.45 },
+    anchor: { x: 12.35, y: 5.9 },
     rugTint: 0xffd5d8,
     deskTint: 0xbd8559,
     chairTint: 0x8b6a74,
     workstations: [
-      { deskX: 12.55, deskY: 6.1, personX: 13.13, personY: 6.97 },
-      { deskX: 13.8, deskY: 6.4, personX: 14.37, personY: 7.25 },
-      { deskX: 13.1, deskY: 7.45, personX: 13.67, personY: 8.31 },
+      { deskX: 11.8, deskY: 5.62, personX: 12.38, personY: 6.49 },
+      { deskX: 13.0, deskY: 5.9, personX: 13.57, personY: 6.75 },
+      { deskX: 12.32, deskY: 6.92, personX: 12.89, personY: 7.78 },
     ],
     decor: "vendor",
   },
@@ -321,7 +324,7 @@ function FormField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[11px] font-medium tracking-[0.28em] text-[#7d6858] uppercase">
+      <span className="text-[12px] leading-5 font-medium text-[#7d6858]">
         {label}
       </span>
       {children}
@@ -390,21 +393,26 @@ function getCameraPose(
   size: { width: number; height: number },
   focused: SceneAgentPosition | null,
 ) {
+  const fitScale = clamp(
+    Math.min(size.width / 1240, size.height / 760),
+    0.58,
+    1.02,
+  );
   const baseTarget = {
-    x: size.width * 0.5,
-    y: size.height * 0.5,
+    x: size.width * (size.width < 900 ? 0.5 : 0.49),
+    y: size.height * (size.width < 900 ? 0.52 : 0.49),
   };
   const focusedTarget = {
-    x: size.width * 0.46,
-    y: size.height * 0.44,
+    x: size.width * (size.width < 900 ? 0.5 : 0.46),
+    y: size.height * (size.width < 900 ? 0.48 : 0.44),
   };
   const targetScale = focused
     ? size.width < 900
-      ? 0.66
-      : 0.86
+      ? clamp(fitScale * 0.96, 0.64, 0.82)
+      : clamp(fitScale * 1.1, 0.84, 1.12)
     : size.width < 900
-      ? 0.58
-      : 0.74;
+      ? clamp(fitScale * 0.92, 0.58, 0.78)
+      : fitScale;
   const anchor = focused
     ? { x: focused.screenX, y: focused.screenY }
     : getDefaultSceneAnchor();
@@ -437,17 +445,98 @@ function createText(
   return node;
 }
 
+type GraphicsFillState = { color: number; alpha: number };
+type GraphicsStrokeState = { width: number; color: number; alpha: number };
+
+const graphicsFillState = new WeakMap<PIXI.Graphics, GraphicsFillState>();
+const graphicsStrokeState = new WeakMap<PIXI.Graphics, GraphicsStrokeState>();
+
+function beginFill(graphics: PIXI.Graphics, color: number, alpha = 1) {
+  graphicsFillState.set(graphics, { color, alpha });
+}
+
+function endFill(graphics: PIXI.Graphics) {
+  graphicsFillState.delete(graphics);
+}
+
+function lineStyle(
+  graphics: PIXI.Graphics,
+  width: number,
+  color: number,
+  alpha = 1,
+) {
+  graphicsStrokeState.set(graphics, { width, color, alpha });
+}
+
+function applyGraphicsPaint(graphics: PIXI.Graphics) {
+  const fill = graphicsFillState.get(graphics);
+  const stroke = graphicsStrokeState.get(graphics);
+
+  if (fill) {
+    graphics.fill(fill);
+  }
+  if (stroke) {
+    graphics.stroke(stroke);
+  }
+}
+
+function strokePath(graphics: PIXI.Graphics) {
+  const stroke = graphicsStrokeState.get(graphics);
+  if (stroke) {
+    graphics.stroke(stroke);
+  }
+}
+
 function drawPolygon(
   graphics: PIXI.Graphics,
   points: Array<{ x: number; y: number }>,
 ) {
-  graphics.moveTo(points[0]!.x, points[0]!.y);
+  graphics.poly(points.flatMap((point) => [point.x, point.y]));
+  applyGraphicsPaint(graphics);
+}
 
-  for (const point of points.slice(1)) {
-    graphics.lineTo(point.x, point.y);
-  }
+function drawRoundedRect(
+  graphics: PIXI.Graphics,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  graphics.roundRect(x, y, width, height, radius);
+  applyGraphicsPaint(graphics);
+}
 
-  graphics.closePath();
+function drawRect(
+  graphics: PIXI.Graphics,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  graphics.rect(x, y, width, height);
+  applyGraphicsPaint(graphics);
+}
+
+function drawCircle(
+  graphics: PIXI.Graphics,
+  x: number,
+  y: number,
+  radius: number,
+) {
+  graphics.circle(x, y, radius);
+  applyGraphicsPaint(graphics);
+}
+
+function drawEllipse(
+  graphics: PIXI.Graphics,
+  x: number,
+  y: number,
+  halfWidth: number,
+  halfHeight: number,
+) {
+  graphics.ellipse(x, y, halfWidth, halfHeight);
+  applyGraphicsPaint(graphics);
 }
 
 function drawIsoBox(
@@ -474,20 +563,20 @@ function drawIsoBox(
   const topD = { x: baseD.x + lift.x, y: baseD.y + lift.y };
 
   const rightFace = new PIXI.Graphics();
-  rightFace.beginFill(colors.right);
+  beginFill(rightFace, colors.right);
   drawPolygon(rightFace, [topB, topC, baseC, baseB]);
-  rightFace.endFill();
+  endFill(rightFace);
 
   const leftFace = new PIXI.Graphics();
-  leftFace.beginFill(colors.left);
+  beginFill(leftFace, colors.left);
   drawPolygon(leftFace, [topA, topD, baseD, baseA]);
-  leftFace.endFill();
+  endFill(leftFace);
 
   const topFace = new PIXI.Graphics();
-  topFace.beginFill(colors.top);
+  beginFill(topFace, colors.top);
   drawPolygon(topFace, [topA, topB, topC, topD]);
-  topFace.endFill();
-  topFace.lineStyle(1, 0x000000, 0.08);
+  endFill(topFace);
+  lineStyle(topFace, 1, 0x000000, 0.08);
   drawPolygon(topFace, [topA, topB, topC, topD]);
 
   target.addChild(rightFace, leftFace, topFace);
@@ -566,12 +655,12 @@ function addWorkstationFurniture(
         isoToScreen(workstation.deskX + 0.4, workstation.deskY + 0.28).y,
         "dual",
       );
-      chair.beginFill(0x85739d, 0.95);
-      chair.drawRoundedRect(chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
-      chair.endFill();
-      chair.beginFill(0x6c5961, 0.75);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 4, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x85739d, 0.95);
+      drawRoundedRect(chair, chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
+      endFill(chair);
+      beginFill(chair, 0x6c5961, 0.75);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 4, 3, 8);
+      endFill(chair);
       break;
 
     case "product": {
@@ -600,20 +689,20 @@ function addWorkstationFurniture(
         workstation.deskX + 0.84,
         workstation.deskY + 0.24,
       );
-      note.beginFill(index % 2 === 0 ? 0xffcb6d : 0xff93ac, 0.94);
-      note.drawRoundedRect(notePos.x - 5, notePos.y - 10, 10, 8, 2);
-      note.endFill();
+      beginFill(note, index % 2 === 0 ? 0xffcb6d : 0xff93ac, 0.94);
+      drawRoundedRect(note, notePos.x - 5, notePos.y - 10, 10, 8, 2);
+      endFill(note);
       note.zIndex = isoToScreen(
         workstation.deskX + 0.88,
         workstation.deskY + 0.28,
       ).y;
       layer.addChild(note);
-      chair.beginFill(0x8b6f79, 0.95);
-      chair.drawRoundedRect(chairPos.x - 9, chairPos.y - 8, 15, 14, 4);
-      chair.endFill();
-      chair.beginFill(0x6c5961, 0.72);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 3, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x8b6f79, 0.95);
+      drawRoundedRect(chair, chairPos.x - 9, chairPos.y - 8, 15, 14, 4);
+      endFill(chair);
+      beginFill(chair, 0x6c5961, 0.72);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 3, 3, 8);
+      endFill(chair);
       break;
     }
 
@@ -639,12 +728,12 @@ function addWorkstationFurniture(
         isoToScreen(workstation.deskX + 0.3, workstation.deskY + 0.26).y,
         index % 2 === 0 ? "ultrawide" : "single",
       );
-      chair.beginFill(0x6e667d, 0.96);
-      chair.drawRoundedRect(chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
-      chair.endFill();
-      chair.beginFill(0x545164, 0.78);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 4, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x6e667d, 0.96);
+      drawRoundedRect(chair, chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
+      endFill(chair);
+      beginFill(chair, 0x545164, 0.78);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 4, 3, 8);
+      endFill(chair);
       break;
 
     case "growth": {
@@ -673,17 +762,17 @@ function addWorkstationFurniture(
         workstation.deskX + 0.9,
         workstation.deskY + 0.95,
       );
-      mat.beginFill(0xffdf84, 0.38);
-      mat.drawEllipse(matPos.x, matPos.y, 22, 12);
-      mat.endFill();
+      beginFill(mat, 0xffdf84, 0.38);
+      drawEllipse(mat, matPos.x, matPos.y, 22, 12);
+      endFill(mat);
       mat.zIndex = matPos.y - 1;
       layer.addChild(mat);
-      chair.beginFill(0x8b6d75, 0.96);
-      chair.drawRoundedRect(chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
-      chair.endFill();
-      chair.beginFill(0x6c5961, 0.75);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 4, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x8b6d75, 0.96);
+      drawRoundedRect(chair, chairPos.x - 8, chairPos.y - 8, 14, 15, 4);
+      endFill(chair);
+      beginFill(chair, 0x6c5961, 0.75);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 4, 3, 8);
+      endFill(chair);
       break;
     }
 
@@ -708,12 +797,12 @@ function addWorkstationFurniture(
         0xd9e2ef,
         isoToScreen(workstation.deskX + 0.34, workstation.deskY + 0.22).y,
       );
-      chair.beginFill(0x9b7c88, 0.96);
-      chair.drawRoundedRect(chairPos.x - 9, chairPos.y - 8, 15, 14, 4);
-      chair.endFill();
-      chair.beginFill(0x7b646d, 0.72);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 3, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x9b7c88, 0.96);
+      drawRoundedRect(chair, chairPos.x - 9, chairPos.y - 8, 15, 14, 4);
+      endFill(chair);
+      beginFill(chair, 0x7b646d, 0.72);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 3, 3, 8);
+      endFill(chair);
       break;
 
     case "vendor":
@@ -742,20 +831,20 @@ function addWorkstationFurniture(
         workstation.deskX + 0.82,
         workstation.deskY + 0.32,
       );
-      parcel.beginFill(0xd4af85, 0.95);
-      parcel.drawRoundedRect(parcelPos.x - 6, parcelPos.y - 9, 11, 8, 2);
-      parcel.endFill();
+      beginFill(parcel, 0xd4af85, 0.95);
+      drawRoundedRect(parcel, parcelPos.x - 6, parcelPos.y - 9, 11, 8, 2);
+      endFill(parcel);
       parcel.zIndex = isoToScreen(
         workstation.deskX + 0.85,
         workstation.deskY + 0.36,
       ).y;
       layer.addChild(parcel);
-      chair.beginFill(0x917079, 0.96);
-      chair.drawRoundedRect(chairPos.x - 8, chairPos.y - 8, 14, 14, 4);
-      chair.endFill();
-      chair.beginFill(0x6f5861, 0.72);
-      chair.drawRect(chairPos.x - 1.5, chairPos.y + 3, 3, 8);
-      chair.endFill();
+      beginFill(chair, 0x917079, 0.96);
+      drawRoundedRect(chair, chairPos.x - 8, chairPos.y - 8, 14, 14, 4);
+      endFill(chair);
+      beginFill(chair, 0x6f5861, 0.72);
+      drawRect(chair, chairPos.x - 1.5, chairPos.y + 3, 3, 8);
+      endFill(chair);
       break;
   }
 
@@ -778,37 +867,37 @@ function addZoneGround(
 
   switch (zoneId) {
     case "command":
-      ground.beginFill(0xe5e1ff, alpha);
-      ground.drawEllipse(center.x - 22, center.y + 10, 78, 40);
-      ground.endFill();
+      beginFill(ground, 0xe5e1ff, alpha);
+      drawEllipse(ground, center.x - 22, center.y + 10, 78, 40);
+      endFill(ground);
       break;
     case "product":
-      ground.beginFill(0xdde7f3, alpha);
-      ground.drawEllipse(center.x - 4, center.y + 10, 118, 46);
-      ground.endFill();
+      beginFill(ground, 0xdde7f3, alpha);
+      drawEllipse(ground, center.x - 4, center.y + 10, 118, 46);
+      endFill(ground);
       break;
     case "engineering":
-      ground.beginFill(0xd5ece1, alpha);
-      ground.drawEllipse(center.x, center.y + 14, 156, 72);
-      ground.endFill();
-      ground.beginFill(0xc0dfd3, active ? 0.22 : 0.1);
-      ground.drawEllipse(center.x, center.y + 14, 96, 44);
-      ground.endFill();
+      beginFill(ground, 0xd5ece1, alpha);
+      drawEllipse(ground, center.x, center.y + 14, 156, 72);
+      endFill(ground);
+      beginFill(ground, 0xc0dfd3, active ? 0.22 : 0.1);
+      drawEllipse(ground, center.x, center.y + 14, 96, 44);
+      endFill(ground);
       break;
     case "growth":
-      ground.beginFill(0xffe3a2, alpha);
-      ground.drawEllipse(center.x + 8, center.y + 10, 92, 42);
-      ground.endFill();
+      beginFill(ground, 0xffe3a2, alpha);
+      drawEllipse(ground, center.x + 8, center.y + 10, 92, 42);
+      endFill(ground);
       break;
     case "people":
-      ground.beginFill(0xe2daf5, alpha);
-      ground.drawEllipse(center.x + 10, center.y + 14, 116, 52);
-      ground.endFill();
+      beginFill(ground, 0xe2daf5, alpha);
+      drawEllipse(ground, center.x + 10, center.y + 14, 116, 52);
+      endFill(ground);
       break;
     case "vendor":
-      ground.beginFill(0xffd8dc, alpha);
-      ground.drawEllipse(center.x + 6, center.y + 12, 104, 48);
-      ground.endFill();
+      beginFill(ground, 0xffd8dc, alpha);
+      drawEllipse(ground, center.x + 6, center.y + 12, 104, 48);
+      endFill(ground);
       break;
   }
 
@@ -825,11 +914,11 @@ function addSelectedWorkstationGlow(
     workstation.personY + 0.02,
   );
   const glow = new PIXI.Graphics();
-  glow.beginFill(0xffe19b, 0.24);
-  glow.drawEllipse(pos.x, pos.y + 6, 22, 10);
-  glow.endFill();
-  glow.lineStyle(2, 0xffd36b, 0.78);
-  glow.drawEllipse(pos.x, pos.y + 6, 14, 6);
+  beginFill(glow, 0xffe19b, 0.24);
+  drawEllipse(glow, pos.x, pos.y + 6, 22, 10);
+  endFill(glow);
+  lineStyle(glow, 2, 0xffd36b, 0.78);
+  drawEllipse(glow, pos.x, pos.y + 6, 14, 6);
   glow.zIndex = pos.y - 1;
   layer.addChild(glow);
 }
@@ -843,15 +932,16 @@ function addDeskCluster(
 ) {
   const workstations = resolveZoneWorkstations(zone, workstationCapacity);
   const rug = new PIXI.Graphics();
-  rug.beginFill(zone.rugTint, active ? 0.34 : 0.22);
+  beginFill(rug, zone.rugTint, active ? 0.34 : 0.22);
   const anchorScreen = isoToScreen(zone.anchor.x, zone.anchor.y);
-  rug.drawEllipse(
+  drawEllipse(
+    rug,
     anchorScreen.x,
     anchorScreen.y + 8,
     zoneId === "engineering" ? 160 : zoneId === "vendor" ? 86 : 96,
     zoneId === "engineering" ? 82 : zoneId === "vendor" ? 44 : 50,
   );
-  rug.endFill();
+  endFill(rug);
   rug.zIndex = anchorScreen.y - 10;
   layer.addChild(rug);
 
@@ -904,15 +994,15 @@ function addZoneDecor(
     case "product": {
       const board = new PIXI.Graphics();
       const pos = isoToScreen(zone.anchor.x - 1.7, zone.anchor.y - 1.45);
-      board.beginFill(0xfaf3e5);
-      board.drawRoundedRect(pos.x - 24, pos.y - 50, 46, 32, 5);
-      board.endFill();
-      board.beginFill(0xffcf69);
-      board.drawRect(pos.x - 16, pos.y - 42, 8, 10);
-      board.beginFill(0x87c6ff);
-      board.drawRect(pos.x - 4, pos.y - 35, 8, 8);
-      board.beginFill(0xff8fa4);
-      board.drawRect(pos.x + 8, pos.y - 41, 8, 9);
+      beginFill(board, 0xfaf3e5);
+      drawRoundedRect(board, pos.x - 24, pos.y - 50, 46, 32, 5);
+      endFill(board);
+      beginFill(board, 0xffcf69);
+      drawRect(board, pos.x - 16, pos.y - 42, 8, 10);
+      beginFill(board, 0x87c6ff);
+      drawRect(board, pos.x - 4, pos.y - 35, 8, 8);
+      beginFill(board, 0xff8fa4);
+      drawRect(board, pos.x + 8, pos.y - 41, 8, 9);
       board.zIndex = pos.y - 10;
       layer.addChild(board);
       break;
@@ -956,9 +1046,9 @@ function addZoneDecor(
     case "growth": {
       const platform = new PIXI.Graphics();
       const pos = isoToScreen(zone.anchor.x + 1.1, zone.anchor.y + 1.1);
-      platform.beginFill(0xffda7d, 0.7);
-      platform.drawEllipse(pos.x, pos.y, 44, 21);
-      platform.endFill();
+      beginFill(platform, 0xffda7d, 0.7);
+      drawEllipse(platform, pos.x, pos.y, 44, 21);
+      endFill(platform);
       platform.zIndex = pos.y - 2;
       layer.addChild(platform);
       break;
@@ -1028,12 +1118,12 @@ function addInteriorPartitions(layer: PIXI.Container) {
   layer.addChild(partitionA);
 
   const partitionB = new PIXI.Container();
-  drawIsoBox(partitionB, 13.95, 5.9, 0.12, 3.9, 34, {
+  drawIsoBox(partitionB, 13.25, 5.35, 0.12, 2.9, 30, {
     top: 0x9f7c69,
     left: 0x876352,
     right: 0x7a594b,
   });
-  partitionB.zIndex = isoToScreen(14.05, 8.8).y;
+  partitionB.zIndex = isoToScreen(13.35, 7.95).y;
   layer.addChild(partitionB);
 
   const partitionC = new PIXI.Container();
@@ -1059,12 +1149,12 @@ function addSceneDecor(layer: PIXI.Container) {
   for (const art of wallArt) {
     const pos = isoToScreen(art.x, art.y);
     const frame = new PIXI.Graphics();
-    frame.beginFill(0x2a211c);
-    frame.drawRoundedRect(pos.x - 9, pos.y - WALL_HEIGHT + 24, 18, 12, 3);
-    frame.endFill();
-    frame.beginFill(art.tint);
-    frame.drawRect(pos.x - 6, pos.y - WALL_HEIGHT + 27, 12, 6);
-    frame.endFill();
+    beginFill(frame, 0x2a211c);
+    drawRoundedRect(frame, pos.x - 9, pos.y - WALL_HEIGHT + 24, 18, 12, 3);
+    endFill(frame);
+    beginFill(frame, art.tint);
+    drawRect(frame, pos.x - 6, pos.y - WALL_HEIGHT + 27, 12, 6);
+    endFill(frame);
     frame.zIndex = pos.y - WALL_HEIGHT + 28;
     layer.addChild(frame);
   }
@@ -1073,19 +1163,20 @@ function addSceneDecor(layer: PIXI.Container) {
     { x: 3.4, y: 2.2 },
     { x: 8.8, y: 2.0 },
     { x: 5.3, y: 8.7 },
-    { x: 12.8, y: 7.4 },
+    { x: 11.9, y: 7.05 },
   ];
 
   for (const plant of plants) {
     const pos = isoToScreen(plant.x, plant.y);
     const stem = new PIXI.Graphics();
-    stem.lineStyle(2, 0x6ab7a7, 0.95);
+    lineStyle(stem, 2, 0x6ab7a7, 0.95);
     stem.moveTo(pos.x, pos.y - 22);
     stem.lineTo(pos.x, pos.y);
-    stem.beginFill(0x98e3d1);
-    stem.drawEllipse(pos.x - 4, pos.y - 18, 5, 12);
-    stem.drawEllipse(pos.x + 4, pos.y - 12, 5, 11);
-    stem.endFill();
+    strokePath(stem);
+    beginFill(stem, 0x98e3d1);
+    drawEllipse(stem, pos.x - 4, pos.y - 18, 5, 12);
+    drawEllipse(stem, pos.x + 4, pos.y - 12, 5, 11);
+    endFill(stem);
     stem.zIndex = pos.y;
     layer.addChild(stem);
   }
@@ -1114,12 +1205,12 @@ function addSceneDecor(layer: PIXI.Container) {
   layer.addChild(rack);
 
   const table = new PIXI.Container();
-  drawIsoBox(table, 14.0, 5.55, 1.95, 1.15, 18, {
+  drawIsoBox(table, 12.95, 5.22, 1.65, 0.95, 18, {
     top: 0xbe875a,
     left: 0x9c6b49,
     right: 0x8a5938,
   });
-  table.zIndex = isoToScreen(15.6, 6.7).y;
+  table.zIndex = isoToScreen(14.25, 6.15).y;
   layer.addChild(table);
 
   const printer = new PIXI.Container();
@@ -1160,12 +1251,12 @@ function addSceneDecor(layer: PIXI.Container) {
   layer.addChild(bench);
 
   const sideTable = new PIXI.Container();
-  drawIsoBox(sideTable, 14.7, 8.05, 0.7, 0.44, 16, {
+  drawIsoBox(sideTable, 13.15, 7.55, 0.7, 0.44, 16, {
     top: 0x906955,
     left: 0x714f40,
     right: 0x805b49,
   });
-  sideTable.zIndex = isoToScreen(15.3, 8.4).y;
+  sideTable.zIndex = isoToScreen(13.75, 7.9).y;
   layer.addChild(sideTable);
 }
 
@@ -1281,35 +1372,35 @@ function createAgentLabel(
   const height = 30;
 
   const shadow = new PIXI.Graphics();
-  shadow.beginFill(0x0f0b09, emphasized ? 0.22 : 0.16);
-  shadow.drawRoundedRect(-width / 2 + 2, -height / 2 + 3, width, height, 10);
-  shadow.endFill();
+  beginFill(shadow, 0x0f0b09, emphasized ? 0.22 : 0.16);
+  drawRoundedRect(shadow, -width / 2 + 2, -height / 2 + 3, width, height, 10);
+  endFill(shadow);
 
   const background = new PIXI.Graphics();
-  background.lineStyle(1.5, palette.fill, selected ? 0.34 : 0.22);
-  background.beginFill(0x1c150f, selected ? 0.97 : hovered ? 0.94 : 0.9);
-  background.drawRoundedRect(-width / 2, -height / 2, width, height, 10);
-  background.endFill();
+  lineStyle(background, 1.5, palette.fill, selected ? 0.34 : 0.22);
+  beginFill(background, 0x1c150f, selected ? 0.97 : hovered ? 0.94 : 0.9);
+  drawRoundedRect(background, -width / 2, -height / 2, width, height, 10);
+  endFill(background);
 
   const roleChip = new PIXI.Graphics();
-  roleChip.beginFill(palette.fill, 0.98);
-  roleChip.drawRoundedRect(-width / 2 + 6, -11, roleWidth, 22, 8);
-  roleChip.endFill();
+  beginFill(roleChip, palette.fill, 0.98);
+  drawRoundedRect(roleChip, -width / 2 + 6, -11, roleWidth, 22, 8);
+  endFill(roleChip);
 
   const divider = new PIXI.Graphics();
-  divider.beginFill(0xffffff, 0.08);
-  divider.drawRoundedRect(-width / 2 + roleWidth + 14, -8, 1.5, 16, 1);
-  divider.endFill();
+  beginFill(divider, 0xffffff, 0.08);
+  drawRoundedRect(divider, -width / 2 + roleWidth + 14, -8, 1.5, 16, 1);
+  endFill(divider);
 
   const statusHalo = new PIXI.Graphics();
-  statusHalo.beginFill(STATUS_GLOWS[agent.status], selected ? 0.22 : 0.15);
-  statusHalo.drawCircle(width / 2 - 12, 0, 7);
-  statusHalo.endFill();
+  beginFill(statusHalo, STATUS_GLOWS[agent.status], selected ? 0.22 : 0.15);
+  drawCircle(statusHalo, width / 2 - 12, 0, 7);
+  endFill(statusHalo);
 
   const statusDot = new PIXI.Graphics();
-  statusDot.beginFill(STATUS_GLOWS[agent.status], 0.98);
-  statusDot.drawCircle(width / 2 - 12, 0, 4);
-  statusDot.endFill();
+  beginFill(statusDot, STATUS_GLOWS[agent.status], 0.98);
+  drawCircle(statusDot, width / 2 - 12, 0, 4);
+  endFill(statusDot);
 
   roleText.position.set(-width / 2 + 15, 0);
   nameText.position.set(-width / 2 + roleWidth + 22, 0);
@@ -1390,10 +1481,16 @@ function drawOfficeScene(
   const floorB = isoToScreen(ROOM_WIDTH, 0);
   const floorC = isoToScreen(ROOM_WIDTH, ROOM_HEIGHT);
   const floorD = isoToScreen(0, ROOM_HEIGHT);
-  floor.beginFill(0xf0dfc1);
+  const sceneShadow = new PIXI.Graphics();
+  beginFill(sceneShadow, 0x4a3528, 0.12);
+  drawEllipse(sceneShadow, 90, 542, 650, 156);
+  endFill(sceneShadow);
+  floorLayer.addChild(sceneShadow);
+
+  beginFill(floor, 0xf0dfc1);
   drawPolygon(floor, [floorA, floorB, floorC, floorD]);
-  floor.endFill();
-  floor.lineStyle(3, 0xcca480, 0.4);
+  endFill(floor);
+  lineStyle(floor, 3, 0xc9a77f, 0.38);
   drawPolygon(floor, [floorA, floorB, floorC, floorD]);
   floorLayer.addChild(floor);
 
@@ -1401,9 +1498,10 @@ function drawOfficeScene(
     const a = isoToScreen(0, row);
     const b = isoToScreen(ROOM_WIDTH, row);
     const line = new PIXI.Graphics();
-    line.lineStyle(1, 0xdac8ab, 0.5);
+    lineStyle(line, 1, 0xe1cfaf, 0.42);
     line.moveTo(a.x, a.y);
     line.lineTo(b.x, b.y);
+    strokePath(line);
     floorLayer.addChild(line);
   }
 
@@ -1411,39 +1509,41 @@ function drawOfficeScene(
     const a = isoToScreen(col, 0);
     const b = isoToScreen(col, ROOM_HEIGHT);
     const line = new PIXI.Graphics();
-    line.lineStyle(1, 0xdac8ab, 0.38);
+    lineStyle(line, 1, 0xd8c19d, 0.28);
     line.moveTo(a.x, a.y);
     line.lineTo(b.x, b.y);
+    strokePath(line);
     floorLayer.addChild(line);
   }
 
   const topWall = new PIXI.Graphics();
-  topWall.beginFill(0xc28e79);
+  beginFill(topWall, 0xb98777);
   drawPolygon(topWall, [
     floorA,
     floorB,
     { x: floorB.x, y: floorB.y - WALL_HEIGHT },
     { x: floorA.x, y: floorA.y - WALL_HEIGHT },
   ]);
-  topWall.endFill();
+  endFill(topWall);
   floorLayer.addChild(topWall);
 
   const rightWall = new PIXI.Graphics();
-  rightWall.beginFill(0xb7806b);
+  beginFill(rightWall, 0xa56f61);
   drawPolygon(rightWall, [
     floorB,
     floorC,
     { x: floorC.x, y: floorC.y - WALL_HEIGHT },
     { x: floorB.x, y: floorB.y - WALL_HEIGHT },
   ]);
-  rightWall.endFill();
+  endFill(rightWall);
   floorLayer.addChild(rightWall);
 
   const trim = new PIXI.Graphics();
-  trim.lineStyle(10, 0xa97862, 0.95);
+  lineStyle(trim, 10, 0x8f6255, 0.92);
   trim.moveTo(floorA.x, floorA.y - WALL_HEIGHT);
   trim.lineTo(floorB.x, floorB.y - WALL_HEIGHT);
   trim.lineTo(floorC.x, floorC.y - WALL_HEIGHT);
+  strokePath(trim);
   floorLayer.addChild(trim);
 
   addSceneDecor(objectLayer);
@@ -1548,88 +1648,91 @@ function drawOfficeScene(
       const entity = new PIXI.Container();
 
       const halo = new PIXI.Graphics();
-      halo.beginFill(
+      beginFill(
+        halo,
         STATUS_GLOWS[agent.status],
         selected ? 0.26 : hovered ? 0.18 : 0.1,
       );
-      halo.drawEllipse(0, 8, selected ? 28 : 22, selected ? 14 : 10);
-      halo.endFill();
+      drawEllipse(halo, 0, 8, selected ? 28 : 22, selected ? 14 : 10);
+      endFill(halo);
 
       const shadow = new PIXI.Graphics();
-      shadow.beginFill(0x000000, 0.12);
-      shadow.drawEllipse(0, 7, 13, 6);
-      shadow.endFill();
+      beginFill(shadow, 0x000000, 0.12);
+      drawEllipse(shadow, 0, 7, 13, 6);
+      endFill(shadow);
 
       const body = new PIXI.Graphics();
-      body.beginFill(ROLE_COLORS[agent.role]);
-      body.drawRoundedRect(-7, -22, 14, 24, 5);
-      body.endFill();
+      beginFill(body, ROLE_COLORS[agent.role]);
+      drawRoundedRect(body, -7, -22, 14, 24, 5);
+      endFill(body);
 
       const jacket = new PIXI.Graphics();
-      jacket.beginFill(
+      beginFill(
+        jacket,
         agent.engine === "hermes-agent" ? 0x1d4f91 : 0x1a1f2d,
         0.92,
       );
-      jacket.drawRoundedRect(-6, -17, 12, 13, 4);
-      jacket.endFill();
+      drawRoundedRect(jacket, -6, -17, 12, 13, 4);
+      endFill(jacket);
 
       const head = new PIXI.Graphics();
-      head.beginFill(0xffdfc4);
-      head.drawCircle(0, -27, 7);
-      head.endFill();
+      beginFill(head, 0xffdfc4);
+      drawCircle(head, 0, -27, 7);
+      endFill(head);
 
       const hair = new PIXI.Graphics();
-      hair.beginFill(roleHairTint(agent.role));
-      hair.drawEllipse(0, -30, 7, 5);
-      hair.endFill();
+      beginFill(hair, roleHairTint(agent.role));
+      drawEllipse(hair, 0, -30, 7, 5);
+      endFill(hair);
 
       const legLeft = new PIXI.Graphics();
-      legLeft.beginFill(0x2e3440);
-      legLeft.drawRoundedRect(-5, -1, 3, 10, 2);
-      legLeft.endFill();
+      beginFill(legLeft, 0x2e3440);
+      drawRoundedRect(legLeft, -5, -1, 3, 10, 2);
+      endFill(legLeft);
 
       const legRight = new PIXI.Graphics();
-      legRight.beginFill(0x2e3440);
-      legRight.drawRoundedRect(2, -1, 3, 10, 2);
-      legRight.endFill();
+      beginFill(legRight, 0x2e3440);
+      drawRoundedRect(legRight, 2, -1, 3, 10, 2);
+      endFill(legRight);
 
       const shoeLeft = new PIXI.Graphics();
-      shoeLeft.beginFill(0xf6f1e8);
-      shoeLeft.drawRoundedRect(-6, 8, 5, 3, 2);
-      shoeLeft.endFill();
+      beginFill(shoeLeft, 0xf6f1e8);
+      drawRoundedRect(shoeLeft, -6, 8, 5, 3, 2);
+      endFill(shoeLeft);
 
       const shoeRight = new PIXI.Graphics();
-      shoeRight.beginFill(0xf6f1e8);
-      shoeRight.drawRoundedRect(1, 8, 5, 3, 2);
-      shoeRight.endFill();
+      beginFill(shoeRight, 0xf6f1e8);
+      drawRoundedRect(shoeRight, 1, 8, 5, 3, 2);
+      endFill(shoeRight);
 
       const armLeft = new PIXI.Graphics();
-      armLeft.beginFill(0x6d5342, 0.95);
-      armLeft.drawRoundedRect(-9, -15, 3, 10, 2);
-      armLeft.endFill();
+      beginFill(armLeft, 0x6d5342, 0.95);
+      drawRoundedRect(armLeft, -9, -15, 3, 10, 2);
+      endFill(armLeft);
 
       const armRight = new PIXI.Graphics();
-      armRight.beginFill(0x6d5342, 0.95);
-      armRight.drawRoundedRect(6, -15, 3, 10, 2);
-      armRight.endFill();
+      beginFill(armRight, 0x6d5342, 0.95);
+      drawRoundedRect(armRight, 6, -15, 3, 10, 2);
+      endFill(armRight);
 
       const pin = new PIXI.Graphics();
-      pin.beginFill(selected ? 0xfff0c2 : STATUS_GLOWS[agent.status]);
-      pin.drawCircle(10, -31, 3);
-      pin.endFill();
+      beginFill(pin, selected ? 0xfff0c2 : STATUS_GLOWS[agent.status]);
+      drawCircle(pin, 10, -31, 3);
+      endFill(pin);
 
       const engineChip = new PIXI.Graphics();
-      engineChip.beginFill(
+      beginFill(
+        engineChip,
         agent.engine === "hermes-agent" ? 0x7fb3ff : 0x7ce8d0,
         0.95,
       );
-      engineChip.drawRoundedRect(-10, -39, 8, 4, 2);
-      engineChip.endFill();
+      drawRoundedRect(engineChip, -10, -39, 8, 4, 2);
+      endFill(engineChip);
 
       const statusChip = new PIXI.Graphics();
-      statusChip.beginFill(STATUS_GLOWS[agent.status], 0.95);
-      statusChip.drawRoundedRect(3, -39, 8, 4, 2);
-      statusChip.endFill();
+      beginFill(statusChip, STATUS_GLOWS[agent.status], 0.95);
+      drawRoundedRect(statusChip, 3, -39, 8, 4, 2);
+      endFill(statusChip);
 
       const icon = createText(
         agent.name.slice(0, 1),
@@ -2184,6 +2287,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
       setFeedback("浏览器阻止了新窗口，请允许弹窗后重试。");
       return;
     }
+    openedWindow.opener = null;
 
     let nativeUrl = selectedDevice?.nativeDashboardUrl ?? null;
 
@@ -2205,40 +2309,155 @@ export function OfficeBetaShell({ snapshot }: Props) {
     openedWindow.location.replace(nativeUrl);
   };
 
+  const zoomCanvas = (factor: number) => {
+    const world = worldRef.current;
+    const host = canvasHostRef.current;
+    if (!world || !host) return;
+
+    followSelectionRef.current = false;
+    cameraTweenRef.current?.kill();
+
+    const pointerX = host.clientWidth / 2;
+    const pointerY = host.clientHeight / 2;
+    const currentScale = world.scale.x;
+    const nextScale = clamp(
+      currentScale * factor,
+      MIN_CAMERA_SCALE,
+      MAX_CAMERA_SCALE,
+    );
+    const worldPointX = (pointerX - world.x) / currentScale;
+    const worldPointY = (pointerY - world.y) / currentScale;
+
+    world.scale.set(nextScale);
+    world.position.set(
+      pointerX - worldPointX * nextScale,
+      pointerY - worldPointY * nextScale,
+    );
+  };
+
+  const resetCanvasCamera = () => {
+    const world = worldRef.current;
+    if (!world) return;
+
+    followSelectionRef.current = false;
+    const pose = getCameraPose(canvasSize, null);
+    cameraTweenRef.current?.kill();
+    cameraTweenRef.current = gsap.to(world, {
+      duration: 0.45,
+      x: pose.x,
+      y: pose.y,
+      ease: "power3.out",
+    });
+    gsap.to(world.scale, {
+      duration: 0.45,
+      x: pose.scale,
+      y: pose.scale,
+      ease: "power3.out",
+    });
+  };
+
   const SelectedRoleIcon = selectedAgent
     ? ROLE_ICONS[selectedAgent.role]
     : null;
   const hasAgents = liveSnapshot.agents.length > 0;
+  const activeHeadcount = liveSnapshot.zones.reduce(
+    (total, zone) => total + zone.activeCount,
+    0,
+  );
+  const workstationCapacity = liveSnapshot.zones.reduce(
+    (total, zone) => total + zone.workstationCapacity,
+    0,
+  );
+  const workstationMax = liveSnapshot.zones.reduce(
+    (total, zone) => total + zone.workstationMax,
+    0,
+  );
+  const activeTaskCount = liveSnapshot.tasks.filter(
+    (task) =>
+      task.status !== "completed" &&
+      task.status !== "failed" &&
+      task.status !== "canceled",
+  ).length;
+  const liveDeviceCount = liveSnapshot.devices.filter(
+    (device) => device.status === "online" || device.status === "busy",
+  ).length;
+  const snapshotTime = new Date(liveSnapshot.generatedAt).toLocaleString(
+    "zh-CN",
+    {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+  );
+  const officeStats = [
+    {
+      label: "人物",
+      value: `${liveSnapshot.agents.length}`,
+      detail: `${activeHeadcount} 活跃`,
+    },
+    {
+      label: "工位",
+      value: `${workstationCapacity}/${workstationMax}`,
+      detail: "已启用",
+    },
+    {
+      label: "任务",
+      value: `${activeTaskCount}`,
+      detail: "进行中",
+    },
+    {
+      label: "设备",
+      value: `${liveDeviceCount}/${liveSnapshot.devices.length}`,
+      detail: "可用",
+    },
+  ];
 
   return (
     <AdminChrome>
       <div className="flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0">
-        <div className="border-border/70 bg-background/78 relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border px-4 py-3 shadow-[0_26px_90px_rgba(15,23,42,0.1)] backdrop-blur-xl md:px-5 md:py-4">
-          <div className="grid shrink-0 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-            <div className="space-y-2">
-              <p className="text-[10px] tracking-[0.32em] text-[#a78560] uppercase">
-                2D Live View
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/80 bg-[linear-gradient(180deg,rgba(248,251,249,0.94)_0%,rgba(235,244,241,0.88)_100%)] px-4 py-4 shadow-[0_28px_80px_rgba(15,23,42,0.1)] backdrop-blur-xl md:px-5 md:py-5">
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(32,86,75,0.05),transparent_34%,rgba(166,94,32,0.06))]" />
+
+          <div className="relative grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold tracking-[0.26em] text-[#5e7b70] uppercase">
+                2D live view
               </p>
-              <h1 className="text-[2.45rem] font-semibold tracking-[-0.06em] text-[#2a1d12] md:text-[3.2rem]">
-                虚拟 Office
-              </h1>
+              <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2">
+                <h1 className="text-4xl leading-none font-semibold text-[#1e1712] md:text-5xl">
+                  虚拟 Office
+                </h1>
+                <Badge className="mb-1 border border-[#b9d7c8] bg-[#eef8f2] px-2.5 py-1 text-[#28634d]">
+                  {liveSnapshot.mode === "database" ? "Database" : "Fallback"}
+                </Badge>
+              </div>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#60706b]">
+                实时呈现办公室座席、人物、Runner 和任务流转状态。
+              </p>
             </div>
 
             <div className="flex flex-col gap-3 xl:items-end">
               <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 <Badge
                   className={cn(
-                    "border-0 px-3 py-1.5",
+                    "gap-2 border px-3 py-1.5",
                     streamState === "live"
-                      ? "bg-[#eef7ee] text-[#21643b]"
-                      : "bg-[#fff4dd] text-[#8b5b10]",
+                      ? "border-[#b9dfc4] bg-[#eef8f0] text-[#21643b]"
+                      : "border-[#ead09f] bg-[#fff5df] text-[#8b5b10]",
                   )}
                 >
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      streamState === "live" ? "bg-[#2a9d58]" : "bg-[#c68621]",
+                    )}
+                  />
                   {streamState === "live" ? "实时同步中" : "正在重连"}
                 </Badge>
                 <Button
                   variant="outline"
-                  className="h-9 rounded-full border-[#d9c2a2] bg-white/80 px-4 text-sm font-medium text-[#2b1d12] hover:bg-white"
+                  className="h-10 rounded-full border-[#cbbf9f] bg-white/84 px-4 text-sm font-medium text-[#24342f] shadow-[0_10px_24px_rgba(56,72,68,0.08)] hover:bg-white"
                   disabled={Boolean(liveSnapshot.readOnlyReason)}
                   onClick={() => {
                     setWorkstationZoneId(
@@ -2253,7 +2472,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   添加工位
                 </Button>
                 <Button
-                  className="h-9 rounded-full border border-[#c9964c] bg-[#a75b16] px-4 text-sm font-medium text-[#fff8ef] hover:bg-[#8f4d12]"
+                  className="h-10 rounded-full border border-[#9d6a2d] bg-[#92521a] px-4 text-sm font-medium text-[#fffaf0] shadow-[0_14px_28px_rgba(146,82,26,0.22)] hover:bg-[#7e4513]"
                   disabled={Boolean(liveSnapshot.readOnlyReason)}
                   onClick={() => {
                     setIsCreateAgentOpen(true);
@@ -2263,37 +2482,100 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   添加人物
                 </Button>
               </div>
-
             </div>
           </div>
 
-          <div className="relative mt-3 flex min-h-[440px] flex-1 overflow-hidden rounded-[24px] border border-[#d0b38e] bg-[#ceb58e] shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] xl:min-h-0">
+          <div className="relative mt-4 grid shrink-0 grid-cols-2 gap-2 xl:grid-cols-4">
+            {officeStats.map((stat) => (
+              <div
+                key={stat.label}
+                className="flex min-h-14 flex-col items-start justify-between gap-2 rounded-[14px] border border-white/70 bg-white/64 px-3 py-3 shadow-[0_12px_30px_rgba(51,65,85,0.06)] sm:min-h-16 sm:flex-row sm:items-center sm:px-4"
+              >
+                <div>
+                  <p className="text-xs font-medium text-[#66736f]">
+                    {stat.label}
+                  </p>
+                  <p className="mt-1 text-xl leading-none font-semibold text-[#1f2724] md:text-2xl">
+                    {stat.value}
+                  </p>
+                </div>
+                <span className="rounded-full bg-[#edf5f1] px-2.5 py-1 text-[11px] font-medium text-[#497566] sm:text-xs">
+                  {stat.detail}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="relative mt-4 flex min-h-[520px] flex-1 overflow-hidden rounded-[22px] border border-white/80 bg-[#a98a62] shadow-[inset_0_1px_0_rgba(255,255,255,0.34),0_24px_60px_rgba(62,68,59,0.14)] xl:min-h-0">
             <div
               ref={canvasHostRef}
-              className="relative h-full min-h-[440px] w-full bg-[linear-gradient(180deg,rgba(203,175,134,0.72),rgba(194,161,117,0.82))] xl:min-h-0"
+              className="relative h-full min-h-[520px] w-full bg-[linear-gradient(135deg,#dfe9e4_0%,#c9c0a1_42%,#9b7650_100%)] xl:min-h-0"
             />
 
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,245,225,0.18),transparent_40%)]" />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),transparent_22%,rgba(74,53,40,0.12)_100%)]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(244,249,247,0.46),transparent)]" />
 
-            <div className="absolute top-4 left-4 rounded-[24px] border border-white/70 bg-[#fffaf2] px-4 py-3 shadow-[0_20px_40px_rgba(69,45,24,0.12)]">
-              <p className="text-[11px] tracking-[0.24em] text-[#9c7a5b] uppercase">
+            <div className="absolute top-4 left-4 rounded-[16px] border border-white/76 bg-white/86 px-4 py-3 shadow-[0_18px_36px_rgba(42,53,47,0.14)] backdrop-blur-md">
+              <p className="text-[11px] font-semibold tracking-[0.18em] text-[#60756d] uppercase">
                 最新快照
               </p>
-              <p className="mt-1 text-sm font-medium text-[#24170d]">
-                {new Date(liveSnapshot.generatedAt).toLocaleString("zh-CN", {
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+              <p className="mt-1 text-lg leading-none font-semibold text-[#1f1711]">
+                {snapshotTime}
               </p>
             </div>
 
+            <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
+              <div className="hidden rounded-[16px] border border-white/70 bg-[#17221f]/82 px-4 py-3 text-white shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-md md:block">
+                <p className="text-[11px] font-semibold tracking-[0.18em] text-white/58 uppercase">
+                  空间容量
+                </p>
+                <p className="mt-1 text-lg leading-none font-semibold">
+                  {workstationCapacity}/{workstationMax} 工位
+                </p>
+              </div>
+
+              <div className="flex rounded-full border border-white/72 bg-white/88 p-1 shadow-[0_16px_34px_rgba(42,53,47,0.14)] backdrop-blur-md">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full text-[#34443f] hover:bg-[#eaf3ee]"
+                  aria-label="缩小办公室视图"
+                  title="缩小"
+                  onClick={() => zoomCanvas(0.88)}
+                >
+                  <ZoomOutIcon />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full text-[#34443f] hover:bg-[#eaf3ee]"
+                  aria-label="适配办公室视图"
+                  title="适配视图"
+                  onClick={resetCanvasCamera}
+                >
+                  <RotateCcwIcon />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full text-[#34443f] hover:bg-[#eaf3ee]"
+                  aria-label="放大办公室视图"
+                  title="放大"
+                  onClick={() => zoomCanvas(1.14)}
+                >
+                  <ZoomInIcon />
+                </Button>
+              </div>
+            </div>
+
             {selectedAgent ? (
-              <div className="absolute bottom-4 left-4 w-[min(100%,320px)] rounded-[26px] border border-white/70 bg-[#fffaf4] p-4 shadow-[0_24px_60px_rgba(64,42,21,0.16)] md:p-5">
+              <div className="absolute bottom-4 left-4 w-[min(calc(100%_-_2rem),360px)] rounded-[20px] border border-white/76 bg-[#fffaf4]/92 p-4 shadow-[0_24px_60px_rgba(35,34,28,0.18)] backdrop-blur-md md:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-2xl font-semibold tracking-[-0.05em] text-[#24170d]">
+                    <p className="text-2xl font-semibold text-[#24170d]">
                       {selectedAgent.name}
                     </p>
                     <div className="mt-1 flex items-center gap-2 text-sm text-[#6d5544]">
@@ -2324,7 +2606,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div>
-                    <p className="text-[11px] tracking-[0.24em] text-[#a78560] uppercase">
+                    <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       当前任务
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
@@ -2332,7 +2614,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] tracking-[0.24em] text-[#a78560] uppercase">
+                    <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       设备状态
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
@@ -2340,7 +2622,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] tracking-[0.24em] text-[#a78560] uppercase">
+                    <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       引擎
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
@@ -2352,7 +2634,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] tracking-[0.24em] text-[#a78560] uppercase">
+                    <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       负载
                     </p>
                     <p className="mt-1 font-medium text-[#24170d]">
@@ -2367,7 +2649,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
                 <div className="mt-4 flex gap-2">
                   <Button
-                    className="flex-1 rounded-full bg-[#f5e2cf] text-[#7d3300] hover:bg-[#eed4bc]"
+                    className="flex-1 rounded-full bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"
                     onClick={() => void openNativePage()}
                   >
                     <ExternalLinkIcon />
@@ -2375,7 +2657,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </Button>
                   <Button
                     variant="outline"
-                    className="rounded-full border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                    className="rounded-full border-rose-200 bg-white/80 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                     disabled={deleteAgent.isPending}
                     onClick={() => void handleDeleteAgent()}
                   >
@@ -2389,15 +2671,26 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </div>
               </div>
             ) : hasAgents ? (
-              <div className="absolute bottom-4 left-4 rounded-[24px] border border-white/55 bg-white/88 px-4 py-3 text-sm text-[#6d5544] shadow-[0_20px_40px_rgba(69,45,24,0.12)]">
-                当前有 {liveSnapshot.agents.length} 位人物在线。点击办公室中的人物可查看详情并进入对应原生页面。
+              <div className="absolute bottom-4 left-4 rounded-[18px] border border-white/68 bg-white/88 px-4 py-3 text-sm font-medium text-[#3f564e] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md">
+                当前 {liveSnapshot.agents.length} 位人物在线 · {activeTaskCount}{" "}
+                个任务进行中
               </div>
             ) : (
-              <div className="absolute bottom-4 left-4 rounded-[24px] border border-white/55 bg-white/88 px-4 py-3 text-sm text-[#6d5544] shadow-[0_20px_40px_rgba(69,45,24,0.12)]">
-                当前还没有人物，可直接用顶部“添加人物”开始组建办公室。
+              <div className="absolute bottom-4 left-4 flex max-w-[min(calc(100%_-_2rem),460px)] flex-col gap-3 rounded-[20px] border border-white/70 bg-white/90 p-4 text-sm text-[#40554f] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium">
+                  当前还没有人物，办公室处于待编排状态。
+                </span>
+                <Button
+                  size="sm"
+                  className="rounded-full bg-[#92521a] text-[#fffaf0] hover:bg-[#7e4513]"
+                  disabled={Boolean(liveSnapshot.readOnlyReason)}
+                  onClick={() => setIsCreateAgentOpen(true)}
+                >
+                  <UserRoundPlusIcon data-icon="inline-start" />
+                  添加人物
+                </Button>
               </div>
             )}
-
           </div>
 
           {feedback ? (
@@ -2435,7 +2728,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     }}
                   >
                     <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="选择分区" />
+                      <SelectValue placeholder="选择分区">
+                        {() => selectedWorkstationZone?.label ?? "选择分区"}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -2545,7 +2840,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     }}
                   >
                     <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="选择角色" />
+                      <SelectValue placeholder="选择角色">
+                        {optionLabel(roleLabels, "选择角色")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -2572,7 +2869,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     }}
                   >
                     <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="选择执行引擎" />
+                      <SelectValue placeholder="选择执行引擎">
+                        {optionLabel(k8sWorkspaceEngineLabels, "选择执行引擎")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>

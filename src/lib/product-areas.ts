@@ -27,12 +27,6 @@ export const PRODUCT_AREAS: Array<{
     description: "集中管理 remote workspace、浏览器桌面、入口地址与节点资源。",
   },
   {
-    key: "cmdb",
-    href: "/cmdb",
-    title: "CMDB",
-    description: "统一管理服务器资产、GitLab 项目、代码部署和运行监控。",
-  },
-  {
     key: "training",
     href: "/training",
     title: "训练作业",
@@ -48,7 +42,13 @@ export const PRODUCT_AREAS: Array<{
     key: "system",
     href: "/system",
     title: "集群管理",
-    description: "跳转 Kubernetes Dashboard 查看集群对象与工作负载。",
+    description: "查看 Kubernetes Dashboard 入口与集群连接信息。",
+  },
+  {
+    key: "cmdb",
+    href: "/cmdb",
+    title: "CMDB",
+    description: "统一管理服务器资产、GitLab 项目、代码部署和运行监控。",
   },
 ];
 

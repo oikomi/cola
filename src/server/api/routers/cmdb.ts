@@ -11,6 +11,7 @@ import {
   deleteCmdbAsset,
   getCmdbDashboard,
   listGitLabCatalog,
+  runCmdbProjectOperation,
   testCmdbAssetConnectivity,
   upsertCmdbAsset,
   upsertCmdbProject,
@@ -163,5 +164,17 @@ export const cmdbRouter = createTRPCRouter({
         variables: input.variables,
         triggeredBy: input.triggeredBy,
       });
+    }),
+
+  projectOperation: publicProcedure
+    .input(
+      z.object({
+        projectId: z.number(),
+        action: z.enum(["dockerStatus", "dockerLogs", "sshInfo"]),
+        tail: z.number().int().min(20).max(1000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return runCmdbProjectOperation(ctx.db, input);
     }),
 });

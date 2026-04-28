@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-// @ts-ignore Node --experimental-strip-types requires an explicit .ts specifier here.
 import {
   mergeMetadata,
   parseRunnerMetadata,

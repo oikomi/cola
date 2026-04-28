@@ -58,28 +58,22 @@ export async function cleanupRunner(device: DeviceRecord) {
 
   await cleanupKubernetesRunner({
     namespace:
-      metadata && typeof metadata.namespace === "string"
-        ? metadata.namespace
-        : null,
+      typeof metadata?.namespace === "string" ? metadata.namespace : null,
     deploymentName:
-      metadata && typeof metadata.deploymentName === "string"
+      typeof metadata?.deploymentName === "string"
         ? metadata.deploymentName
         : null,
     serviceName:
-      metadata && typeof metadata.serviceName === "string"
-        ? metadata.serviceName
-        : null,
+      typeof metadata?.serviceName === "string" ? metadata.serviceName : null,
     configMapName:
-      metadata && typeof metadata.configMapName === "string"
+      typeof metadata?.configMapName === "string"
         ? metadata.configMapName
         : null,
     codexSecretName:
-      metadata && typeof metadata.codexSecretName === "string"
+      typeof metadata?.codexSecretName === "string"
         ? metadata.codexSecretName
         : null,
-    codexSecretManaged: Boolean(
-      metadata && metadata.codexSecretManaged === "true",
-    ),
+    codexSecretManaged: Boolean(metadata?.codexSecretManaged === "true"),
   });
 }
 

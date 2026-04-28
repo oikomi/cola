@@ -49,7 +49,7 @@ import {
   gpuAllocationModeLabels,
   gpuAllocationModeValues,
 } from "@/lib/gpu-allocation";
-import { cn } from "@/lib/utils";
+import { cn, optionLabel } from "@/lib/utils";
 import { api, type RouterOutputs } from "@/trpc/react";
 
 type WorkspaceRow = RouterOutputs["workspace"]["list"]["items"][number];
@@ -158,7 +158,7 @@ function FormField({
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-[11px] font-medium tracking-[0.28em] text-slate-600 uppercase">
+      <span className="text-[12px] leading-5 font-medium text-slate-600">
         {label}
       </span>
       {children}
@@ -221,7 +221,7 @@ function LoadingRows() {
           key={`workspace-skeleton-${index}`}
           className="rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.9))] p-5 shadow-[0_18px_34px_rgba(15,23,42,0.045)]"
         >
-          <div className="grid gap-3 md:grid-cols-[1.2fr_120px_180px_1fr_140px_220px] md:items-center">
+          <div className="grid gap-3 2xl:grid-cols-[1.2fr_120px_180px_1fr_140px_220px] 2xl:items-center">
             <div className="grid gap-2">
               <Skeleton className="h-6 w-40" />
               <Skeleton className="h-4 w-28" />
@@ -367,7 +367,8 @@ export function WorkspaceShell() {
   const handleDelete = async (name: string) => {
     const confirmed = await confirm({
       title: `确认删除远程桌面 ${name}？`,
-      description: "删除后会释放对应的 workspace 资源和访问入口，且不能自动恢复。",
+      description:
+        "删除后会释放对应的 workspace 资源和访问入口，且不能自动恢复。",
       confirmLabel: "删除桌面",
     });
     if (!confirmed) return;
@@ -529,153 +530,268 @@ export function WorkspaceShell() {
         ) : null}
 
         {!workspaceQuery.isLoading && rows.length > 0 ? (
-          <div className="overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.9))] shadow-[0_18px_38px_rgba(15,23,42,0.05)]">
-            <Table>
-              <TableHeader className="bg-slate-50/90">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    名称
-                  </TableHead>
-                  <TableHead className="h-12 px-4 text-center text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    状态
-                  </TableHead>
-                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    规格
-                  </TableHead>
-                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    节点 / 地址
-                  </TableHead>
-                  <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    更新时间
-                  </TableHead>
-                  <TableHead className="h-12 px-4 text-right text-[11px] tracking-[0.18em] text-slate-500 uppercase">
-                    操作
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((workspace) => (
-                  <TableRow
-                    key={workspace.id}
-                    className="group border-border/70 hover:bg-sky-50/55"
-                  >
-                    <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex items-center gap-3">
-                        <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] border border-slate-200/85 bg-white/94 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
-                          <MonitorSmartphoneIcon className="size-4" />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
-                            {workspace.name}
-                          </p>
-                          <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                            Workspace ID: {workspace.id}
-                          </p>
-                        </div>
+          <>
+            <div className="grid gap-3 2xl:hidden">
+              {rows.map((workspace) => (
+                <article
+                  key={`workspace-card-${workspace.id}`}
+                  className="rounded-[22px] border border-slate-200/90 bg-white/92 p-4 shadow-[0_16px_34px_rgba(15,23,42,0.055)]"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] border border-slate-200/85 bg-slate-50/90 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
+                        <MonitorSmartphoneIcon className="size-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
+                          {workspace.name}
+                        </p>
+                        <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                          Workspace ID: {workspace.id}
+                        </p>
                       </div>
-                    </TableCell>
-                    <TableCell className="px-4 py-4 text-center align-middle">
-                      <Badge
-                        variant="outline"
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "shrink-0 justify-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold",
+                        statusTone(workspace.status),
+                      )}
+                    >
+                      <span
                         className={cn(
-                          "justify-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold",
-                          statusTone(workspace.status),
+                          "size-2 rounded-full",
+                          statusDotTone(workspace.status),
+                        )}
+                      />
+                      {statusLabel(workspace.status)}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 rounded-[16px] bg-slate-50/90 px-3 py-3 text-[13px] leading-5 text-slate-600">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-slate-500">规格</span>
+                      <span className="text-right font-medium text-slate-900">
+                        {specLabel(workspace)}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-slate-500">分辨率</span>
+                      <span className="text-right font-medium text-slate-900">
+                        {workspace.resolution}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-slate-500">节点</span>
+                      <span className="text-right font-medium text-slate-900">
+                        {workspace.nodeName ?? "未分配节点"}
+                      </span>
+                    </div>
+                    <div className="grid gap-1">
+                      <span className="text-slate-500">入口地址</span>
+                      <span className="font-mono text-[12px] break-all text-slate-700">
+                        {workspace.endpoint ?? "入口地址待分配"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    {workspace.loginUrl ? (
+                      <a
+                        href={workspace.loginUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={cn(
+                          buttonVariants({ size: "sm" }),
+                          PRIMARY_ACTION_CLASS,
+                          "h-9 justify-center px-4 text-[12px]",
                         )}
                       >
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            statusDotTone(workspace.status),
-                          )}
-                        />
-                        {statusLabel(workspace.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[14px] font-medium leading-5 text-slate-950">
-                          {specLabel(workspace)}
-                        </span>
-                        <span className="text-[12px] leading-5 font-normal text-slate-500">
-                          {workspace.resolution}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex flex-col gap-2">
-                        <span className="inline-flex w-fit rounded-full border border-slate-200/85 bg-slate-50/92 px-2.5 py-1 text-[12px] font-medium leading-none text-slate-700">
-                          {workspace.nodeName ?? "未分配节点"}
-                        </span>
-                        <span className="font-mono text-[12px] leading-5 break-all text-slate-500">
-                          {workspace.endpoint ?? "入口地址待分配"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-4 py-4 align-middle text-[13px] leading-5 text-slate-600">
-                      {workspace.updatedAt ?? "-"}
-                    </TableCell>
-                    <TableCell className="px-4 py-4 align-middle">
-                      <div className="flex items-center justify-end gap-2">
-                        {workspace.loginUrl ? (
-                          <a
-                            href={workspace.loginUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={cn(
-                              buttonVariants({ size: "sm" }),
-                              PRIMARY_ACTION_CLASS,
-                              "h-9 px-4 text-[12px]",
-                            )}
-                          >
-                            登录
-                          </a>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className={cn(
-                              SECONDARY_ACTION_CLASS,
-                              "h-9 px-4 text-[12px] text-slate-500",
-                            )}
-                            disabled
-                          >
-                            登录
-                          </Button>
+                        登录
+                      </a>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          SECONDARY_ACTION_CLASS,
+                          "h-9 justify-center px-4 text-[12px] text-slate-500",
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="rounded-full border border-rose-200/80 bg-rose-50/75 text-rose-600 shadow-[0_10px_18px_rgba(244,63,94,0.08)] hover:bg-rose-50 hover:text-rose-700"
-                          disabled={deleteWorkspace.isPending}
-                          onClick={() => void handleDelete(workspace.name)}
-                          title={`删除远程桌面 ${workspace.name}`}
-                        >
-                          {deleteWorkspace.isPending ? (
-                            <LoaderCircleIcon className="animate-spin" />
-                          ) : (
-                            <Trash2Icon />
-                          )}
-                          <span className="sr-only">
-                            删除远程桌面 {workspace.name}
-                          </span>
-                        </Button>
-                      </div>
-                    </TableCell>
+                        disabled
+                      >
+                        登录
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-full border-rose-200/80 bg-rose-50/75 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      disabled={deleteWorkspace.isPending}
+                      onClick={() => void handleDelete(workspace.name)}
+                    >
+                      {deleteWorkspace.isPending ? (
+                        <LoaderCircleIcon
+                          className="animate-spin"
+                          data-icon="inline-start"
+                        />
+                      ) : (
+                        <Trash2Icon data-icon="inline-start" />
+                      )}
+                      删除
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="hidden overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.9))] shadow-[0_18px_38px_rgba(15,23,42,0.05)] 2xl:block">
+              <Table>
+                <TableHeader className="bg-slate-50/90">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      名称
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-center text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      状态
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      规格
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      节点 / 地址
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      更新时间
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-right text-[11px] tracking-[0.18em] text-slate-500 uppercase">
+                      操作
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((workspace) => (
+                    <TableRow
+                      key={workspace.id}
+                      className="group border-border/70 hover:bg-sky-50/55"
+                    >
+                      <TableCell className="px-4 py-4 align-middle">
+                        <div className="flex items-center gap-3">
+                          <span className="flex size-10 shrink-0 items-center justify-center rounded-[14px] border border-slate-200/85 bg-white/94 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
+                            <MonitorSmartphoneIcon className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
+                              {workspace.name}
+                            </p>
+                            <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                              Workspace ID: {workspace.id}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 text-center align-middle">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "justify-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold",
+                            statusTone(workspace.status),
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "size-2 rounded-full",
+                              statusDotTone(workspace.status),
+                            )}
+                          />
+                          {statusLabel(workspace.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 align-middle">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[14px] leading-5 font-medium text-slate-950">
+                            {specLabel(workspace)}
+                          </span>
+                          <span className="text-[12px] leading-5 font-normal text-slate-500">
+                            {workspace.resolution}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 align-middle">
+                        <div className="flex flex-col gap-2">
+                          <span className="inline-flex w-fit rounded-full border border-slate-200/85 bg-slate-50/92 px-2.5 py-1 text-[12px] leading-none font-medium text-slate-700">
+                            {workspace.nodeName ?? "未分配节点"}
+                          </span>
+                          <span className="font-mono text-[12px] leading-5 break-all text-slate-500">
+                            {workspace.endpoint ?? "入口地址待分配"}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-4 align-middle text-[13px] leading-5 text-slate-600">
+                        {workspace.updatedAt ?? "-"}
+                      </TableCell>
+                      <TableCell className="px-4 py-4 align-middle">
+                        <div className="flex items-center justify-end gap-2">
+                          {workspace.loginUrl ? (
+                            <a
+                              href={workspace.loginUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={cn(
+                                buttonVariants({ size: "sm" }),
+                                PRIMARY_ACTION_CLASS,
+                                "h-9 px-4 text-[12px]",
+                              )}
+                            >
+                              登录
+                            </a>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={cn(
+                                SECONDARY_ACTION_CLASS,
+                                "h-9 px-4 text-[12px] text-slate-500",
+                              )}
+                              disabled
+                            >
+                              登录
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="rounded-full border border-rose-200/80 bg-rose-50/75 text-rose-600 shadow-[0_10px_18px_rgba(244,63,94,0.08)] hover:bg-rose-50 hover:text-rose-700"
+                            disabled={deleteWorkspace.isPending}
+                            onClick={() => void handleDelete(workspace.name)}
+                            title={`删除远程桌面 ${workspace.name}`}
+                          >
+                            {deleteWorkspace.isPending ? (
+                              <LoaderCircleIcon className="animate-spin" />
+                            ) : (
+                              <Trash2Icon />
+                            )}
+                            <span className="sr-only">
+                              删除远程桌面 {workspace.name}
+                            </span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         ) : null}
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-slate-200/80 bg-white/90 shadow-[0_28px_68px_rgba(15,23,42,0.14)] backdrop-blur-2xl sm:max-w-xl">
+        <DialogContent className="border-slate-200/80 bg-white shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>创建远程桌面</DialogTitle>
             <DialogDescription>
-              指定 CPU、Memory、整卡或显存份额和分辨率后，系统会在
-              Kubernetes 中创建新的远程工作区。
+              指定 CPU、内存、整卡或显存份额和分辨率后，系统会在 Kubernetes
+              中创建新的远程工作区。
             </DialogDescription>
           </DialogHeader>
 
@@ -707,7 +823,7 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="Memory Gi">
+              <FormField label="内存 (Gi)">
                 <Input
                   inputMode="numeric"
                   value={draft.memoryGi}
@@ -726,9 +842,11 @@ export function WorkspaceShell() {
                   onValueChange={(value) =>
                     setDraft((current) => ({
                       ...current,
-                      gpuAllocationMode: value === "memory" ? "memory" : "whole",
+                      gpuAllocationMode:
+                        value === "memory" ? "memory" : "whole",
                       gpuCount:
-                        value === "memory" && Number.parseInt(current.gpuCount, 10) < 1
+                        value === "memory" &&
+                        Number.parseInt(current.gpuCount, 10) < 1
                           ? "1"
                           : current.gpuCount,
                       gpuMemoryGi:
@@ -737,7 +855,9 @@ export function WorkspaceShell() {
                   }
                 >
                   <SelectTrigger className="w-full min-w-0 bg-white/80">
-                    <SelectValue placeholder="选择分配方式" />
+                    <SelectValue placeholder="选择分配方式">
+                      {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
@@ -768,7 +888,7 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="每份额显存 Gi">
+              <FormField label="每份额显存 (Gi)">
                 <Input
                   inputMode="numeric"
                   value={draft.gpuMemoryGi}

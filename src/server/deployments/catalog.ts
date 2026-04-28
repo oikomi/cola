@@ -23,9 +23,8 @@ export type InferenceDeploymentEngine =
 export type InferenceDeploymentStatus =
   (typeof inferenceDeploymentStatusValues)[number];
 
-const creatableInferenceDeploymentEngineSet = new Set<InferenceDeploymentEngine>(
-  creatableInferenceDeploymentEngineValues,
-);
+const creatableInferenceDeploymentEngineSet =
+  new Set<InferenceDeploymentEngine>(creatableInferenceDeploymentEngineValues);
 export const llamaCppModelRoot = "/models";
 export const llamaCppModelRefExample = "unsloth/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelRefExample = "hf://owner/repo/model.gguf";
@@ -91,7 +90,7 @@ export function isLlamaCppRemoteModelUrl(modelRef: string) {
 
 export function isLlamaCppHuggingFaceFileRef(modelRef: string) {
   const url = parseUrl(modelRef.trim());
-  if (!url || url.protocol !== "hf:") return false;
+  if (url?.protocol !== "hf:") return false;
   if (!huggingFaceRepoSegmentPattern.test(url.hostname)) return false;
 
   const segments = url.pathname.split("/").filter(Boolean);
@@ -105,8 +104,7 @@ export function isLlamaCppHuggingFaceFileRef(modelRef: string) {
 
 export function isLlamaCppRemoteModelRef(modelRef: string) {
   return (
-    isLlamaCppRemoteModelUrl(modelRef) ||
-    isLlamaCppHuggingFaceFileRef(modelRef)
+    isLlamaCppRemoteModelUrl(modelRef) || isLlamaCppHuggingFaceFileRef(modelRef)
   );
 }
 

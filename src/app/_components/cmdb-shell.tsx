@@ -5,22 +5,35 @@ import {
   AlertTriangleIcon,
   CheckCircle2Icon,
   CircleDotIcon,
+  ClipboardIcon,
   ExternalLinkIcon,
   GitBranchIcon,
   KeyRoundIcon,
   ListChecksIcon,
   LoaderCircleIcon,
+  Maximize2Icon,
+  Minimize2Icon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   RocketIcon,
+  SearchIcon,
   ServerIcon,
   ShieldCheckIcon,
+  ScrollTextIcon,
+  TerminalIcon,
   Trash2Icon,
   XIcon,
   type LucideIcon,
 } from "lucide-react";
-import { type ReactNode, useDeferredValue, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { ModulePageShell, ModuleSection } from "@/app/_components/module-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -63,10 +76,61 @@ type ProjectRow = DashboardData["projects"][number];
 type ReleaseRow = DashboardData["releases"][number];
 type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
 type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
+type ProjectOperationResult = RouterOutputs["cmdb"]["projectOperation"];
+type ProjectOperationAction = "dockerStatus" | "dockerLogs" | "sshInfo";
+type TerminalSessionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "closed"
+  | "error";
+type TerminalSessionInfo = {
+  sessionId: string;
+  projectId: number;
+  projectName: string;
+  deployTarget: ProjectRow["deployTarget"];
+  targetAssetName: string;
+  host: string;
+  sshUser: string;
+  sshPort: number;
+  containerName: string | null;
+  startedAt: string;
+};
+type TerminalSessionEvent =
+  | {
+      type: "output";
+      data: string;
+    }
+  | {
+      type: "status";
+      status: Exclude<TerminalSessionStatus, "idle" | "error">;
+      message: string;
+    }
+  | {
+      type: "error";
+      message: string;
+    }
+  | {
+      type: "exit";
+      code: number | null;
+      signal: string | null;
+      message: string;
+    };
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const UNSET_ARCH_VALUE = "__unset_arch__";
 const CUSTOM_ARCH_VALUE = "__custom_arch__";
+const STICKY_ACTION_HEAD_CLASS =
+  "sticky right-0 z-20 bg-slate-50/95 text-right shadow-[-18px_0_24px_-24px_rgba(15,23,42,0.55)] backdrop-blur";
+const STICKY_ACTION_CELL_CLASS =
+  "sticky right-0 z-10 bg-white/96 shadow-[-18px_0_24px_-24px_rgba(15,23,42,0.45)] backdrop-blur group-hover:bg-sky-50/95";
+const CMDB_ACTION_GROUP_CLASS =
+  "inline-flex overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
+const CMDB_ACTION_ICON_CLASS =
+  "size-8 rounded-none border-0 border-r border-slate-200 bg-transparent text-slate-700 shadow-none last:border-r-0 hover:bg-slate-50 hover:text-slate-950";
+const TERMINAL_OUTPUT_LIMIT = 120_000;
+const ANSI_ESCAPE_PATTERN =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 type CmdbAreaKey = "assets" | "projects" | "deployments";
 type ProjectDraftPanelKey = "basic" | "deploy" | "observe" | "variables";
 
@@ -158,7 +222,7 @@ function emptyProjectDraft(): ProjectDraft {
     description: "",
     defaultBranch: "main",
     enabled: "true",
-    deployTarget: "k8s",
+    deployTarget: "docker",
     targetAssetNames: [],
     deployEnv: "prod",
     healthUrl: "",
@@ -427,6 +491,11 @@ function releaseLabel(status: ReleaseRow["status"]) {
   }
 }
 
+function releaseTopic(release: Pick<ReleaseRow, "variables">) {
+  const topic = release.variables?.CMDB_RELEASE_TOPIC?.trim();
+  return topic && topic.length > 0 ? topic : null;
+}
+
 function topicReleaseStatusTone(status: ReleaseRow["status"] | "skipped") {
   if (status === "skipped") {
     return "border-slate-200 bg-slate-100 text-slate-700";
@@ -461,6 +530,10 @@ function targetAssetsLabel(assetNames: string[]) {
   if (assetNames.length === 0) return "未指定资产";
   if (assetNames.length === 1) return assetNames[0]!;
   return `${assetNames.length} 台资产`;
+}
+
+function isGitLabProjectPath(value: string) {
+  return /^[^\s/]+(?:\/[^\s/]+)+$/.test(value.trim());
 }
 
 function projectTargetAssetNames(config: ProjectRow["config"]) {
@@ -506,6 +579,154 @@ function projectReleaseIssue(
   return savedProjectSshDeploymentIssue(project);
 }
 
+function projectOperationIssue(
+  project: ProjectRow,
+  action: ProjectOperationAction,
+) {
+  if (projectTargetAssetNames(project.config).length === 0) {
+    return "项目未配置目标资产。";
+  }
+
+  if (action !== "sshInfo" && project.deployTarget !== "docker") {
+    return "当前仅 Docker 部署项目支持查看容器状态和日志。";
+  }
+
+  return null;
+}
+
+function releaseOperationIssue(
+  release: ReleaseRow,
+  action: ProjectOperationAction,
+) {
+  if (!release.project) {
+    return "发布记录缺少项目信息。";
+  }
+
+  if (action !== "sshInfo" && release.project.deployTarget !== "docker") {
+    return "当前仅 Docker 部署项目支持查看容器状态和日志。";
+  }
+
+  return null;
+}
+
+function projectOperationLabel(
+  action: ProjectOperationAction,
+  deployTarget?: ProjectRow["deployTarget"],
+) {
+  switch (action) {
+    case "dockerStatus":
+      return "容器状态";
+    case "dockerLogs":
+      return "运行日志";
+    case "sshInfo":
+      return deployTarget === "docker" ? "容器登录" : "远程登录";
+  }
+}
+
+function projectOperationDescription(
+  action: ProjectOperationAction,
+  deployTarget?: ProjectRow["deployTarget"],
+) {
+  switch (action) {
+    case "dockerStatus":
+      return "通过目标资产 SSH 执行 docker ps / docker inspect，查看当前容器运行状态。";
+    case "dockerLogs":
+      return "通过目标资产 SSH 执行 docker logs，读取最近运行日志。";
+    case "sshInfo":
+      return deployTarget === "docker"
+        ? "自动登录目标资产并执行 docker exec，打开容器内终端。"
+        : "自动登录目标资产，打开远程终端。";
+  }
+}
+
+function remoteLoginLabel(deployTarget?: ProjectRow["deployTarget"]) {
+  return deployTarget === "docker" ? "容器登录" : "远程登录";
+}
+
+function operationResultText(result: ProjectOperationResult | null) {
+  if (!result) return "";
+
+  const parts = [
+    result.stdout.trim(),
+    result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : "",
+  ].filter(Boolean);
+
+  return parts.join("\n\n");
+}
+
+function normalizeTerminalOutput(value: string) {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(/\u0007/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+}
+
+function terminalStatusLabel(status: TerminalSessionStatus) {
+  switch (status) {
+    case "connecting":
+      return "登录中";
+    case "connected":
+      return "已登录";
+    case "closed":
+      return "已断开";
+    case "error":
+      return "失败";
+    case "idle":
+      return "-";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseTerminalSessionEvent(data: string): TerminalSessionEvent {
+  const value = JSON.parse(data) as unknown;
+
+  if (!isRecord(value) || typeof value.type !== "string") {
+    throw new Error("Invalid terminal event");
+  }
+
+  switch (value.type) {
+    case "output":
+      if (typeof value.data !== "string") {
+        throw new Error("Invalid terminal output event");
+      }
+      return { type: "output", data: value.data };
+    case "status":
+      if (
+        value.status !== "connecting" &&
+        value.status !== "connected" &&
+        value.status !== "closed"
+      ) {
+        throw new Error("Invalid terminal status event");
+      }
+      return {
+        type: "status",
+        status: value.status,
+        message: typeof value.message === "string" ? value.message : "",
+      };
+    case "error":
+      return {
+        type: "error",
+        message: typeof value.message === "string" ? value.message : "终端错误",
+      };
+    case "exit":
+      return {
+        type: "exit",
+        code: typeof value.code === "number" ? value.code : null,
+        signal: typeof value.signal === "string" ? value.signal : null,
+        message:
+          typeof value.message === "string"
+            ? value.message
+            : "远程终端已退出。",
+      };
+    default:
+      throw new Error("Unknown terminal event");
+  }
+}
+
 function ratioLabel(value: number, total: number) {
   if (total <= 0) return "0%";
   return `${Math.round((value / total) * 100)}%`;
@@ -527,27 +748,27 @@ function CmdbOverviewCard(props: {
   }[props.tone ?? "neutral"];
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-3">
+    <div className="flex min-w-0 items-center justify-between gap-3 px-3.5 py-2.5">
       <div className="min-w-0">
-        <p className="text-[11px] leading-4 font-medium text-slate-500">
+        <p className="text-[10.5px] leading-4 font-medium text-slate-500">
           {props.label}
         </p>
         <div className="mt-1 flex min-w-0 items-baseline gap-2">
-          <p className="text-[1.35rem] leading-none font-semibold tracking-[-0.04em] text-slate-950">
+          <p className="text-[1.18rem] leading-none font-semibold tracking-[-0.03em] text-slate-950">
             {props.value}
           </p>
-          <p className="truncate text-[12px] leading-5 text-slate-500">
+          <p className="truncate text-[11.5px] leading-5 text-slate-500">
             {props.description}
           </p>
         </div>
       </div>
       <div
         className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-[9px] ring-1",
+          "flex size-7 shrink-0 items-center justify-center rounded-[8px] ring-1",
           toneClassName,
         )}
       >
-        <Icon className="size-[14px]" />
+        <Icon className="size-3.5" />
       </div>
     </div>
   );
@@ -884,6 +1105,7 @@ export function CmdbShell() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
   const [topicReleaseDialogOpen, setTopicReleaseDialogOpen] = useState(false);
+  const [operationDialogOpen, setOperationDialogOpen] = useState(false);
   const [activeArea, setActiveArea] = useState<CmdbAreaKey>("assets");
   const [projectDraftPanel, setProjectDraftPanel] =
     useState<ProjectDraftPanelKey>("basic");
@@ -903,6 +1125,27 @@ export function CmdbShell() {
   );
   const [topicReleaseResult, setTopicReleaseResult] =
     useState<TopicReleaseResult | null>(null);
+  const [operationProject, setOperationProject] = useState<ProjectRow | null>(
+    null,
+  );
+  const [operationAction, setOperationAction] =
+    useState<ProjectOperationAction>("dockerStatus");
+  const [operationResult, setOperationResult] =
+    useState<ProjectOperationResult | null>(null);
+  const [operationCopied, setOperationCopied] = useState(false);
+  const [operationDialogMaximized, setOperationDialogMaximized] =
+    useState(false);
+  const [terminalSession, setTerminalSession] =
+    useState<TerminalSessionInfo | null>(null);
+  const [terminalStatus, setTerminalStatus] =
+    useState<TerminalSessionStatus>("idle");
+  const [terminalOutput, setTerminalOutput] = useState("");
+  const [terminalError, setTerminalError] = useState<string | null>(null);
+  const terminalEventSourceRef = useRef<EventSource | null>(null);
+  const terminalSessionIdRef = useRef<string | null>(null);
+  const terminalStartTokenRef = useRef(0);
+  const terminalWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const terminalScrollRef = useRef<HTMLPreElement | null>(null);
   const [gitlabSearch, setGitlabSearch] = useState("");
   const deferredGitlabSearch = useDeferredValue(gitlabSearch.trim());
 
@@ -1010,12 +1253,103 @@ export function CmdbShell() {
     },
   });
 
+  const projectOperation = api.cmdb.projectOperation.useMutation({
+    onSuccess: (result) => {
+      setOperationResult(result);
+      setOperationCopied(false);
+      setErrorMessage(null);
+    },
+    onError: (error) => {
+      setOperationResult(null);
+      setErrorMessage(error.message);
+    },
+  });
+
+  useEffect(() => {
+    if (operationAction !== "sshInfo") return;
+    terminalScrollRef.current?.scrollTo({
+      top: terminalScrollRef.current.scrollHeight,
+    });
+  }, [operationAction, terminalOutput]);
+
+  useEffect(() => {
+    if (operationAction !== "sshInfo" || terminalStatus !== "connected") {
+      return;
+    }
+
+    terminalScrollRef.current?.focus({ preventScroll: true });
+  }, [operationAction, terminalStatus]);
+
+  useEffect(() => {
+    return () => {
+      terminalStartTokenRef.current += 1;
+      terminalEventSourceRef.current?.close();
+      const sessionId = terminalSessionIdRef.current;
+      if (sessionId) {
+        void fetch(`/api/cmdb/terminal-session/${sessionId}`, {
+          method: "DELETE",
+        });
+      }
+    };
+  }, []);
+
   const data = dashboardQuery.data;
   const dashboardUnavailable = Boolean(dashboardQuery.error && !data);
   const assets = data?.assets ?? [];
   const projects = data?.projects ?? [];
   const releases = data?.releases ?? [];
   const gitlabCatalogItems = gitlabCatalogQuery.data ?? [];
+  const visibleGitLabCatalogItems = gitlabCatalogItems.slice(0, 20);
+  const manualGitLabPath = gitlabSearch.trim();
+  const canUseManualGitLabPath = isGitLabProjectPath(manualGitLabPath);
+  const manualGitLabPathIsSelected =
+    manualGitLabPath.length > 0 &&
+    projectDraft.gitlabPath.trim() === manualGitLabPath;
+  const manualGitLabPathMatchesCatalog = gitlabCatalogItems.some(
+    (item) => item.path === manualGitLabPath,
+  );
+  const operationText = operationResultText(operationResult);
+  const OperationIcon =
+    operationAction === "dockerStatus"
+      ? ActivityIcon
+      : operationAction === "dockerLogs"
+        ? ScrollTextIcon
+        : TerminalIcon;
+  const operationExitCode = operationResult?.code ?? 0;
+  const isTerminalOperation = operationAction === "sshInfo";
+  const operationPending = isTerminalOperation
+    ? terminalStatus === "connecting"
+    : projectOperation.isPending;
+  const operationTargetAssetName =
+    operationResult?.targetAssetName ??
+    terminalSession?.targetAssetName ??
+    (operationProject
+      ? projectTargetAssetsLabel(operationProject.config)
+      : "-");
+  const operationHost = operationResult?.host ?? terminalSession?.host ?? "-";
+  const operationContainerName =
+    operationResult?.containerName ??
+    terminalSession?.containerName ??
+    operationProject?.name ??
+    "-";
+  const operationStatusText = isTerminalOperation
+    ? terminalStatusLabel(terminalStatus)
+    : operationResult
+      ? `${operationResult.durationMs}ms`
+      : projectOperation.isPending
+        ? "执行中"
+        : "-";
+  const operationStatusFailed = isTerminalOperation
+    ? terminalStatus === "error"
+    : operationExitCode !== 0;
+  const operationHasStatus = isTerminalOperation
+    ? terminalStatus !== "idle" && terminalStatus !== "connecting"
+    : Boolean(operationResult);
+  const operationCopyText = isTerminalOperation
+    ? terminalOutput
+    : operationText.length > 0
+      ? operationText
+      : (operationResult?.sshCommand ?? "");
   const selectedGitLabCandidate =
     gitlabCatalogItems.find((item) => item.path === projectDraft.gitlabPath) ??
     null;
@@ -1269,6 +1603,323 @@ export function CmdbShell() {
     setReleaseDialogOpen(true);
   }
 
+  function closeTerminalSession(options: { reset?: boolean } = {}) {
+    terminalStartTokenRef.current += 1;
+    terminalEventSourceRef.current?.close();
+    terminalEventSourceRef.current = null;
+    terminalWriteQueueRef.current = Promise.resolve();
+
+    const sessionId = terminalSessionIdRef.current;
+    terminalSessionIdRef.current = null;
+
+    if (sessionId) {
+      void fetch(`/api/cmdb/terminal-session/${sessionId}`, {
+        method: "DELETE",
+      });
+    }
+
+    if (options.reset ?? true) {
+      setTerminalSession(null);
+      setTerminalStatus("idle");
+      setTerminalOutput("");
+      setTerminalError(null);
+    }
+  }
+
+  function closeOperationDialog() {
+    setOperationDialogOpen(false);
+    setOperationDialogMaximized(false);
+    setOperationCopied(false);
+    projectOperation.reset();
+    closeTerminalSession();
+  }
+
+  function appendTerminalOutput(value: string) {
+    const normalized = normalizeTerminalOutput(value);
+    if (!normalized) return;
+
+    setTerminalOutput((current) => {
+      const next = `${current}${normalized}`;
+      return next.length > TERMINAL_OUTPUT_LIMIT
+        ? next.slice(-TERMINAL_OUTPUT_LIMIT)
+        : next;
+    });
+  }
+
+  function applyTerminalEvent(
+    event: TerminalSessionEvent,
+    source: EventSource,
+  ) {
+    switch (event.type) {
+      case "output":
+        appendTerminalOutput(event.data);
+        break;
+      case "status":
+        setTerminalStatus(event.status);
+        if (event.status === "connected") {
+          setTerminalError(null);
+        }
+        if (event.status === "closed") {
+          source.close();
+          terminalEventSourceRef.current = null;
+        }
+        break;
+      case "error":
+        setTerminalStatus("error");
+        setTerminalError(event.message);
+        appendTerminalOutput(`\n${event.message}\n`);
+        break;
+      case "exit":
+        setTerminalStatus("closed");
+        appendTerminalOutput(`\n${event.message}\n`);
+        source.close();
+        terminalEventSourceRef.current = null;
+        break;
+    }
+  }
+
+  async function responseErrorMessage(response: Response, fallback: string) {
+    try {
+      const payload: unknown = await response.json();
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "error" in payload &&
+        typeof payload.error === "string"
+      ) {
+        return payload.error;
+      }
+    } catch {
+      // Ignore invalid error bodies and use the caller-provided fallback.
+    }
+
+    return fallback;
+  }
+
+  async function startTerminalLogin(project: ProjectRow) {
+    closeTerminalSession();
+    const token = terminalStartTokenRef.current + 1;
+    terminalStartTokenRef.current = token;
+    setTerminalSession(null);
+    setTerminalStatus("connecting");
+    setTerminalOutput("正在建立 SSH 会话...\n");
+    terminalWriteQueueRef.current = Promise.resolve();
+    setTerminalError(null);
+
+    try {
+      const response = await fetch("/api/cmdb/terminal-session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: project.id }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await responseErrorMessage(response, "容器登录会话创建失败。"),
+        );
+      }
+
+      const session = (await response.json()) as TerminalSessionInfo;
+      if (terminalStartTokenRef.current !== token) {
+        void fetch(`/api/cmdb/terminal-session/${session.sessionId}`, {
+          method: "DELETE",
+        });
+        return;
+      }
+
+      terminalSessionIdRef.current = session.sessionId;
+      setTerminalSession(session);
+
+      const source = new EventSource(
+        `/api/cmdb/terminal-session/${session.sessionId}/stream`,
+      );
+      terminalEventSourceRef.current = source;
+
+      source.onmessage = (message) => {
+        if (terminalSessionIdRef.current !== session.sessionId) return;
+
+        try {
+          const eventData =
+            typeof message.data === "string" ? message.data : "";
+          applyTerminalEvent(parseTerminalSessionEvent(eventData), source);
+        } catch {
+          setTerminalStatus("error");
+          setTerminalError("终端返回了无法解析的数据。");
+        }
+      };
+
+      source.onerror = () => {
+        if (terminalSessionIdRef.current !== session.sessionId) return;
+        source.close();
+        terminalEventSourceRef.current = null;
+        setTerminalStatus("error");
+        setTerminalError("终端输出流已中断。");
+      };
+    } catch (error) {
+      if (terminalStartTokenRef.current !== token) return;
+
+      const message = error instanceof Error ? error.message : "容器登录失败";
+      setTerminalStatus("error");
+      setTerminalError(message);
+      appendTerminalOutput(`\n${message}\n`);
+    }
+  }
+
+  async function sendTerminalData(data: string) {
+    const sessionId = terminalSessionIdRef.current;
+    if (!sessionId || terminalStatus !== "connected") return;
+
+    const write = terminalWriteQueueRef.current.then(async () => {
+      if (terminalSessionIdRef.current !== sessionId) return;
+
+      try {
+        const response = await fetch(
+          `/api/cmdb/terminal-session/${sessionId}/input`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ data }),
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            await responseErrorMessage(response, "终端输入发送失败。"),
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "终端输入发送失败。";
+        setTerminalStatus("error");
+        setTerminalError(message);
+        appendTerminalOutput(`\n${message}\n`);
+      }
+    });
+
+    terminalWriteQueueRef.current = write.catch(() => undefined);
+    await terminalWriteQueueRef.current;
+  }
+
+  function terminalKeyData(event: KeyboardEvent<HTMLElement>) {
+    if (event.metaKey || event.altKey) return null;
+
+    if (event.ctrlKey) {
+      const key = event.key.toLowerCase();
+      if (key.length === 1 && key >= "a" && key <= "z") {
+        return String.fromCharCode(key.charCodeAt(0) - 96);
+      }
+      if (key === "[") return "\u001b";
+      if (key === "]") return "\u001d";
+      if (key === "\\") return "\u001c";
+      if (key === "^") return "\u001e";
+      if (key === "_") return "\u001f";
+      if (key === " ") return "\u0000";
+      return null;
+    }
+
+    switch (event.key) {
+      case "Enter":
+        return "\r";
+      case "Backspace":
+        return "\u007f";
+      case "Tab":
+        return "\t";
+      case "Escape":
+        return "\u001b";
+      case "ArrowUp":
+        return "\u001b[A";
+      case "ArrowDown":
+        return "\u001b[B";
+      case "ArrowRight":
+        return "\u001b[C";
+      case "ArrowLeft":
+        return "\u001b[D";
+      case "Home":
+        return "\u001b[H";
+      case "End":
+        return "\u001b[F";
+      case "Delete":
+        return "\u001b[3~";
+      case "PageUp":
+        return "\u001b[5~";
+      case "PageDown":
+        return "\u001b[6~";
+      default:
+        return event.key.length === 1 ? event.key : null;
+    }
+  }
+
+  function handleTerminalKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (terminalStatus !== "connected") return;
+
+    const data = terminalKeyData(event);
+    if (!data) return;
+
+    event.preventDefault();
+    void sendTerminalData(data);
+  }
+
+  function openProjectOperation(
+    project: ProjectRow,
+    action: ProjectOperationAction,
+  ) {
+    const issue = projectOperationIssue(project, action);
+    if (issue) {
+      setErrorMessage(issue);
+      return;
+    }
+
+    setOperationProject(project);
+    setOperationAction(action);
+    setOperationResult(null);
+    setOperationCopied(false);
+    setOperationDialogOpen(true);
+
+    if (action === "sshInfo") {
+      projectOperation.reset();
+      void startTerminalLogin(project);
+      return;
+    }
+
+    closeTerminalSession();
+    projectOperation.mutate({
+      projectId: project.id,
+      action,
+      tail: action === "dockerLogs" ? 200 : undefined,
+    });
+  }
+
+  function openReleaseOperation(
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) {
+    const issue = releaseOperationIssue(release, action);
+    if (issue) {
+      setErrorMessage(issue);
+      return;
+    }
+
+    const project = projects.find((item) => item.id === release.project?.id);
+    if (!project) {
+      setErrorMessage("项目数据尚未加载，无法执行运维操作。");
+      return;
+    }
+
+    openProjectOperation(project, action);
+  }
+
+  async function copyOperationOutput() {
+    const text = operationCopyText;
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setOperationCopied(true);
+    } catch {
+      setOperationCopied(false);
+    }
+  }
+
   function openTopicReleaseDialog(initialProjectIds: number[] = []) {
     setTopicReleaseDraft({
       ...emptyTopicReleaseDraft(),
@@ -1316,6 +1967,21 @@ export function CmdbShell() {
       description: candidate.description ?? current.description,
       defaultBranch: candidate.defaultBranch,
     }));
+  }
+
+  function applyManualGitLabPath() {
+    if (!canUseManualGitLabPath) return;
+
+    const pathParts = manualGitLabPath.split("/").filter(Boolean);
+    const fallbackName = pathParts[pathParts.length - 1] ?? manualGitLabPath;
+
+    setProjectDraft((current) => ({
+      ...current,
+      name: current.name.trim() || fallbackName,
+      gitlabPath: manualGitLabPath,
+      defaultBranch: current.defaultBranch.trim() || "main",
+    }));
+    setProjectDraftPanel("basic");
   }
 
   async function handleDeleteProject(project: ProjectRow) {
@@ -1499,12 +2165,12 @@ export function CmdbShell() {
   }
 
   return (
-    <ModulePageShell>
-      <section className="overflow-hidden rounded-[18px] border border-slate-200/90 bg-white/92 shadow-[0_14px_38px_rgba(15,23,42,0.05)]">
+    <ModulePageShell className="gap-3">
+      <section className="overflow-hidden rounded-[12px] border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="flex flex-col">
-          <div className="flex flex-col gap-4 border-b border-slate-200/80 px-5 py-4 lg:flex-row lg:items-start lg:justify-between lg:px-6">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+          <div className="flex flex-col gap-3 border-b border-slate-200/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-700 ring-1 ring-slate-200">
                 <ServerIcon className="size-4" />
               </div>
               <div className="min-w-0">
@@ -1519,21 +2185,21 @@ export function CmdbShell() {
                     最近同步 {lastSyncedLabel}
                   </span>
                 </div>
-                <h1 className="mt-2 text-[1.42rem] leading-tight font-semibold tracking-[-0.04em] text-slate-950 md:text-[1.68rem]">
+                <h1 className="mt-1.5 text-[1.28rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950 md:text-[1.45rem]">
                   资产与发布管理
                 </h1>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                <p className="mt-0.5 max-w-3xl text-[13px] leading-5 text-slate-600">
                   统一维护服务器、GitLab 项目和 Pipeline
                   发布记录，优先暴露连通性、健康检查和发布风险。
                 </p>
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+            <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:h-8 [&_[data-slot=button]]:rounded-[9px]">
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-[10px]"
+                className="border-slate-300 bg-white"
                 onClick={() => void dashboardQuery.refetch()}
                 disabled={dashboardQuery.isFetching}
               >
@@ -1550,7 +2216,7 @@ export function CmdbShell() {
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-[10px]"
+                className="border-slate-300 bg-white"
                 onClick={openCreateAssetDialog}
               >
                 <ServerIcon data-icon="inline-start" />
@@ -1558,7 +2224,7 @@ export function CmdbShell() {
               </Button>
               <Button
                 size="sm"
-                className="rounded-[10px]"
+                className="bg-slate-900 text-white hover:bg-slate-800"
                 onClick={openCreateDialog}
               >
                 <PlusIcon data-icon="inline-start" />
@@ -1568,7 +2234,7 @@ export function CmdbShell() {
           </div>
 
           {!data && dashboardQuery.isLoading ? (
-            <div className="grid gap-0 bg-slate-50/55 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200/80">
+            <div className="grid gap-0 bg-slate-50/45 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200/80">
               {Array.from({ length: 4 }).map((_, index) => (
                 <Skeleton
                   key={`cmdb-overview-${index}`}
@@ -1577,18 +2243,18 @@ export function CmdbShell() {
               ))}
             </div>
           ) : (
-            <div className="grid gap-0 bg-slate-50/55 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200/80">
+            <div className="grid gap-0 bg-slate-50/45 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x xl:divide-slate-200/80">
               {overviewCards.map((card) => (
                 <CmdbOverviewCard key={card.label} {...card} />
               ))}
             </div>
           )}
 
-          <div className="border-t border-slate-200/80 px-4 py-3 lg:px-5">
+          <div className="border-t border-slate-200/80 px-3 py-2.5 lg:px-4">
             <div
               role="tablist"
               aria-label="CMDB 区域切换"
-              className="grid gap-1 rounded-[12px] border border-slate-200/90 bg-slate-100/80 p-1 lg:grid-cols-3"
+              className="scrollbar-none flex gap-1 overflow-x-auto rounded-[10px] border border-slate-200/90 bg-slate-100/80 p-1"
             >
               {areaCards.map((area) => {
                 const isActive = area.key === activeArea;
@@ -1603,7 +2269,7 @@ export function CmdbShell() {
                     aria-controls={`cmdb-panel-${area.key}`}
                     onClick={() => setActiveArea(area.key)}
                     className={cn(
-                      "flex min-h-12 items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:outline-none",
+                      "flex min-h-10 min-w-[220px] items-center justify-between gap-3 rounded-[8px] px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:outline-none lg:min-w-0 lg:flex-1",
                       isActive
                         ? "bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
                         : "text-slate-600 hover:bg-white/64 hover:text-slate-950",
@@ -1612,7 +2278,7 @@ export function CmdbShell() {
                     <span className="flex min-w-0 items-center gap-2.5">
                       <span
                         className={cn(
-                          "flex size-8 shrink-0 items-center justify-center rounded-[9px]",
+                          "flex size-7 shrink-0 items-center justify-center rounded-[8px]",
                           isActive
                             ? "bg-slate-100 text-slate-700"
                             : "bg-transparent text-slate-500",
@@ -1621,10 +2287,10 @@ export function CmdbShell() {
                         <Icon className="size-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block font-semibold">
+                        <span className="block text-[13px] font-semibold">
                           {area.label}
                         </span>
-                        <span className="hidden truncate text-xs text-slate-500 xl:block">
+                        <span className="hidden truncate text-[11px] text-slate-500 xl:block">
                           {area.description}
                         </span>
                       </span>
@@ -1637,7 +2303,7 @@ export function CmdbShell() {
               })}
             </div>
 
-            <p className="mt-2 text-xs leading-5 text-slate-500">
+            <p className="mt-2 text-[12px] leading-5 text-slate-500">
               当前视图：{activeAreaMeta.description}
             </p>
           </div>
@@ -1703,7 +2369,7 @@ export function CmdbShell() {
           title="服务器资产"
           description="手动维护部署所需的 IP、SSH、角色与架构信息。"
           density="compact"
-          className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
+          className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           action={
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-slate-500">
@@ -1747,57 +2413,61 @@ export function CmdbShell() {
             />
           ) : (
             <div className="grid gap-3">
-              <div className="grid gap-3 lg:hidden">
+              <div className="grid gap-3 2xl:hidden">
                 {assets.map((asset) => (
                   <article
                     key={`asset-card-${asset.name}`}
-                    className="rounded-[14px] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.035)]"
+                    className="grid gap-3 rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:grid-cols-[minmax(0,1.3fr)_minmax(120px,0.55fr)_minmax(120px,0.55fr)_auto] md:items-center"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold tracking-[-0.02em] text-slate-950">
-                            {asset.name}
-                          </h3>
-                          {asset.isController ? (
-                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                              Master
-                            </Badge>
-                          ) : null}
-                          {asset.hasGpu ? (
-                            <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
-                              GPU
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {asset.ip} · {asset.sshUser ?? "root"}:{asset.sshPort}
-                        </p>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate font-semibold tracking-[-0.02em] text-slate-950">
+                          {asset.name}
+                        </h3>
+                        {asset.isController ? (
+                          <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                            Master
+                          </Badge>
+                        ) : null}
+                        {asset.hasGpu ? (
+                          <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
+                            GPU
+                          </Badge>
+                        ) : null}
+                        <Badge
+                          className={cn(
+                            "border md:hidden",
+                            assetStatusTone(asset.status),
+                          )}
+                        >
+                          {assetStatusLabel(asset.status)}
+                        </Badge>
                       </div>
-                      <Badge
-                        className={cn("border", assetStatusTone(asset.status))}
-                      >
-                        {assetStatusLabel(asset.status)}
-                      </Badge>
+                      <p className="mt-1 truncate text-[13px] text-slate-500">
+                        {asset.ip} · {asset.sshUser ?? "root"}:{asset.sshPort}
+                      </p>
                     </div>
 
-                    <div className="mt-4 grid gap-3 rounded-[12px] bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">架构</span>
-                        <span className="font-medium text-slate-800">
-                          {asset.arch ?? "-"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">挂载服务</span>
-                        <span className="font-medium text-slate-800">
-                          {asset.attachedProjectCount}
-                        </span>
-                      </div>
+                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
+                      <span className="text-slate-500 md:block md:text-[11px]">
+                        架构
+                      </span>
+                      <span className="font-medium text-slate-900 md:mt-1 md:block">
+                        {asset.arch ?? "-"}
+                      </span>
                     </div>
 
-                    {asset.roles.length > 0 ? (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
+                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
+                      <span className="text-slate-500 md:block md:text-[11px]">
+                        挂载服务
+                      </span>
+                      <span className="font-medium text-slate-900 md:mt-1 md:block">
+                        {asset.attachedProjectCount}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
+                      <div className="flex flex-wrap gap-1.5 md:mr-auto md:hidden">
                         {asset.roles.map((role) => (
                           <Badge
                             key={`asset-card-${asset.name}-${role}`}
@@ -1807,13 +2477,18 @@ export function CmdbShell() {
                           </Badge>
                         ))}
                       </div>
-                    ) : null}
-
-                    <div className="mt-4 flex justify-end gap-2">
+                      <Badge
+                        className={cn(
+                          "hidden border md:inline-flex",
+                          assetStatusTone(asset.status),
+                        )}
+                      >
+                        {assetStatusLabel(asset.status)}
+                      </Badge>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="rounded-[10px]"
+                        className="h-8 rounded-[9px] border-slate-300 bg-white"
                         onClick={() => openEditAssetDialog(asset)}
                       >
                         <PencilIcon data-icon="inline-start" />
@@ -1822,7 +2497,7 @@ export function CmdbShell() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="rounded-[10px] text-rose-700"
+                        className="h-8 rounded-[9px] border-rose-200 bg-white text-rose-700"
                         onClick={() => void handleDeleteAsset(asset)}
                       >
                         <Trash2Icon data-icon="inline-start" />
@@ -1833,8 +2508,8 @@ export function CmdbShell() {
                 ))}
               </div>
 
-              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 lg:block">
-                <Table className="min-w-[920px]">
+              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 2xl:block">
+                <Table className="min-w-[840px]">
                   <TableHeader className="bg-slate-50/90">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>资产</TableHead>
@@ -1843,12 +2518,14 @@ export function CmdbShell() {
                       <TableHead>架构</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead className="text-right">挂载服务</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
+                      <TableHead className={STICKY_ACTION_HEAD_CLASS}>
+                        操作
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {assets.map((asset) => (
-                      <TableRow key={asset.name}>
+                      <TableRow key={asset.name} className="group">
                         <TableCell>
                           <div className="grid gap-1">
                             <div className="flex items-center gap-2">
@@ -1902,7 +2579,7 @@ export function CmdbShell() {
                         <TableCell className="text-right text-sm font-medium text-slate-700">
                           {asset.attachedProjectCount}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
                           <div className="flex justify-end gap-2">
                             <Button
                               variant="outline"
@@ -1938,7 +2615,7 @@ export function CmdbShell() {
           title="GitLab 项目管理"
           description="统一维护仓库、部署目标、健康检查和默认变量。"
           density="compact"
-          className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
+          className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           action={
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-slate-500">
@@ -2012,16 +2689,16 @@ export function CmdbShell() {
             />
           ) : (
             <div className="grid gap-3">
-              <div className="grid gap-3 lg:hidden">
+              <div className="grid gap-3 xl:hidden">
                 {projects.map((project) => (
                   <article
                     key={`project-card-${project.id}`}
-                    className="rounded-[14px] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.035)]"
+                    className="rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold tracking-[-0.02em] text-slate-950">
+                          <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
                             {project.name}
                           </h3>
                           {!project.enabled ? (
@@ -2030,7 +2707,7 @@ export function CmdbShell() {
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-sm break-all text-slate-500">
+                        <p className="mt-1 text-[13px] break-all text-slate-500">
                           {project.gitlabPath}
                         </p>
                       </div>
@@ -2039,10 +2716,12 @@ export function CmdbShell() {
                       </Badge>
                     </div>
 
-                    <div className="mt-4 grid gap-3 rounded-[12px] bg-slate-50 px-3 py-3 text-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="text-slate-500">目标位置</span>
-                        <span className="max-w-[62%] text-right font-medium break-words text-slate-800">
+                    <div className="mt-3 grid gap-x-5 gap-y-2 rounded-[10px] bg-slate-50/80 px-3 py-2.5 text-[13px] md:grid-cols-[minmax(0,1.45fr)_minmax(90px,0.55fr)_minmax(110px,0.62fr)]">
+                      <div className="min-w-0">
+                        <span className="block text-[11px] text-slate-500">
+                          目标位置
+                        </span>
+                        <span className="mt-1 block font-medium break-words text-slate-800">
                           {projectTargetAssetsLabel(project.config)}
                           <br />
                           <span className="font-normal text-slate-500">
@@ -2054,33 +2733,39 @@ export function CmdbShell() {
                           </span>
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">默认分支</span>
-                        <span className="font-medium text-slate-800">
+                      <div>
+                        <span className="block text-[11px] text-slate-500">
+                          默认分支
+                        </span>
+                        <span className="mt-1 block font-medium text-slate-800">
                           {project.defaultBranch}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">监控</span>
-                        <CmdbStatusDot
-                          className={cn(
-                            project.monitor.status === "healthy"
-                              ? "text-emerald-600"
-                              : project.monitor.status === "degraded"
-                                ? "text-rose-600"
-                                : "text-slate-400",
-                          )}
-                          label={monitorLabel(project.monitor.status)}
-                        />
+                      <div>
+                        <span className="block text-[11px] text-slate-500">
+                          监控
+                        </span>
+                        <div className="mt-1">
+                          <CmdbStatusDot
+                            className={cn(
+                              project.monitor.status === "healthy"
+                                ? "text-emerald-600"
+                                : project.monitor.status === "degraded"
+                                  ? "text-rose-600"
+                                  : "text-slate-400",
+                            )}
+                            label={monitorLabel(project.monitor.status)}
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mt-3 rounded-[12px] border border-slate-200/80 bg-white px-3 py-3">
-                      <p className="text-xs font-medium text-slate-500">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[10px] border border-slate-200/80 bg-white px-3 py-2">
+                      <p className="text-[11px] font-medium text-slate-500">
                         最近发布
                       </p>
                       {project.latestRelease ? (
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <>
                           <Badge
                             className={cn(
                               "border",
@@ -2098,17 +2783,21 @@ export function CmdbShell() {
                               ? ` -> ${project.latestRelease.deployEnv}`
                               : ""}
                           </span>
-                        </div>
+                          {releaseTopic(project.latestRelease) ? (
+                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                              主题 {releaseTopic(project.latestRelease)}
+                            </Badge>
+                          ) : null}
+                        </>
                       ) : (
-                        <p className="mt-2 text-sm text-slate-500">暂无发布</p>
+                        <p className="text-sm text-slate-500">暂无发布</p>
                       )}
                     </div>
 
-                    <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2.5">
                       <Button
-                        variant="outline"
                         size="sm"
-                        className="rounded-[10px]"
+                        className="h-8 rounded-[9px] bg-slate-900 text-white hover:bg-slate-800"
                         onClick={() => openReleaseModal(project)}
                         disabled={Boolean(
                           projectReleaseIssue(
@@ -2126,59 +2815,104 @@ export function CmdbShell() {
                         <RocketIcon data-icon="inline-start" />
                         发布
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-[10px]"
-                        onClick={() => openEditDialog(project)}
-                      >
-                        <PencilIcon data-icon="inline-start" />
-                        编辑
-                      </Button>
-                      {project.gitlabWebUrl ? (
-                        <a
-                          href={project.gitlabWebUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={cn(
-                            buttonVariants({ variant: "outline", size: "sm" }),
-                            "rounded-[10px]",
+                      <div className={CMDB_ACTION_GROUP_CLASS}>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openProjectOperation(project, "dockerStatus")
+                          }
+                          disabled={Boolean(
+                            projectOperationIssue(project, "dockerStatus"),
                           )}
+                          title={
+                            projectOperationIssue(project, "dockerStatus") ??
+                            "容器状态"
+                          }
                         >
-                          <ExternalLinkIcon data-icon="inline-start" />
-                          GitLab
-                        </a>
-                      ) : null}
-                      {project.config?.monitorUrl ? (
-                        <a
-                          href={project.config.monitorUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={cn(
-                            buttonVariants({ variant: "outline", size: "sm" }),
-                            "rounded-[10px]",
+                          <ActivityIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openProjectOperation(project, "dockerLogs")
+                          }
+                          disabled={Boolean(
+                            projectOperationIssue(project, "dockerLogs"),
                           )}
+                          title={
+                            projectOperationIssue(project, "dockerLogs") ??
+                            "运行日志"
+                          }
                         >
-                          <ActivityIcon data-icon="inline-start" />
-                          监控
-                        </a>
-                      ) : null}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-[10px] text-rose-700"
-                        onClick={() => void handleDeleteProject(project)}
-                      >
-                        <Trash2Icon data-icon="inline-start" />
-                        删除
-                      </Button>
+                          <ScrollTextIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openProjectOperation(project, "sshInfo")
+                          }
+                          disabled={Boolean(
+                            projectOperationIssue(project, "sshInfo"),
+                          )}
+                          title={
+                            projectOperationIssue(project, "sshInfo") ??
+                            remoteLoginLabel(project.deployTarget)
+                          }
+                        >
+                          <TerminalIcon />
+                        </Button>
+                        {project.gitlabWebUrl ? (
+                          <a
+                            href={project.gitlabWebUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="打开 GitLab"
+                            className={cn(
+                              buttonVariants({
+                                variant: "ghost",
+                                size: "icon-sm",
+                              }),
+                              CMDB_ACTION_ICON_CLASS,
+                            )}
+                          >
+                            <ExternalLinkIcon />
+                          </a>
+                        ) : null}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() => openEditDialog(project)}
+                          title="编辑项目"
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={cn(
+                            CMDB_ACTION_ICON_CLASS,
+                            "text-rose-600 hover:text-rose-700",
+                          )}
+                          onClick={() => void handleDeleteProject(project)}
+                          title="删除项目"
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </div>
                     </div>
                   </article>
                 ))}
               </div>
 
-              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 lg:block">
-                <Table className="min-w-[1080px]">
+              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
+                <Table className="min-w-[940px]">
                   <TableHeader className="bg-slate-50/90">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>项目</TableHead>
@@ -2186,12 +2920,14 @@ export function CmdbShell() {
                       <TableHead>位置 / 配置</TableHead>
                       <TableHead>最近发布</TableHead>
                       <TableHead>监控</TableHead>
-                      <TableHead className="text-right">操作</TableHead>
+                      <TableHead className={STICKY_ACTION_HEAD_CLASS}>
+                        操作
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {projects.map((project) => (
-                      <TableRow key={project.id}>
+                      <TableRow key={project.id} className="group">
                         <TableCell>
                           <div className="grid gap-1">
                             <div className="flex items-center gap-2">
@@ -2251,6 +2987,11 @@ export function CmdbShell() {
                                   ? ` -> ${project.latestRelease.deployEnv}`
                                   : ""}
                               </div>
+                              {releaseTopic(project.latestRelease) ? (
+                                <div className="text-xs text-sky-700">
+                                  主题 {releaseTopic(project.latestRelease)}
+                                </div>
+                              ) : null}
                             </div>
                           ) : (
                             <span className="text-sm text-slate-500">
@@ -2273,12 +3014,11 @@ export function CmdbShell() {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
                           <div className="flex justify-end gap-2">
                             <Button
-                              variant="outline"
                               size="sm"
-                              className="rounded-[10px]"
+                              className="h-8 rounded-[9px] bg-slate-900 text-white hover:bg-slate-800"
                               onClick={() => openReleaseModal(project)}
                               disabled={Boolean(
                                 projectReleaseIssue(
@@ -2296,54 +3036,106 @@ export function CmdbShell() {
                               <RocketIcon data-icon="inline-start" />
                               发布
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              className="rounded-[10px]"
-                              onClick={() => openEditDialog(project)}
-                            >
-                              <PencilIcon />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              className="rounded-[10px] text-rose-700"
-                              onClick={() => void handleDeleteProject(project)}
-                            >
-                              <Trash2Icon />
-                            </Button>
-                            {project.gitlabWebUrl ? (
-                              <a
-                                href={project.gitlabWebUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={cn(
-                                  buttonVariants({
-                                    variant: "outline",
-                                    size: "icon-sm",
-                                  }),
-                                  "rounded-[10px]",
+                            <div className={CMDB_ACTION_GROUP_CLASS}>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openProjectOperation(project, "dockerStatus")
+                                }
+                                disabled={Boolean(
+                                  projectOperationIssue(
+                                    project,
+                                    "dockerStatus",
+                                  ),
                                 )}
-                              >
-                                <ExternalLinkIcon />
-                              </a>
-                            ) : null}
-                            {project.config?.monitorUrl ? (
-                              <a
-                                href={project.config.monitorUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={cn(
-                                  buttonVariants({
-                                    variant: "outline",
-                                    size: "icon-sm",
-                                  }),
-                                  "rounded-[10px]",
-                                )}
+                                title={
+                                  projectOperationIssue(
+                                    project,
+                                    "dockerStatus",
+                                  ) ?? "容器状态"
+                                }
                               >
                                 <ActivityIcon />
-                              </a>
-                            ) : null}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openProjectOperation(project, "dockerLogs")
+                                }
+                                disabled={Boolean(
+                                  projectOperationIssue(project, "dockerLogs"),
+                                )}
+                                title={
+                                  projectOperationIssue(
+                                    project,
+                                    "dockerLogs",
+                                  ) ?? "运行日志"
+                                }
+                              >
+                                <ScrollTextIcon />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openProjectOperation(project, "sshInfo")
+                                }
+                                disabled={Boolean(
+                                  projectOperationIssue(project, "sshInfo"),
+                                )}
+                                title={
+                                  projectOperationIssue(project, "sshInfo") ??
+                                  remoteLoginLabel(project.deployTarget)
+                                }
+                              >
+                                <TerminalIcon />
+                              </Button>
+                              {project.gitlabWebUrl ? (
+                                <a
+                                  href={project.gitlabWebUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="打开 GitLab"
+                                  className={cn(
+                                    buttonVariants({
+                                      variant: "ghost",
+                                      size: "icon-sm",
+                                    }),
+                                    CMDB_ACTION_ICON_CLASS,
+                                  )}
+                                >
+                                  <ExternalLinkIcon />
+                                </a>
+                              ) : null}
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() => openEditDialog(project)}
+                                title="编辑项目"
+                              >
+                                <PencilIcon />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={cn(
+                                  CMDB_ACTION_ICON_CLASS,
+                                  "text-rose-600 hover:text-rose-700",
+                                )}
+                                onClick={() =>
+                                  void handleDeleteProject(project)
+                                }
+                                title="删除项目"
+                              >
+                                <Trash2Icon />
+                              </Button>
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2362,7 +3154,7 @@ export function CmdbShell() {
           title="部署管理"
           description="查看最近发布记录、环境和 Pipeline 状态。"
           density="compact"
-          className="rounded-[16px] border-slate-200/95 bg-white shadow-[0_10px_26px_rgba(15,23,42,0.045)]"
+          className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           action={
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-slate-500">
@@ -2427,20 +3219,25 @@ export function CmdbShell() {
             />
           ) : (
             <div className="grid gap-3">
-              <div className="grid gap-3 lg:hidden">
+              <div className="grid gap-3 xl:hidden">
                 {releases.map((release) => (
                   <article
                     key={`release-card-${release.id}`}
-                    className="rounded-[14px] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_8px_22px_rgba(15,23,42,0.035)]"
+                    className="rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <h3 className="font-semibold tracking-[-0.02em] text-slate-950">
+                        <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
                           {release.project?.name ?? "未知项目"}
                         </h3>
-                        <p className="mt-1 text-sm break-all text-slate-500">
+                        <p className="mt-1 text-[13px] break-all text-slate-500">
                           {release.project?.gitlabPath ?? "-"}
                         </p>
+                        {releaseTopic(release) ? (
+                          <Badge className="mt-1.5 border border-sky-200 bg-sky-50 text-sky-700">
+                            主题 {releaseTopic(release)}
+                          </Badge>
+                        ) : null}
                       </div>
                       <Badge
                         className={cn("border", releaseTone(release.status))}
@@ -2449,22 +3246,28 @@ export function CmdbShell() {
                       </Badge>
                     </div>
 
-                    <div className="mt-4 grid gap-3 rounded-[12px] bg-slate-50 px-3 py-3 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">时间</span>
-                        <span className="font-medium text-slate-800">
+                    <div className="mt-3 grid gap-x-5 gap-y-2 rounded-[10px] bg-slate-50/80 px-3 py-2.5 text-[13px] md:grid-cols-3">
+                      <div>
+                        <span className="block text-[11px] text-slate-500">
+                          时间
+                        </span>
+                        <span className="mt-1 block font-medium text-slate-800">
                           {formatTime(release.createdAt)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">Ref</span>
-                        <span className="font-medium text-slate-800">
+                      <div>
+                        <span className="block text-[11px] text-slate-500">
+                          Ref
+                        </span>
+                        <span className="mt-1 block font-medium text-slate-800">
                           {release.ref}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-slate-500">环境</span>
-                        <span className="font-medium text-slate-800">
+                      <div>
+                        <span className="block text-[11px] text-slate-500">
+                          环境
+                        </span>
+                        <span className="mt-1 block font-medium text-slate-800">
                           {release.deployEnv ?? "-"}
                         </span>
                       </div>
@@ -2478,7 +3281,7 @@ export function CmdbShell() {
                           rel="noreferrer"
                           className={cn(
                             buttonVariants({ variant: "outline", size: "sm" }),
-                            "rounded-[10px]",
+                            "h-8 rounded-[9px]",
                           )}
                         >
                           Pipeline #{release.gitlabPipelineId ?? release.id}
@@ -2490,25 +3293,85 @@ export function CmdbShell() {
                         </p>
                       )}
                     </div>
+
+                    <div className="mt-3 flex justify-end border-t border-slate-100 pt-2.5">
+                      <div className={CMDB_ACTION_GROUP_CLASS}>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openReleaseOperation(release, "dockerStatus")
+                          }
+                          disabled={Boolean(
+                            releaseOperationIssue(release, "dockerStatus"),
+                          )}
+                          title={
+                            releaseOperationIssue(release, "dockerStatus") ??
+                            "容器状态"
+                          }
+                        >
+                          <ActivityIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openReleaseOperation(release, "dockerLogs")
+                          }
+                          disabled={Boolean(
+                            releaseOperationIssue(release, "dockerLogs"),
+                          )}
+                          title={
+                            releaseOperationIssue(release, "dockerLogs") ??
+                            "运行日志"
+                          }
+                        >
+                          <ScrollTextIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className={CMDB_ACTION_ICON_CLASS}
+                          onClick={() =>
+                            openReleaseOperation(release, "sshInfo")
+                          }
+                          disabled={Boolean(
+                            releaseOperationIssue(release, "sshInfo"),
+                          )}
+                          title={
+                            releaseOperationIssue(release, "sshInfo") ??
+                            remoteLoginLabel(release.project?.deployTarget)
+                          }
+                        >
+                          <TerminalIcon />
+                        </Button>
+                      </div>
+                    </div>
                   </article>
                 ))}
               </div>
 
-              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 lg:block">
-                <Table className="min-w-[860px]">
+              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
+                <Table className="min-w-[900px]">
                   <TableHeader className="bg-slate-50/90">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>时间</TableHead>
                       <TableHead>项目</TableHead>
+                      <TableHead>主题</TableHead>
                       <TableHead>Ref</TableHead>
                       <TableHead>环境</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>流水线</TableHead>
+                      <TableHead className={STICKY_ACTION_HEAD_CLASS}>
+                        操作
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {releases.map((release) => (
-                      <TableRow key={release.id}>
+                      <TableRow key={release.id} className="group">
                         <TableCell className="text-sm text-slate-600">
                           {formatTime(release.createdAt)}
                         </TableCell>
@@ -2521,6 +3384,15 @@ export function CmdbShell() {
                               {release.project?.gitlabPath ?? "-"}
                             </span>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {releaseTopic(release) ? (
+                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                              {releaseTopic(release)}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-slate-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
                           {release.ref}
@@ -2555,6 +3427,72 @@ export function CmdbShell() {
                             </span>
                           )}
                         </TableCell>
+                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
+                          <div className="flex justify-end gap-2">
+                            <div className={CMDB_ACTION_GROUP_CLASS}>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openReleaseOperation(release, "dockerStatus")
+                                }
+                                disabled={Boolean(
+                                  releaseOperationIssue(
+                                    release,
+                                    "dockerStatus",
+                                  ),
+                                )}
+                                title={
+                                  releaseOperationIssue(
+                                    release,
+                                    "dockerStatus",
+                                  ) ?? "容器状态"
+                                }
+                              >
+                                <ActivityIcon />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openReleaseOperation(release, "dockerLogs")
+                                }
+                                disabled={Boolean(
+                                  releaseOperationIssue(release, "dockerLogs"),
+                                )}
+                                title={
+                                  releaseOperationIssue(
+                                    release,
+                                    "dockerLogs",
+                                  ) ?? "运行日志"
+                                }
+                              >
+                                <ScrollTextIcon />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className={CMDB_ACTION_ICON_CLASS}
+                                onClick={() =>
+                                  openReleaseOperation(release, "sshInfo")
+                                }
+                                disabled={Boolean(
+                                  releaseOperationIssue(release, "sshInfo"),
+                                )}
+                                title={
+                                  releaseOperationIssue(release, "sshInfo") ??
+                                  remoteLoginLabel(
+                                    release.project?.deployTarget,
+                                  )
+                                }
+                              >
+                                <TerminalIcon />
+                              </Button>
+                            </div>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -2564,6 +3502,294 @@ export function CmdbShell() {
           )}
         </ModuleSection>
       ) : null}
+
+      <Dialog
+        open={operationDialogOpen}
+        onOpenChange={(open) => {
+          if (open) setOperationDialogOpen(true);
+          else closeOperationDialog();
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "grid grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-slate-200/90 bg-white p-0 shadow-[0_28px_70px_rgba(15,23,42,0.16)]",
+            operationDialogMaximized
+              ? "h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] rounded-[14px] sm:max-h-[calc(100dvh-0.75rem)] sm:max-w-[calc(100vw-0.75rem)]"
+              : "max-h-[min(90vh,820px)] max-w-[calc(100vw-1rem)] rounded-[18px] sm:max-w-[1040px]",
+          )}
+        >
+          <DialogHeader className="gap-0 border-b border-slate-200/80 bg-white px-4 py-3 pr-12 sm:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.12)]">
+                  <OperationIcon className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <DialogTitle className="text-base leading-6 font-semibold tracking-[-0.02em] text-slate-950">
+                    {projectOperationLabel(
+                      operationAction,
+                      operationProject?.deployTarget,
+                    )}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 max-w-2xl text-sm leading-5 text-slate-600">
+                    {projectOperationDescription(
+                      operationAction,
+                      operationProject?.deployTarget,
+                    )}
+                  </DialogDescription>
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                {operationProject ? (
+                  <Badge className="max-w-full truncate border border-slate-200 bg-slate-50 text-slate-700 md:max-w-[240px]">
+                    {operationProject.name}
+                  </Badge>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  className="shrink-0 rounded-[10px]"
+                  aria-label={
+                    operationDialogMaximized ? "还原弹窗" : "最大化弹窗"
+                  }
+                  title={operationDialogMaximized ? "还原" : "最大化"}
+                  onClick={() =>
+                    setOperationDialogMaximized((current) => !current)
+                  }
+                >
+                  {operationDialogMaximized ? (
+                    <Minimize2Icon className="size-4" />
+                  ) : (
+                    <Maximize2Icon className="size-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div
+            className={cn(
+              "grid min-h-0 gap-3 overflow-y-auto bg-slate-50/60 p-3 sm:p-4",
+              operationDialogMaximized &&
+                operationAction === "sshInfo" &&
+                "grid-rows-[auto_minmax(0,1fr)]",
+            )}
+          >
+            <div className="grid overflow-hidden rounded-[12px] border border-slate-200 bg-slate-200 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div className="bg-white px-3 py-2.5">
+                <div className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
+                  目标资产
+                </div>
+                <div className="mt-1 truncate font-medium text-slate-950">
+                  {operationTargetAssetName}
+                </div>
+              </div>
+              <div className="bg-white px-3 py-2.5">
+                <div className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
+                  主机
+                </div>
+                <div className="mt-1 truncate font-medium text-slate-950">
+                  {operationHost}
+                </div>
+              </div>
+              <div className="bg-white px-3 py-2.5">
+                <div className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
+                  容器
+                </div>
+                <div className="mt-1 truncate font-medium text-slate-950">
+                  {operationContainerName}
+                </div>
+              </div>
+              <div className="bg-white px-3 py-2.5">
+                <div className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
+                  状态
+                </div>
+                <div className="mt-1 flex items-center gap-2 font-medium text-slate-950">
+                  {operationHasStatus ? (
+                    <span
+                      className={cn(
+                        "size-2 rounded-full",
+                        operationStatusFailed
+                          ? "bg-rose-500"
+                          : "bg-emerald-500",
+                      )}
+                    />
+                  ) : operationPending ? (
+                    <LoaderCircleIcon className="size-3.5 animate-spin text-slate-500" />
+                  ) : null}
+                  {operationStatusText}
+                </div>
+              </div>
+            </div>
+
+            {operationAction === "sshInfo" ? (
+              <div
+                className={cn(
+                  "grid gap-3",
+                  operationDialogMaximized && "min-h-0",
+                )}
+              >
+                {terminalError ? (
+                  <Alert className="border-rose-200 bg-rose-50 text-rose-900">
+                    <AlertTriangleIcon className="size-4" />
+                    <AlertTitle>登录失败</AlertTitle>
+                    <AlertDescription>{terminalError}</AlertDescription>
+                  </Alert>
+                ) : null}
+                <div
+                  className={cn(
+                    "overflow-hidden rounded-[14px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]",
+                    operationDialogMaximized && "flex min-h-0 flex-col",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex shrink-0 gap-1.5">
+                        <span className="size-2 rounded-full bg-rose-400" />
+                        <span className="size-2 rounded-full bg-amber-300" />
+                        <span className="size-2 rounded-full bg-emerald-400" />
+                      </span>
+                      <span className="truncate font-mono text-xs text-slate-300">
+                        {terminalSession?.containerName
+                          ? `docker exec ${terminalSession.containerName}`
+                          : `${terminalSession?.sshUser ?? ""}@${terminalSession?.host ?? operationHost}`}
+                      </span>
+                    </div>
+                    <Badge
+                      className={cn(
+                        "shrink-0 border text-xs",
+                        terminalStatus === "connected"
+                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                          : terminalStatus === "error"
+                            ? "border-rose-400/25 bg-rose-400/10 text-rose-200"
+                            : "border-slate-400/25 bg-slate-400/10 text-slate-200",
+                      )}
+                    >
+                      {terminalStatusLabel(terminalStatus)}
+                    </Badge>
+                  </div>
+                  <pre
+                    ref={terminalScrollRef}
+                    role="textbox"
+                    aria-label="容器终端"
+                    aria-readonly="false"
+                    tabIndex={0}
+                    onClick={() => terminalScrollRef.current?.focus()}
+                    onKeyDown={handleTerminalKeyDown}
+                    onPaste={(event) => {
+                      if (terminalStatus !== "connected") return;
+
+                      const text = event.clipboardData.getData("text");
+                      if (!text) return;
+
+                      event.preventDefault();
+                      void sendTerminalData(text);
+                    }}
+                    className={cn(
+                      "cursor-text overflow-auto px-3.5 py-3 font-mono text-[12px] leading-[1.65] whitespace-pre-wrap text-slate-100 outline-none [scrollbar-color:rgba(148,163,184,0.55)_transparent] focus-visible:ring-2 focus-visible:ring-sky-500/70 focus-visible:ring-inset",
+                      operationDialogMaximized
+                        ? "min-h-0 flex-1"
+                        : "max-h-[min(58vh,620px)] min-h-[420px]",
+                    )}
+                  >
+                    {terminalOutput || "正在建立 SSH 会话...\n"}
+                  </pre>
+                </div>
+              </div>
+            ) : projectOperation.isPending ? (
+              <div className="flex min-h-[260px] items-center justify-center gap-2 rounded-[14px] border border-dashed border-slate-300 bg-white text-sm text-slate-600">
+                <LoaderCircleIcon className="size-4 animate-spin" />
+                正在连接目标资产并执行操作
+              </div>
+            ) : projectOperation.error ? (
+              <Alert className="border-rose-200 bg-rose-50 text-rose-900">
+                <AlertTriangleIcon className="size-4" />
+                <AlertTitle>执行失败</AlertTitle>
+                <AlertDescription>
+                  {projectOperation.error.message}
+                </AlertDescription>
+              </Alert>
+            ) : operationResult ? (
+              <div className="grid gap-3">
+                <div className="overflow-hidden rounded-[14px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+                  <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex shrink-0 gap-1.5">
+                        <span className="size-2 rounded-full bg-rose-400" />
+                        <span className="size-2 rounded-full bg-amber-300" />
+                        <span className="size-2 rounded-full bg-emerald-400" />
+                      </span>
+                      <span className="truncate font-mono text-xs text-slate-300">
+                        {operationAction === "dockerLogs"
+                          ? "docker logs --tail 200"
+                          : "docker ps / docker inspect"}
+                      </span>
+                    </div>
+                    <Badge
+                      className={cn(
+                        "shrink-0 border text-xs",
+                        operationExitCode === 0
+                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                          : "border-rose-400/25 bg-rose-400/10 text-rose-200",
+                      )}
+                    >
+                      exit {operationExitCode}
+                    </Badge>
+                  </div>
+                  <pre className="max-h-[min(54vh,520px)] min-h-[300px] overflow-auto px-3.5 py-3 font-mono text-[12px] leading-[1.65] whitespace-pre text-slate-100 [scrollbar-color:rgba(148,163,184,0.55)_transparent]">
+                    {operationText || "无输出"}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter
+            bleed={false}
+            className="border-t border-slate-200/90 bg-white px-4 py-3 sm:items-center sm:justify-between"
+          >
+            <div className="hidden text-xs text-slate-500 sm:block">
+              {operationAction === "sshInfo"
+                ? "终端由服务端实时连接目标资产，关闭弹窗会断开会话。"
+                : "结果来自目标资产实时查询，不写入发布记录。"}
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-[10px]"
+                onClick={() => void copyOperationOutput()}
+                disabled={!operationCopyText}
+              >
+                <ClipboardIcon data-icon="inline-start" />
+                {operationCopied ? "已复制" : "复制"}
+              </Button>
+              {operationProject ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-[10px]"
+                  onClick={() =>
+                    openProjectOperation(operationProject, operationAction)
+                  }
+                  disabled={projectOperation.isPending}
+                >
+                  <RefreshCwIcon data-icon="inline-start" />
+                  刷新
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                className="rounded-[10px]"
+                onClick={closeOperationDialog}
+              >
+                关闭
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={assetDialogOpen} onOpenChange={setAssetDialogOpen}>
         <DialogContent
@@ -2588,8 +3814,8 @@ export function CmdbShell() {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-5">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="grid gap-5">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="grid content-start gap-5">
                 <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
@@ -2862,7 +4088,19 @@ export function CmdbShell() {
                           }}
                         >
                           <SelectTrigger className="w-full rounded-[10px]">
-                            <SelectValue placeholder="选择架构" />
+                            <SelectValue placeholder="选择架构">
+                              {(value) =>
+                                value === UNSET_ARCH_VALUE
+                                  ? "未指定"
+                                  : value === CUSTOM_ARCH_VALUE
+                                    ? "其他"
+                                    : value === "amd64"
+                                      ? "amd64 / x86_64"
+                                      : value === "arm64"
+                                        ? "arm64 / aarch64"
+                                        : "选择架构"
+                              }
+                            </SelectValue>
                           </SelectTrigger>
                           <SelectContent className="rounded-[12px]">
                             <SelectGroup>
@@ -2952,7 +4190,7 @@ export function CmdbShell() {
                       description={
                         assetSshUserReady
                           ? "已填写登录用户"
-                          : "用于登录服务器执行部署命令"
+                          : "用于 GitLab Pipeline 登录目标机器"
                       }
                     />
                     <AssetReadinessItem
@@ -2997,15 +4235,15 @@ export function CmdbShell() {
                         SSH 部署凭据
                       </h3>
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        后续 SSH 部署会使用这里保存的账号密码。
+                        后续发布会把这里保存的账号密码注入 GitLab Pipeline。
                       </p>
                     </div>
                   </div>
 
                   <div className="mt-4 rounded-[12px] border border-sky-100 bg-sky-50/70 px-3 py-3 text-sm leading-6 text-slate-700">
                     当前 CMDB 会保存 SSH 用户、密码和端口；“登录测试”会真正建立
-                    SSH 会话。部署目标选择 SSH
-                    时，会连接目标资产并执行项目里的部署命令。
+                    SSH 会话。部署目标选择 SSH 时，会把目标资产整理为
+                    DEPLOY_TARGETS_JSON，并由仓库里的 .gitlab-ci.yml 执行发布。
                   </div>
 
                   <div className="mt-3 grid gap-2 text-xs text-slate-600">
@@ -3018,7 +4256,7 @@ export function CmdbShell() {
                     <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50 px-3 py-2">
                       <span>部署使用</span>
                       <span className="font-medium text-slate-800">
-                        密码 + 部署命令
+                        Pipeline 变量
                       </span>
                     </div>
                   </div>
@@ -3094,150 +4332,202 @@ export function CmdbShell() {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <div className="grid items-start gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <section className="grid content-start gap-4 self-start rounded-[12px] border border-slate-200 bg-slate-50/70 p-4 xl:sticky xl:top-0">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-semibold text-slate-950">
-                      仓库来源
-                    </h3>
-                    <p className="text-sm leading-5 text-slate-500">
-                      {data?.gitlab.canBrowseCatalog
-                        ? "搜索后点选，字段自动回填。"
-                        : "目录不可用时手动填写路径。"}
-                    </p>
+            <div className="grid items-start gap-5 md:grid-cols-[300px_minmax(0,1fr)]">
+              <section className="grid content-start gap-3 self-start rounded-[12px] border border-slate-200 bg-white p-3 shadow-[0_8px_22px_rgba(15,23,42,0.04)] md:sticky md:top-0">
+                <ProjectDraftField label="搜索仓库" className="gap-1.5">
+                  <div className="relative">
+                    <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      value={gitlabSearch}
+                      onChange={(event) => setGitlabSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" || !canUseManualGitLabPath) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        applyManualGitLabPath();
+                      }}
+                      placeholder="搜索项目或输入 group/project"
+                      className="h-8 rounded-[9px] bg-white pr-8 pl-8 text-sm"
+                    />
+                    {gitlabSearch.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setGitlabSearch("")}
+                        className="absolute top-1/2 right-2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                        aria-label="清空仓库搜索"
+                      >
+                        <XIcon className="size-3.5" />
+                      </button>
+                    ) : null}
                   </div>
-                  <Badge
+                </ProjectDraftField>
+
+                {manualGitLabPath.length > 0 &&
+                !manualGitLabPathMatchesCatalog &&
+                !manualGitLabPathIsSelected ? (
+                  <button
+                    type="button"
+                    onClick={applyManualGitLabPath}
+                    disabled={
+                      !canUseManualGitLabPath || manualGitLabPathIsSelected
+                    }
                     className={cn(
-                      "border",
-                      selectedRepoSummary
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-slate-200 bg-white text-slate-600",
+                      "flex min-h-9 items-center gap-2 rounded-[10px] border px-3 py-2 text-left text-xs transition",
+                      canUseManualGitLabPath
+                        ? "border-sky-200 bg-sky-50 text-sky-800 hover:border-sky-300 hover:bg-sky-100/70"
+                        : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400",
                     )}
                   >
-                    {selectedRepoSummary ? "已选" : "待选"}
-                  </Badge>
-                </div>
-
-                {data?.gitlab.baseUrl ? (
-                  <Badge className="w-fit max-w-full truncate border border-slate-200 bg-white text-slate-700">
-                    {data.gitlab.baseUrl}
-                  </Badge>
+                    <GitBranchIcon className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {manualGitLabPathIsSelected
+                        ? "已使用当前路径"
+                        : canUseManualGitLabPath
+                          ? `使用 ${manualGitLabPath}`
+                          : "输入 group/project 后可手动使用"}
+                    </span>
+                    {manualGitLabPathIsSelected ? (
+                      <CheckCircle2Icon className="size-3.5 shrink-0" />
+                    ) : null}
+                  </button>
                 ) : null}
-
-                <ProjectDraftField label="搜索仓库">
-                  <Input
-                    value={gitlabSearch}
-                    onChange={(event) => setGitlabSearch(event.target.value)}
-                    placeholder="搜索项目或输入 group/project"
-                    className="h-9 bg-white"
-                  />
-                </ProjectDraftField>
 
                 {data?.gitlab.canBrowseCatalog ? (
                   gitlabCatalogQuery.isLoading ? (
-                    <div className="grid gap-2">
-                      {Array.from({ length: 2 }).map((_, index) => (
+                    <div className="grid gap-1.5 rounded-[10px] border border-slate-200 bg-slate-50/70 p-1.5">
+                      {Array.from({ length: 3 }).map((_, index) => (
                         <Skeleton
                           key={`gitlab-candidate-${index}`}
-                          className="h-11 rounded-[10px]"
+                          className="h-10 rounded-[8px]"
                         />
                       ))}
                     </div>
                   ) : gitlabCatalogItems.length > 0 ? (
-                    <div className="grid max-h-[160px] gap-2 overflow-y-auto pr-1 sm:max-h-[300px]">
-                      {gitlabCatalogItems.slice(0, 8).map((item) => {
-                        const active = projectDraft.gitlabPath === item.path;
+                    <div className="overflow-hidden rounded-[10px] border border-slate-200 bg-slate-50/70">
+                      <div className="flex h-8 items-center justify-between gap-3 border-b border-slate-200/80 px-3 text-xs text-slate-500">
+                        <span>候选仓库</span>
+                        <span>{gitlabCatalogItems.length} 个结果</span>
+                      </div>
+                      <div className="max-h-[220px] overflow-x-hidden overflow-y-auto p-1 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin] md:max-h-[280px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent">
+                        <div className="grid gap-1">
+                          {visibleGitLabCatalogItems.map((item) => {
+                            const active =
+                              projectDraft.gitlabPath === item.path;
 
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              applyGitLabCandidate(item);
-                              setGitlabSearch(item.path);
-                              setProjectDraftPanel("basic");
-                            }}
-                            className={cn(
-                              "grid gap-1 rounded-[10px] border bg-white px-3 py-2.5 text-left transition",
-                              active
-                                ? "border-sky-300 shadow-[0_8px_20px_rgba(14,165,233,0.12)]"
-                                : "border-slate-200/80 hover:border-slate-300 hover:bg-slate-50",
-                            )}
-                          >
-                            <div className="flex min-w-0 items-center justify-between gap-3">
-                              <span className="truncate text-sm font-semibold text-slate-950">
-                                {item.name}
-                              </span>
-                              {active ? (
-                                <CheckCircle2Icon className="size-4 shrink-0 text-sky-600" />
-                              ) : null}
-                            </div>
-                            <span className="truncate text-[12px] text-slate-500">
-                              {item.path}
-                            </span>
-                          </button>
-                        );
-                      })}
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  applyGitLabCandidate(item);
+                                  setGitlabSearch(item.path);
+                                  setProjectDraftPanel("basic");
+                                }}
+                                className={cn(
+                                  "group flex min-h-10 w-full items-center gap-3 rounded-[8px] px-2.5 py-1.5 text-left transition",
+                                  active
+                                    ? "bg-sky-50 text-slate-950 ring-1 ring-sky-200"
+                                    : "text-slate-800 hover:bg-white hover:shadow-[0_2px_8px_rgba(15,23,42,0.04)]",
+                                )}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium">
+                                    {item.name}
+                                  </p>
+                                  <p className="truncate text-[12px] leading-5 text-slate-500">
+                                    {item.path}
+                                  </p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  <span
+                                    className={cn(
+                                      "max-w-20 truncate rounded-full px-2 py-0.5 text-[11px]",
+                                      active
+                                        ? "bg-white text-sky-700 ring-1 ring-sky-100"
+                                        : "bg-slate-100 text-slate-500 group-hover:bg-slate-50",
+                                    )}
+                                  >
+                                    {item.defaultBranch}
+                                  </span>
+                                  {active ? (
+                                    <CheckCircle2Icon className="size-3.5 text-sky-600" />
+                                  ) : null}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  ) : selectedRepoSummary ? null : (
+                  ) : selectedRepoSummary &&
+                    manualGitLabPathIsSelected ? null : (
                     <div className="rounded-[10px] border border-dashed border-slate-300 bg-white px-4 py-3 text-sm leading-5 text-slate-500">
-                      没有匹配结果。可直接在“基础”里填写 GitLab 路径。
+                      没有匹配结果。可使用上方路径，或继续输入缩小范围。
                     </div>
                   )
                 ) : (
-                  <Alert className="border-slate-200 bg-white text-slate-800">
+                  <Alert className="border-slate-200 bg-slate-50 text-slate-800">
                     <AlertTriangleIcon className="size-4" />
                     <AlertTitle>GitLab 目录浏览不可用</AlertTitle>
                     <AlertDescription>
-                      配置 GITLAB_API_TOKEN 后会显示候选仓库。
+                      配置 GITLAB_API_TOKEN
+                      后会显示候选仓库；当前仍可手动使用路径。
                     </AlertDescription>
                   </Alert>
                 )}
 
                 <div
                   className={cn(
-                    "rounded-[12px] border bg-white px-4 py-3",
+                    "rounded-[12px] border px-3 py-3",
                     selectedRepoSummary
-                      ? "border-slate-200"
-                      : "border-dashed border-slate-300",
+                      ? "border-slate-200 bg-slate-50/70"
+                      : "border-dashed border-slate-300 bg-slate-50/50",
                   )}
                 >
-                  <p className="text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">
-                    当前仓库
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-medium tracking-[0.12em] text-slate-500 uppercase">
+                      当前仓库
+                    </p>
+                    {selectedRepoSummary ? (
+                      <Badge className="border border-slate-200 bg-white text-slate-700">
+                        {selectedRepoSummary.defaultBranch}
+                      </Badge>
+                    ) : null}
+                  </div>
                   {selectedRepoSummary ? (
-                    <div className="mt-3 grid gap-2">
-                      <div className="flex min-w-0 items-center justify-between gap-3">
-                        <span className="truncate text-sm font-semibold text-slate-950">
-                          {selectedRepoSummary.name}
-                        </span>
-                        <Badge className="border border-slate-200 bg-slate-50 text-slate-700">
-                          {selectedRepoSummary.defaultBranch}
-                        </Badge>
+                    <div className="mt-2 flex min-w-0 gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-white text-sky-700 ring-1 ring-sky-100">
+                        <GitBranchIcon className="size-4" />
                       </div>
-                      <p className="text-sm break-all text-slate-600">
-                        {selectedRepoSummary.path}
-                      </p>
-                      <p className="text-sm leading-6 text-slate-500">
-                        {selectedRepoSummary.description ||
-                          "已选仓库会用于发布和检索。"}
-                      </p>
-                      {selectedRepoSummary.webUrl ? (
-                        <a
-                          href={selectedRepoSummary.webUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
-                        >
-                          打开 GitLab
-                          <ExternalLinkIcon className="size-3.5" />
-                        </a>
-                      ) : null}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-950">
+                          {selectedRepoSummary.name}
+                        </p>
+                        <p className="mt-0.5 text-xs leading-5 break-all text-slate-600">
+                          {selectedRepoSummary.path}
+                        </p>
+                        <p className="mt-1 max-h-10 overflow-hidden text-xs leading-5 text-slate-500">
+                          {selectedRepoSummary.description ||
+                            "已选仓库会用于发布和检索。"}
+                        </p>
+                        {selectedRepoSummary.webUrl ? (
+                          <a
+                            href={selectedRepoSummary.webUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:text-sky-900"
+                          >
+                            打开 GitLab
+                            <ExternalLinkIcon className="size-3.5" />
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm leading-6 text-slate-500">
-                      搜索选择仓库，或在右侧手动输入 group/project。
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      点选候选仓库，或输入 group/project 后点击“使用”。
                     </p>
                   )}
                 </div>

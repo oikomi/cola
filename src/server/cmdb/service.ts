@@ -29,8 +29,13 @@ export const cmdbReleaseStatusValues = [
 type Database = PostgresJsDatabase<typeof DbSchema>;
 type CmdbAssetStatus = (typeof cmdbAssetStatusValues)[number];
 type CmdbReleaseStatus = (typeof cmdbReleaseStatusValues)[number];
+type CmdbAssetRow = typeof cmdbAssets.$inferSelect;
 type CmdbProjectRow = typeof cmdbProjects.$inferSelect;
 type CmdbReleaseRow = typeof cmdbReleases.$inferSelect;
+type SshReadyAssetRow = CmdbAssetRow & {
+  sshUser: string;
+  sshPassword: string;
+};
 
 type GitLabProject = {
   id: number;
@@ -45,6 +50,19 @@ type GitLabPipeline = {
   id: number;
   status: string;
   web_url?: string | null;
+};
+
+export type CmdbProjectTerminalTarget = {
+  projectId: number;
+  projectName: string;
+  deployTarget: CmdbProjectRow["deployTarget"];
+  targetAssetName: string;
+  host: string;
+  sshUser: string;
+  sshPort: number;
+  sshConfig: ConnectConfig;
+  containerName: string | null;
+  remoteCommand: string | null;
 };
 
 function gitlabBaseUrl() {
@@ -246,6 +264,109 @@ function sshExec(
   });
 }
 
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function truncateOutput(value: string, maxLength = 20000) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}\n... output truncated ...`;
+}
+
+function dockerContainerName(project: Pick<CmdbProjectRow, "name" | "config">) {
+  return (
+    cleanString(project.config?.customVariables?.DOCKER_CONTAINER_NAME) ??
+    project.name
+  );
+}
+
+async function resolvePrimaryProjectAsset(
+  database: Database,
+  project: Pick<CmdbProjectRow, "name" | "config">,
+): Promise<SshReadyAssetRow> {
+  const [targetAssetName] = normalizeTargetAssetNames(
+    project.config?.targetAssetNames,
+    project.config?.targetAssetName,
+  );
+
+  if (!targetAssetName) {
+    throw new Error("项目未配置目标资产，无法执行远程运维操作。");
+  }
+
+  const [asset] = await database
+    .select()
+    .from(cmdbAssets)
+    .where(eq(cmdbAssets.name, targetAssetName));
+
+  if (!asset) {
+    throw new Error(`目标资产 ${targetAssetName} 不存在。`);
+  }
+
+  if (!asset.sshUser || !asset.sshPassword) {
+    throw new Error(`目标资产 ${targetAssetName} 未配置 SSH 用户或密码。`);
+  }
+
+  return {
+    ...asset,
+    sshUser: asset.sshUser,
+    sshPassword: asset.sshPassword,
+  };
+}
+
+function buildDockerStatusCommand(containerName: string) {
+  const container = shellQuote(containerName);
+
+  return [
+    "set -eu",
+    `CONTAINER=${container}`,
+    'echo "Container: ${CONTAINER}"',
+    'docker ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}"',
+    'echo ""',
+    'docker inspect "${CONTAINER}" --format "Name={{.Name}}"',
+    'docker inspect "${CONTAINER}" --format "Image={{.Config.Image}}"',
+    'docker inspect "${CONTAINER}" --format "State={{.State.Status}}"',
+    'docker inspect "${CONTAINER}" --format "StartedAt={{.State.StartedAt}}"',
+    'docker inspect "${CONTAINER}" --format "RestartCount={{.RestartCount}}"',
+  ].join("\n");
+}
+
+function buildDockerLogsCommand(containerName: string, tail: number) {
+  const container = shellQuote(containerName);
+
+  return [
+    "set -eu",
+    `CONTAINER=${container}`,
+    `docker logs --tail ${tail} "$CONTAINER" 2>&1`,
+  ].join("\n");
+}
+
+function localDoubleQuote(value: string) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("$", "\\$").replaceAll("`", "\\`")}"`;
+}
+
+function buildDockerContainerLoginRemoteCommand(containerName: string) {
+  const container = shellQuote(containerName);
+  const shellProbe = shellQuote(
+    "command -v bash >/dev/null 2>&1 && exec bash || exec sh",
+  );
+
+  return `docker exec -it ${container} sh -lc ${shellProbe}`;
+}
+
+function buildSshCommand(args: {
+  sshPort: number;
+  sshUser: string;
+  host: string;
+  remoteCommand?: string;
+}) {
+  const ttyFlag = args.remoteCommand ? "-t " : "";
+  const baseCommand = `ssh ${ttyFlag}-p ${args.sshPort} ${args.sshUser}@${args.host}`;
+
+  if (!args.remoteCommand) return baseCommand;
+
+  return `${baseCommand} ${localDoubleQuote(args.remoteCommand)}`;
+}
+
 export async function testCmdbAssetConnectivity(input: {
   ip: string;
   sshUser?: string;
@@ -268,6 +389,141 @@ export async function testCmdbAssetConnectivity(input: {
       durationMs: Date.now() - startedAt,
     };
   }
+}
+
+export async function resolveCmdbProjectTerminalTarget(
+  database: Database,
+  projectId: number,
+): Promise<CmdbProjectTerminalTarget> {
+  const [project] = await database
+    .select()
+    .from(cmdbProjects)
+    .where(eq(cmdbProjects.id, projectId));
+
+  if (!project) {
+    throw new Error("项目不存在，无法登录目标资产。");
+  }
+
+  const asset = await resolvePrimaryProjectAsset(database, project);
+  const sshPort = asset.sshPort ?? 22;
+  const containerName =
+    project.deployTarget === "docker" ? dockerContainerName(project) : null;
+
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    deployTarget: project.deployTarget,
+    targetAssetName: asset.name,
+    host: asset.ip,
+    sshUser: asset.sshUser,
+    sshPort,
+    sshConfig: buildSshConfig({
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort,
+    }),
+    containerName,
+    remoteCommand: containerName
+      ? buildDockerContainerLoginRemoteCommand(containerName)
+      : null,
+  };
+}
+
+export async function runCmdbProjectOperation(
+  database: Database,
+  input: {
+    projectId: number;
+    action: "dockerStatus" | "dockerLogs" | "sshInfo";
+    tail?: number;
+  },
+) {
+  const [project] = await database
+    .select()
+    .from(cmdbProjects)
+    .where(eq(cmdbProjects.id, input.projectId));
+
+  if (!project) {
+    throw new Error("项目不存在，无法执行运维操作。");
+  }
+
+  const asset = await resolvePrimaryProjectAsset(database, project);
+  const sshPort = asset.sshPort ?? 22;
+  const sshUser = asset.sshUser;
+  if (!sshUser) {
+    throw new Error(`目标资产 ${asset.name} 未配置 SSH 用户。`);
+  }
+
+  const containerName = dockerContainerName(project);
+  const hostSshCommand = buildSshCommand({
+    sshPort,
+    sshUser,
+    host: asset.ip,
+  });
+  const containerLoginCommand =
+    project.deployTarget === "docker"
+      ? buildSshCommand({
+          sshPort,
+          sshUser,
+          host: asset.ip,
+          remoteCommand: buildDockerContainerLoginRemoteCommand(containerName),
+        })
+      : hostSshCommand;
+
+  if (input.action === "sshInfo") {
+    return {
+      action: input.action,
+      projectId: project.id,
+      projectName: project.name,
+      targetAssetName: asset.name,
+      host: asset.ip,
+      sshUser: asset.sshUser,
+      sshPort,
+      sshCommand: containerLoginCommand,
+      containerName,
+      stdout: containerLoginCommand,
+      stderr: "",
+      code: 0,
+      durationMs: 0,
+    };
+  }
+
+  if (project.deployTarget !== "docker") {
+    throw new Error("当前仅 Docker 部署项目支持查看容器状态和日志。");
+  }
+
+  const command =
+    input.action === "dockerStatus"
+      ? buildDockerStatusCommand(containerName)
+      : buildDockerLogsCommand(
+          containerName,
+          Math.min(Math.max(input.tail ?? 200, 20), 1000),
+        );
+  const result = await sshExec(
+    {
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort,
+    },
+    command,
+  );
+
+  return {
+    action: input.action,
+    projectId: project.id,
+    projectName: project.name,
+    targetAssetName: asset.name,
+    host: asset.ip,
+    sshUser: asset.sshUser,
+    sshPort,
+    sshCommand: hostSshCommand,
+    containerName,
+    stdout: truncateOutput(result.stdout),
+    stderr: truncateOutput(result.stderr),
+    code: result.code,
+    durationMs: result.durationMs,
+  };
 }
 
 async function gitlabApiFetch<T>(
@@ -1114,6 +1370,25 @@ export async function upsertCmdbProject(
       .update(cmdbProjects)
       .set(values)
       .where(eq(cmdbProjects.id, input.id))
+      .returning();
+
+    if (!updatedProject) {
+      throw new Error("项目不存在，无法更新。");
+    }
+
+    return updatedProject;
+  }
+
+  const [existingProject] = await database
+    .select()
+    .from(cmdbProjects)
+    .where(eq(cmdbProjects.gitlabPath, values.gitlabPath));
+
+  if (existingProject) {
+    const [updatedProject] = await database
+      .update(cmdbProjects)
+      .set(values)
+      .where(eq(cmdbProjects.id, existingProject.id))
       .returning();
 
     if (!updatedProject) {

@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 
-import { db } from "@/server/db";
+import type { db } from "@/server/db";
 import {
   agents,
   approvals,
