@@ -219,6 +219,8 @@ cd infra/k8s
 ```
 
 镜像构建上下文位于仓库根目录的 `workloads/remote-workspace/`。
+默认基础镜像为 Ubuntu 24.04，可以通过 `--ubuntu-version <ver>` 临时切换。
+脚本默认按集群首个节点架构构建镜像；在 Apple Silicon 等非集群架构机器上也可以显式使用 `--target-arch amd64`。
 默认镜像名会写入 `runtime/workspace/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
 
 兼容性说明：

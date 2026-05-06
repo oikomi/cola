@@ -1,4 +1,5 @@
-FROM ubuntu:22.04
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
 
 ARG NOVNC_VERSION=v1.6.0
 
@@ -6,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV HOME=/home/worker
+ENV PATH=/opt/websockify-venv/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     arc-theme \
@@ -23,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     papirus-icon-theme \
     python3 \
     python3-pip \
+    python3-venv \
     sudo \
     supervisor \
     tini \
@@ -38,7 +41,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && useradd -m -s /bin/bash worker \
   && echo "worker ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/worker \
   && chmod 0440 /etc/sudoers.d/worker \
-  && python3 -m pip install --no-cache-dir websockify==0.12.0 \
+  && python3 -m venv /opt/websockify-venv \
+  && /opt/websockify-venv/bin/pip install --no-cache-dir websockify==0.12.0 \
+  && ln -sf /opt/websockify-venv/bin/websockify /usr/local/bin/websockify \
   && git clone --depth 1 --branch "${NOVNC_VERSION}" https://github.com/novnc/noVNC.git /opt/novnc \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
   && rm -rf /var/lib/apt/lists/*

@@ -15,6 +15,8 @@ Commands:
 Examples:
   ./scripts/workspace-image.sh build-and-load
   ./scripts/workspace-image.sh build-and-load --image-tag dev
+  ./scripts/workspace-image.sh build-and-load --ubuntu-version 24.04
+  ./scripts/workspace-image.sh build-and-load --target-arch amd64
   ./scripts/workspace-image.sh build-and-load --novnc-version v1.6.0
 EOF
 }

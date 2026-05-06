@@ -27,6 +27,8 @@ Options:
   --port-forward-foreground  Run dashboard port-forward in foreground
   --image-name <name>        Pass through to 'workspace-image.sh build-and-load'
   --image-tag <tag>          Pass through to 'workspace-image.sh build-and-load'
+  --ubuntu-version <ver>     Pass through to 'workspace-image.sh build-and-load'
+  --target-arch <arch>       Pass through to 'workspace-image.sh build-and-load'
   --novnc-version <ver>      Pass through to 'workspace-image.sh build-and-load'
   -h, --help                 Show help
 EOF
@@ -65,6 +67,8 @@ SKIP_PORT_FORWARD=0
 PORT_FORWARD_FOREGROUND=0
 IMAGE_NAME=""
 IMAGE_TAG=""
+UBUNTU_VERSION=""
+TARGET_ARCH=""
 NOVNC_VERSION=""
 WORKSPACE_IMAGE_ENTRYPOINT="$BIN_DIR/../../../scripts/workspace-image.sh"
 
@@ -109,6 +113,14 @@ while [[ $# -gt 0 ]]; do
       IMAGE_TAG="$2"
       shift 2
       ;;
+    --ubuntu-version)
+      UBUNTU_VERSION="$2"
+      shift 2
+      ;;
+    --target-arch)
+      TARGET_ARCH="$2"
+      shift 2
+      ;;
     --novnc-version)
       NOVNC_VERSION="$2"
       shift 2
@@ -143,12 +155,20 @@ if [[ -n "$IMAGE_TAG" ]]; then
   image_args+=(--image-tag "$IMAGE_TAG")
 fi
 
+if [[ -n "$UBUNTU_VERSION" ]]; then
+  image_args+=(--ubuntu-version "$UBUNTU_VERSION")
+fi
+
+if [[ -n "$TARGET_ARCH" ]]; then
+  image_args+=(--target-arch "$TARGET_ARCH")
+fi
+
 if [[ -n "$NOVNC_VERSION" ]]; then
   image_args+=(--novnc-version "$NOVNC_VERSION")
 fi
 
 if [[ "$WITH_WORKSPACE_IMAGE" -ne 1 ]] && [[ "${#image_args[@]}" -gt 1 ]]; then
-  echo "ERROR: --image-name/--image-tag/--novnc-version 只能与 --with-workspace-image 一起使用。" >&2
+  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--target-arch/--novnc-version 只能与 --with-workspace-image 一起使用。" >&2
   exit 1
 fi
 

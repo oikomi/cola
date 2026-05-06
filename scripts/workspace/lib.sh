@@ -35,6 +35,58 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少命令: $1"
 }
 
+require_any_cmd() {
+  local found=1
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      found=0
+      break
+    fi
+  done
+  [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
+}
+
+run_password_command() {
+  local password="$1"
+  shift
+
+  if command -v sshpass >/dev/null 2>&1; then
+    sshpass -p "$password" "$@"
+    return
+  fi
+
+  require_cmd expect
+  expect -f - -- "$password" "$@" <<'EXPECT'
+    set timeout -1
+    set password [lindex $argv 0]
+    set cmd [lrange $argv 1 end]
+
+    spawn {*}$cmd
+    expect {
+      -re "(?i)are you sure you want to continue connecting" {
+        send -- "yes\r"
+        exp_continue
+      }
+      -re "(?i)password.*:" {
+        send -- "$password\r"
+        exp_continue
+      }
+      eof
+    }
+
+    set wait_status [wait]
+    if {[llength $wait_status] >= 4} {
+      set os_error [lindex $wait_status 2]
+      set exit_status [lindex $wait_status 3]
+      if {$os_error == 0} {
+        exit $exit_status
+      }
+      exit 1
+    }
+    exit 0
+EXPECT
+}
+
 invoking_user_name() {
   if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
     printf '%s\n' "$SUDO_USER"
@@ -198,18 +250,27 @@ cluster_kubeconfig_path() {
     return 0
   fi
 
+  local repo_kubeconfig="$REPO_ROOT/runtime/kube/$(cluster_name).config"
+  if [[ -r "$repo_kubeconfig" ]]; then
+    printf '%s\n' "$repo_kubeconfig"
+    return 0
+  fi
+
   printf '%s\n' "$KUBEASZ_BASE_DIR/clusters/$(cluster_name)/kubectl.kubeconfig"
 }
 
 kubectl_bin_path() {
+  if command -v kubectl >/dev/null 2>&1; then
+    command -v kubectl
+    return 0
+  fi
+
   if sudo test -x "$KUBEASZ_BASE_DIR/bin/kubectl"; then
     printf '%s\n' "$KUBEASZ_BASE_DIR/bin/kubectl"
     return 0
   fi
 
-  command -v kubectl >/dev/null 2>&1 || \
-    die "缺少 kubectl，且 /etc/kubeasz/bin/kubectl 不存在。"
-  command -v kubectl
+  die "缺少 kubectl，且 /etc/kubeasz/bin/kubectl 不存在。"
 }
 
 run_cluster_kubectl() {
@@ -217,6 +278,12 @@ run_cluster_kubectl() {
   local kubectl_bin
   kubeconfig="$(cluster_kubeconfig_path)"
   kubectl_bin="$(kubectl_bin_path)"
+
+  if [[ -r "$kubeconfig" ]]; then
+    KUBECONFIG="$kubeconfig" "$kubectl_bin" "$@"
+    return
+  fi
+
   sudo env KUBECONFIG="$kubeconfig" "$kubectl_bin" "$@"
 }
 
@@ -256,7 +323,7 @@ remote_scp() {
   local attempt
 
   for attempt in 1 2 3; do
-    if sshpass -p "$(node_password "$node_name")" \
+    if run_password_command "$(node_password "$node_name")" \
       scp "${SSH_OPTS[@]}" \
       -P "$(node_port "$node_name")" \
       "$source_path" \
@@ -277,7 +344,7 @@ remote_sudo_ssh() {
   local node_name="$1"
   shift
 
-  sshpass -p "$(node_password "$node_name")" \
+  run_password_command "$(node_password "$node_name")" \
     ssh "${SSH_OPTS[@]}" \
     -p "$(node_port "$node_name")" \
     "$(node_user "$node_name")@$(node_ip "$node_name")" \
@@ -292,10 +359,5 @@ kubectl_remote() {
 
 kubectl_apply_file() {
   local local_file="$1"
-  local remote_file="/tmp/$(basename "$local_file").$$"
-  local master
-
-  master="$(first_master_name)"
-  remote_scp "$local_file" "$master" "$remote_file"
-  remote_sudo_ssh "$master" "/opt/kube/bin/kubectl --kubeconfig /root/.kube/config apply -f $remote_file && rm -f $remote_file"
+  run_cluster_kubectl apply -f "$local_file"
 }

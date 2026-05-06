@@ -143,6 +143,47 @@ require_any_cmd() {
   [[ "$found" -eq 0 ]] || die "缺少命令，至少需要其一: $*"
 }
 
+run_password_command() {
+  local password="$1"
+  shift
+
+  if command -v sshpass >/dev/null 2>&1; then
+    sshpass -p "$password" "$@"
+    return
+  fi
+
+  require_cmd expect
+  expect -f - -- "$password" "$@" <<'EXPECT'
+    set timeout -1
+    set password [lindex $argv 0]
+    set cmd [lrange $argv 1 end]
+
+    spawn {*}$cmd
+    expect {
+      -re "(?i)are you sure you want to continue connecting" {
+        send -- "yes\r"
+        exp_continue
+      }
+      -re "(?i)password.*:" {
+        send -- "$password\r"
+        exp_continue
+      }
+      eof
+    }
+
+    set wait_status [wait]
+    if {[llength $wait_status] >= 4} {
+      set os_error [lindex $wait_status 2]
+      set exit_status [lindex $wait_status 3]
+      if {$os_error == 0} {
+        exit $exit_status
+      }
+      exit 1
+    }
+    exit 0
+EXPECT
+}
+
 ensure_runtime_tree_writable() {
   local user_name
   local group_name
@@ -648,7 +689,7 @@ load_compressed_image_archive_into_remote_host() {
   archive_name="$(basename "$archive_path")"
 
   for attempt in 1 2 3; do
-    if sshpass -p "$ssh_password" \
+    if run_password_command "$ssh_password" \
       scp "${SSH_OPTS[@]}" \
       -P "$ssh_port" \
       "$archive_path" \
@@ -665,7 +706,7 @@ load_compressed_image_archive_into_remote_host() {
     fi
   done
 
-  sshpass -p "$ssh_password" \
+  run_password_command "$ssh_password" \
     ssh "${SSH_OPTS[@]}" \
     -p "$ssh_port" \
     "$ssh_user@$host_ip" \

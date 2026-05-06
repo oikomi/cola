@@ -96,7 +96,7 @@ workspace_create() {
 
   require_cmd node
   require_cmd sudo
-  require_cmd sshpass
+  require_any_cmd sshpass expect
   require_cmd scp
   require_cmd ssh
 
@@ -209,8 +209,11 @@ workspace_create() {
   deployments_json="$(mktemp)"
   services_json="$(mktemp)"
 
-  cleanup_selection_temp() {
-    rm -f "$cluster_nodes_json" "$deployments_json" "$services_json"
+cleanup_selection_temp() {
+    rm -f \
+      "${cluster_nodes_json:-}" \
+      "${deployments_json:-}" \
+      "${services_json:-}"
   }
   trap cleanup_selection_temp EXIT
 
@@ -267,8 +270,10 @@ workspace_create() {
   local prepare_json
   prepare_json="$("${prepare_cmd[@]}")"
 
-  local -a prepare_fields
-  mapfile -t prepare_fields < <(
+  local -a prepare_fields=()
+  while IFS= read -r prepare_field; do
+    prepare_fields+=("$prepare_field")
+  done < <(
     json_read_props \
       "$prepare_json" \
       reason \
@@ -313,7 +318,7 @@ workspace_delete() {
       ;;
   esac
 
-  require_cmd sshpass
+  require_any_cmd sshpass expect
   require_cmd ssh
 
   local name=""
@@ -347,10 +352,10 @@ workspace_delete() {
   [[ -n "$name" ]] || die "--name 必填"
 
   print_step "删除 Kubernetes 资源"
-  kubectl_remote "delete deployment workspace-$name -n $(workspace_namespace) --ignore-not-found"
-  kubectl_remote "delete service workspace-$name-svc -n $(workspace_namespace) --ignore-not-found"
-  kubectl_remote "delete secret workspace-$name-secret -n $(workspace_namespace) --ignore-not-found"
-  kubectl_remote "delete ingress workspace-$name-ing -n $(workspace_namespace) --ignore-not-found"
+  run_cluster_kubectl -n "$(workspace_namespace)" delete deployment "workspace-$name" --ignore-not-found
+  run_cluster_kubectl -n "$(workspace_namespace)" delete service "workspace-$name-svc" --ignore-not-found
+  run_cluster_kubectl -n "$(workspace_namespace)" delete secret "workspace-$name-secret" --ignore-not-found
+  run_cluster_kubectl -n "$(workspace_namespace)" delete ingress "workspace-$name-ing" --ignore-not-found
 
   if [[ "$purge_data" -eq 1 ]]; then
     [[ -n "$node_name" ]] || die "使用 --purge-data 时必须同时传 --node"

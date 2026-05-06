@@ -27,6 +27,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  type ChangeEvent,
+  type CompositionEvent,
   type KeyboardEvent,
   type ReactNode,
   useDeferredValue,
@@ -128,9 +130,12 @@ const CMDB_ACTION_GROUP_CLASS =
   "inline-flex shrink-0 overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 const CMDB_ACTION_ICON_CLASS =
   "size-8 rounded-none border-0 border-r border-slate-200 bg-transparent text-slate-700 shadow-none last:border-r-0 hover:bg-slate-50 hover:text-slate-950";
-const CMDB_ACTION_BAR_CLASS =
-  "flex min-w-max items-center justify-end gap-1.5";
+const CMDB_ACTION_BAR_CLASS = "flex min-w-max items-center justify-end gap-1.5";
+const CMDB_PROJECT_ACTION_HEAD_CLASS = "text-right";
+const CMDB_PROJECT_ACTION_CELL_CLASS = "text-right";
 const TERMINAL_OUTPUT_LIMIT = 120_000;
+const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
+const TERMINAL_INPUT_FLUSH_MS = 16;
 const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 type CmdbAreaKey = "assets" | "projects" | "deployments";
@@ -664,6 +669,10 @@ function normalizeTerminalOutput(value: string) {
     .replace(/\r/g, "\n");
 }
 
+function normalizeTerminalInput(value: string) {
+  return value.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
+}
+
 function terminalStatusLabel(status: TerminalSessionStatus) {
   switch (status) {
     case "connecting":
@@ -1145,8 +1154,16 @@ export function CmdbShell() {
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const terminalEventSourceRef = useRef<EventSource | null>(null);
   const terminalSessionIdRef = useRef<string | null>(null);
+  const terminalStatusRef = useRef<TerminalSessionStatus>("idle");
   const terminalStartTokenRef = useRef(0);
   const terminalWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const terminalInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const terminalInputBufferRef = useRef("");
+  const terminalInputSendingRef = useRef(false);
+  const terminalInputFlushTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const terminalComposingRef = useRef(false);
   const terminalScrollRef = useRef<HTMLPreElement | null>(null);
   const [gitlabSearch, setGitlabSearch] = useState("");
   const deferredGitlabSearch = useDeferredValue(gitlabSearch.trim());
@@ -1157,6 +1174,10 @@ export function CmdbShell() {
     refetchInterval: (query) => (query.state.error ? false : 15000),
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    terminalStatusRef.current = terminalStatus;
+  }, [terminalStatus]);
 
   const gitlabCatalogQuery = api.cmdb.gitlabCatalog.useQuery(
     { query: deferredGitlabSearch || undefined },
@@ -1279,13 +1300,16 @@ export function CmdbShell() {
       return;
     }
 
-    terminalScrollRef.current?.focus({ preventScroll: true });
+    terminalInputRef.current?.focus({ preventScroll: true });
   }, [operationAction, terminalStatus]);
 
   useEffect(() => {
     return () => {
       terminalStartTokenRef.current += 1;
       terminalEventSourceRef.current?.close();
+      if (terminalInputFlushTimerRef.current) {
+        clearTimeout(terminalInputFlushTimerRef.current);
+      }
       const sessionId = terminalSessionIdRef.current;
       if (sessionId) {
         void fetch(`/api/cmdb/terminal-session/${sessionId}`, {
@@ -1610,6 +1634,15 @@ export function CmdbShell() {
     terminalEventSourceRef.current?.close();
     terminalEventSourceRef.current = null;
     terminalWriteQueueRef.current = Promise.resolve();
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = false;
+    if (terminalInputFlushTimerRef.current) {
+      clearTimeout(terminalInputFlushTimerRef.current);
+      terminalInputFlushTimerRef.current = null;
+    }
+    if (terminalInputRef.current) {
+      terminalInputRef.current.value = "";
+    }
 
     const sessionId = terminalSessionIdRef.current;
     terminalSessionIdRef.current = null;
@@ -1706,6 +1739,11 @@ export function CmdbShell() {
     setTerminalStatus("connecting");
     setTerminalOutput("正在建立 SSH 会话...\n");
     terminalWriteQueueRef.current = Promise.resolve();
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = false;
+    if (terminalInputRef.current) {
+      terminalInputRef.current.value = "";
+    }
     setTerminalError(null);
 
     try {
@@ -1767,20 +1805,26 @@ export function CmdbShell() {
     }
   }
 
-  async function sendTerminalData(data: string) {
+  async function writeTerminalData(data: string) {
     const sessionId = terminalSessionIdRef.current;
-    if (!sessionId || terminalStatus !== "connected") return;
+    if (!sessionId || terminalStatusRef.current !== "connected") return;
 
-    const write = terminalWriteQueueRef.current.then(async () => {
-      if (terminalSessionIdRef.current !== sessionId) return;
+    try {
+      for (
+        let start = 0;
+        start < data.length;
+        start += TERMINAL_INPUT_CHUNK_SIZE
+      ) {
+        if (terminalSessionIdRef.current !== sessionId) return;
 
-      try {
         const response = await fetch(
           `/api/cmdb/terminal-session/${sessionId}/input`,
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ data }),
+            body: JSON.stringify({
+              data: data.slice(start, start + TERMINAL_INPUT_CHUNK_SIZE),
+            }),
           },
         );
 
@@ -1789,17 +1833,60 @@ export function CmdbShell() {
             await responseErrorMessage(response, "终端输入发送失败。"),
           );
         }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "终端输入发送失败。";
-        setTerminalStatus("error");
-        setTerminalError(message);
-        appendTerminalOutput(`\n${message}\n`);
       }
-    });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "终端输入发送失败。";
+      setTerminalStatus("error");
+      setTerminalError(message);
+      appendTerminalOutput(`\n${message}\n`);
+    }
+  }
+
+  function flushTerminalInput() {
+    if (terminalInputFlushTimerRef.current) {
+      clearTimeout(terminalInputFlushTimerRef.current);
+      terminalInputFlushTimerRef.current = null;
+    }
+
+    const data = terminalInputBufferRef.current;
+    if (!data) return;
+    if (terminalInputSendingRef.current) return;
+
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = true;
+
+    const write = terminalWriteQueueRef.current
+      .then(() => writeTerminalData(data))
+      .finally(() => {
+        terminalInputSendingRef.current = false;
+        if (
+          terminalInputBufferRef.current &&
+          terminalStatusRef.current === "connected"
+        ) {
+          terminalInputFlushTimerRef.current = setTimeout(
+            flushTerminalInput,
+            0,
+          );
+        }
+      });
 
     terminalWriteQueueRef.current = write.catch(() => undefined);
-    await terminalWriteQueueRef.current;
+    void terminalWriteQueueRef.current;
+  }
+
+  function queueTerminalInput(data: string) {
+    if (!data || terminalStatusRef.current !== "connected") return;
+
+    terminalInputBufferRef.current += data;
+    if (terminalInputSendingRef.current || terminalInputFlushTimerRef.current) {
+      return;
+    }
+
+    terminalInputFlushTimerRef.current = setTimeout(
+      flushTerminalInput,
+      TERMINAL_INPUT_FLUSH_MS,
+    );
   }
 
   function terminalKeyData(event: KeyboardEvent<HTMLElement>) {
@@ -1853,12 +1940,44 @@ export function CmdbShell() {
 
   function handleTerminalKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (terminalStatus !== "connected") return;
+    if (terminalComposingRef.current || event.nativeEvent.isComposing) return;
 
     const data = terminalKeyData(event);
     if (!data) return;
 
     event.preventDefault();
-    void sendTerminalData(data);
+    queueTerminalInput(data);
+  }
+
+  function handleTerminalInput(event: ChangeEvent<HTMLTextAreaElement>) {
+    if (terminalStatus !== "connected") {
+      event.currentTarget.value = "";
+      return;
+    }
+
+    if (terminalComposingRef.current) return;
+
+    const value = event.currentTarget.value;
+    event.currentTarget.value = "";
+    if (!value) return;
+
+    queueTerminalInput(normalizeTerminalInput(value));
+  }
+
+  function handleTerminalCompositionStart() {
+    terminalComposingRef.current = true;
+  }
+
+  function handleTerminalCompositionEnd(
+    event: CompositionEvent<HTMLTextAreaElement>,
+  ) {
+    terminalComposingRef.current = false;
+
+    const value = event.currentTarget.value;
+    event.currentTarget.value = "";
+    if (!value || terminalStatus !== "connected") return;
+
+    queueTerminalInput(normalizeTerminalInput(value));
   }
 
   function openProjectOperation(
@@ -2930,7 +3049,7 @@ export function CmdbShell() {
                       <TableHead>位置 / 配置</TableHead>
                       <TableHead>最近发布</TableHead>
                       <TableHead>监控</TableHead>
-                      <TableHead className={STICKY_ACTION_HEAD_CLASS}>
+                      <TableHead className={CMDB_PROJECT_ACTION_HEAD_CLASS}>
                         操作
                       </TableHead>
                     </TableRow>
@@ -3029,7 +3148,7 @@ export function CmdbShell() {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
+                        <TableCell className={CMDB_PROJECT_ACTION_CELL_CLASS}>
                           <div className={CMDB_ACTION_BAR_CLASS}>
                             <Button
                               size="sm"
@@ -3684,32 +3803,47 @@ export function CmdbShell() {
                       {terminalStatusLabel(terminalStatus)}
                     </Badge>
                   </div>
-                  <pre
-                    ref={terminalScrollRef}
-                    role="textbox"
-                    aria-label="容器终端"
-                    aria-readonly="false"
-                    tabIndex={0}
-                    onClick={() => terminalScrollRef.current?.focus()}
-                    onKeyDown={handleTerminalKeyDown}
-                    onPaste={(event) => {
-                      if (terminalStatus !== "connected") return;
-
-                      const text = event.clipboardData.getData("text");
-                      if (!text) return;
-
-                      event.preventDefault();
-                      void sendTerminalData(text);
-                    }}
+                  <div
+                    onClick={() =>
+                      terminalInputRef.current?.focus({ preventScroll: true })
+                    }
                     className={cn(
-                      "cursor-text overflow-auto px-3.5 py-3 font-mono text-[12px] leading-[1.65] whitespace-pre-wrap text-slate-100 outline-none [scrollbar-color:rgba(148,163,184,0.55)_transparent] focus-visible:ring-2 focus-visible:ring-sky-500/70 focus-visible:ring-inset",
+                      "relative overflow-hidden focus-within:ring-2 focus-within:ring-sky-500/70 focus-within:ring-inset",
                       operationDialogMaximized
                         ? "min-h-0 flex-1"
                         : "max-h-[min(58vh,620px)] min-h-[420px]",
                     )}
                   >
-                    {terminalOutput || "正在建立 SSH 会话...\n"}
-                  </pre>
+                    <textarea
+                      ref={terminalInputRef}
+                      aria-label="容器终端输入"
+                      autoCapitalize="off"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      disabled={terminalStatus !== "connected"}
+                      onKeyDown={handleTerminalKeyDown}
+                      onChange={handleTerminalInput}
+                      onCompositionStart={handleTerminalCompositionStart}
+                      onCompositionEnd={handleTerminalCompositionEnd}
+                      onPaste={() => {
+                        window.setTimeout(flushTerminalInput, 0);
+                      }}
+                      className="absolute top-3 left-3 h-px w-px resize-none border-0 bg-transparent p-0 font-mono text-base text-transparent caret-transparent opacity-0 outline-none disabled:cursor-not-allowed"
+                    />
+                    <pre
+                      ref={terminalScrollRef}
+                      aria-live="polite"
+                      className={cn(
+                        "h-full cursor-text overflow-auto px-3.5 py-3 font-mono text-[12px] leading-[1.65] whitespace-pre-wrap text-slate-100 [scrollbar-color:rgba(148,163,184,0.55)_transparent]",
+                        operationDialogMaximized
+                          ? "min-h-0"
+                          : "max-h-[min(58vh,620px)] min-h-[420px]",
+                      )}
+                    >
+                      {terminalOutput || "正在建立 SSH 会话...\n"}
+                    </pre>
+                  </div>
                 </div>
               </div>
             ) : projectOperation.isPending ? (

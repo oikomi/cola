@@ -1,6 +1,7 @@
 import "server-only";
 
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 
 import {
@@ -32,6 +33,9 @@ const RUNTIME_IMAGE_PATH = path.join(WORKSPACE_RUNTIME_DIR, "latest-image.txt");
 
 const WORKSPACE_NODE_PORT_START = 32080;
 const WORKSPACE_NODE_PORT_END = 32760;
+const K8S_API_CONNECT_TIMEOUT_MS = Number(
+  process.env.WORKSPACE_K8S_API_CONNECT_TIMEOUT_MS ?? 2500,
+);
 
 type ClusterConfig = {
   clusterName: string;
@@ -50,6 +54,7 @@ type KubeContext = {
   config: ClusterConfig;
   nodes: ClusterNode[];
   kubeconfigPath: string;
+  apiServer: string | null;
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
   networkingApi: NetworkingV1Api;
@@ -121,6 +126,53 @@ function resolveWorkspaceImage() {
 
 function buildWorkspaceCapabilityError(kubeconfigPath: string) {
   return `无法访问 Kubernetes 集群。请确认 Ubuntu 服务器上 kubeconfig 可读：${kubeconfigPath}`;
+}
+
+function buildWorkspaceAccessError(ctx: KubeContext, error: unknown) {
+  const target = ctx.apiServer ? `Kubernetes API ${ctx.apiServer}` : "Kubernetes API";
+  return error instanceof Error
+    ? `无法访问 ${target}。${error.message}`
+    : `无法访问 ${target}。`;
+}
+
+function probeKubeApiServer(apiServer: string | null) {
+  if (!apiServer) return Promise.resolve<string | null>(null);
+
+  let endpoint: URL;
+  try {
+    endpoint = new URL(apiServer);
+  } catch {
+    return Promise.resolve<string | null>(null);
+  }
+
+  const port = Number(
+    endpoint.port || (endpoint.protocol === "https:" ? 443 : 80),
+  );
+  const host = endpoint.hostname;
+  if (!host || !Number.isInteger(port) || port <= 0) {
+    return Promise.resolve<string | null>(null);
+  }
+
+  return new Promise<string | null>((resolve) => {
+    const socket = net.createConnection({ host, port });
+    let settled = false;
+
+    const finish = (reason: string | null) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(reason);
+    };
+
+    socket.setTimeout(K8S_API_CONNECT_TIMEOUT_MS);
+    socket.once("connect", () => finish(null));
+    socket.once("timeout", () =>
+      finish(`Kubernetes API 连接超时：${host}:${port}`),
+    );
+    socket.once("error", (error) =>
+      finish(`Kubernetes API 无法连接：${host}:${port}。${error.message}`),
+    );
+  });
 }
 
 function getErrorStatus(error: unknown) {
@@ -407,11 +459,13 @@ async function createKubeContext(): Promise<KubeContext> {
 
   const kubeConfig = new KubeConfig();
   kubeConfig.loadFromFile(kubeconfigPath);
+  const apiServer = kubeConfig.getCurrentCluster()?.server ?? null;
 
   return {
     config,
     nodes,
     kubeconfigPath,
+    apiServer,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
     networkingApi: kubeConfig.makeApiClient(NetworkingV1Api),
@@ -652,8 +706,27 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
     };
   }
 
-  const { deployments, services, ingresses, liveNodes } =
-    await listWorkspaceResources(ctx);
+  const apiConnectivityReason = await probeKubeApiServer(ctx.apiServer);
+  if (apiConnectivityReason) {
+    return {
+      available: false,
+      reason: apiConnectivityReason,
+      items: [],
+    };
+  }
+
+  let resources: Awaited<ReturnType<typeof listWorkspaceResources>>;
+  try {
+    resources = await listWorkspaceResources(ctx);
+  } catch (error) {
+    return {
+      available: false,
+      reason: buildWorkspaceAccessError(ctx, error),
+      items: [],
+    };
+  }
+
+  const { deployments, services, ingresses, liveNodes } = resources;
 
   const serviceByName = new Map(
     services

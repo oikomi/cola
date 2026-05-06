@@ -56,7 +56,15 @@ const TERMINAL_PTY: PseudoTtyOptions = {
   height: 640,
 };
 
-const sessions = new Map<string, CmdbTerminalSession>();
+declare global {
+  var __colaCmdbTerminalSessions: Map<string, CmdbTerminalSession> | undefined;
+}
+
+const sessions =
+  globalThis.__colaCmdbTerminalSessions ??
+  new Map<string, CmdbTerminalSession>();
+
+globalThis.__colaCmdbTerminalSessions = sessions;
 
 class CmdbTerminalSession {
   readonly id = randomUUID();

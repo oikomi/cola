@@ -151,9 +151,13 @@ function WorkspaceMetric({
 
 function FormField({
   label,
+  hint,
+  invalid = false,
   children,
 }: {
   label: string;
+  hint?: string | null;
+  invalid?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -162,6 +166,16 @@ function FormField({
         {label}
       </span>
       {children}
+      {hint ? (
+        <span
+          className={cn(
+            "text-[12px] leading-5",
+            invalid ? "text-rose-600" : "text-slate-500",
+          )}
+        >
+          {hint}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -310,11 +324,11 @@ export function WorkspaceShell() {
   );
   const capabilityReason =
     workspaceQuery.data?.reason ?? workspaceQuery.error?.message ?? null;
-  const clusterStatus = workspaceQuery.isLoading
+  const clusterStatus = workspaceQuery.isLoading && !workspaceQuery.error
     ? "checking"
     : workspaceQuery.data?.available === true
       ? "connected"
-      : "unavailable";
+      : "error";
   const available = clusterStatus === "connected";
   const runningCount = rows.filter(
     (workspace) => workspace.status === "running",
@@ -328,6 +342,8 @@ export function WorkspaceShell() {
   const parsedMemoryGi = Number.parseInt(draft.memoryGi, 10);
   const parsedGpuCount = Number.parseInt(draft.gpuCount, 10);
   const parsedGpuMemoryGi = Number.parseInt(draft.gpuMemoryGi, 10);
+  const workspaceNameValid = draft.name.length >= 2;
+  const memoryValid = Number.isInteger(parsedMemoryGi) && parsedMemoryGi > 0;
   const gpuCountMin = draft.gpuAllocationMode === "memory" ? 1 : 0;
   const gpuCountValid =
     Number.isInteger(parsedGpuCount) &&
@@ -340,11 +356,21 @@ export function WorkspaceShell() {
       parsedGpuMemoryGi <= 1024);
   const canSubmit =
     available &&
-    draft.name.length >= 2 &&
-    Number.isInteger(parsedMemoryGi) &&
-    parsedMemoryGi > 0 &&
+    workspaceNameValid &&
+    memoryValid &&
     gpuCountValid &&
     gpuMemoryValid;
+  const submitDisabledReason = !available
+    ? (capabilityReason ?? "K8s 当前不可用")
+    : !workspaceNameValid
+      ? "名称至少 2 个字符"
+      : !memoryValid
+        ? "内存必须是正整数"
+        : !gpuCountValid
+          ? "GPU 数量不合法"
+          : !gpuMemoryValid
+            ? "显存必须是正整数"
+            : null;
 
   useEffect(() => {
     const liveNames = new Set(
@@ -438,7 +464,7 @@ export function WorkspaceShell() {
                 ? "K8s 检查中"
                 : available
                   ? "K8s 已连接"
-                  : "K8s 不可用"}
+                  : "K8s 访问异常"}
             </Badge>
             <Badge
               variant="outline"
@@ -460,6 +486,7 @@ export function WorkspaceShell() {
           <Button
             className={PRIMARY_ACTION_CLASS}
             disabled={!available}
+            title={!available ? (capabilityReason ?? "K8s 当前不可用") : undefined}
             onClick={() => setIsCreateOpen(true)}
           >
             <PlusIcon data-icon="inline-start" />
@@ -814,7 +841,15 @@ export function WorkspaceShell() {
           </DialogHeader>
 
           <div className="grid gap-4">
-            <FormField label="名称">
+            <FormField
+              label="名称"
+              hint={
+                workspaceNameValid
+                  ? "将用于生成 Kubernetes 资源名称。"
+                  : "名称至少 2 个字符。"
+              }
+              invalid={!workspaceNameValid}
+            >
               <Input
                 placeholder="例如：alice 或 ml-batch-01"
                 value={draft.name}
@@ -841,7 +876,11 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="内存 (Gi)">
+              <FormField
+                label="内存 (Gi)"
+                hint={memoryValid ? null : "内存必须是正整数。"}
+                invalid={!memoryValid}
+              >
                 <Input
                   inputMode="numeric"
                   value={draft.memoryGi}
@@ -893,6 +932,14 @@ export function WorkspaceShell() {
                 label={
                   draft.gpuAllocationMode === "memory" ? "GPU 份额" : "GPU"
                 }
+                hint={
+                  gpuCountValid
+                    ? null
+                    : draft.gpuAllocationMode === "memory"
+                      ? "显存模式下 GPU 份额至少为 1。"
+                      : "GPU 数量需在 0 到 16 之间。"
+                }
+                invalid={!gpuCountValid}
               >
                 <Input
                   inputMode="numeric"
@@ -906,7 +953,17 @@ export function WorkspaceShell() {
                 />
               </FormField>
 
-              <FormField label="每份额显存 (Gi)">
+              <FormField
+                label="每份额显存 (Gi)"
+                hint={
+                  draft.gpuAllocationMode === "memory" && !gpuMemoryValid
+                    ? "每份额显存必须是正整数。"
+                    : null
+                }
+                invalid={
+                  draft.gpuAllocationMode === "memory" && !gpuMemoryValid
+                }
+              >
                 <Input
                   inputMode="numeric"
                   value={draft.gpuMemoryGi}
@@ -992,7 +1049,9 @@ export function WorkspaceShell() {
               ) : (
                 <PlusIcon data-icon="inline-start" />
               )}
-              创建远程桌面
+              {createWorkspace.isPending
+                ? "创建中"
+                : (submitDisabledReason ?? "创建远程桌面")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,6 +7,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 IMAGE_NAME="remote-workspace"
 IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
 NOVNC_VERSION="v1.6.0"
+UBUNTU_VERSION="24.04"
+TARGET_ARCH=""
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 WORKSPACE_IMAGE_CONTEXT_DIR="$REPO_ROOT/workloads/remote-workspace"
 WORKSPACE_IMAGE_METADATA_DIR="$REPO_ROOT/runtime/workspace"
@@ -19,6 +21,8 @@ Usage: ./scripts/workspace-image.sh build-and-load [options]
 Options:
   --image-name <name>     Image name, default remote-workspace
   --image-tag <tag>       Image tag, default current timestamp
+  --ubuntu-version <ver>  Ubuntu base image version, default 24.04
+  --target-arch <arch>    Target node arch, default first configured node arch
   --novnc-version <ver>   noVNC git tag, default v1.6.0
   -h, --help              Show help
 EOF
@@ -34,6 +38,8 @@ build_workspace_image() {
 
   set +e
   docker build \
+    --platform "$LOCAL_PLATFORM" \
+    --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
     --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
     -t "$image_ref" \
     "$WORKSPACE_IMAGE_CONTEXT_DIR" 2>&1 | tee "$build_log"
@@ -49,6 +55,8 @@ build_workspace_image() {
     "$build_log"; then
     print_step "检测到 Docker BuildKit snapshot 状态异常，回退到 legacy builder 重试"
     DOCKER_BUILDKIT=0 docker build \
+      --platform "$LOCAL_PLATFORM" \
+      --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
       -t "$image_ref" \
       "$WORKSPACE_IMAGE_CONTEXT_DIR"
@@ -72,6 +80,14 @@ while [[ $# -gt 0 ]]; do
       NOVNC_VERSION="$2"
       shift 2
       ;;
+    --ubuntu-version)
+      UBUNTU_VERSION="$2"
+      shift 2
+      ;;
+    --target-arch)
+      TARGET_ARCH="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -84,7 +100,7 @@ done
 
 require_cmd docker
 require_cmd node
-require_cmd sshpass
+require_any_cmd sshpass expect
 require_cmd scp
 require_cmd ssh
 
@@ -94,7 +110,11 @@ ensure_runtime_dirs
 
 IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
 ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
-LOCAL_ARCH="$(local_arch)"
+if [[ -z "$TARGET_ARCH" ]]; then
+  TARGET_ARCH="$(cluster_query nodeArch "$(cluster_query nodeNames | head -n 1)")"
+fi
+
+LOCAL_ARCH="$TARGET_ARCH"
 LOCAL_PLATFORM="linux/$LOCAL_ARCH"
 
 print_step "构建镜像 $IMAGE_REF"
@@ -103,7 +123,10 @@ build_workspace_image "$IMAGE_REF"
 print_step "导出镜像"
 docker image save --platform "$LOCAL_PLATFORM" "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
 
-mapfile -t TARGET_NODES < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
+TARGET_NODES=()
+while IFS= read -r node_name; do
+  [[ -n "$node_name" ]] && TARGET_NODES+=("$node_name")
+done < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
 if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
   die "没有找到 arch=$LOCAL_ARCH 的目标节点，无法分发镜像。"
 fi
