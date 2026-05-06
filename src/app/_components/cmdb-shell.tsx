@@ -125,9 +125,11 @@ const STICKY_ACTION_HEAD_CLASS =
 const STICKY_ACTION_CELL_CLASS =
   "sticky right-0 z-10 bg-white/96 shadow-[-18px_0_24px_-24px_rgba(15,23,42,0.45)] backdrop-blur group-hover:bg-sky-50/95";
 const CMDB_ACTION_GROUP_CLASS =
-  "inline-flex overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
+  "inline-flex shrink-0 overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 const CMDB_ACTION_ICON_CLASS =
   "size-8 rounded-none border-0 border-r border-slate-200 bg-transparent text-slate-700 shadow-none last:border-r-0 hover:bg-slate-50 hover:text-slate-950";
+const CMDB_ACTION_BAR_CLASS =
+  "flex min-w-max items-center justify-end gap-1.5";
 const TERMINAL_OUTPUT_LIMIT = 120_000;
 const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
@@ -2912,7 +2914,15 @@ export function CmdbShell() {
               </div>
 
               <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
-                <Table className="min-w-[940px]">
+                <Table className="min-w-[1080px] table-fixed">
+                  <colgroup>
+                    <col className="w-[13%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[28%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[25%]" />
+                  </colgroup>
                   <TableHeader className="bg-slate-50/90">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>项目</TableHead>
@@ -2929,7 +2939,7 @@ export function CmdbShell() {
                     {projects.map((project) => (
                       <TableRow key={project.id} className="group">
                         <TableCell>
-                          <div className="grid gap-1">
+                          <div className="grid min-w-0 gap-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-slate-950">
                                 {project.name}
@@ -2940,7 +2950,7 @@ export function CmdbShell() {
                                 </Badge>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-600">
+                            <div className="truncate text-sm text-slate-600">
                               {project.gitlabPath}
                             </div>
                           </div>
@@ -2956,8 +2966,10 @@ export function CmdbShell() {
                           </div>
                         </TableCell>
                         <TableCell className="text-sm text-slate-600">
-                          <div>{projectTargetAssetsLabel(project.config)}</div>
-                          <div>
+                          <div className="truncate">
+                            {projectTargetAssetsLabel(project.config)}
+                          </div>
+                          <div className="truncate">
                             {project.deployTarget === "k8s"
                               ? `${project.config?.k8sNamespace ?? "default"} / ${project.config?.k8sDeployment ?? "-"}`
                               : project.deployTarget === "docker"
@@ -2981,7 +2993,7 @@ export function CmdbShell() {
                                   {formatTime(project.latestRelease.createdAt)}
                                 </span>
                               </div>
-                              <div className="text-sm text-slate-600">
+                              <div className="truncate text-sm text-slate-600">
                                 {project.latestRelease.ref}
                                 {project.latestRelease.deployEnv
                                   ? ` -> ${project.latestRelease.deployEnv}`
@@ -3009,16 +3021,19 @@ export function CmdbShell() {
                             >
                               {monitorLabel(project.monitor.status)}
                             </Badge>
-                            <span className="text-xs text-slate-500">
+                            <span
+                              className="truncate text-xs text-slate-500"
+                              title={project.monitor.message}
+                            >
                               {project.monitor.message}
                             </span>
                           </div>
                         </TableCell>
                         <TableCell className={STICKY_ACTION_CELL_CLASS}>
-                          <div className="flex justify-end gap-2">
+                          <div className={CMDB_ACTION_BAR_CLASS}>
                             <Button
                               size="sm"
-                              className="h-8 rounded-[9px] bg-slate-900 text-white hover:bg-slate-800"
+                              className="h-8 rounded-[9px] bg-slate-900 px-3 text-white hover:bg-slate-800"
                               onClick={() => openReleaseModal(project)}
                               disabled={Boolean(
                                 projectReleaseIssue(

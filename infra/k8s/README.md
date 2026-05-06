@@ -9,7 +9,7 @@
 
 推荐拓扑：
 
-- `192.168.5.22`：`rw-node-022`，`amd64`，`master + etcd + worker`
+- `172.16.60.198`：`rw-node-022`，`amd64`，`master + etcd + worker`
 - `192.168.5.178`：`rw-gpu-178`，`Jetson AGX / arm64`，可作为自动接力加入的 `worker + gpu`
 
 仓库默认仍然以当前部署机同架构节点先拉起控制面，但如果 `cluster/nodes.json` 里同时声明了 Jetson 这类异构 `arm64` worker，`./bin/cluster.sh cluster install` 会在首轮安装完成后自动导出 bundle、同步仓库，并在次级架构节点上继续执行 `secondary-arch import + add-node`。当前自动接力仅覆盖 `worker` / `worker,gpu`，不自动扩容异构 `master/etcd`。
@@ -184,7 +184,7 @@ cd infra/k8s
 ```
 
 首轮安装仍只会纳入与当前部署机同架构的节点。
-按当前默认配置，从 `192.168.5.22` 这台 `amd64` 部署机执行时，会先拉起单节点控制面 `rw-node-022`，随后如果 `cluster/nodes.json` 中存在异构 `worker` / `worker,gpu` 节点，则脚本会自动继续 secondary-arch 接力，把这些节点一并加入集群。
+按当前默认配置，从 `172.16.60.198` 这台 `amd64` 部署机执行时，会先拉起单节点控制面 `rw-node-022`，随后如果 `cluster/nodes.json` 中存在异构 `worker` / `worker,gpu` 节点，则脚本会自动继续 secondary-arch 接力，把这些节点一并加入集群。
 
 安装完成后，脚本会自动：
 
@@ -414,7 +414,7 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 以当前场景为例：
 
-- 主部署机：`192.168.5.22`，`amd64`
+- 主部署机：`172.16.60.198`，`amd64`
 - 次级节点：`192.168.5.178`，Jetson AGX，`arm64`
 
 当前默认推荐流程：

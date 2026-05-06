@@ -17,7 +17,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_K8S_DASHBOARD_URL = "https://192.168.5.22:8443/";
+const DEFAULT_K8S_DASHBOARD_URL = "https://172.16.60.198:8443/";
 
 function dashboardUrl() {
   return env.NEXT_PUBLIC_K8S_DASHBOARD_URL ?? DEFAULT_K8S_DASHBOARD_URL;
@@ -28,7 +28,7 @@ function hostLabel(url: string) {
     const parsed = new URL(url);
     return parsed.host;
   } catch {
-    return "192.168.5.22:8443";
+    return "172.16.60.198:8443";
   }
 }
 
@@ -45,8 +45,8 @@ export default function SystemPage() {
         icon={NetworkIcon}
         badges={
           <>
-            <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
-              Master Node
+            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+              Dashboard 入口
             </Badge>
             <Badge className="border border-slate-200 bg-white text-slate-700">
               {host}
@@ -76,9 +76,9 @@ export default function SystemPage() {
           />
           <ModuleMetricCard
             size="compact"
-            label="Master"
+            label="Dashboard Host"
             value={host}
-            description="默认指向项目约定的 K8s master 地址。"
+            description="默认指向 Kubernetes Dashboard 外部入口。"
             icon={ServerIcon}
           />
           <ModuleMetricCard

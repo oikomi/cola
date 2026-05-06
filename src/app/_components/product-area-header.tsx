@@ -51,7 +51,7 @@ export function ProductAreaHeader({
         Kubernetes
       </Badge>
       <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
-        Master Node
+        Dashboard Host
       </Badge>
       <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
         XDream Cloud

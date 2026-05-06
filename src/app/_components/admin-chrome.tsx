@@ -182,7 +182,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                         <ChevronRightIcon className="size-3.5 text-slate-300/45 transition-transform group-hover:translate-x-0.5 group-hover:text-sky-100/80" />
                       </div>
                       <p className="mt-1 truncate text-[11px] text-slate-300/68">
-                        192.168.5.22:8443
+                        172.16.60.198:8443
                       </p>
                     </div>
                   </div>
@@ -191,7 +191,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                     <div className="min-w-0 flex-1 rounded-full border border-white/8 bg-slate-950/12 px-2.5 py-1.5">
                       <div className="flex items-center gap-1.5 text-[10px] font-medium text-emerald-100/84">
                         <ShieldCheckIcon className="size-3" />
-                        Master
+                        Host
                       </div>
                     </div>
                     <div className="min-w-0 flex-1 rounded-full border border-white/8 bg-slate-950/12 px-2.5 py-1.5">

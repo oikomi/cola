@@ -308,8 +308,14 @@ export function WorkspaceShell() {
   const rows = (workspaceQuery.data?.items ?? []).filter(
     (workspace) => !pendingDeletedWorkspaceNames.includes(workspace.name),
   );
-  const capabilityReason = workspaceQuery.data?.reason ?? null;
-  const available = workspaceQuery.data?.available ?? true;
+  const capabilityReason =
+    workspaceQuery.data?.reason ?? workspaceQuery.error?.message ?? null;
+  const clusterStatus = workspaceQuery.isLoading
+    ? "checking"
+    : workspaceQuery.data?.available === true
+      ? "connected"
+      : "unavailable";
+  const available = clusterStatus === "connected";
   const runningCount = rows.filter(
     (workspace) => workspace.status === "running",
   ).length;
@@ -403,7 +409,7 @@ export function WorkspaceShell() {
               variant="outline"
               className="hidden border-slate-200/90 bg-white/84 px-2.5 py-0.5 text-[12px] text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] md:inline-flex"
             >
-              Master Node
+              Dashboard Host
             </Badge>
             <Badge
               variant="outline"
@@ -415,12 +421,24 @@ export function WorkspaceShell() {
               variant="outline"
               className={cn(
                 "px-2.5 py-0.5 text-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]",
-                available
-                  ? "border-emerald-200 bg-emerald-50/92 text-emerald-800"
-                  : "border-rose-200 bg-rose-50/92 text-rose-800",
+                clusterStatus === "checking"
+                  ? "border-sky-200 bg-sky-50/92 text-sky-800"
+                  : available
+                    ? "border-emerald-200 bg-emerald-50/92 text-emerald-800"
+                    : "border-rose-200 bg-rose-50/92 text-rose-800",
               )}
             >
-              {available ? "K8s 已连接" : "K8s 不可用"}
+              {clusterStatus === "checking" ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : null}
+              {clusterStatus === "checking"
+                ? "K8s 检查中"
+                : available
+                  ? "K8s 已连接"
+                  : "K8s 不可用"}
             </Badge>
             <Badge
               variant="outline"

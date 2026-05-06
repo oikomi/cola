@@ -531,8 +531,14 @@ export function DeploymentsShell() {
   });
 
   const rows = deploymentsQuery.data?.items ?? [];
-  const available = deploymentsQuery.data?.available ?? true;
-  const capabilityReason = deploymentsQuery.data?.reason ?? null;
+  const capabilityReason =
+    deploymentsQuery.data?.reason ?? deploymentsQuery.error?.message ?? null;
+  const clusterStatus = deploymentsQuery.isLoading
+    ? "checking"
+    : deploymentsQuery.data?.available === true
+      ? "connected"
+      : "unavailable";
+  const available = clusterStatus === "connected";
   const servingCount = rows.filter((row) => row.status === "serving").length;
   const startingCount = rows.filter((row) => row.status === "starting").length;
   const pausedCount = rows.filter((row) => row.status === "paused").length;
@@ -578,6 +584,7 @@ export function DeploymentsShell() {
     effectiveGpuCount,
   );
   const canSubmit =
+    available &&
     draft.name.trim().length >= 2 &&
     modelRefValid &&
     trimmedImage.length >= 2 &&
@@ -631,12 +638,24 @@ export function DeploymentsShell() {
             <Badge
               variant="outline"
               className={cn(
-                available
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-rose-200 bg-rose-50 text-rose-700",
+                clusterStatus === "checking"
+                  ? "border-sky-200 bg-sky-50 text-sky-700"
+                  : available
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-rose-200 bg-rose-50 text-rose-700",
               )}
             >
-              {available ? "K8s 已连接" : "K8s 不可用"}
+              {clusterStatus === "checking" ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : null}
+              {clusterStatus === "checking"
+                ? "K8s 检查中"
+                : available
+                  ? "K8s 已连接"
+                  : "K8s 不可用"}
             </Badge>
             <Badge
               variant="outline"
