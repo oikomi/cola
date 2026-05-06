@@ -754,7 +754,7 @@ function CmdbOverviewCard(props: {
           {props.label}
         </p>
         <div className="mt-1 flex min-w-0 items-baseline gap-2">
-          <p className="text-[1.18rem] leading-none font-semibold tracking-[-0.03em] text-slate-950">
+          <p className="text-[1.18rem] leading-none font-semibold tracking-normal text-slate-950">
             {props.value}
           </p>
           <p className="truncate text-[11.5px] leading-5 text-slate-500">
@@ -784,7 +784,7 @@ function CmdbErrorPanel({
   isRetrying: boolean;
 }) {
   return (
-    <section className="rounded-[16px] border border-rose-200/90 bg-rose-50/70 px-5 py-4 text-rose-950">
+    <section className="rounded-[var(--radius-card)] border border-rose-200/90 bg-rose-50/70 px-5 py-4 text-rose-950">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-white text-rose-700 ring-1 ring-rose-200">
@@ -835,10 +835,10 @@ function CmdbOfflineWorkspace({
   isRetrying: boolean;
 }) {
   return (
-    <section className="grid gap-4 rounded-[18px] border border-slate-200/90 bg-white/88 px-5 py-5 shadow-[0_12px_34px_rgba(15,23,42,0.04)] md:px-6">
+    <section className="grid gap-4 rounded-[var(--radius-card)] border border-slate-200/90 bg-white/88 px-5 py-5 shadow-[0_12px_34px_rgba(15,23,42,0.04)] md:px-6">
       <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-base font-semibold tracking-[-0.03em] text-slate-950">
+          <h2 className="text-base font-semibold tracking-normal text-slate-950">
             CMDB 工作区离线
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
@@ -903,7 +903,7 @@ function CmdbOfflineWorkspace({
         ].map((item) => (
           <div
             key={item.title}
-            className="rounded-[14px] border border-slate-200/90 bg-slate-50 px-4 py-4"
+            className="rounded-[var(--radius-card)] border border-slate-200/90 bg-slate-50 px-4 py-4"
           >
             <p className="text-sm font-semibold text-slate-950">{item.title}</p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -1040,13 +1040,13 @@ function CmdbEmptyState(props: {
   ];
 
   return (
-    <div className="grid gap-5 rounded-[14px] border border-dashed border-slate-300/90 bg-slate-50/72 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+    <div className="grid gap-5 rounded-[var(--radius-card)] border border-dashed border-slate-300/90 bg-slate-50/72 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
       <div className="flex min-w-0 gap-4">
         <div className="flex size-11 shrink-0 items-center justify-center rounded-[12px] border border-slate-200 bg-white text-slate-600 shadow-[0_4px_12px_rgba(15,23,42,0.04)]">
           <Icon className="size-5" />
         </div>
         <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
+          <p className="text-lg font-semibold tracking-normal text-slate-950">
             {props.title}
           </p>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
@@ -2185,7 +2185,7 @@ export function CmdbShell() {
                     最近同步 {lastSyncedLabel}
                   </span>
                 </div>
-                <h1 className="mt-1.5 text-[1.28rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950 md:text-[1.45rem]">
+                <h1 className="mt-1.5 text-[1.28rem] leading-tight font-semibold tracking-normal text-slate-950 md:text-[1.45rem]">
                   资产与发布管理
                 </h1>
                 <p className="mt-0.5 max-w-3xl text-[13px] leading-5 text-slate-600">
@@ -2421,7 +2421,7 @@ export function CmdbShell() {
                   >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate font-semibold tracking-[-0.02em] text-slate-950">
+                        <h3 className="truncate font-semibold tracking-normal text-slate-950">
                           {asset.name}
                         </h3>
                         {asset.isController ? (
@@ -2698,7 +2698,7 @@ export function CmdbShell() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
+                          <h3 className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
                             {project.name}
                           </h3>
                           {!project.enabled ? (
@@ -3227,7 +3227,7 @@ export function CmdbShell() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <h3 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-slate-950">
+                        <h3 className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
                           {release.project?.name ?? "未知项目"}
                         </h3>
                         <p className="mt-1 text-[13px] break-all text-slate-500">
@@ -3514,8 +3514,8 @@ export function CmdbShell() {
           className={cn(
             "grid grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-slate-200/90 bg-white p-0 shadow-[0_28px_70px_rgba(15,23,42,0.16)]",
             operationDialogMaximized
-              ? "h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] rounded-[14px] sm:max-h-[calc(100dvh-0.75rem)] sm:max-w-[calc(100vw-0.75rem)]"
-              : "max-h-[min(90vh,820px)] max-w-[calc(100vw-1rem)] rounded-[18px] sm:max-w-[1040px]",
+              ? "h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-[calc(100vw-0.75rem)] max-w-[calc(100vw-0.75rem)] rounded-[var(--radius-card)] sm:max-h-[calc(100dvh-0.75rem)] sm:max-w-[calc(100vw-0.75rem)]"
+              : "max-h-[min(90vh,820px)] max-w-[calc(100vw-1rem)] rounded-[var(--radius-card)] sm:max-w-[1040px]",
           )}
         >
           <DialogHeader className="gap-0 border-b border-slate-200/80 bg-white px-4 py-3 pr-12 sm:px-5">
@@ -3525,7 +3525,7 @@ export function CmdbShell() {
                   <OperationIcon className="size-4" />
                 </span>
                 <div className="min-w-0">
-                  <DialogTitle className="text-base leading-6 font-semibold tracking-[-0.02em] text-slate-950">
+                  <DialogTitle className="text-base leading-6 font-semibold tracking-normal text-slate-950">
                     {projectOperationLabel(
                       operationAction,
                       operationProject?.deployTarget,
@@ -3639,7 +3639,7 @@ export function CmdbShell() {
                 ) : null}
                 <div
                   className={cn(
-                    "overflow-hidden rounded-[14px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]",
+                    "overflow-hidden rounded-[var(--radius-card)] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]",
                     operationDialogMaximized && "flex min-h-0 flex-col",
                   )}
                 >
@@ -3698,7 +3698,7 @@ export function CmdbShell() {
                 </div>
               </div>
             ) : projectOperation.isPending ? (
-              <div className="flex min-h-[260px] items-center justify-center gap-2 rounded-[14px] border border-dashed border-slate-300 bg-white text-sm text-slate-600">
+              <div className="flex min-h-[260px] items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-slate-300 bg-white text-sm text-slate-600">
                 <LoaderCircleIcon className="size-4 animate-spin" />
                 正在连接目标资产并执行操作
               </div>
@@ -3712,7 +3712,7 @@ export function CmdbShell() {
               </Alert>
             ) : operationResult ? (
               <div className="grid gap-3">
-                <div className="overflow-hidden rounded-[14px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+                <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
                   <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="flex shrink-0 gap-1.5">
@@ -3799,7 +3799,7 @@ export function CmdbShell() {
           <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
-                <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.03em]">
+                <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
                   {assetDraft.id ? "编辑服务器资产" : "新增服务器资产"}
                 </DialogTitle>
                 <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -3816,7 +3816,7 @@ export function CmdbShell() {
           <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-5">
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="grid content-start gap-5">
-                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <section className="rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-slate-950">
@@ -3970,7 +3970,7 @@ export function CmdbShell() {
                   </div>
                 </section>
 
-                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <section className="rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                   <div className="space-y-1">
                     <h3 className="text-sm font-semibold text-slate-950">
                       运行画像
@@ -4141,7 +4141,7 @@ export function CmdbShell() {
               </div>
 
               <aside className="grid content-start gap-4 xl:sticky xl:top-0">
-                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <section className="rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                   <div className="flex items-start gap-3">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-700">
                       <ShieldCheckIcon className="size-4" />
@@ -4225,7 +4225,7 @@ export function CmdbShell() {
                   </div>
                 </section>
 
-                <section className="rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+                <section className="rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                   <div className="flex items-start gap-3">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
                       <KeyRoundIcon className="size-4" />
@@ -4311,7 +4311,7 @@ export function CmdbShell() {
           <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
-                <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.03em]">
+                <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
                   {projectDraft.id ? "编辑 CMDB 项目" : "纳管 GitLab 项目"}
                 </DialogTitle>
                 <DialogDescription className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
@@ -5127,7 +5127,7 @@ export function CmdbShell() {
       >
         <DialogContent className="flex max-h-[calc(100vh-1rem)] max-w-[920px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
           <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
-            <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.03em]">
+            <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
               主题发布
             </DialogTitle>
             <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -5138,7 +5138,7 @@ export function CmdbShell() {
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-5">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <section className="grid content-start gap-4 rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+              <section className="grid content-start gap-4 rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-950">
                     发布主题
@@ -5256,7 +5256,7 @@ export function CmdbShell() {
                 ) : null}
               </section>
 
-              <section className="grid content-start gap-4 rounded-[14px] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
+              <section className="grid content-start gap-4 rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-950">

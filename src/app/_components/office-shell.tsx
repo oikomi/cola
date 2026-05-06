@@ -125,7 +125,7 @@ const eventTone = {
 } as const;
 
 const panelClass =
-  "overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 shadow-[0_18px_52px_rgba(15,23,42,0.06)] backdrop-blur-xl";
+  "overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/88 shadow-[0_18px_52px_rgba(15,23,42,0.06)] backdrop-blur-xl";
 const panelShellClass = `${panelClass} xl:flex xl:min-h-0 xl:flex-col`;
 
 function engineTone(engine: DockerRunnerEngine | null | undefined) {
@@ -177,7 +177,7 @@ function SectionTitle({
       <p className="text-[11px] tracking-[0.32em] text-slate-500 uppercase">
         {eyebrow}
       </p>
-      <h2 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">
+      <h2 className="text-2xl font-semibold tracking-normal text-slate-950">
         {title}
       </h2>
       <p className="max-w-2xl text-sm leading-6 text-slate-500">
@@ -195,7 +195,7 @@ function EmptyBlock({
   description: string;
 }) {
   return (
-    <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-5 py-6">
+    <div className="rounded-[var(--radius-shell)] border border-dashed border-slate-300 bg-slate-50 px-5 py-6">
       <p className="text-sm font-medium text-slate-950">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
     </div>
@@ -478,9 +478,7 @@ export function OfficeShell({ snapshot }: Props) {
     : null;
   const HighlightedRoleIcon = highlightedRoleIcon;
   const highlightedTone = engineTone(highlightedAgent?.engine);
-  const openNativePage = async (
-    agent: OfficeSnapshot["agents"][number],
-  ) => {
+  const openNativePage = async (agent: OfficeSnapshot["agents"][number]) => {
     setHighlightedAgentId(agent.id);
 
     if (typeof window === "undefined") return;
@@ -523,7 +521,7 @@ export function OfficeShell({ snapshot }: Props) {
       <div className="flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0 xl:overflow-hidden">
         <ProductAreaHeader />
 
-        <section className="relative shrink-0 overflow-hidden rounded-[32px] border border-slate-900/80 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(23,32,51,0.96))] text-slate-50 shadow-[0_36px_110px_rgba(15,23,42,0.16)]">
+        <section className="relative shrink-0 overflow-hidden rounded-[var(--radius-shell)] border border-slate-900/80 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(23,32,51,0.96))] text-slate-50 shadow-[0_36px_110px_rgba(15,23,42,0.16)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(96,165,250,0.22),transparent_20%),radial-gradient(circle_at_86%_16%,rgba(14,165,233,0.16),transparent_18%),linear-gradient(135deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]" />
           <div className="relative grid gap-6 px-5 py-5 md:px-6 md:py-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.82fr)]">
             <div className="space-y-5">
@@ -553,7 +551,7 @@ export function OfficeShell({ snapshot }: Props) {
                 <p className="text-[11px] tracking-[0.34em] text-white/52 uppercase">
                   XDream Cloud
                 </p>
-                <h1 className="max-w-4xl text-3xl font-semibold tracking-[-0.06em] md:text-5xl xl:text-[3.35rem]">
+                <h1 className="max-w-4xl text-3xl font-semibold tracking-normal md:text-5xl xl:text-[3.35rem]">
                   多智能体指挥中心
                 </h1>
                 <p className="max-w-3xl text-sm leading-7 text-white/72 md:text-base">
@@ -567,12 +565,12 @@ export function OfficeShell({ snapshot }: Props) {
                 {liveSnapshot.metrics.map((metric) => (
                   <div
                     key={metric.label}
-                    className="rounded-[24px] border border-white/10 bg-white/6 px-4 py-4"
+                    className="rounded-[var(--radius-shell)] border border-white/10 bg-white/6 px-4 py-4"
                   >
                     <p className="text-[11px] tracking-[0.26em] text-white/48 uppercase">
                       {metric.label}
                     </p>
-                    <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white">
+                    <p className="mt-3 text-3xl font-semibold tracking-normal text-white">
                       {metric.value}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-white/60">
@@ -584,25 +582,25 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
 
             <div className="grid gap-3 self-stretch xl:max-w-[420px]">
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+              <div className="rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5">
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   当前编排
                 </p>
                 <div className="mt-4 grid gap-4 text-sm text-white/72 sm:grid-cols-3 xl:grid-cols-1">
                   <div>
-                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                    <p className="text-3xl font-semibold tracking-normal text-white">
                       {liveSnapshot.agents.length}
                     </p>
                     <p className="mt-1">当前人物</p>
                   </div>
                   <div>
-                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                    <p className="text-3xl font-semibold tracking-normal text-white">
                       {activeTaskCount}
                     </p>
                     <p className="mt-1">待处理任务</p>
                   </div>
                   <div>
-                    <p className="text-3xl font-semibold tracking-[-0.05em] text-white">
+                    <p className="text-3xl font-semibold tracking-normal text-white">
                       {liveSnapshot.approvals.length}
                     </p>
                     <p className="mt-1">待审批节点</p>
@@ -610,12 +608,12 @@ export function OfficeShell({ snapshot }: Props) {
                 </div>
               </div>
 
-              <div className="grid gap-4 rounded-[28px] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-2">
+              <div className="grid gap-4 rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-2">
                 <div>
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     引擎分布
                   </p>
-                  <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                  <p className="mt-3 text-2xl font-semibold tracking-normal text-white">
                     OpenClaw K8s {openclawCount}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-white/60">
@@ -627,7 +625,7 @@ export function OfficeShell({ snapshot }: Props) {
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     第二执行面
                   </p>
-                  <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                  <p className="mt-3 text-2xl font-semibold tracking-normal text-white">
                     Hermes K8s {hermesCount}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-white/60">
@@ -637,11 +635,11 @@ export function OfficeShell({ snapshot }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+              <div className="rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5">
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   刷新时间
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                <p className="mt-3 text-2xl font-semibold tracking-normal text-white">
                   {generatedAt}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white/60">
@@ -655,7 +653,7 @@ export function OfficeShell({ snapshot }: Props) {
         {feedback ? (
           <div
             className={cn(
-              "shrink-0 rounded-[22px] border px-4 py-3 text-sm",
+              "shrink-0 rounded-[var(--radius-shell)] border px-4 py-3 text-sm",
               feedback.tone === "success"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                 : "border-rose-200 bg-rose-50 text-rose-900",
@@ -666,7 +664,7 @@ export function OfficeShell({ snapshot }: Props) {
         ) : null}
 
         {isReadOnlyFallback && liveSnapshot.readOnlyReason ? (
-          <div className="shrink-0 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <div className="shrink-0 rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             当前处于只读回退模式：{liveSnapshot.readOnlyReason}
           </div>
         ) : null}
@@ -681,7 +679,7 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+            <div className="scrollbar-none grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               <FormField label="人物名称">
                 <Input
                   value={agentDraft.name}
@@ -745,12 +743,12 @@ export function OfficeShell({ snapshot }: Props) {
                 </Select>
               </FormField>
 
-              <div className="rounded-[22px] bg-[#f7f2ea] px-4 py-4 text-sm leading-6 text-[#6b5a4c]">
+              <div className="rounded-[var(--radius-shell)] bg-[#f7f2ea] px-4 py-4 text-sm leading-6 text-[#6b5a4c]">
                 {roleHints[agentDraft.role]}
               </div>
 
               <Button
-                className="h-11 rounded-[18px] bg-[#17120d] text-white hover:bg-[#2a221b]"
+                className="h-11 rounded-[var(--radius-card)] bg-[#17120d] text-white hover:bg-[#2a221b]"
                 disabled={
                   isReadOnlyFallback ||
                   createAgent.isPending ||
@@ -789,7 +787,7 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+            <div className="scrollbar-none grid gap-4 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               <FormField label="负责人">
                 <Select
                   value={taskDraft.ownerAgentId}
@@ -931,7 +929,7 @@ export function OfficeShell({ snapshot }: Props) {
               </div>
 
               <Button
-                className="h-11 rounded-[18px] bg-[#17120d] text-white hover:bg-[#2a221b]"
+                className="h-11 rounded-[var(--radius-card)] bg-[#17120d] text-white hover:bg-[#2a221b]"
                 disabled={
                   isReadOnlyFallback ||
                   createTask.isPending ||
@@ -970,13 +968,13 @@ export function OfficeShell({ snapshot }: Props) {
               />
             </div>
 
-            <div className="grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+            <div className="scrollbar-none grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     当前焦点
                   </p>
-                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                  <p className="mt-3 text-lg font-semibold tracking-normal text-[#17120d]">
                     {highlightedAgent?.name ?? "还没有人物"}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
@@ -985,11 +983,11 @@ export function OfficeShell({ snapshot }: Props) {
                   </p>
                 </div>
 
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     最近执行
                   </p>
-                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                  <p className="mt-3 text-lg font-semibold tracking-normal text-[#17120d]">
                     {liveSnapshot.executionReports[0]?.title ?? "暂无执行记录"}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
@@ -998,11 +996,11 @@ export function OfficeShell({ snapshot }: Props) {
                   </p>
                 </div>
 
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     最近事件
                   </p>
-                  <p className="mt-3 text-lg font-semibold tracking-[-0.04em] text-[#17120d]">
+                  <p className="mt-3 text-lg font-semibold tracking-normal text-[#17120d]">
                     {liveSnapshot.events[0]?.title ?? "暂无事件"}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
@@ -1012,13 +1010,13 @@ export function OfficeShell({ snapshot }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+              <div className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                       待审批任务
                     </p>
-                    <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                    <p className="mt-2 text-2xl font-semibold tracking-normal text-[#17120d]">
                       {liveSnapshot.approvals.length}
                     </p>
                   </div>
@@ -1028,7 +1026,7 @@ export function OfficeShell({ snapshot }: Props) {
                   {liveSnapshot.approvals.slice(0, 3).map((approval) => (
                     <div
                       key={approval.id}
-                      className="rounded-[20px] bg-[#faf6f0] px-4 py-3"
+                      className="rounded-[var(--radius-shell)] bg-[#faf6f0] px-4 py-3"
                     >
                       <p className="text-sm font-medium text-[#17120d]">
                         {approval.title}
@@ -1065,13 +1063,13 @@ export function OfficeShell({ snapshot }: Props) {
                     value={searchValue}
                     onChange={(event) => setSearchValue(event.target.value)}
                     placeholder="搜索人物、角色或引擎"
-                    className="h-11 rounded-[16px] bg-[#fbf8f4] pl-9"
+                    className="h-11 rounded-[var(--radius-card)] bg-[#fbf8f4] pl-9"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+            <div className="scrollbar-none grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
               {agents.length === 0 ? (
                 <EmptyBlock
                   title="还没有可展示的人物"
@@ -1094,19 +1092,19 @@ export function OfficeShell({ snapshot }: Props) {
                       onMouseEnter={() => setHighlightedAgentId(agent.id)}
                       onFocus={() => setHighlightedAgentId(agent.id)}
                       className={cn(
-                        "group block w-full rounded-[28px] border px-5 py-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_60px_rgba(32,24,18,0.12)] focus-visible:ring-2 focus-visible:ring-[#b98a45]/40 focus-visible:outline-none",
+                        "group block w-full rounded-[var(--radius-shell)] border px-5 py-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_60px_rgba(32,24,18,0.12)] focus-visible:ring-2 focus-visible:ring-[#b98a45]/40 focus-visible:outline-none",
                         surfaceClassForEngine(agent.engine, isHighlighted),
                       )}
                     >
                       <div className="flex flex-col gap-4">
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                           <div className="flex items-start gap-4">
-                            <div className="flex size-14 shrink-0 items-center justify-center rounded-[18px] bg-[#17120d] text-sm font-semibold tracking-[0.12em] text-white">
+                            <div className="flex size-14 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-[#17120d] text-sm font-semibold tracking-[0.12em] text-white">
                               {initialsFromName(agent.name)}
                             </div>
                             <div className="space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="text-xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                                <h3 className="text-xl font-semibold tracking-normal text-[#17120d]">
                                   {agent.name}
                                 </h3>
                                 <Badge
@@ -1200,7 +1198,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+              <div className="scrollbar-none grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 {!highlightedAgent ? (
                   <EmptyBlock
                     title="还没有选中的人物"
@@ -1210,18 +1208,18 @@ export function OfficeShell({ snapshot }: Props) {
                   <>
                     <div
                       className={cn(
-                        "rounded-[28px] border px-5 py-5",
+                        "rounded-[var(--radius-shell)] border px-5 py-5",
                         highlightedTone.hero,
                       )}
                     >
                       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex items-start gap-4">
-                          <div className="flex size-16 shrink-0 items-center justify-center rounded-[20px] bg-white/10 text-base font-semibold tracking-[0.12em] text-white">
+                          <div className="flex size-16 shrink-0 items-center justify-center rounded-[var(--radius-shell)] bg-white/10 text-base font-semibold tracking-[0.12em] text-white">
                             {initialsFromName(highlightedAgent.name)}
                           </div>
                           <div className="space-y-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-2xl font-semibold tracking-[-0.05em] text-white">
+                              <h3 className="text-2xl font-semibold tracking-normal text-white">
                                 {highlightedAgent.name}
                               </h3>
                               <Badge
@@ -1261,7 +1259,7 @@ export function OfficeShell({ snapshot }: Props) {
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-3 lg:max-w-[360px] lg:grid-cols-1">
-                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                          <div className="rounded-[var(--radius-shell)] bg-white/8 px-4 py-3">
                             <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                               任务数
                             </p>
@@ -1269,7 +1267,7 @@ export function OfficeShell({ snapshot }: Props) {
                               {highlightedTasks.length}
                             </p>
                           </div>
-                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                          <div className="rounded-[var(--radius-shell)] bg-white/8 px-4 py-3">
                             <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                               审批数
                             </p>
@@ -1277,7 +1275,7 @@ export function OfficeShell({ snapshot }: Props) {
                               {highlightedApprovals.length}
                             </p>
                           </div>
-                          <div className="rounded-[20px] bg-white/8 px-4 py-3">
+                          <div className="rounded-[var(--radius-shell)] bg-white/8 px-4 py-3">
                             <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                               执行回报
                             </p>
@@ -1293,7 +1291,7 @@ export function OfficeShell({ snapshot }: Props) {
                       <div className="grid gap-4">
                         <div
                           className={cn(
-                            "rounded-[24px] border px-4 py-4",
+                            "rounded-[var(--radius-shell)] border px-4 py-4",
                             highlightedTone.panel,
                           )}
                         >
@@ -1308,7 +1306,7 @@ export function OfficeShell({ snapshot }: Props) {
 
                         <div
                           className={cn(
-                            "rounded-[24px] border px-4 py-4",
+                            "rounded-[var(--radius-shell)] border px-4 py-4",
                             highlightedTone.panel,
                           )}
                         >
@@ -1324,7 +1322,7 @@ export function OfficeShell({ snapshot }: Props) {
 
                         <div
                           className={cn(
-                            "rounded-[24px] border px-4 py-4",
+                            "rounded-[var(--radius-shell)] border px-4 py-4",
                             highlightedTone.panel,
                           )}
                         >
@@ -1342,7 +1340,7 @@ export function OfficeShell({ snapshot }: Props) {
                                 .map((approval) => (
                                   <div
                                     key={approval.id}
-                                    className="rounded-[18px] bg-white/70 px-4 py-3"
+                                    className="rounded-[var(--radius-card)] bg-white/70 px-4 py-3"
                                   >
                                     <p className="text-sm font-medium text-[#17120d]">
                                       {approval.title}
@@ -1358,7 +1356,7 @@ export function OfficeShell({ snapshot }: Props) {
                       </div>
 
                       <div className="grid gap-4">
-                        <div className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+                        <div className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               当前任务
@@ -1377,7 +1375,7 @@ export function OfficeShell({ snapshot }: Props) {
                               highlightedTasks.slice(0, 4).map((task) => (
                                 <div
                                   key={task.id}
-                                  className="rounded-[20px] bg-[#faf7f2] px-4 py-4"
+                                  className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4"
                                 >
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span
@@ -1404,7 +1402,7 @@ export function OfficeShell({ snapshot }: Props) {
                           </div>
                         </div>
 
-                        <div className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
+                        <div className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               最近执行结果
@@ -1423,7 +1421,7 @@ export function OfficeShell({ snapshot }: Props) {
                               highlightedReports.slice(0, 3).map((report) => (
                                 <div
                                   key={report.sessionId}
-                                  className="rounded-[20px] bg-[#faf7f2] px-4 py-4"
+                                  className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4"
                                 >
                                   <div className="flex flex-wrap items-center gap-2">
                                     <Badge variant="outline">
@@ -1442,7 +1440,7 @@ export function OfficeShell({ snapshot }: Props) {
                                     {report.summary}
                                   </p>
                                   {report.outputText ? (
-                                    <pre className="mt-4 overflow-x-auto rounded-[18px] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
+                                    <pre className="mt-4 overflow-x-auto rounded-[var(--radius-card)] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
                                       {report.outputText}
                                     </pre>
                                   ) : null}
@@ -1467,7 +1465,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+              <div className="scrollbar-none grid gap-3 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 {tasks.length === 0 ? (
                   <EmptyBlock
                     title="当前没有任务"
@@ -1482,7 +1480,7 @@ export function OfficeShell({ snapshot }: Props) {
                     return (
                       <div
                         key={task.id}
-                        className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
+                        className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -1525,7 +1523,7 @@ export function OfficeShell({ snapshot }: Props) {
                 />
               </div>
 
-              <div className="grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto scrollbar-none">
+              <div className="scrollbar-none grid gap-5 px-5 py-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
                 <div className="space-y-3">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     最近执行
@@ -1538,7 +1536,7 @@ export function OfficeShell({ snapshot }: Props) {
                     return (
                       <div
                         key={report.sessionId}
-                        className="rounded-[24px] bg-[#faf7f2] px-4 py-4"
+                        className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4"
                       >
                         <p className="text-sm font-medium text-[#17120d]">
                           {report.title}
@@ -1566,7 +1564,7 @@ export function OfficeShell({ snapshot }: Props) {
                   {liveSnapshot.events.slice(0, 5).map((event) => (
                     <div
                       key={event.id}
-                      className="flex gap-3 rounded-[22px] bg-[#faf7f2] px-4 py-4"
+                      className="flex gap-3 rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4"
                     >
                       <span
                         className={cn(

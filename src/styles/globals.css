@@ -14,34 +14,34 @@
 }
 
 :root {
-  --background: oklch(0.978 0.005 255);
-  --foreground: oklch(0.23 0.017 258);
-  --card: oklch(0.995 0.003 255 / 94%);
-  --card-foreground: oklch(0.23 0.017 258);
-  --popover: oklch(0.995 0.003 255);
-  --popover-foreground: oklch(0.23 0.017 258);
-  --primary: oklch(0.47 0.11 256);
+  --background: oklch(0.975 0.004 250);
+  --foreground: oklch(0.22 0.018 258);
+  --card: oklch(0.997 0.002 250);
+  --card-foreground: oklch(0.22 0.018 258);
+  --popover: oklch(0.997 0.002 250);
+  --popover-foreground: oklch(0.22 0.018 258);
+  --primary: oklch(0.45 0.12 254);
   --primary-foreground: oklch(0.985 0.004 255);
-  --secondary: oklch(0.96 0.007 255);
-  --secondary-foreground: oklch(0.28 0.018 258);
-  --muted: oklch(0.952 0.008 255);
-  --muted-foreground: oklch(0.55 0.016 255);
-  --accent: oklch(0.955 0.016 243);
-  --accent-foreground: oklch(0.32 0.035 252);
+  --secondary: oklch(0.948 0.007 250);
+  --secondary-foreground: oklch(0.285 0.019 258);
+  --muted: oklch(0.942 0.008 250);
+  --muted-foreground: oklch(0.505 0.018 255);
+  --accent: oklch(0.94 0.022 230);
+  --accent-foreground: oklch(0.3 0.045 246);
   --destructive: oklch(0.61 0.21 26);
-  --border: oklch(0.89 0.01 255);
-  --input: oklch(0.915 0.008 255);
-  --ring: oklch(0.66 0.06 246);
+  --border: oklch(0.88 0.01 250);
+  --input: oklch(0.902 0.01 250);
+  --ring: oklch(0.62 0.07 246);
   --chart-1: oklch(0.69 0.14 252);
   --chart-2: oklch(0.72 0.11 192);
   --chart-3: oklch(0.79 0.13 115);
   --chart-4: oklch(0.72 0.15 42);
   --chart-5: oklch(0.66 0.14 318);
-  --radius: 0.95rem;
+  --radius: 0.7rem;
   --radius-control: 6px;
-  --radius-card: 12px;
-  --radius-shell: 24px;
-  --sidebar: oklch(0.28 0.018 255 / 92%);
+  --radius-card: 8px;
+  --radius-shell: 12px;
+  --sidebar: oklch(0.245 0.024 258);
   --sidebar-foreground: oklch(0.98 0.002 255);
   --sidebar-primary: oklch(0.73 0.09 245);
   --sidebar-primary-foreground: oklch(0.98 0.002 255);
@@ -55,17 +55,13 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(
-      circle at top left,
-      rgba(96, 165, 250, 0.18),
-      transparent 24%
-    ),
-    radial-gradient(
-      circle at top right,
-      rgba(14, 165, 233, 0.14),
-      transparent 22%
-    ),
-    linear-gradient(180deg, #f4f7fb 0%, #eef3f8 45%, #edf2f7 100%);
+    linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+    linear-gradient(180deg, #f7f9fc 0%, #eef2f7 100%);
+  background-size:
+    32px 32px,
+    32px 32px,
+    auto;
   color: var(--foreground);
 }
 
@@ -184,8 +180,45 @@ body {
   h3,
   h4 {
     @apply font-heading;
+    letter-spacing: 0;
   }
   html {
     scroll-behavior: smooth;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 820px) {
+  .laptop-compact-office {
+    padding: 1rem;
+  }
+
+  .laptop-compact-office .office-beta-header {
+    gap: 0.75rem;
+  }
+
+  .laptop-compact-office .office-beta-title {
+    font-size: 2.55rem;
+  }
+
+  .laptop-compact-office .office-beta-description {
+    margin-top: 0.5rem;
+    line-height: 1.45;
+  }
+
+  .laptop-compact-office .office-beta-actions [data-slot="button"] {
+    height: 2.25rem;
+  }
+
+  .laptop-compact-office .office-beta-stats {
+    margin-top: 0.65rem;
+  }
+
+  .laptop-compact-office .office-beta-canvas {
+    margin-top: 0.75rem;
+    min-height: 430px;
+  }
+
+  .laptop-compact-office .office-beta-canvas-host {
+    min-height: 430px;
   }
 }

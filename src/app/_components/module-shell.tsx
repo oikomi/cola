@@ -14,7 +14,7 @@ export function ModulePageShell({
 }) {
   return (
     <AdminChrome>
-      <div className={cn("flex flex-col gap-6", className)}>{children}</div>
+      <div className={cn("flex flex-col gap-5", className)}>{children}</div>
     </AdminChrome>
   );
 }
@@ -48,12 +48,10 @@ export function ModuleHero({
     return (
       <section
         className={cn(
-          "relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.86))] shadow-[0_14px_34px_rgba(15,23,42,0.045)]",
+          "border-border bg-card relative overflow-hidden rounded-[var(--radius-shell)] border shadow-[0_1px_0_rgba(15,23,42,0.04)]",
           isDense ? "px-5 py-4" : "px-6 py-5",
         )}
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_10%_18%,rgba(96,165,250,0.12),transparent_24%),radial-gradient(circle_at_92%_0%,rgba(14,165,233,0.08),transparent_22%)]" />
-
         {surfaceHeader ? (
           <div
             className={cn(
@@ -81,7 +79,7 @@ export function ModuleHero({
             >
               <div
                 className={cn(
-                  "flex shrink-0 items-center justify-center bg-sky-50 text-sky-700 ring-1 ring-sky-100",
+                  "bg-accent text-accent-foreground ring-border flex shrink-0 items-center justify-center ring-1",
                   isDense
                     ? "size-10 rounded-[10px]"
                     : "size-11 rounded-[var(--radius-card)]",
@@ -104,7 +102,7 @@ export function ModuleHero({
                 </div>
                 <h1
                   className={cn(
-                    "truncate font-semibold tracking-[-0.05em] text-slate-950",
+                    "text-foreground truncate font-semibold tracking-normal",
                     isDense
                       ? "mt-1.5 text-[1.34rem] leading-none md:text-[1.48rem]"
                       : "mt-2 text-[1.5rem] leading-none md:text-[1.7rem]",
@@ -156,12 +154,10 @@ export function ModuleHero({
 
   return (
     <>
-      <section className="relative overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.88))] px-6 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.05)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,rgba(96,165,250,0.12),transparent_22%),radial-gradient(circle_at_88%_14%,rgba(14,165,233,0.08),transparent_18%)]" />
-
+      <section className="border-border bg-card relative overflow-hidden rounded-[var(--radius-shell)] border px-6 py-5 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
         <div className="relative flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-4">
           <div className="flex items-start gap-2.5">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+            <div className="bg-accent text-accent-foreground ring-border flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1">
               <Icon className="size-[14px]" />
             </div>
 
@@ -174,7 +170,7 @@ export function ModuleHero({
               </div>
 
               <div className="space-y-0.5">
-                <h1 className="max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-[-0.05em] text-slate-950 md:text-[2rem]">
+                <h1 className="text-foreground max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-normal md:text-[2rem]">
                   {title}
                 </h1>
                 <p className="max-w-3xl text-[13px] leading-6 text-slate-600 md:max-w-2xl">
@@ -217,8 +213,8 @@ export function ModuleMetricCard({
       className={cn(
         "border border-slate-200/90 bg-white/88",
         isCompact
-          ? "rounded-[var(--radius-card)] px-4 py-3 shadow-[0_10px_22px_rgba(15,23,42,0.038)]"
-          : "rounded-[var(--radius-card)] px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)]",
+          ? "rounded-[var(--radius-card)] px-4 py-3 shadow-[0_1px_0_rgba(15,23,42,0.035)]"
+          : "rounded-[var(--radius-card)] px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.035)]",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -228,7 +224,7 @@ export function ModuleMetricCard({
           </p>
           <p
             className={cn(
-              "font-semibold tracking-[-0.05em] text-slate-950",
+              "font-semibold tracking-normal text-slate-950",
               isCompact
                 ? "mt-1 text-[1.25rem] leading-none"
                 : "mt-1.5 text-[1.85rem]",
@@ -285,7 +281,7 @@ export function ModuleSection({
     <section
       id={id}
       className={cn(
-        "overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/84 shadow-[0_18px_56px_rgba(15,23,42,0.055)]",
+        "border-border bg-card overflow-hidden rounded-[var(--radius-shell)] border shadow-[0_1px_0_rgba(15,23,42,0.04)]",
         className,
       )}
     >
@@ -306,7 +302,7 @@ export function ModuleSection({
         >
           <h2
             className={cn(
-              "font-semibold tracking-[-0.05em] text-slate-950",
+              "text-foreground font-semibold tracking-normal",
               isCompact ? "text-[1.2rem]" : "text-[1.5rem]",
             )}
           >
@@ -356,8 +352,8 @@ export function ModuleEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-[var(--radius-shell)] border border-dashed border-slate-300 bg-slate-50/80 px-8 py-16 text-center">
-      <p className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
+    <div className="bg-muted/55 flex flex-col items-center justify-center rounded-[var(--radius-shell)] border border-dashed border-slate-300 px-8 py-16 text-center">
+      <p className="text-lg font-semibold tracking-normal text-slate-950">
         {title}
       </p>
       <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">

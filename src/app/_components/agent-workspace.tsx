@@ -37,7 +37,7 @@ type Props = {
 };
 
 const panelClass =
-  "overflow-hidden rounded-[30px] border border-black/8 bg-white/95 shadow-[0_24px_80px_rgba(24,19,14,0.1)]";
+  "overflow-hidden rounded-[var(--radius-shell)] border border-black/8 bg-white/95 shadow-[0_24px_80px_rgba(24,19,14,0.1)]";
 
 const roleIcons = {
   product: SparklesIcon,
@@ -173,7 +173,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
           <ProductAreaHeader />
         </div>
 
-        <main className="mx-auto mt-6 max-w-4xl rounded-[32px] border border-black/8 bg-white/82 px-6 py-8 shadow-[0_24px_80px_rgba(24,19,14,0.1)]">
+        <main className="mx-auto mt-6 max-w-4xl rounded-[var(--radius-shell)] border border-black/8 bg-white/82 px-6 py-8 shadow-[0_24px_80px_rgba(24,19,14,0.1)]">
           <Link
             href="/"
             className="inline-flex items-center gap-2 text-sm text-[#6f5f52] transition-colors hover:text-[#17120d]"
@@ -181,7 +181,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
             <ArrowLeftIcon className="size-4" />
             返回首页
           </Link>
-          <h1 className="mt-6 text-3xl font-semibold tracking-[-0.05em] text-[#17120d]">
+          <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#17120d]">
             人物不存在
           </h1>
           <p className="mt-3 text-sm leading-6 text-[#6f5f52]">
@@ -262,12 +262,12 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
               </div>
 
               <div className="flex flex-col gap-5 md:flex-row md:items-center">
-                <div className="flex size-20 items-center justify-center rounded-[24px] bg-white/10 text-xl font-semibold tracking-[0.12em] text-white">
+                <div className="flex size-20 items-center justify-center rounded-[var(--radius-shell)] bg-white/10 text-xl font-semibold tracking-[0.12em] text-white">
                   {initialsFromName(agent.name)}
                 </div>
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-4xl font-semibold tracking-[-0.06em] md:text-5xl">
+                    <h1 className="text-4xl font-semibold tracking-normal md:text-5xl">
                       {agent.name}
                     </h1>
                     <Badge className={cn("border-0", theme.badge)}>
@@ -294,7 +294,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
             </div>
 
             <div className="grid gap-4 self-stretch">
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+              <div className="rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5">
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   当前焦点
                 </p>
@@ -303,12 +303,12 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 </p>
               </div>
 
-              <div className="grid gap-4 rounded-[28px] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-3 xl:grid-cols-1">
+              <div className="grid gap-4 rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5 sm:grid-cols-3 xl:grid-cols-1">
                 <div>
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     任务数
                   </p>
-                  <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
+                  <p className="mt-2 text-3xl font-semibold tracking-normal text-white">
                     {tasks.length}
                   </p>
                 </div>
@@ -316,7 +316,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     审批数
                   </p>
-                  <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
+                  <p className="mt-2 text-3xl font-semibold tracking-normal text-white">
                     {approvals.length}
                   </p>
                 </div>
@@ -324,17 +324,17 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                   <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                     执行回报
                   </p>
-                  <p className="mt-2 text-3xl font-semibold tracking-[-0.05em] text-white">
+                  <p className="mt-2 text-3xl font-semibold tracking-normal text-white">
                     {reports.length}
                   </p>
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-white/10 bg-white/8 px-5 py-5">
+              <div className="rounded-[var(--radius-shell)] border border-white/10 bg-white/8 px-5 py-5">
                 <p className="text-[11px] tracking-[0.28em] text-white/46 uppercase">
                   更新时间
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white">
+                <p className="mt-3 text-2xl font-semibold tracking-normal text-white">
                   {generatedAt}
                 </p>
               </div>
@@ -349,13 +349,13 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
                   Persona Summary
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                <h2 className="mt-2 text-2xl font-semibold tracking-normal text-[#17120d]">
                   人物与设备
                 </h2>
               </div>
 
               <div className="grid gap-4 px-5 py-5 text-sm leading-6 text-[#6f5f52]">
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     角色
                   </p>
@@ -363,7 +363,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                     {roleLabels[agent.role]}
                   </p>
                 </div>
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     设备健康
                   </p>
@@ -371,7 +371,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                     {device?.healthSummary ?? "Runner 还在初始化"}
                   </p>
                 </div>
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     当前路由
                   </p>
@@ -380,7 +380,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                     {agent.id}
                   </p>
                 </div>
-                <div className="rounded-[24px] bg-[#faf7f2] px-4 py-4">
+                <div className="rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4">
                   <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                     快速返回
                   </p>
@@ -400,7 +400,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
                   System Events
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                <h2 className="mt-2 text-2xl font-semibold tracking-normal text-[#17120d]">
                   最近动态
                 </h2>
               </div>
@@ -409,7 +409,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 {liveSnapshot.events.slice(0, 6).map((event) => (
                   <div
                     key={event.id}
-                    className="flex gap-3 rounded-[22px] bg-[#faf7f2] px-4 py-4"
+                    className="flex gap-3 rounded-[var(--radius-shell)] bg-[#faf7f2] px-4 py-4"
                   >
                     <span
                       className={cn(
@@ -445,21 +445,21 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
                   Task Queue
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                <h2 className="mt-2 text-2xl font-semibold tracking-normal text-[#17120d]">
                   当前任务
                 </h2>
               </div>
 
               <div className="grid gap-3 px-5 py-5">
                 {tasks.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6 text-sm leading-6 text-[#6f5f52]">
+                  <div className="rounded-[var(--radius-shell)] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6 text-sm leading-6 text-[#6f5f52]">
                     这个人物当前还没有任务。
                   </div>
                 ) : (
                   tasks.map((task) => (
                     <div
                       key={task.id}
-                      className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
+                      className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span
@@ -491,21 +491,21 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                 <p className="text-[11px] tracking-[0.32em] text-[#7d6858] uppercase">
                   Execution Reports
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[#17120d]">
+                <h2 className="mt-2 text-2xl font-semibold tracking-normal text-[#17120d]">
                   最近执行结果
                 </h2>
               </div>
 
               <div className="grid gap-4 px-5 py-5">
                 {reports.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6 text-sm leading-6 text-[#6f5f52]">
+                  <div className="rounded-[var(--radius-shell)] border border-dashed border-[#d9ccbf] bg-[#fbf8f3] px-5 py-6 text-sm leading-6 text-[#6f5f52]">
                     Runner 还没有为这个人物回传执行会话。
                   </div>
                 ) : (
                   reports.map((report) => (
                     <div
                       key={report.sessionId}
-                      className="rounded-[24px] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
+                      className="rounded-[var(--radius-shell)] border border-[#ece2d7] bg-[#fffdf9] px-4 py-4"
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">{report.status}</Badge>
@@ -521,14 +521,14 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                       </p>
 
                       {report.outputText ? (
-                        <pre className="mt-4 overflow-x-auto rounded-[18px] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
+                        <pre className="mt-4 overflow-x-auto rounded-[var(--radius-card)] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
                           {report.outputText}
                         </pre>
                       ) : null}
 
                       <div className="mt-4 grid gap-3 text-sm text-[#6f5f52]">
                         {report.artifactPath ? (
-                          <div className="rounded-[18px] bg-[#faf7f2] px-4 py-3">
+                          <div className="rounded-[var(--radius-card)] bg-[#faf7f2] px-4 py-3">
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               Artifact
                             </p>
@@ -538,7 +538,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                           </div>
                         ) : null}
                         {report.logPath ? (
-                          <div className="rounded-[18px] bg-[#faf7f2] px-4 py-3">
+                          <div className="rounded-[var(--radius-card)] bg-[#faf7f2] px-4 py-3">
                             <p className="text-[11px] tracking-[0.28em] text-[#7d6858] uppercase">
                               Log
                             </p>

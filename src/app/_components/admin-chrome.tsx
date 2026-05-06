@@ -39,13 +39,13 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const activeArea = productAreaForPath(pathname);
 
   return (
-    <div className="text-foreground h-dvh overflow-hidden bg-[#f3f6fa]">
-      <div className="mx-auto grid h-full min-h-0 w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2.5 px-3 py-3 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-3 md:px-4 md:py-4 2xl:grid-cols-[272px_minmax(0,1fr)] 2xl:gap-4 2xl:px-8 2xl:py-8">
-        <aside className="relative z-30 min-h-0 overflow-visible rounded-[16px] border border-slate-900/10 bg-[#172235] text-slate-50 shadow-[0_10px_24px_rgba(15,23,42,0.16)]">
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(59,130,246,0.12),transparent_34%),radial-gradient(circle_at_0%_0%,rgba(125,211,252,0.16),transparent_24%)]" />
+    <div className="text-foreground bg-background h-dvh overflow-hidden">
+      <div className="mx-auto grid h-full min-h-0 w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[256px_minmax(0,1fr)] 2xl:gap-3 2xl:px-5 2xl:py-5">
+        <aside className="border-sidebar-border bg-sidebar text-sidebar-foreground relative z-30 min-h-0 min-w-0 overflow-visible rounded-[var(--radius-shell)] border shadow-[0_12px_34px_rgba(15,23,42,0.18)]">
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-white/18" />
 
           <div className="relative flex h-full min-h-0 flex-col">
-            <div className="border-b border-white/8 px-3.5 py-2.5 md:px-2.5 md:py-3 2xl:px-4 2xl:py-4">
+            <div className="border-b border-white/8 px-3.5 py-2.5 md:px-2.5 md:py-3 2xl:px-4">
               <div className="flex items-center gap-3 md:justify-center 2xl:justify-start">
                 <div className="relative shrink-0">
                   <Image
@@ -54,7 +54,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                     width={42}
                     height={42}
                     priority
-                    className="relative size-[42px] rounded-[13px] shadow-[0_8px_18px_rgba(56,189,248,0.18)] ring-1 ring-white/12 2xl:size-[48px]"
+                    className="relative size-[42px] rounded-[10px] shadow-[0_8px_18px_rgba(15,23,42,0.18)] ring-1 ring-white/12 2xl:size-[44px]"
                   />
                 </div>
                 <div className="min-w-0 md:hidden 2xl:block">
@@ -85,7 +85,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                 </span>
               </div>
 
-              <div className="scrollbar-none relative flex gap-1.5 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:overflow-visible md:pb-0 2xl:gap-1 2xl:overflow-y-auto">
+              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:overflow-visible md:pb-0 2xl:overflow-y-auto">
                 <span className="pointer-events-none absolute top-5 bottom-5 left-[31px] hidden w-px bg-gradient-to-b from-transparent via-white/9 to-transparent 2xl:block" />
                 {PRODUCT_AREAS.map((area) => {
                   const Icon = areaIcons[area.key];
@@ -104,16 +104,16 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                         aria-current={active ? "page" : undefined}
                         aria-label={`${area.title}：${area.description}`}
                         className={cn(
-                          "group relative block overflow-hidden rounded-[12px] border px-2.5 py-2 transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:justify-start 2xl:px-3 2xl:py-2.5",
+                          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:justify-start 2xl:px-3 2xl:py-2.5",
                           active
-                            ? "border-sky-200/24 bg-white/[0.105] text-white shadow-[inset_3px_0_0_rgba(125,211,252,0.95)]"
-                            : "border-transparent text-slate-200/72 hover:border-white/8 hover:bg-white/[0.06] hover:text-white",
+                            ? "border-sky-200/20 bg-white/[0.105] text-white shadow-[inset_3px_0_0_rgba(125,211,252,0.9)]"
+                            : "border-transparent text-slate-200/72 hover:border-white/8 hover:bg-white/[0.055] hover:text-white",
                         )}
                       >
                         <div className="relative flex items-center gap-2.5 md:justify-center 2xl:justify-start">
                           <span
                             className={cn(
-                              "flex size-8 shrink-0 items-center justify-center rounded-[10px] ring-1 transition-all duration-200",
+                              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200",
                               active
                                 ? "bg-sky-100/14 text-white ring-sky-100/16"
                                 : "bg-slate-950/14 text-slate-200/78 ring-white/7 group-hover:bg-white/7",
@@ -151,7 +151,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
 
                       <div
                         aria-hidden="true"
-                        className="pointer-events-none absolute top-1/2 left-[calc(100%+0.625rem)] z-50 hidden w-56 translate-x-1 -translate-y-1/2 rounded-[10px] border border-slate-200/90 bg-white px-3 py-2 text-slate-900 opacity-0 shadow-[0_18px_45px_rgba(15,23,42,0.16)] ring-1 ring-slate-950/5 transition duration-150 md:block md:group-focus-within/navitem:translate-x-0 md:group-focus-within/navitem:opacity-100 md:group-hover/navitem:translate-x-0 md:group-hover/navitem:opacity-100 2xl:hidden"
+                        className="pointer-events-none absolute top-1/2 left-[calc(100%+0.625rem)] z-50 hidden w-56 translate-x-1 -translate-y-1/2 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-3 py-2 text-slate-900 opacity-0 shadow-[0_14px_32px_rgba(15,23,42,0.12)] ring-1 ring-slate-950/5 transition duration-150 md:block md:group-focus-within/navitem:translate-x-0 md:group-focus-within/navitem:opacity-100 md:group-hover/navitem:translate-x-0 md:group-hover/navitem:opacity-100 2xl:hidden"
                       >
                         <div className="text-[13px] leading-5 font-semibold">
                           {area.title}
@@ -168,11 +168,10 @@ export function AdminChrome({ children }: { children: ReactNode }) {
               <div className="mt-3 hidden 2xl:block">
                 <Link
                   href="/system"
-                  className="group relative block overflow-hidden rounded-[18px] border border-white/10 bg-white/[0.055] p-3 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] transition-all duration-200 hover:border-sky-200/18 hover:bg-white/[0.075]"
+                  className="group relative block overflow-hidden rounded-[var(--radius-card)] border border-white/10 bg-white/[0.055] p-3 text-slate-100 transition-all duration-200 hover:border-sky-200/18 hover:bg-white/[0.075]"
                 >
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(125,211,252,0.13),transparent_38%)]" />
                   <div className="relative flex items-start gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-slate-950/18 text-sky-100 ring-1 ring-white/8">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-slate-950/18 text-sky-100 ring-1 ring-white/8">
                       <NetworkIcon className="size-4" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -209,8 +208,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="min-h-0 min-w-0">
-          <div className="relative h-full min-h-0 overflow-hidden rounded-[16px] border border-slate-200/85 bg-white/72 shadow-[0_8px_22px_rgba(15,23,42,0.055)]">
-            <div className="scrollbar-none relative h-full min-h-0 overflow-y-auto p-4 md:p-5 2xl:p-6">
+          <div className="border-border bg-card relative h-full min-h-0 overflow-hidden rounded-[var(--radius-shell)] border shadow-[0_2px_12px_rgba(15,23,42,0.055)]">
+            <div className="scrollbar-none relative h-full min-h-0 overflow-y-auto p-3.5 md:p-4 2xl:p-5">
               {children}
             </div>
           </div>

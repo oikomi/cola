@@ -218,12 +218,12 @@ function FormSection(props: {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-slate-200/85 bg-white p-4 shadow-[0_14px_28px_rgba(15,23,42,0.03)] md:p-5",
+        "rounded-[var(--radius-shell)] border border-slate-200/85 bg-white p-4 shadow-[0_14px_28px_rgba(15,23,42,0.03)] md:p-5",
         props.className,
       )}
     >
       <div className="space-y-1">
-        <h3 className="text-base font-semibold tracking-[-0.03em] text-slate-950">
+        <h3 className="text-base font-semibold tracking-normal text-slate-950">
           {props.title}
         </h3>
         {props.description ? (
@@ -355,10 +355,10 @@ function DeploymentCard(props: {
   onDelete: () => void;
 }) {
   return (
-    <article className="rounded-[28px] border border-slate-200/90 bg-slate-50/80 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
+    <article className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-slate-50/80 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold tracking-[-0.03em] text-slate-950">
+          <h3 className="text-base font-semibold tracking-normal text-slate-950">
             {props.row.name}
           </h3>
           <p className="mt-1 text-sm text-slate-600">
@@ -930,7 +930,7 @@ export function DeploymentsShell() {
           <DialogHeader className="border-border/70 border-b bg-white px-5 py-5 pr-14 md:px-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="space-y-2">
-                <DialogTitle className="text-[1.7rem] tracking-[-0.04em]">
+                <DialogTitle className="text-[1.7rem] tracking-normal">
                   创建推理部署
                 </DialogTitle>
                 <DialogDescription className="max-w-3xl text-sm leading-5 text-slate-600">

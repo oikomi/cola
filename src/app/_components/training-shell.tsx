@@ -140,7 +140,7 @@ const minimalQwenLoraExample = {
 const dialogControlClassName =
   "h-11 rounded-2xl border-slate-200/90 bg-white/92 px-3 text-[15px] shadow-[0_1px_0_rgba(255,255,255,0.7)]";
 const dialogTextareaClassName =
-  "min-h-[152px] rounded-[24px] border-slate-200/90 bg-white/92 px-4 py-3 text-[15px] leading-7 shadow-[0_1px_0_rgba(255,255,255,0.7)]";
+  "min-h-[152px] rounded-[var(--radius-shell)] border-slate-200/90 bg-white/92 px-4 py-3 text-[15px] leading-7 shadow-[0_1px_0_rgba(255,255,255,0.7)]";
 
 function formatTime(value: Date | string | null | undefined) {
   if (!value) return "未启动";
@@ -251,7 +251,7 @@ function FormSection(props: {
   return (
     <section
       className={cn(
-        "rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]",
+        "rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]",
         props.className,
       )}
     >
@@ -259,7 +259,7 @@ function FormSection(props: {
         <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
           {props.eyebrow}
         </p>
-        <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+        <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-normal text-slate-950">
           {props.title}
         </h3>
         <p className="mt-1 text-sm leading-6 text-slate-600">
@@ -301,7 +301,7 @@ function TrainingMetricStripItem(props: {
         <p className="text-[10px] font-semibold tracking-[0.14em] text-slate-500 uppercase">
           {props.label}
         </p>
-        <p className="text-[1rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+        <p className="text-[1rem] leading-none font-semibold tracking-normal text-slate-950">
           {props.value}
         </p>
         <p className="text-[11px] leading-5 text-slate-500">
@@ -335,7 +335,7 @@ function TrainingTopBar(props: {
             </div>
 
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <h1 className="mr-1 text-[1.34rem] leading-none font-semibold tracking-[-0.05em] text-slate-950">
+              <h1 className="mr-1 text-[1.34rem] leading-none font-semibold tracking-normal text-slate-950">
                 训练平台
               </h1>
               <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
@@ -452,13 +452,13 @@ function TrainingJobCard(props: {
 
   return (
     <article
-      className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.045)]"
+      className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.045)]"
       role="listitem"
     >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h3 className="min-w-0 text-[1.15rem] leading-7 font-semibold tracking-[-0.04em] text-slate-950">
+            <h3 className="min-w-0 text-[1.15rem] leading-7 font-semibold tracking-normal text-slate-950">
               {job.title}
             </h3>
             <Badge
@@ -497,9 +497,9 @@ function TrainingJobCard(props: {
         </div>
 
         <div className="flex w-full flex-col gap-3 xl:w-auto xl:min-w-[420px] xl:items-end">
-          <div className="rounded-[22px] border border-slate-200/85 bg-white/82 px-4 py-3 text-sm shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <div className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-white/82 px-4 py-3 text-sm shadow-[0_1px_0_rgba(255,255,255,0.72)]">
             <SurfaceLabel>最近更新时间</SurfaceLabel>
-            <p className="mt-1 text-[15px] font-semibold tracking-[-0.03em] text-slate-950">
+            <p className="mt-1 text-[15px] font-semibold tracking-normal text-slate-950">
               {formatTime(job.updatedAt ?? job.createdAt)}
             </p>
             <p className="mt-2 text-slate-500">
@@ -602,13 +602,13 @@ function TrainingJobCard(props: {
       </div>
 
       <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.95fr)_minmax(240px,0.8fr)]">
-        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+        <section className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
           <SurfaceLabel>运行摘要</SurfaceLabel>
           <div className="mt-3 grid gap-3">
             {job.runtimeSummary ? (
               <div
                 className={cn(
-                  "rounded-[20px] border px-3.5 py-3 text-sm leading-6",
+                  "rounded-[var(--radius-shell)] border px-3.5 py-3 text-sm leading-6",
                   runtimeSummaryTone(job.runtimeSummaryTone),
                 )}
               >
@@ -623,13 +623,13 @@ function TrainingJobCard(props: {
                 <div className="mt-1 break-words">{job.runtimeSummary}</div>
               </div>
             ) : (
-              <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50/85 px-3.5 py-3 text-sm leading-6 text-slate-500">
+              <div className="rounded-[var(--radius-shell)] border border-dashed border-slate-200 bg-slate-50/85 px-3.5 py-3 text-sm leading-6 text-slate-500">
                 还没有可展示的运行态摘要。
               </div>
             )}
 
             {job.lastError ? (
-              <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm leading-6 text-rose-700">
+              <div className="rounded-[var(--radius-shell)] border border-rose-200 bg-rose-50 px-3.5 py-3 text-sm leading-6 text-rose-700">
                 <SurfaceLabel className="text-rose-400">最近错误</SurfaceLabel>
                 <div className="mt-1 break-words">{job.lastError}</div>
               </div>
@@ -637,7 +637,7 @@ function TrainingJobCard(props: {
           </div>
         </section>
 
-        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+        <section className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
           <SurfaceLabel>模型 / 数据集</SurfaceLabel>
           <div className="mt-3 grid gap-4">
             <JobInfoBlock
@@ -658,7 +658,7 @@ function TrainingJobCard(props: {
           </div>
         </section>
 
-        <section className="rounded-[24px] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+        <section className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/76 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
           <SurfaceLabel>资源计划</SurfaceLabel>
           <div className="mt-3 grid gap-4">
             <JobInfoBlock
@@ -682,7 +682,7 @@ function TrainingJobCard(props: {
 
       {isExpanded ? (
         <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-          <section className="rounded-[24px] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <section className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
             <SurfaceLabel>编排详情</SurfaceLabel>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <JobInfoBlock
@@ -721,7 +721,7 @@ function TrainingJobCard(props: {
             </div>
           </section>
 
-          <section className="rounded-[24px] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
+          <section className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/82 p-4 shadow-[0_1px_0_rgba(255,255,255,0.72)]">
             <SurfaceLabel>运行清单</SurfaceLabel>
             <div className="mt-3 grid gap-3">
               <JobInfoBlock label="运行命名空间">
@@ -753,7 +753,7 @@ function LoadingRows() {
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={`training-skeleton-${index}`}
-          className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5"
+          className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,249,252,0.88))] p-5"
         >
           <div className="flex flex-col gap-4 xl:flex-row xl:justify-between">
             <div className="grid gap-3 xl:flex-1">
@@ -768,7 +768,7 @@ function LoadingRows() {
             </div>
 
             <div className="grid gap-3 xl:w-[420px]">
-              <Skeleton className="h-24 rounded-[22px]" />
+              <Skeleton className="h-24 rounded-[var(--radius-shell)]" />
               <div className="flex gap-2">
                 <Skeleton className="h-7 w-20 rounded-full" />
                 <Skeleton className="h-7 w-20 rounded-full" />
@@ -779,9 +779,9 @@ function LoadingRows() {
           </div>
 
           <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.95fr)_minmax(240px,0.8fr)]">
-            <Skeleton className="h-40 rounded-[24px]" />
-            <Skeleton className="h-40 rounded-[24px]" />
-            <Skeleton className="h-40 rounded-[24px]" />
+            <Skeleton className="h-40 rounded-[var(--radius-shell)]" />
+            <Skeleton className="h-40 rounded-[var(--radius-shell)]" />
+            <Skeleton className="h-40 rounded-[var(--radius-shell)]" />
           </div>
         </div>
       ))}
@@ -1639,7 +1639,7 @@ export function TrainingShell() {
       >
         <DialogContent className="border-border/70 bg-background text-foreground max-w-[1040px] p-0">
           <DialogHeader className="border-border/70 border-b px-6 py-5">
-            <DialogTitle className="text-2xl tracking-[-0.04em]">
+            <DialogTitle className="text-2xl tracking-normal">
               训练运行态
             </DialogTitle>
             <DialogDescription className="text-muted-foreground text-sm leading-6">
@@ -1764,7 +1764,7 @@ export function TrainingShell() {
                   <div className="grid gap-4">
                     <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium tracking-[-0.03em] text-slate-950">
+                        <p className="font-medium tracking-normal text-slate-950">
                           Pods
                         </p>
                         <Badge variant="outline" className="rounded-full">
@@ -1840,7 +1840,7 @@ export function TrainingShell() {
 
                     <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium tracking-[-0.03em] text-slate-950">
+                        <p className="font-medium tracking-normal text-slate-950">
                           K8s Events
                         </p>
                         <Badge variant="outline" className="rounded-full">
@@ -1895,7 +1895,7 @@ export function TrainingShell() {
                   <div className="grid gap-4">
                     <div className="rounded-3xl border border-slate-200/80 bg-white/88 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-medium tracking-[-0.03em] text-slate-950">
+                        <p className="font-medium tracking-normal text-slate-950">
                           最近日志
                         </p>
                         <Badge variant="outline" className="rounded-full">
@@ -1946,7 +1946,7 @@ export function TrainingShell() {
                     {summaryGpuCount ?? "-"} GPU
                   </Badge>
                 </div>
-                <DialogTitle className="mt-3 text-[1.9rem] leading-none tracking-[-0.06em] text-slate-950">
+                <DialogTitle className="mt-3 text-[1.9rem] leading-none tracking-normal text-slate-950">
                   创建训练任务
                 </DialogTitle>
                 <DialogDescription className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
@@ -2462,7 +2462,7 @@ export function TrainingShell() {
                     </Field>
                   </div>
 
-                  <div className="rounded-[24px] border border-sky-200/70 bg-[linear-gradient(180deg,rgba(239,246,255,0.92),rgba(248,250,252,0.9))] px-4 py-4 text-sm leading-6 text-slate-700">
+                  <div className="rounded-[var(--radius-shell)] border border-sky-200/70 bg-[linear-gradient(180deg,rgba(239,246,255,0.92),rgba(248,250,252,0.9))] px-4 py-4 text-sm leading-6 text-slate-700">
                     当前将申请
                     <span className="mx-1 font-semibold text-slate-950">
                       {summaryGpuCount ?? "-"}
@@ -2533,7 +2533,7 @@ export function TrainingShell() {
                     />
                   </Field>
 
-                  <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200/80 bg-slate-50/90 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-col gap-3 rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/90 px-4 py-4 md:flex-row md:items-center md:justify-between">
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-slate-900">
                         {hasStudioConfig
@@ -2559,20 +2559,20 @@ export function TrainingShell() {
               </div>
 
               <aside className="grid gap-5 xl:sticky xl:top-0">
-                <div className="rounded-[28px] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]">
+                <div className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]">
                   <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
                     Live Summary
                   </p>
-                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-normal text-slate-950">
                     提交摘要
                   </h3>
 
                   <div className="mt-5 grid gap-3">
-                    <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-4">
+                    <div className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/80 px-4 py-4">
                       <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
                         GPU 总量
                       </p>
-                      <p className="mt-2 text-[2rem] leading-none font-semibold tracking-[-0.06em] text-slate-950">
+                      <p className="mt-2 text-[2rem] leading-none font-semibold tracking-normal text-slate-950">
                         {summaryGpuCount ?? "--"}
                       </p>
                       <p className="mt-2 text-sm text-slate-500">
@@ -2596,7 +2596,7 @@ export function TrainingShell() {
                       </p>
                     </div>
 
-                    <div className="rounded-[22px] border border-slate-200/80 bg-white/88 px-4 py-4">
+                    <div className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/88 px-4 py-4">
                       <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
                         训练规格
                       </p>
@@ -2614,7 +2614,7 @@ export function TrainingShell() {
                       </p>
                     </div>
 
-                    <div className="rounded-[22px] border border-slate-200/80 bg-white/88 px-4 py-4">
+                    <div className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/88 px-4 py-4">
                       <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
                         数据来源
                       </p>
@@ -2629,11 +2629,11 @@ export function TrainingShell() {
                   </div>
                 </div>
 
-                <div className="rounded-[28px] border border-slate-200/85 bg-white/92 p-5 shadow-[0_16px_38px_rgba(15,23,42,0.04)]">
+                <div className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-white/92 p-5 shadow-[0_16px_38px_rgba(15,23,42,0.04)]">
                   <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
                     Readiness
                   </p>
-                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-[-0.04em] text-slate-950">
+                  <h3 className="mt-2 text-[1.1rem] leading-6 font-semibold tracking-normal text-slate-950">
                     提交前检查
                   </h3>
 
@@ -2680,7 +2680,7 @@ export function TrainingShell() {
                       <div
                         key={item.label}
                         className={cn(
-                          "flex items-start justify-between gap-3 rounded-[20px] border px-4 py-3",
+                          "flex items-start justify-between gap-3 rounded-[var(--radius-shell)] border px-4 py-3",
                           item.ready
                             ? "border-emerald-200 bg-emerald-50/70"
                             : "border-slate-200/80 bg-slate-50/80",
@@ -2708,7 +2708,7 @@ export function TrainingShell() {
                     ))}
                   </div>
 
-                  <div className="mt-5 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
+                  <div className="mt-5 rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/80 px-4 py-4 text-sm leading-6 text-slate-600">
                     提交后会先创建训练任务记录，再由 Kubernetes
                     拉起容器。链路验收阶段建议先用小模型和小样本跑通流程。
                   </div>

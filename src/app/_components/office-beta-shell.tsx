@@ -2416,29 +2416,29 @@ export function OfficeBetaShell({ snapshot }: Props) {
   return (
     <AdminChrome>
       <div className="flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0">
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-white/80 bg-[linear-gradient(180deg,rgba(248,251,249,0.94)_0%,rgba(235,244,241,0.88)_100%)] px-4 py-4 shadow-[0_28px_80px_rgba(15,23,42,0.1)] backdrop-blur-xl md:px-5 md:py-5">
+        <div className="laptop-compact-office relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-shell)] border border-white/80 bg-[linear-gradient(180deg,rgba(248,251,249,0.94)_0%,rgba(235,244,241,0.88)_100%)] px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.05)] backdrop-blur-xl md:px-5 md:py-5">
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(32,86,75,0.05),transparent_34%,rgba(166,94,32,0.06))]" />
 
-          <div className="relative grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+          <div className="office-beta-header relative grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold tracking-[0.26em] text-[#5e7b70] uppercase">
                 2D live view
               </p>
               <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-2">
-                <h1 className="text-4xl leading-none font-semibold text-[#1e1712] md:text-5xl">
+                <h1 className="office-beta-title text-4xl leading-none font-semibold text-[#1e1712] md:text-5xl">
                   虚拟 Office
                 </h1>
                 <Badge className="mb-1 border border-[#b9d7c8] bg-[#eef8f2] px-2.5 py-1 text-[#28634d]">
                   {liveSnapshot.mode === "database" ? "Database" : "Fallback"}
                 </Badge>
               </div>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#60706b]">
+              <p className="office-beta-description mt-3 max-w-2xl text-sm leading-6 text-[#60706b]">
                 实时呈现办公室座席、人物、Runner 和任务流转状态。
               </p>
             </div>
 
             <div className="flex flex-col gap-3 xl:items-end">
-              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <div className="office-beta-actions flex flex-wrap items-center gap-2 xl:justify-end">
                 <Badge
                   className={cn(
                     "gap-2 border px-3 py-1.5",
@@ -2485,37 +2485,37 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
           </div>
 
-          <div className="relative mt-4 grid shrink-0 grid-cols-2 gap-2 xl:grid-cols-4">
+          <div className="office-beta-stats relative mt-3 grid shrink-0 grid-cols-2 overflow-hidden rounded-[var(--radius-card)] border border-white/72 bg-white/70 shadow-[0_1px_0_rgba(255,255,255,0.8)] xl:grid-cols-4">
             {officeStats.map((stat) => (
               <div
                 key={stat.label}
-                className="flex min-h-14 flex-col items-start justify-between gap-2 rounded-[14px] border border-white/70 bg-white/64 px-3 py-3 shadow-[0_12px_30px_rgba(51,65,85,0.06)] sm:min-h-16 sm:flex-row sm:items-center sm:px-4"
+                className="flex min-h-12 flex-col items-start justify-between gap-1.5 border-r border-b border-white/72 bg-white/42 px-3 py-2.5 last:border-r-0 sm:flex-row sm:items-center sm:px-4 xl:border-b-0"
               >
                 <div>
                   <p className="text-xs font-medium text-[#66736f]">
                     {stat.label}
                   </p>
-                  <p className="mt-1 text-xl leading-none font-semibold text-[#1f2724] md:text-2xl">
+                  <p className="mt-0.5 text-xl leading-none font-semibold text-[#1f2724]">
                     {stat.value}
                   </p>
                 </div>
-                <span className="rounded-full bg-[#edf5f1] px-2.5 py-1 text-[11px] font-medium text-[#497566] sm:text-xs">
+                <span className="rounded-[var(--radius-control)] bg-[#edf5f1] px-2 py-0.5 text-[11px] font-medium text-[#497566] sm:text-xs">
                   {stat.detail}
                 </span>
               </div>
             ))}
           </div>
 
-          <div className="relative mt-4 flex min-h-[520px] flex-1 overflow-hidden rounded-[22px] border border-white/80 bg-[#a98a62] shadow-[inset_0_1px_0_rgba(255,255,255,0.34),0_24px_60px_rgba(62,68,59,0.14)] xl:min-h-0">
+          <div className="office-beta-canvas relative mt-4 flex min-h-[520px] flex-1 overflow-hidden rounded-[var(--radius-shell)] border border-white/80 bg-[#a98a62] shadow-[inset_0_1px_0_rgba(255,255,255,0.34),0_24px_60px_rgba(62,68,59,0.14)] xl:min-h-0">
             <div
               ref={canvasHostRef}
-              className="relative h-full min-h-[520px] w-full bg-[linear-gradient(135deg,#dfe9e4_0%,#c9c0a1_42%,#9b7650_100%)] xl:min-h-0"
+              className="office-beta-canvas-host relative h-full min-h-[520px] w-full bg-[linear-gradient(135deg,#dfe9e4_0%,#c9c0a1_42%,#9b7650_100%)] xl:min-h-0"
             />
 
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),transparent_22%,rgba(74,53,40,0.12)_100%)]" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(244,249,247,0.46),transparent)]" />
 
-            <div className="absolute top-4 left-4 rounded-[16px] border border-white/76 bg-white/86 px-4 py-3 shadow-[0_18px_36px_rgba(42,53,47,0.14)] backdrop-blur-md">
+            <div className="absolute top-4 left-4 rounded-[var(--radius-card)] border border-white/76 bg-white/86 px-4 py-3 shadow-[0_18px_36px_rgba(42,53,47,0.14)] backdrop-blur-md">
               <p className="text-[11px] font-semibold tracking-[0.18em] text-[#60756d] uppercase">
                 最新快照
               </p>
@@ -2525,7 +2525,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
 
             <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
-              <div className="hidden rounded-[16px] border border-white/70 bg-[#17221f]/82 px-4 py-3 text-white shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-md md:block">
+              <div className="hidden rounded-[var(--radius-card)] border border-white/70 bg-[#17221f]/82 px-4 py-3 text-white shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-md md:block">
                 <p className="text-[11px] font-semibold tracking-[0.18em] text-white/58 uppercase">
                   空间容量
                 </p>
@@ -2572,7 +2572,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
 
             {selectedAgent ? (
-              <div className="absolute bottom-4 left-4 w-[min(calc(100%_-_2rem),360px)] rounded-[20px] border border-white/76 bg-[#fffaf4]/92 p-4 shadow-[0_24px_60px_rgba(35,34,28,0.18)] backdrop-blur-md md:p-5">
+              <div className="absolute bottom-4 left-4 w-[min(calc(100%_-_2rem),360px)] rounded-[var(--radius-shell)] border border-white/76 bg-[#fffaf4]/92 p-4 shadow-[0_24px_60px_rgba(35,34,28,0.18)] backdrop-blur-md md:p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-2xl font-semibold text-[#24170d]">
@@ -2671,12 +2671,12 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </div>
               </div>
             ) : hasAgents ? (
-              <div className="absolute bottom-4 left-4 rounded-[18px] border border-white/68 bg-white/88 px-4 py-3 text-sm font-medium text-[#3f564e] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md">
+              <div className="absolute bottom-4 left-4 rounded-[var(--radius-card)] border border-white/68 bg-white/88 px-4 py-3 text-sm font-medium text-[#3f564e] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md">
                 当前 {liveSnapshot.agents.length} 位人物在线 · {activeTaskCount}{" "}
                 个任务进行中
               </div>
             ) : (
-              <div className="absolute bottom-4 left-4 flex max-w-[min(calc(100%_-_2rem),460px)] flex-col gap-3 rounded-[20px] border border-white/70 bg-white/90 p-4 text-sm text-[#40554f] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+              <div className="absolute bottom-4 left-4 flex max-w-[min(calc(100%_-_2rem),460px)] flex-col gap-3 rounded-[var(--radius-shell)] border border-white/70 bg-white/90 p-4 text-sm text-[#40554f] shadow-[0_18px_38px_rgba(42,53,47,0.12)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
                 <span className="font-medium">
                   当前还没有人物，办公室处于待编排状态。
                 </span>
@@ -2694,13 +2694,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
           </div>
 
           {feedback ? (
-            <div className="mt-3 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="mt-3 rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
               {feedback}
             </div>
           ) : null}
 
           {liveSnapshot.readOnlyReason ? (
-            <div className="mt-3 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            <div className="mt-3 rounded-[var(--radius-shell)] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
               当前数据源处于回退模式：{liveSnapshot.readOnlyReason}
             </div>
           ) : null}
@@ -2745,7 +2745,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </FormField>
 
                 {selectedWorkstationZone ? (
-                  <div className="rounded-[22px] border border-[#ead8c1] bg-white/88 px-4 py-3">
+                  <div className="rounded-[var(--radius-shell)] border border-[#ead8c1] bg-white/88 px-4 py-3">
                     <p className="text-sm font-medium text-[#24170d]">
                       {selectedWorkstationZone.label}
                     </p>
@@ -2885,7 +2885,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </Select>
                 </FormField>
 
-                <div className="rounded-[22px] border border-[#ead8c1] bg-white/88 px-4 py-3">
+                <div className="rounded-[var(--radius-shell)] border border-[#ead8c1] bg-white/88 px-4 py-3">
                   <p className="text-sm font-medium text-[#24170d]">
                     {roleLabels[agentDraft.role]}
                   </p>

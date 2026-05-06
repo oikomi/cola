@@ -61,16 +61,16 @@ export function ProductAreaHeader({
   const content = (
     <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div className="flex items-start gap-3">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-slate-950 text-white shadow-[0_18px_36px_rgba(15,23,42,0.1)]">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-slate-950 text-white shadow-[0_8px_20px_rgba(15,23,42,0.1)]">
           <Icon className="size-5" />
         </div>
 
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <p className="text-[11px] font-medium tracking-[0.3em] text-slate-600 uppercase">
             {areaEyebrows[activeAreaMeta.key]}
           </p>
-          <div className="space-y-1.5">
-            <h2 className="text-xl font-semibold tracking-[-0.05em] text-slate-950 md:text-2xl">
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-xl font-semibold tracking-normal text-slate-950 md:text-2xl">
               {activeAreaMeta.title}
             </h2>
             <p className="max-w-3xl text-sm leading-6 text-slate-600">
@@ -80,9 +80,7 @@ export function ProductAreaHeader({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {contextBadges}
-      </div>
+      <div className="flex flex-wrap gap-2">{contextBadges}</div>
     </div>
   );
 
@@ -90,7 +88,7 @@ export function ProductAreaHeader({
     return (
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-slate-950 text-white shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-slate-950 text-white shadow-[0_8px_20px_rgba(15,23,42,0.1)]">
             <Icon className="size-4" />
           </div>
 
@@ -98,7 +96,7 @@ export function ProductAreaHeader({
             <p className="text-[10px] font-medium tracking-[0.24em] text-slate-500 uppercase">
               {areaEyebrows[activeAreaMeta.key]}
             </p>
-            <h2 className="mt-1 text-[1.02rem] leading-none font-semibold tracking-[-0.04em] text-slate-950">
+            <h2 className="mt-1 text-[1.02rem] leading-none font-semibold tracking-normal text-slate-950">
               {activeAreaMeta.title}
             </h2>
           </div>
@@ -112,8 +110,7 @@ export function ProductAreaHeader({
   }
 
   return (
-    <header className="relative shrink-0 overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.84))] px-6 py-6 shadow-[0_14px_38px_rgba(15,23,42,0.045)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.1),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.08),transparent_24%)]" />
+    <header className="border-border bg-card relative shrink-0 overflow-hidden rounded-[var(--radius-shell)] border px-6 py-6 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
       {content}
     </header>
   );
