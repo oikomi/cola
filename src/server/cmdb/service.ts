@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { Client } from "ssh2";
 import type { ConnectConfig } from "ssh2";
@@ -57,6 +57,11 @@ type DockerContainerStatus = {
   exitCode: number | null;
   ports: DockerContainerPort[];
 };
+type CmdbDeploymentResult = {
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+};
 
 type GitLabProject = {
   id: number;
@@ -95,6 +100,27 @@ type ProjectHealthProbeResult = {
 
 const HEALTH_CHECK_TIMEOUT_MS = 2500;
 const HEALTH_RESPONSE_PREVIEW_LENGTH = 600;
+const CMDB_DEPLOYING_GITLAB_STATUS = "cmdb_deploying";
+const DOCKER_DEFAULT_RESTART_POLICY = "unless-stopped";
+const SHELL_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CMDB_ASSET_SSH_CHECK_INTERVAL_MS = 60_000;
+const CMDB_ASSET_SSH_CHECK_CONCURRENCY = 3;
+
+const cmdbAssetSshMonitor = (() => {
+  const globalForMonitor = globalThis as unknown as {
+    cmdbAssetSshMonitor?: {
+      running: boolean;
+      timer: ReturnType<typeof setInterval> | null;
+    };
+  };
+
+  globalForMonitor.cmdbAssetSshMonitor ??= {
+    running: false,
+    timer: null,
+  };
+
+  return globalForMonitor.cmdbAssetSshMonitor;
+})();
 
 export type CmdbProjectTerminalTarget = {
   projectId: number;
@@ -188,6 +214,53 @@ function normalizeTargetAssetNames(
     .filter((assetName): assetName is string => Boolean(assetName));
 
   return Array.from(new Set(normalized));
+}
+
+function deployTargetRequiresAsset(
+  deployTarget: CmdbProjectRow["deployTarget"],
+) {
+  return deployTarget === "docker" || deployTarget === "ssh";
+}
+
+function deployTargetLabel(deployTarget: CmdbProjectRow["deployTarget"]) {
+  switch (deployTarget) {
+    case "k8s":
+      return "Kubernetes";
+    case "ssh":
+      return "SSH";
+    case "docker":
+      return "Docker";
+    default:
+      return "未指定";
+  }
+}
+
+function assertProjectReleaseReady(
+  project: CmdbProjectRow,
+  variables?: Record<string, string>,
+) {
+  if (!deployTargetRequiresAsset(project.deployTarget)) return;
+
+  const targetAssetNames = normalizeTargetAssetNames(
+    project.config?.targetAssetNames,
+    project.config?.targetAssetName,
+  );
+
+  if (targetAssetNames.length === 0) {
+    throw new Error(
+      `${deployTargetLabel(project.deployTarget)} 发布需要至少选择一台目标资产。`,
+    );
+  }
+
+  if (
+    project.deployTarget === "docker" &&
+    !cleanString(variables?.DOCKER_IMAGE) &&
+    !cleanString(project.config?.dockerImage)
+  ) {
+    throw new Error(
+      "Docker 发布需要在 CMDB 项目中配置 Docker 镜像，或在本次发布变量中传入 DOCKER_IMAGE。",
+    );
+  }
 }
 
 function normalizeSshPort(port: number | null | undefined) {
@@ -331,8 +404,104 @@ function sshExec(
   });
 }
 
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workerCount = Math.min(limit, items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }).map(async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+
+        if (item !== undefined) {
+          await worker(item);
+        }
+      }
+    }),
+  );
+}
+
+async function probeCmdbAssetSshStatus(asset: CmdbAssetRow) {
+  if (!asset.ip || !asset.sshUser || !asset.sshPassword) {
+    return "planned" satisfies CmdbAssetStatus;
+  }
+
+  try {
+    await sshExec({
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort: asset.sshPort ?? 22,
+    });
+    return "connected" satisfies CmdbAssetStatus;
+  } catch {
+    return "unknown" satisfies CmdbAssetStatus;
+  }
+}
+
+export async function refreshCmdbAssetSshStatuses(database: Database) {
+  if (cmdbAssetSshMonitor.running) return;
+
+  cmdbAssetSshMonitor.running = true;
+
+  try {
+    const assets = await database.select().from(cmdbAssets);
+
+    await runWithConcurrency(
+      assets,
+      CMDB_ASSET_SSH_CHECK_CONCURRENCY,
+      async (asset) => {
+        const nextStatus = await probeCmdbAssetSshStatus(asset);
+        if (nextStatus === asset.status) return;
+
+        await database
+          .update(cmdbAssets)
+          .set({
+            status: nextStatus,
+          })
+          .where(eq(cmdbAssets.id, asset.id));
+      },
+    );
+  } finally {
+    cmdbAssetSshMonitor.running = false;
+  }
+}
+
+function startCmdbAssetSshMonitor(database: Database) {
+  if (cmdbAssetSshMonitor.timer) return;
+
+  void refreshCmdbAssetSshStatuses(database).catch((error: unknown) => {
+    console.error("CMDB asset SSH status refresh failed", error);
+  });
+
+  cmdbAssetSshMonitor.timer = setInterval(() => {
+    void refreshCmdbAssetSshStatuses(database).catch((error: unknown) => {
+      console.error("CMDB asset SSH status refresh failed", error);
+    });
+  }, CMDB_ASSET_SSH_CHECK_INTERVAL_MS);
+}
+
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function shellEnvAssignment(name: string, value: string) {
+  if (!SHELL_ENV_NAME_PATTERN.test(name)) {
+    throw new Error(`无效的环境变量名: ${name}`);
+  }
+
+  return `${name}=${shellQuote(value)}`;
+}
+
+function shellEnvPrefix(variables: Record<string, string>) {
+  return Object.entries(variables)
+    .map(([key, value]) => shellEnvAssignment(key, value))
+    .join(" ");
 }
 
 function truncateOutput(value: string, maxLength = 20000) {
@@ -431,6 +600,88 @@ async function resolvePrimaryProjectAsset(
     sshUser: asset.sshUser,
     sshPassword: asset.sshPassword,
   };
+}
+
+async function resolveProjectAssets(
+  database: Database,
+  project: Pick<CmdbProjectRow, "name" | "config">,
+): Promise<SshReadyAssetRow[]> {
+  const targetAssetNames = normalizeTargetAssetNames(
+    project.config?.targetAssetNames,
+    project.config?.targetAssetName,
+  );
+
+  if (targetAssetNames.length === 0) {
+    throw new Error("项目未配置目标资产，无法执行远程部署。");
+  }
+
+  const assetRows = await database
+    .select()
+    .from(cmdbAssets)
+    .where(inArray(cmdbAssets.name, targetAssetNames));
+  const assetByName = new Map(assetRows.map((asset) => [asset.name, asset]));
+  const assets = targetAssetNames.map((assetName) => {
+    const asset = assetByName.get(assetName);
+    if (!asset) {
+      throw new Error(`目标资产 ${assetName} 不存在。`);
+    }
+    if (!asset.sshUser || !asset.sshPassword) {
+      throw new Error(`目标资产 ${assetName} 未配置 SSH 用户或密码。`);
+    }
+
+    return {
+      ...asset,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+    };
+  });
+
+  return assets;
+}
+
+function buildDeploymentCommandFailureMessage(
+  commandLabel: string,
+  result: {
+    stdout: string;
+    stderr: string;
+    code: number | null;
+  },
+) {
+  const output = [
+    result.stdout.trim() ? `stdout:\n${truncateOutput(result.stdout)}` : null,
+    result.stderr.trim() ? `stderr:\n${truncateOutput(result.stderr)}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return [
+    `${commandLabel} 执行失败，退出码 ${result.code ?? "unknown"}。`,
+    output,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function sshExecOrThrow(
+  asset: SshReadyAssetRow,
+  command: string,
+  commandLabel: string,
+) {
+  const result = await sshExec(
+    {
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort: asset.sshPort ?? 22,
+    },
+    command,
+  );
+
+  if (result.code !== 0) {
+    throw new Error(buildDeploymentCommandFailureMessage(commandLabel, result));
+  }
+
+  return result;
 }
 
 function buildDockerStatusCommand(containerName: string) {
@@ -585,6 +836,187 @@ function buildDockerLogsCommand(containerName: string, tail: number) {
     `CONTAINER=${container}`,
     `docker logs --tail ${tail} "$CONTAINER" 2>&1`,
   ].join("\n");
+}
+
+function dockerImageForDeployment(project: CmdbProjectRow, release: CmdbReleaseRow) {
+  const image =
+    cleanString(release.variables?.DOCKER_IMAGE) ??
+    cleanString(project.config?.dockerImage);
+
+  if (!image) {
+    throw new Error(
+      "Docker 发布需要配置 Docker 镜像，或在本次发布变量中传入 DOCKER_IMAGE。",
+    );
+  }
+
+  return image;
+}
+
+function dockerRunArgs(project: CmdbProjectRow, release: CmdbReleaseRow) {
+  return (
+    cleanString(release.variables?.DOCKER_RUN_ARGS) ??
+    cleanString(project.config?.customVariables?.DOCKER_RUN_ARGS)
+  );
+}
+
+function dockerRestartPolicy(project: CmdbProjectRow, release: CmdbReleaseRow) {
+  return (
+    cleanString(release.variables?.DOCKER_RESTART_POLICY) ??
+    cleanString(project.config?.customVariables?.DOCKER_RESTART_POLICY) ??
+    DOCKER_DEFAULT_RESTART_POLICY
+  );
+}
+
+function dockerRegistryHost(image: string, variables: Record<string, string>) {
+  const configuredRegistry = cleanString(variables.DOCKER_REGISTRY);
+  if (configuredRegistry) return configuredRegistry;
+
+  const firstSegment = image.split("/")[0];
+  if (
+    firstSegment &&
+    (firstSegment.includes(".") ||
+      firstSegment.includes(":") ||
+      firstSegment === "localhost")
+  ) {
+    return firstSegment;
+  }
+
+  return null;
+}
+
+function buildDockerRegistryLoginCommand(
+  image: string,
+  variables: Record<string, string>,
+) {
+  const username =
+    cleanString(variables.DOCKER_REGISTRY_USER) ??
+    cleanString(variables.CI_REGISTRY_USER);
+  const password =
+    cleanString(variables.DOCKER_REGISTRY_PASSWORD) ??
+    cleanString(variables.CI_REGISTRY_PASSWORD);
+  const registry =
+    dockerRegistryHost(image, variables) ?? cleanString(variables.CI_REGISTRY);
+
+  if (!username || !password || !registry) return null;
+
+  return [
+    `printf %s ${shellQuote(password)} | docker login -u ${shellQuote(
+      username,
+    )} --password-stdin ${shellQuote(registry)}`,
+  ];
+}
+
+function buildDockerDeployCommand(args: {
+  project: CmdbProjectRow;
+  release: CmdbReleaseRow;
+  asset: SshReadyAssetRow;
+}) {
+  const image = dockerImageForDeployment(args.project, args.release);
+  const containerName = dockerContainerName(args.project);
+  const runArgs = dockerRunArgs(args.project, args.release);
+  const restartPolicy = dockerRestartPolicy(args.project, args.release);
+  const variables = args.release.variables ?? {};
+  const loginCommand = buildDockerRegistryLoginCommand(image, variables);
+
+  return [
+    "set -eu",
+    `IMAGE=${shellQuote(image)}`,
+    `CONTAINER=${shellQuote(containerName)}`,
+    `RESTART_POLICY=${shellQuote(restartPolicy)}`,
+    `echo "CMDB Docker deploy: ${containerName} on ${args.asset.name}"`,
+    ...(loginCommand ?? []),
+    'docker pull "$IMAGE"',
+    'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true',
+    [
+      'docker run -d --restart "$RESTART_POLICY" --name "$CONTAINER"',
+      runArgs,
+      '"$IMAGE"',
+    ]
+      .filter(Boolean)
+      .join(" "),
+  ].join("\n");
+}
+
+function buildSshDeployCommand(args: {
+  project: CmdbProjectRow;
+  release: CmdbReleaseRow;
+  asset: SshReadyAssetRow;
+}) {
+  const configuredCommand =
+    cleanString(args.release.variables?.DEPLOY_COMMAND) ??
+    cleanString(args.project.config?.sshDeployCommand);
+
+  if (!configuredCommand) {
+    throw new Error("SSH 发布需要在 CMDB 项目中配置部署命令。");
+  }
+
+  const deployPath =
+    cleanString(args.release.variables?.DEPLOY_PATH) ??
+    cleanString(args.project.config?.sshPath);
+  const releaseVariables = { ...(args.release.variables ?? {}) };
+  delete releaseVariables.DEPLOY_COMMAND;
+  const envPrefix = shellEnvPrefix({
+    CMDB_PROJECT_NAME: args.project.name,
+    CMDB_PROJECT_PATH: args.project.gitlabPath,
+    CMDB_RELEASE_REF: args.release.ref,
+    DEPLOY_ENV: args.release.deployEnv ?? "",
+    DEPLOY_ASSET_NAME: args.asset.name,
+    DEPLOY_HOST: args.asset.ip,
+    ...releaseVariables,
+  });
+  const command = [
+    deployPath ? `cd ${shellQuote(deployPath)}` : null,
+    [envPrefix, configuredCommand].filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(" && ");
+
+  return ["set -eu", command].join("\n");
+}
+
+async function executeCmdbDeployment(
+  database: Database,
+  project: CmdbProjectRow,
+  release: CmdbReleaseRow,
+): Promise<CmdbDeploymentResult | null> {
+  if (project.deployTarget === "none") {
+    return null;
+  }
+
+  if (project.deployTarget === "k8s") {
+    return null;
+  }
+
+  const assets = await resolveProjectAssets(database, project);
+  const startedAt = Date.now();
+  const logs: string[] = [];
+
+  for (const asset of assets) {
+    const command =
+      project.deployTarget === "docker"
+        ? buildDockerDeployCommand({ project, release, asset })
+        : buildSshDeployCommand({ project, release, asset });
+    const result = await sshExecOrThrow(
+      asset,
+      command,
+      `${deployTargetLabel(project.deployTarget)} 部署到 ${asset.name}`,
+    );
+    const output = [
+      `# ${asset.name} (${asset.ip})`,
+      result.stdout.trim(),
+      result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    logs.push(output);
+  }
+
+  return {
+    stdout: truncateOutput(logs.join("\n\n")),
+    stderr: "",
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 function localDoubleQuote(value: string) {
@@ -1016,15 +1448,27 @@ export async function refreshRunningCmdbReleases(database: Database) {
     if (!item.release.gitlabPipelineId) continue;
 
     try {
+      if (item.release.gitlabStatus === CMDB_DEPLOYING_GITLAB_STATUS) {
+        continue;
+      }
+
       const pipeline = await gitlabApiFetch<GitLabPipeline>(
         `/projects/${item.project.gitlabProjectId ?? encodeURIComponent(item.project.gitlabPath)}/pipelines/${item.release.gitlabPipelineId}`,
       );
 
       const nextStatus = normalizePipelineStatus(pipeline.status);
+      if (nextStatus === "success") {
+        await completeCmdbReleaseDeployment(database, item.project, {
+          ...item.release,
+          gitlabStatus: pipeline.status,
+        });
+        continue;
+      }
+
       const completedAt =
-        nextStatus === "pending" || nextStatus === "running"
-          ? null
-          : new Date();
+        nextStatus === "failed" || nextStatus === "canceled"
+          ? new Date()
+          : null;
 
       if (
         nextStatus !== item.release.status ||
@@ -1043,6 +1487,69 @@ export async function refreshRunningCmdbReleases(database: Database) {
     } catch {
       // Keep last known state when GitLab polling fails.
     }
+  }
+}
+
+async function completeCmdbReleaseDeployment(
+  database: Database,
+  project: CmdbProjectRow,
+  release: CmdbReleaseRow,
+) {
+  const [lockedRelease] = await database
+    .update(cmdbReleases)
+    .set({
+      status: "running",
+      gitlabStatus: CMDB_DEPLOYING_GITLAB_STATUS,
+      lastError: null,
+    })
+    .where(
+      and(
+        eq(cmdbReleases.id, release.id),
+        inArray(cmdbReleases.status, ["pending", "running"]),
+        ne(cmdbReleases.gitlabStatus, CMDB_DEPLOYING_GITLAB_STATUS),
+      ),
+    )
+    .returning();
+
+  if (!lockedRelease) return;
+
+  try {
+    const deploymentResult = await executeCmdbDeployment(
+      database,
+      project,
+      lockedRelease,
+    );
+    const deploymentSummary = deploymentResult
+      ? [
+          `CMDB 部署完成，耗时 ${deploymentResult.durationMs}ms。`,
+          deploymentResult.stdout,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : project.deployTarget === "k8s"
+        ? "GitLab Pipeline 成功。Kubernetes 部署未由 CMDB 执行。"
+        : "GitLab Pipeline 成功，无需 CMDB 执行部署。";
+
+    await database
+      .update(cmdbReleases)
+      .set({
+        status: "success",
+        gitlabStatus: release.gitlabStatus ?? "success",
+        lastError: truncateOutput(deploymentSummary),
+        completedAt: new Date(),
+      })
+      .where(eq(cmdbReleases.id, lockedRelease.id));
+  } catch (error) {
+    await database
+      .update(cmdbReleases)
+      .set({
+        status: "failed",
+        gitlabStatus: release.gitlabStatus ?? "success",
+        lastError:
+          error instanceof Error ? truncateOutput(error.message) : "部署失败",
+        completedAt: new Date(),
+      })
+      .where(eq(cmdbReleases.id, lockedRelease.id));
   }
 }
 
@@ -1173,7 +1680,10 @@ export function normalizeProjectConfig(
 
 async function buildReleaseVariables(
   database: Database,
-  project: Pick<CmdbProjectRow, "deployTarget" | "config">,
+  project: Pick<
+    CmdbProjectRow,
+    "deployTarget" | "config" | "gitlabPath" | "defaultBranch"
+  >,
   overrides?: Record<string, string>,
 ) {
   const variables: Record<string, string> = {
@@ -1261,6 +1771,12 @@ async function buildReleaseVariables(
   if (project.config?.dockerImage) {
     variables.DOCKER_IMAGE = project.config.dockerImage;
   }
+  if (project.gitlabPath) {
+    variables.CMDB_PROJECT_PATH = project.gitlabPath;
+  }
+  if (project.defaultBranch) {
+    variables.CMDB_DEFAULT_BRANCH = project.defaultBranch;
+  }
   if (project.config?.sshPath) {
     variables.DEPLOY_PATH = project.config.sshPath;
   }
@@ -1297,6 +1813,7 @@ export async function createCmdbRelease(
     args.project,
     args.variables,
   );
+  assertProjectReleaseReady(args.project, variables);
 
   const [release] = await database
     .insert(cmdbReleases)
@@ -1329,10 +1846,20 @@ export async function createCmdbRelease(
         gitlabPipelineId: result.pipelineId,
         gitlabPipelineUrl: result.pipelineUrl,
         gitlabStatus: result.gitlabStatus,
-        status: result.status,
+        status: result.status === "success" ? "running" : result.status,
       })
       .where(eq(cmdbReleases.id, release.id))
       .returning();
+
+    if (updatedRelease && result.status === "success") {
+      await completeCmdbReleaseDeployment(database, args.project, updatedRelease);
+      const [completedRelease] = await database
+        .select()
+        .from(cmdbReleases)
+        .where(eq(cmdbReleases.id, updatedRelease.id));
+
+      return completedRelease ?? updatedRelease;
+    }
 
     return updatedRelease ?? release;
   } catch (error) {
@@ -1722,6 +2249,7 @@ export async function upsertCmdbProject(
 }
 
 export async function getCmdbDashboard(database: Database) {
+  startCmdbAssetSshMonitor(database);
   await refreshRunningCmdbReleases(database);
 
   const [assetRows, projectRows, releaseRows] = await Promise.all([

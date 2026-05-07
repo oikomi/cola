@@ -81,10 +81,34 @@ function isLoopbackHost(hostname: string) {
   return hostname === "127.0.0.1" || hostname === "localhost";
 }
 
+function isIpLiteral(hostname: string) {
+  return /^[0-9.]+$/.test(hostname) || hostname.includes(":");
+}
+
+function shouldPreferNativeUrl(nativeUrl: string, templateUrl: string) {
+  try {
+    const native = new URL(nativeUrl);
+    const template = new URL(templateUrl);
+
+    return (
+      isIpLiteral(native.hostname) &&
+      isIpLiteral(template.hostname) &&
+      !isLoopbackHost(native.hostname) &&
+      native.hostname !== template.hostname
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function mergeNativeWorkspaceUrl({
   nativeUrl,
   templateUrl,
 }: MergeNativeWorkspaceUrlInput) {
+  if (shouldPreferNativeUrl(nativeUrl, templateUrl)) {
+    return new URL(nativeUrl).toString();
+  }
+
   const native = new URL(nativeUrl);
   const template = new URL(templateUrl);
 

@@ -167,7 +167,8 @@ cache_and_distribute_installation_images_to_new_node() {
       "$IP" \
       "$SSH_USER" \
       "$SSH_PASSWORD" \
-      "$SSH_PORT"
+      "$SSH_PORT" \
+      "$image_ref"
   done
 }
 

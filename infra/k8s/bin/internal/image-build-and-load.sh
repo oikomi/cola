@@ -132,7 +132,7 @@ if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
 fi
 
 print_step "分发镜像到 ${#TARGET_NODES[@]} 个 arch=$LOCAL_ARCH 节点"
-load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" "${TARGET_NODES[@]}"
+load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" --image-ref "$IMAGE_REF" -- "${TARGET_NODES[@]}"
 
 mkdir -p "$WORKSPACE_IMAGE_METADATA_DIR"
 printf '%s\n' "$IMAGE_REF" > "$WORKSPACE_IMAGE_REF_PATH"

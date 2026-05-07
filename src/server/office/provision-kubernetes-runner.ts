@@ -30,6 +30,7 @@ import type {
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
+const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const OPENCLAW_NODE_PORT_START = 31180;
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_NODE_PORT_START = 31280;
@@ -44,15 +45,32 @@ type ClusterConfig = {
   controllerIp?: string;
 };
 
+type ClusterNode = {
+  ip?: string;
+};
+
 function readClusterConfig() {
   if (!existsSync(CLUSTER_CONFIG_PATH)) return null;
 
   return JSON.parse(readFileSync(CLUSTER_CONFIG_PATH, "utf8")) as ClusterConfig;
 }
 
+function readClusterNodes() {
+  if (!existsSync(CLUSTER_NODES_PATH)) return [];
+
+  return JSON.parse(readFileSync(CLUSTER_NODES_PATH, "utf8")) as ClusterNode[];
+}
+
 function clusterControllerIp() {
   const controllerIp = readClusterConfig()?.controllerIp?.trim();
   return controllerIp && controllerIp.length > 0 ? controllerIp : null;
+}
+
+function clusterNodeIps() {
+  return uniqueOrigins([
+    clusterControllerIp(),
+    ...readClusterNodes().map((node) => node.ip?.trim()),
+  ]);
 }
 
 type KubeClients = {
@@ -404,16 +422,19 @@ function dashboardPublicHost(engine: DockerRunnerEngine) {
       : process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
         process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
         process.env.COLA_DASHBOARD_PUBLIC_HOST;
+  const clusterHost = clusterControllerIp();
 
   if (configured?.trim()) {
-    return configured.trim();
+    const host = configured.trim();
+
+    if (isIpLiteral(host) && !clusterNodeIps().includes(host)) {
+      return clusterHost ?? host;
+    }
+
+    return host;
   }
 
-  if (engine === "hermes-agent") {
-    return clusterControllerIp();
-  }
-
-  return clusterControllerIp();
+  return clusterHost;
 }
 
 function uniqueOrigins(values: Array<string | null | undefined>) {
@@ -437,6 +458,10 @@ function isLoopbackDashboardHost(host: string) {
   return normalized === "localhost" || normalized === "127.0.0.1";
 }
 
+function isIpLiteral(host: string) {
+  return /^[0-9.]+$/.test(host.trim()) || host.includes(":");
+}
+
 function openClawDisableDeviceIdentity() {
   const raw = process.env.COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY;
   if (raw) {
@@ -456,6 +481,10 @@ function openClawAllowedOrigins(nodePort: number) {
     `http://127.0.0.1:${nodePort}`,
     publicHost ? `http://${publicHost}:${nodePort}` : null,
     publicHost ? `https://${publicHost}:${nodePort}` : null,
+    ...clusterNodeIps().flatMap((host) => [
+      `http://${host}:${nodePort}`,
+      `https://${host}:${nodePort}`,
+    ]),
     extractOrigin(process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL),
     ...(process.env.COLA_DASHBOARD_ALLOWED_ORIGINS ?? "")
       .split(",")

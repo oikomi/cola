@@ -82,6 +82,6 @@ if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
 fi
 
 print_step "分发训练镜像到 ${#TARGET_NODES[@]} 个 arch=$LOCAL_ARCH 节点"
-load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" "${TARGET_NODES[@]}"
+load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" --image-ref "$IMAGE_REF" -- "${TARGET_NODES[@]}"
 
 echo "训练镜像已导入集群节点: $IMAGE_REF"

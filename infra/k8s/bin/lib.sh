@@ -653,9 +653,66 @@ json_read_props() {
   ' "$@"
 }
 
+canonical_k8s_image_ref() {
+  local ref="$1"
+  local digest=""
+  local name_ref="$ref"
+  local name
+  local tag="latest"
+  local last_component
+  local first_component
+
+  if [[ "$ref" == *@* ]]; then
+    digest="@${ref#*@}"
+    name_ref="${ref%@*}"
+  fi
+
+  last_component="${name_ref##*/}"
+  if [[ -z "$digest" && "$last_component" == *:* ]]; then
+    tag="${last_component##*:}"
+    name="${name_ref%:*}"
+  else
+    name="$name_ref"
+  fi
+
+  first_component="${name%%/*}"
+  if [[ "$name" != */* ]]; then
+    name="docker.io/library/$name"
+  elif [[ "$first_component" == *.* || "$first_component" == *:* || "$first_component" == "localhost" ]]; then
+    :
+  else
+    name="docker.io/$name"
+  fi
+
+  if [[ -n "$digest" ]]; then
+    printf '%s%s\n' "$name" "$digest"
+  else
+    printf '%s:%s\n' "$name" "$tag"
+  fi
+}
+
+image_ref_base_name() {
+  local image_ref="$1"
+  local without_digest="${image_ref%@*}"
+  local last_component="${without_digest##*/}"
+
+  if [[ "$last_component" == *:* ]]; then
+    printf '%s\n' "${without_digest%:*}"
+  else
+    printf '%s\n' "$without_digest"
+  fi
+}
+
 load_compressed_image_archive_into_nodes() {
   local archive_path="$1"
   shift
+  local expected_image_ref=""
+
+  if [[ "${1:-}" == "--image-ref" ]]; then
+    expected_image_ref="$2"
+    shift 2
+    [[ "${1:-}" == "--" ]] && shift
+  fi
 
   [[ -f "$archive_path" ]] || die "找不到镜像归档: $archive_path"
   [[ $# -gt 0 ]] || die "未提供目标节点，无法导入镜像归档。"
@@ -671,7 +728,8 @@ load_compressed_image_archive_into_nodes() {
       "$(node_ip "$node_name")" \
       "$(node_user "$node_name")" \
       "$(node_password "$node_name")" \
-      "$(node_port "$node_name")"
+      "$(node_port "$node_name")" \
+      "$expected_image_ref"
   done
 }
 
@@ -681,12 +739,20 @@ load_compressed_image_archive_into_remote_host() {
   local ssh_user="$3"
   local ssh_password="$4"
   local ssh_port="$5"
+  local expected_image_ref="${6:-}"
   local archive_name
   local attempt
+  local expected_import_ref=""
+  local expected_base_name=""
+  local remote_script
 
   [[ -f "$archive_path" ]] || die "找不到镜像归档: $archive_path"
 
   archive_name="$(basename "$archive_path")"
+  if [[ -n "$expected_image_ref" ]]; then
+    expected_import_ref="$(canonical_k8s_image_ref "$expected_image_ref")"
+    expected_base_name="$(image_ref_base_name "$expected_import_ref")"
+  fi
 
   for attempt in 1 2 3; do
     if run_password_command "$ssh_password" \
@@ -706,11 +772,40 @@ load_compressed_image_archive_into_remote_host() {
     fi
   done
 
+  if [[ -n "$expected_import_ref" ]]; then
+    remote_script="
+set -euo pipefail
+
+archive=$(printf '%q' "/tmp/$archive_name")
+expected_ref=$(printf '%q' "$expected_import_ref")
+base_name=$(printf '%q' "$expected_base_name")
+
+gzip -dc \"\$archive\" | ctr -n k8s.io images import --local --base-name \"\$base_name\" --label io.cri-containerd.image=managed -
+
+if ! ctr -n k8s.io images list name==\"\$expected_ref\" | tail -n +2 | grep -q .; then
+  echo \"ERROR: imported image \$expected_ref was not found in containerd.\" >&2
+  ctr -n k8s.io images list | grep -F \"\$base_name\" >&2 || true
+  exit 1
+fi
+
+rm -f \"\$archive\"
+"
+  else
+    remote_script="
+set -euo pipefail
+
+archive=$(printf '%q' "/tmp/$archive_name")
+
+gzip -dc \"\$archive\" | ctr -n k8s.io images import --local --label io.cri-containerd.image=managed -
+rm -f \"\$archive\"
+"
+  fi
+
   run_password_command "$ssh_password" \
     ssh "${SSH_OPTS[@]}" \
     -p "$ssh_port" \
     "$ssh_user@$host_ip" \
-    "printf '%s\n' $(printf '%q' "$ssh_password") | sudo -S -p '' bash -lc $(printf '%q' "gzip -dc /tmp/$archive_name | ctr -n k8s.io images import - && rm -f /tmp/$archive_name")"
+    "printf '%s\n' $(printf '%q' "$ssh_password") | sudo -S -p '' bash -lc $(printf '%q' "$remote_script")"
 }
 
 controller_image_archive_dir() {
@@ -815,7 +910,7 @@ cache_and_distribute_image_archives_to_nodes() {
     prefetch_image_archive_on_controller "$image_ref" "$platform" || return 1
     archive_path="$(cached_image_archive_path "$image_ref" "$platform")"
     print_step "分发镜像 $image_ref 到 ${#target_nodes[@]} 个节点"
-    load_compressed_image_archive_into_nodes "$archive_path" "${target_nodes[@]}"
+    load_compressed_image_archive_into_nodes "$archive_path" --image-ref "$image_ref" -- "${target_nodes[@]}"
   done
 }
 
@@ -1196,7 +1291,7 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
     prefetch_image_archive_on_controller "$image_ref" "linux/$arch" || return 1
     archive_path="$(cached_image_archive_path "$image_ref" "linux/$arch")"
     print_step "分发镜像 $image_ref 到 ${#target_nodes[@]} 个节点"
-    load_compressed_image_archive_into_nodes "$archive_path" "${target_nodes[@]}"
+    load_compressed_image_archive_into_nodes "$archive_path" --image-ref "$image_ref" -- "${target_nodes[@]}"
 
     if [[ "$image_ref" == "$sandbox_source_ref" ]]; then
       tag_k8s_image_aliases_on_nodes \

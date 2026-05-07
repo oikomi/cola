@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
+import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
 import { cn, optionLabel } from "@/lib/utils";
 import {
@@ -2289,7 +2290,17 @@ export function OfficeBetaShell({ snapshot }: Props) {
     }
     openedWindow.opener = null;
 
-    let nativeUrl = selectedDevice?.nativeDashboardUrl ?? null;
+    let nativeUrl: string | null = null;
+    const baseTarget = {
+      agentId: selectedAgent.id,
+      deviceId: selectedAgent.deviceId,
+      engine: selectedAgent.engine,
+      openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
+      hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
+      origin: window.location.origin,
+    };
+
+    openedWindow.location.replace(resolveBrowserNativeWorkspaceHref(baseTarget));
 
     try {
       const refreshed = await getNativeDashboardUrl.mutateAsync({
@@ -2297,16 +2308,20 @@ export function OfficeBetaShell({ snapshot }: Props) {
       });
       nativeUrl = refreshed.url ?? nativeUrl;
     } catch {
-      nativeUrl = nativeUrl ?? null;
+      nativeUrl = null;
     }
 
     if (!nativeUrl) {
-      openedWindow.close();
-      setFeedback("当前人物的原生页面地址未配置。");
+      setFeedback("当前人物的原生页面地址未配置，已打开本地工作区。");
       return;
     }
 
-    openedWindow.location.replace(nativeUrl);
+    openedWindow.location.replace(
+      resolveBrowserNativeWorkspaceHref({
+        ...baseTarget,
+        nativeUrl,
+      }),
+    );
   };
 
   const zoomCanvas = (factor: number) => {

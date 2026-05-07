@@ -10,6 +10,7 @@ import {
   roleLabel,
   zoneForRole,
 } from "./domain.ts";
+import { resolveBrowserNativeWorkspaceHref } from "../../lib/office-routing.ts";
 
 void test("role helpers map roles to office zones and runner pools", () => {
   assert.equal(zoneForRole("engineering"), "engineering");
@@ -83,4 +84,42 @@ void test("metadata merge keeps existing keys and applies patch", () => {
   assert.deepEqual(mergeMetadata(null, { engine: "openclaw" }), {
     engine: "openclaw",
   });
+});
+
+void test("browser native workspace href merges live nodeport URL with template context", () => {
+  assert.equal(
+    resolveBrowserNativeWorkspaceHref({
+      agentId: "agent-1",
+      deviceId: "device-1",
+      engine: "openclaw",
+      nativeUrl: "http://172.16.60.198:31180/",
+      openclawTemplate: "http://dash.example.com/{agentId}/{deviceId}",
+      origin: "http://localhost:50038",
+    }),
+    "http://dash.example.com/agent-1/device-1?engine=openclaw",
+  );
+
+  assert.equal(
+    resolveBrowserNativeWorkspaceHref({
+      agentId: "agent-1",
+      deviceId: "device-1",
+      engine: "openclaw",
+      origin: "http://localhost:50038",
+    }),
+    "http://localhost:50038/openclaw/agent-1",
+  );
+});
+
+void test("browser native workspace href prefers fresh k8s node IP over stale public template IP", () => {
+  assert.equal(
+    resolveBrowserNativeWorkspaceHref({
+      agentId: "agent-1",
+      deviceId: "device-1",
+      engine: "openclaw",
+      nativeUrl: "http://172.16.60.198:31180/chat?session=main",
+      openclawTemplate: "http://172.16.50.83:31180/",
+      origin: "http://localhost:50038",
+    }),
+    "http://172.16.60.198:31180/chat?session=main",
+  );
 });

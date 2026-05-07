@@ -36,7 +36,7 @@ for image_ref in "${IMAGES[@]}"; do
   prefetch_image_archive_on_controller "$image_ref" "$LOCAL_PLATFORM"
   image_file="$(cached_image_archive_path "$image_ref" "$LOCAL_PLATFORM")"
   print_step "分发 $image_ref 到 ${#TARGET_NODES[@]} 个节点"
-  load_compressed_image_archive_into_nodes "$image_file" "${TARGET_NODES[@]}"
+  load_compressed_image_archive_into_nodes "$image_file" --image-ref "$image_ref" -- "${TARGET_NODES[@]}"
 done
 
 if sudo test -f "$(cluster_kubeconfig_path)"; then

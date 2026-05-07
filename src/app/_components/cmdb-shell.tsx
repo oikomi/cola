@@ -58,6 +58,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -158,9 +159,6 @@ const CMDB_ACTION_GROUP_CLASS =
   "inline-flex shrink-0 overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 const CMDB_ACTION_ICON_CLASS =
   "size-8 rounded-none border-0 border-r border-slate-200 bg-transparent text-slate-700 shadow-none last:border-r-0 hover:bg-slate-50 hover:text-slate-950";
-const CMDB_ACTION_BAR_CLASS = "flex min-w-max items-center justify-end gap-1.5";
-const CMDB_PROJECT_ACTION_HEAD_CLASS = "text-right";
-const CMDB_PROJECT_ACTION_CELL_CLASS = "text-right";
 const TERMINAL_OUTPUT_LIMIT = 120_000;
 const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
 const TERMINAL_INPUT_FLUSH_MS = 16;
@@ -170,6 +168,7 @@ const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 type CmdbAreaKey = "assets" | "projects" | "deployments";
 type ProjectDraftPanelKey = "basic" | "deploy" | "observe" | "variables";
+type ProjectBranchMode = "catalog" | "custom";
 
 const projectDraftPanels: Array<{
   key: ProjectDraftPanelKey;
@@ -198,7 +197,7 @@ const projectDraftPanels: Array<{
   {
     key: "variables",
     label: "变量",
-    summary: "流水线默认值",
+    summary: "构建与部署",
     icon: CircleDotIcon,
   },
 ];
@@ -239,6 +238,8 @@ type AssetDraft = {
 type ReleaseDraft = {
   projectId?: number;
   projectName: string;
+  deployTarget: ProjectRow["deployTarget"] | "";
+  dockerImage: string;
   ref: string;
   deployEnv: string;
   variablesText: string;
@@ -290,6 +291,8 @@ function emptyAssetDraft(): AssetDraft {
 function emptyReleaseDraft(): ReleaseDraft {
   return {
     projectName: "",
+    deployTarget: "",
+    dockerImage: "",
     ref: "main",
     deployEnv: "prod",
     variablesText: "",
@@ -333,6 +336,17 @@ function parseVariables(raw: string) {
       })
       .filter(([key, value]) => key.length > 0 && value.length > 0),
   );
+}
+
+function mergeReleaseVariables(draft: ReleaseDraft) {
+  const variables = parseVariables(draft.variablesText);
+  const dockerImage = draft.dockerImage.trim();
+
+  if (draft.deployTarget === "docker" && dockerImage.length > 0) {
+    variables.DOCKER_IMAGE = dockerImage;
+  }
+
+  return variables;
 }
 
 function serializeAssetRoles(roles: string[] | null | undefined) {
@@ -419,6 +433,8 @@ function releaseDraftFromRow(project: ProjectRow): ReleaseDraft {
   return {
     projectId: project.id,
     projectName: project.name,
+    deployTarget: project.deployTarget,
+    dockerImage: project.config?.dockerImage ?? "",
     ref: project.defaultBranch,
     deployEnv: project.config?.deployEnv ?? "prod",
     variablesText: "",
@@ -466,11 +482,11 @@ function assetStatusTone(status: AssetRow["status"]) {
 function assetStatusLabel(status: AssetRow["status"]) {
   switch (status) {
     case "connected":
-      return "已接入";
+      return "SSH 正常";
     case "planned":
-      return "待接入";
+      return "待检测";
     default:
-      return "未知";
+      return "SSH 异常";
   }
 }
 
@@ -632,24 +648,23 @@ function projectTargetAssetsLabel(config: ProjectRow["config"]) {
   return assetNames.length > 0 ? assetNames.join(", ") : "未指定资产";
 }
 
-function projectDraftSshDeploymentIssue(draft: ProjectDraft) {
-  if (draft.deployTarget !== "ssh") return null;
-
-  if (draft.targetAssetNames.length === 0) {
-    return "SSH 发布需要至少选择一台目标资产。";
+function projectDeployConfigLabel(project: ProjectRow) {
+  switch (project.deployTarget) {
+    case "k8s":
+      return `${project.config?.k8sNamespace ?? "default"} / ${
+        project.config?.k8sDeployment ?? "-"
+      }`;
+    case "docker":
+      return project.config?.dockerImage ?? "-";
+    case "ssh":
+      return project.config?.sshPath ?? "-";
+    default:
+      return "-";
   }
-
-  return null;
 }
 
-function savedProjectSshDeploymentIssue(project: ProjectRow) {
-  if (project.deployTarget !== "ssh") return null;
-
-  if (projectTargetAssetNames(project.config).length === 0) {
-    return "SSH 发布需要至少选择一台目标资产。";
-  }
-
-  return null;
+function deployTargetRequiresAsset(deployTarget: ProjectRow["deployTarget"]) {
+  return deployTarget === "docker" || deployTarget === "ssh";
 }
 
 function projectReleaseIssue(
@@ -657,10 +672,35 @@ function projectReleaseIssue(
   canTriggerPipelines: boolean,
 ) {
   if (!canTriggerPipelines) {
-    return "GitLab 未配置，无法触发 .gitlab-ci.yml。";
+    return "GitLab 未配置，无法触发构建流水线。";
   }
 
-  return savedProjectSshDeploymentIssue(project);
+  if (!deployTargetRequiresAsset(project.deployTarget)) return null;
+
+  if (projectTargetAssetNames(project.config).length === 0) {
+    return `${deployTargetLabel(project.deployTarget)} 发布需要至少选择一台目标资产。`;
+  }
+
+  return null;
+}
+
+function topicReleaseProjectIssue(
+  project: ProjectRow,
+  canTriggerPipelines: boolean,
+  variables: Record<string, string>,
+) {
+  const baseIssue = projectReleaseIssue(project, canTriggerPipelines);
+  if (baseIssue) return baseIssue;
+
+  if (
+    project.deployTarget === "docker" &&
+    !project.config?.dockerImage?.trim() &&
+    !variables.DOCKER_IMAGE?.trim()
+  ) {
+    return "Docker 发布需要配置项目镜像，或在本次变量中传入 DOCKER_IMAGE。";
+  }
+
+  return null;
 }
 
 function projectOperationIssue(
@@ -1117,21 +1157,6 @@ function CmdbOfflineWorkspace({
   );
 }
 
-function CmdbStatusDot({
-  className,
-  label,
-}: {
-  className: string;
-  label: string;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-      <CircleDotIcon className={cn("size-3", className)} />
-      {label}
-    </span>
-  );
-}
-
 function ProjectDraftField(props: {
   label: string;
   hint?: string;
@@ -1447,6 +1472,8 @@ export function CmdbShell() {
   const [activeArea, setActiveArea] = useState<CmdbAreaKey>("assets");
   const [projectDraftPanel, setProjectDraftPanel] =
     useState<ProjectDraftPanelKey>("basic");
+  const [projectBranchMode, setProjectBranchMode] =
+    useState<ProjectBranchMode>("catalog");
   const [assetDraft, setAssetDraft] = useState<AssetDraft>(emptyAssetDraft);
   const [assetRoleInput, setAssetRoleInput] = useState("");
   const [assetConnectionResult, setAssetConnectionResult] = useState<{
@@ -1558,6 +1585,7 @@ export function CmdbShell() {
       setProjectDialogOpen(false);
       setProjectDraft(emptyProjectDraft());
       setProjectDraftPanel("basic");
+      setProjectBranchMode("catalog");
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -1871,9 +1899,16 @@ export function CmdbShell() {
   const selectedBranchFromList = branchNames.includes(
     projectDraft.defaultBranch.trim(),
   );
-  const defaultBranchSelectValue = selectedBranchFromList
-    ? projectDraft.defaultBranch.trim()
-    : CUSTOM_BRANCH_VALUE;
+  const defaultBranchSelectValue =
+    projectBranchMode === "custom" || !selectedBranchFromList
+      ? CUSTOM_BRANCH_VALUE
+      : projectDraft.defaultBranch.trim();
+  const shouldShowCustomBranchInput =
+    projectBranchMode === "custom" ||
+    defaultBranchSelectValue === CUSTOM_BRANCH_VALUE ||
+    gitlabBranchesQuery.isError ||
+    (projectDraft.gitlabPath.trim().length > 0 &&
+      !dashboardQuery.data?.gitlab.canBrowseCatalog);
   const selectedRepoSummary = projectDraft.gitlabPath.trim().length
     ? {
         name:
@@ -1888,12 +1923,7 @@ export function CmdbShell() {
       }
     : null;
   const projectPathMissing = projectDraft.gitlabPath.trim().length === 0;
-  const projectSshDeploymentIssue =
-    projectDraftSshDeploymentIssue(projectDraft);
-  const projectSaveDisabled =
-    saveProject.isPending ||
-    projectPathMissing ||
-    Boolean(projectSshDeploymentIssue);
+  const projectSaveDisabled = saveProject.isPending || projectPathMissing;
   const projectDeploymentSummary =
     projectDraft.deployTarget === "none"
       ? "不触发部署"
@@ -1957,8 +1987,14 @@ export function CmdbShell() {
   ).length;
   const canTriggerPipelines = Boolean(data?.gitlab.canTriggerPipelines);
   const topicReleaseSelectedIds = new Set(topicReleaseDraft.projectIds);
+  const topicReleaseVariables = parseVariables(topicReleaseDraft.variablesText);
   const releasableProjects = projects.filter(
-    (project) => !projectReleaseIssue(project, canTriggerPipelines),
+    (project) =>
+      !topicReleaseProjectIssue(
+        project,
+        canTriggerPipelines,
+        topicReleaseVariables,
+      ),
   );
   const selectedTopicProjects = projects.filter((project) =>
     topicReleaseSelectedIds.has(project.id),
@@ -1995,7 +2031,7 @@ export function CmdbShell() {
         : String(data?.overview.assetTotal ?? assets.length),
       description: dashboardUnavailable
         ? "等待数据源恢复"
-        : `${connectedAssetTotal} 已接入 · ${gpuAssetTotal} GPU`,
+        : `${connectedAssetTotal} SSH 正常 · ${gpuAssetTotal} GPU`,
       icon: ServerIcon,
       tone:
         dashboardUnavailable ||
@@ -2057,7 +2093,7 @@ export function CmdbShell() {
     {
       key: "assets" as const,
       label: "服务器资产",
-      description: "手动维护服务器、角色、SSH 信息和项目挂载情况。",
+      description: "维护服务器、角色、SSH 信息和登录检测状态。",
       countLabel: dashboardUnavailable
         ? "无数据"
         : `${data?.overview.assetTotal ?? assets.length} 台资产`,
@@ -2075,7 +2111,7 @@ export function CmdbShell() {
     {
       key: "deployments" as const,
       label: "部署管理",
-      description: "追踪最近发布、Pipeline 状态和部署环境。",
+      description: "追踪最近发布、构建状态和部署环境。",
       countLabel: dashboardUnavailable
         ? "无数据"
         : `${data?.overview.runningReleaseTotal ?? 0} 个进行中`,
@@ -2102,6 +2138,7 @@ export function CmdbShell() {
   function openCreateDialog() {
     setProjectDraft(emptyProjectDraft());
     setProjectDraftPanel("basic");
+    setProjectBranchMode("catalog");
     setGitlabSearch("");
     setProjectDialogOpen(true);
   }
@@ -2109,6 +2146,7 @@ export function CmdbShell() {
   function openEditDialog(project: ProjectRow) {
     setProjectDraft(projectDraftFromRow(project));
     setProjectDraftPanel("basic");
+    setProjectBranchMode("catalog");
     setGitlabSearch(project.gitlabPath);
     setProjectDialogOpen(true);
   }
@@ -2554,6 +2592,7 @@ export function CmdbShell() {
   }
 
   function applyGitLabCandidate(candidate: GitLabCatalogRow) {
+    setProjectBranchMode("catalog");
     setProjectDraft((current) => ({
       ...current,
       name: candidate.name,
@@ -2575,6 +2614,7 @@ export function CmdbShell() {
       gitlabPath: manualGitLabPath,
       defaultBranch: current.defaultBranch.trim() || "main",
     }));
+    setProjectBranchMode("catalog");
     setProjectDraftPanel("basic");
   }
 
@@ -2694,12 +2734,6 @@ export function CmdbShell() {
       return;
     }
 
-    if (projectSshDeploymentIssue) {
-      setProjectDraftPanel("deploy");
-      setErrorMessage(projectSshDeploymentIssue);
-      return;
-    }
-
     saveProject.mutate({
       id: projectDraft.id,
       name: projectDraft.name || undefined,
@@ -2735,11 +2769,21 @@ export function CmdbShell() {
       return;
     }
 
+    const variables = mergeReleaseVariables(releaseDraft);
+
+    if (
+      releaseDraft.deployTarget === "docker" &&
+      !variables.DOCKER_IMAGE?.trim()
+    ) {
+      setErrorMessage("Docker 发布需要填写 Docker 镜像。");
+      return;
+    }
+
     triggerRelease.mutate({
       projectId: releaseDraft.projectId,
       ref: releaseDraft.ref || undefined,
       deployEnv: releaseDraft.deployEnv || undefined,
-      variables: parseVariables(releaseDraft.variablesText),
+      variables,
     });
   }
 
@@ -2749,12 +2793,27 @@ export function CmdbShell() {
       return;
     }
 
+    const variables = parseVariables(topicReleaseDraft.variablesText);
+    const selectedProjects = projects.filter((project) =>
+      topicReleaseDraft.projectIds.includes(project.id),
+    );
+    const releaseIssue = selectedProjects
+      .map((project) =>
+        topicReleaseProjectIssue(project, canTriggerPipelines, variables),
+      )
+      .find((issue): issue is string => Boolean(issue));
+
+    if (releaseIssue) {
+      setErrorMessage(releaseIssue);
+      return;
+    }
+
     triggerTopicRelease.mutate({
       topic: topicReleaseDraft.topic || undefined,
       projectIds: topicReleaseDraft.projectIds,
       ref: topicReleaseDraft.ref || undefined,
       deployEnv: topicReleaseDraft.deployEnv || undefined,
-      variables: parseVariables(topicReleaseDraft.variablesText),
+      variables,
     });
   }
 
@@ -2783,8 +2842,7 @@ export function CmdbShell() {
                   资产与发布管理
                 </h1>
                 <p className="mt-0.5 max-w-3xl text-[13px] leading-5 text-slate-600">
-                  统一维护服务器、GitLab 项目和 Pipeline
-                  发布记录，优先暴露连通性、健康检查和发布风险。
+                  统一维护服务器、GitLab 项目、构建与部署记录，优先暴露连通性、健康检查和发布风险。
                 </p>
               </div>
             </div>
@@ -2961,7 +3019,7 @@ export function CmdbShell() {
         <ModuleSection
           id="cmdb-panel-assets"
           title="服务器资产"
-          description="手动维护部署所需的 IP、SSH、角色与架构信息。"
+          description="手动维护部署所需的 IP、SSH、角色与架构信息，并定时检测 SSH 登录状态。"
           density="compact"
           className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           action={
@@ -3110,7 +3168,7 @@ export function CmdbShell() {
                       <TableHead>IP / SSH</TableHead>
                       <TableHead>角色</TableHead>
                       <TableHead>架构</TableHead>
-                      <TableHead>状态</TableHead>
+                      <TableHead>SSH 状态</TableHead>
                       <TableHead className="text-right">挂载服务</TableHead>
                       <TableHead className={STICKY_ACTION_HEAD_CLASS}>
                         操作
@@ -3268,7 +3326,7 @@ export function CmdbShell() {
               hints={[
                 "选择 GitLab 仓库，或手动输入 group/project",
                 "指定部署目标、目标资产和默认环境",
-                "补充健康检查 URL 与流水线变量",
+                "补充健康检查 URL 与发布变量",
               ]}
               action={
                 <Button
@@ -3282,90 +3340,134 @@ export function CmdbShell() {
               }
             />
           ) : (
-            <div className="grid gap-3">
-              <div className="grid gap-3 xl:hidden">
-                {projects.map((project) => (
-                  <article
-                    key={`project-card-${project.id}`}
-                    className="rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
-                            {project.name}
-                          </h3>
-                          {!project.enabled ? (
-                            <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
-                              已禁用
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-[13px] break-all text-slate-500">
-                          {project.gitlabPath}
-                        </p>
-                      </div>
-                      <Badge className="border border-slate-200 bg-white text-slate-700">
-                        {deployTargetLabel(project.deployTarget)}
-                      </Badge>
-                    </div>
+            <div className="grid gap-2">
+              {projects.map((project) => {
+                const release = project.latestRelease;
+                const releaseTopicLabel = release
+                  ? releaseTopic(release)
+                  : null;
+                const operationIssue = projectReleaseIssue(
+                  project,
+                  data.gitlab.canTriggerPipelines,
+                );
 
-                    <div className="mt-3 grid gap-x-5 gap-y-2 rounded-[10px] bg-slate-50/80 px-3 py-2.5 text-[13px] md:grid-cols-[minmax(0,1.45fr)_minmax(90px,0.55fr)_minmax(110px,0.62fr)]">
-                      <div className="min-w-0">
-                        <span className="block text-[11px] text-slate-500">
-                          目标位置
-                        </span>
-                        <span className="mt-1 block font-medium break-words text-slate-800">
-                          {projectTargetAssetsLabel(project.config)}
-                          <br />
-                          <span className="font-normal text-slate-500">
-                            {project.deployTarget === "k8s"
-                              ? `${project.config?.k8sNamespace ?? "default"} / ${project.config?.k8sDeployment ?? "-"}`
-                              : project.deployTarget === "docker"
-                                ? (project.config?.dockerImage ?? "-")
-                                : (project.config?.sshPath ?? "-")}
-                          </span>
-                        </span>
+                return (
+                  <article
+                    key={`project-row-${project.id}`}
+                    className="grid gap-3 rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:border-slate-300/90 hover:bg-slate-50/35 lg:grid-cols-[minmax(210px,0.9fr)_minmax(280px,1.35fr)_minmax(230px,0.95fr)_auto] lg:items-center lg:px-4"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 truncate text-[15px] leading-6 font-semibold tracking-normal text-slate-950">
+                          {project.name}
+                        </h3>
+                        {!project.enabled ? (
+                          <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
+                            已禁用
+                          </Badge>
+                        ) : null}
                       </div>
-                      <div>
-                        <span className="block text-[11px] text-slate-500">
-                          默认分支
-                        </span>
-                        <span className="mt-1 block font-medium text-slate-800">
+                      <p className="mt-0.5 truncate text-[13px] leading-5 text-slate-500">
+                        {project.gitlabPath}
+                      </p>
+                      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+                        <Badge className="border border-slate-200 bg-white text-slate-700">
+                          {deployTargetLabel(project.deployTarget)}
+                        </Badge>
+                        <span className="rounded-[7px] bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
                           {project.defaultBranch}
                         </span>
                       </div>
-                      <div>
-                        <span className="block text-[11px] text-slate-500">
-                          监控
+                    </div>
+
+                    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                      <div className="min-w-0 rounded-[10px] bg-slate-50/85 px-3 py-2">
+                        <p className="text-[11px] leading-4 font-medium text-slate-500">
+                          目标资产
+                        </p>
+                        <p className="mt-1 truncate text-sm leading-5 font-medium text-slate-900">
+                          {projectTargetAssetsLabel(project.config)}
+                        </p>
+                        <p className="mt-0.5 truncate font-mono text-xs leading-5 text-slate-500">
+                          {projectDeployConfigLabel(project)}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0 rounded-[10px] bg-slate-50/85 px-3 py-2">
+                        <p className="text-[11px] leading-4 font-medium text-slate-500">
+                          最近发布
+                        </p>
+                        {release ? (
+                          <>
+                            <div className="mt-1 flex min-w-0 items-center gap-2">
+                              <Badge
+                                className={cn(
+                                  "shrink-0 border",
+                                  releaseTone(release.status),
+                                )}
+                              >
+                                {releaseLabel(release.status)}
+                              </Badge>
+                              <span className="truncate text-xs text-slate-500">
+                                {formatTime(release.createdAt)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 truncate text-sm leading-5 text-slate-700">
+                              {release.ref}
+                              {release.deployEnv
+                                ? ` -> ${release.deployEnv}`
+                                : ""}
+                              {releaseTopicLabel
+                                ? ` · ${releaseTopicLabel}`
+                                : ""}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="mt-1 text-sm leading-5 text-slate-500">
+                            暂无发布
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 rounded-[10px] border border-slate-200/75 bg-white px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge
+                          className={cn(
+                            "shrink-0 border",
+                            monitorTone(project.monitor.status),
+                          )}
+                        >
+                          {monitorLabel(project.monitor.status)}
+                        </Badge>
+                        <span className="truncate text-xs font-medium text-slate-600">
+                          {monitorSummary(project)}
                         </span>
-                        <div className="mt-1">
-                          <CmdbStatusDot
-                            className={cn(
-                              project.monitor.status === "healthy"
-                                ? "text-emerald-600"
-                                : project.monitor.status === "degraded"
-                                  ? "text-rose-600"
-                                  : "text-slate-400",
-                            )}
-                            label={monitorLabel(project.monitor.status)}
-                          />
-                        </div>
-                        <div className="mt-1 min-w-0 text-[12px] leading-5 text-slate-600">
-                          <p
-                            className="truncate"
-                            title={project.monitor.message}
+                      </div>
+                      <p
+                        className="mt-1 truncate text-xs leading-5 text-slate-500"
+                        title={project.monitor.message}
+                      >
+                        {project.monitor.message}
+                      </p>
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                        {project.monitor.url ? (
+                          <a
+                            href={project.monitor.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="max-w-full truncate text-sky-700 hover:text-sky-900"
                           >
-                            {project.monitor.message}
-                          </p>
-                          <p className="truncate text-slate-500">
-                            {monitorSummary(project)}
-                          </p>
-                        </div>
+                            {project.monitor.url}
+                          </a>
+                        ) : (
+                          <span>未配置检查地址</span>
+                        )}
+                        <span>检查 {monitorCheckedAtLabel(project)}</span>
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="xs"
-                          className="mt-2 w-fit rounded-[8px] border-slate-200 bg-white"
+                          className="h-6 rounded-[7px] px-1.5 text-slate-600 hover:bg-slate-100"
                           onClick={() => openMonitorDialog(project)}
                         >
                           <InfoIcon data-icon="inline-start" />
@@ -3374,62 +3476,25 @@ export function CmdbShell() {
                       </div>
                     </div>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[10px] border border-slate-200/80 bg-white px-3 py-2">
-                      <p className="text-[11px] font-medium text-slate-500">
-                        最近发布
-                      </p>
-                      {project.latestRelease ? (
-                        <>
-                          <Badge
-                            className={cn(
-                              "border",
-                              releaseTone(project.latestRelease.status),
-                            )}
-                          >
-                            {releaseLabel(project.latestRelease.status)}
-                          </Badge>
-                          <span className="text-xs text-slate-500">
-                            {formatTime(project.latestRelease.createdAt)}
-                          </span>
-                          <span className="text-sm text-slate-700">
-                            {project.latestRelease.ref}
-                            {project.latestRelease.deployEnv
-                              ? ` -> ${project.latestRelease.deployEnv}`
-                              : ""}
-                          </span>
-                          {releaseTopic(project.latestRelease) ? (
-                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                              主题 {releaseTopic(project.latestRelease)}
-                            </Badge>
-                          ) : null}
-                        </>
-                      ) : (
-                        <p className="text-sm text-slate-500">暂无发布</p>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-2.5">
+                    <div className="flex flex-wrap items-center justify-end gap-2 lg:flex-col lg:items-stretch">
                       <Button
                         size="sm"
-                        className="h-8 rounded-[9px] bg-slate-900 text-white hover:bg-slate-800"
+                        className="h-8 rounded-[9px] bg-slate-900 px-3 text-white hover:bg-slate-800 lg:w-full"
                         onClick={() => openReleaseModal(project)}
-                        disabled={Boolean(
-                          projectReleaseIssue(
-                            project,
-                            data.gitlab.canTriggerPipelines,
-                          ),
-                        )}
-                        title={
-                          projectReleaseIssue(
-                            project,
-                            data.gitlab.canTriggerPipelines,
-                          ) ?? undefined
-                        }
+                        disabled={Boolean(operationIssue)}
+                        title={operationIssue ?? undefined}
                       >
                         <RocketIcon data-icon="inline-start" />
                         发布
                       </Button>
-                      <div className={CMDB_ACTION_GROUP_CLASS}>
+                      {operationIssue ? (
+                        <p className="max-w-[220px] text-right text-xs leading-5 text-rose-600 lg:max-w-none">
+                          {operationIssue}
+                        </p>
+                      ) : null}
+                      <div
+                        className={cn(CMDB_ACTION_GROUP_CLASS, "justify-end")}
+                      >
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -3522,294 +3587,8 @@ export function CmdbShell() {
                       </div>
                     </div>
                   </article>
-                ))}
-              </div>
-
-              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
-                <Table className="min-w-[1180px] table-fixed">
-                  <colgroup>
-                    <col className="w-[13%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[25%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[20%]" />
-                    <col className="w-[24%]" />
-                  </colgroup>
-                  <TableHeader className="bg-slate-50/90">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>项目</TableHead>
-                      <TableHead>部署目标</TableHead>
-                      <TableHead>位置 / 配置</TableHead>
-                      <TableHead>最近发布</TableHead>
-                      <TableHead>监控</TableHead>
-                      <TableHead className={CMDB_PROJECT_ACTION_HEAD_CLASS}>
-                        操作
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {projects.map((project) => (
-                      <TableRow key={project.id} className="group">
-                        <TableCell>
-                          <div className="grid min-w-0 gap-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-slate-950">
-                                {project.name}
-                              </span>
-                              {!project.enabled ? (
-                                <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
-                                  已禁用
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <div className="truncate text-sm text-slate-600">
-                              {project.gitlabPath}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="grid gap-1">
-                            <Badge className="w-fit border border-slate-200 bg-white text-slate-700">
-                              {deployTargetLabel(project.deployTarget)}
-                            </Badge>
-                            <span className="text-xs text-slate-500">
-                              默认分支 {project.defaultBranch}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          <div className="truncate">
-                            {projectTargetAssetsLabel(project.config)}
-                          </div>
-                          <div className="truncate">
-                            {project.deployTarget === "k8s"
-                              ? `${project.config?.k8sNamespace ?? "default"} / ${project.config?.k8sDeployment ?? "-"}`
-                              : project.deployTarget === "docker"
-                                ? (project.config?.dockerImage ?? "-")
-                                : (project.config?.sshPath ?? "-")}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {project.latestRelease ? (
-                            <div className="grid gap-1">
-                              <div className="flex items-center gap-2">
-                                <Badge
-                                  className={cn(
-                                    "border",
-                                    releaseTone(project.latestRelease.status),
-                                  )}
-                                >
-                                  {releaseLabel(project.latestRelease.status)}
-                                </Badge>
-                                <span className="text-xs text-slate-500">
-                                  {formatTime(project.latestRelease.createdAt)}
-                                </span>
-                              </div>
-                              <div className="truncate text-sm text-slate-600">
-                                {project.latestRelease.ref}
-                                {project.latestRelease.deployEnv
-                                  ? ` -> ${project.latestRelease.deployEnv}`
-                                  : ""}
-                              </div>
-                              {releaseTopic(project.latestRelease) ? (
-                                <div className="text-xs text-sky-700">
-                                  主题 {releaseTopic(project.latestRelease)}
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-500">
-                              暂无发布
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="grid gap-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge
-                                className={cn(
-                                  "w-fit border",
-                                  monitorTone(project.monitor.status),
-                                )}
-                              >
-                                {monitorLabel(project.monitor.status)}
-                              </Badge>
-                              <span className="text-xs font-medium text-slate-600">
-                                {monitorSummary(project)}
-                              </span>
-                            </div>
-                            <span className="[display:-webkit-box] overflow-hidden text-xs leading-5 break-words text-slate-500 [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-                              {project.monitor.message}
-                            </span>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                              {project.monitor.url ? (
-                                <span className="max-w-full truncate">
-                                  {project.monitor.url}
-                                </span>
-                              ) : (
-                                <span>未配置检查地址</span>
-                              )}
-                              <span>检查 {monitorCheckedAtLabel(project)}</span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="xs"
-                                className="rounded-[8px] border-slate-200 bg-white"
-                                onClick={() => openMonitorDialog(project)}
-                              >
-                                <InfoIcon data-icon="inline-start" />
-                                详情
-                              </Button>
-                              {project.monitor.url ? (
-                                <a
-                                  href={project.monitor.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className={cn(
-                                    buttonVariants({
-                                      variant: "outline",
-                                      size: "xs",
-                                    }),
-                                    "rounded-[8px] border-slate-200 bg-white",
-                                  )}
-                                >
-                                  <ExternalLinkIcon data-icon="inline-start" />
-                                  打开
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className={CMDB_PROJECT_ACTION_CELL_CLASS}>
-                          <div className={CMDB_ACTION_BAR_CLASS}>
-                            <Button
-                              size="sm"
-                              className="h-8 rounded-[9px] bg-slate-900 px-3 text-white hover:bg-slate-800"
-                              onClick={() => openReleaseModal(project)}
-                              disabled={Boolean(
-                                projectReleaseIssue(
-                                  project,
-                                  data.gitlab.canTriggerPipelines,
-                                ),
-                              )}
-                              title={
-                                projectReleaseIssue(
-                                  project,
-                                  data.gitlab.canTriggerPipelines,
-                                ) ?? undefined
-                              }
-                            >
-                              <RocketIcon data-icon="inline-start" />
-                              发布
-                            </Button>
-                            <div className={CMDB_ACTION_GROUP_CLASS}>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openProjectOperation(project, "dockerStatus")
-                                }
-                                disabled={Boolean(
-                                  projectOperationIssue(
-                                    project,
-                                    "dockerStatus",
-                                  ),
-                                )}
-                                title={
-                                  projectOperationIssue(
-                                    project,
-                                    "dockerStatus",
-                                  ) ?? "容器状态"
-                                }
-                              >
-                                <ActivityIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openProjectOperation(project, "dockerLogs")
-                                }
-                                disabled={Boolean(
-                                  projectOperationIssue(project, "dockerLogs"),
-                                )}
-                                title={
-                                  projectOperationIssue(
-                                    project,
-                                    "dockerLogs",
-                                  ) ?? "运行日志"
-                                }
-                              >
-                                <ScrollTextIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openProjectOperation(project, "sshInfo")
-                                }
-                                disabled={Boolean(
-                                  projectOperationIssue(project, "sshInfo"),
-                                )}
-                                title={
-                                  projectOperationIssue(project, "sshInfo") ??
-                                  remoteLoginLabel(project.deployTarget)
-                                }
-                              >
-                                <TerminalIcon />
-                              </Button>
-                              {project.gitlabWebUrl ? (
-                                <a
-                                  href={project.gitlabWebUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="打开 GitLab"
-                                  className={cn(
-                                    buttonVariants({
-                                      variant: "ghost",
-                                      size: "icon-sm",
-                                    }),
-                                    CMDB_ACTION_ICON_CLASS,
-                                  )}
-                                >
-                                  <ExternalLinkIcon />
-                                </a>
-                              ) : null}
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() => openEditDialog(project)}
-                                title="编辑项目"
-                              >
-                                <PencilIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={cn(
-                                  CMDB_ACTION_ICON_CLASS,
-                                  "text-rose-600 hover:text-rose-700",
-                                )}
-                                onClick={() =>
-                                  void handleDeleteProject(project)
-                                }
-                                title="删除项目"
-                              >
-                                <Trash2Icon />
-                              </Button>
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                );
+              })}
             </div>
           )}
         </ModuleSection>
@@ -3819,7 +3598,7 @@ export function CmdbShell() {
         <ModuleSection
           id="cmdb-panel-deployments"
           title="部署管理"
-          description="查看最近发布记录、环境和 Pipeline 状态。"
+          description="查看最近发布记录、环境、构建和 CMDB 部署状态。"
           density="compact"
           className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           action={
@@ -3865,11 +3644,11 @@ export function CmdbShell() {
             <CmdbEmptyState
               icon={RocketIcon}
               title="还没有发布记录"
-              description="从项目管理视图触发发布后，这里会显示最近的部署记录和 Pipeline 状态。"
+              description="从项目管理视图触发发布后，这里会显示最近的构建和 CMDB 部署状态。"
               hints={[
                 "先在项目管理中纳管 GitLab 项目",
                 "确认 GitLab URL、API Token 或 Trigger Token",
-                "触发发布后在这里跟踪 Pipeline 状态",
+                "触发发布后在这里跟踪构建和部署状态",
               ]}
               action={
                 projects.length > 0 ? (
@@ -4985,7 +4764,7 @@ export function CmdbShell() {
                       description={
                         assetSshUserReady
                           ? "已填写登录用户"
-                          : "用于 GitLab Pipeline 登录目标机器"
+                          : "用于 CMDB 登录目标机器执行部署和运维"
                       }
                     />
                     <AssetReadinessItem
@@ -5030,15 +4809,15 @@ export function CmdbShell() {
                         SSH 部署凭据
                       </h3>
                       <p className="mt-1 text-xs leading-5 text-slate-500">
-                        后续发布会把这里保存的账号密码注入 GitLab Pipeline。
+                        后续发布会由 CMDB 使用这里保存的账号密码登录目标资产。
                       </p>
                     </div>
                   </div>
 
                   <div className="mt-4 rounded-[12px] border border-sky-100 bg-sky-50/70 px-3 py-3 text-sm leading-6 text-slate-700">
                     当前 CMDB 会保存 SSH 用户、密码和端口；“登录测试”会真正建立
-                    SSH 会话。部署目标选择 SSH 时，会把目标资产整理为
-                    DEPLOY_TARGETS_JSON，并由仓库里的 .gitlab-ci.yml 执行发布。
+                    SSH 会话。部署目标选择 Docker 或 SSH 时，GitLab 只负责构建镜像，
+                    后续部署由 CMDB 登录目标资产执行。
                   </div>
 
                   <div className="mt-3 grid gap-2 text-xs text-slate-600">
@@ -5051,7 +4830,7 @@ export function CmdbShell() {
                     <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50 px-3 py-2">
                       <span>部署使用</span>
                       <span className="font-medium text-slate-800">
-                        Pipeline 变量
+                        CMDB 远程执行
                       </span>
                     </div>
                   </div>
@@ -5429,26 +5208,12 @@ export function CmdbShell() {
                       />
                     </ProjectDraftField>
 
-                    <ProjectDraftField label="描述">
-                      <Textarea
-                        value={projectDraft.description}
-                        onChange={(event) =>
-                          setProjectDraft((current) => ({
-                            ...current,
-                            description: event.target.value,
-                          }))
-                        }
-                        placeholder="描述这个项目在 CMDB 中负责什么服务。"
-                        className="min-h-[104px]"
-                      />
-                    </ProjectDraftField>
-
-                    <div className="grid gap-4 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+                    <div className="grid gap-3 md:max-w-[520px]">
                       <ProjectDraftField
                         label="默认分支"
                         hint={
                           gitlabBranchesQuery.isError
-                            ? "分支列表读取失败，可在右侧手动填写。"
+                            ? "分支列表读取失败，可在下方手动填写。"
                             : gitlabBranchItems.length > 0
                               ? "已从 GitLab 仓库读取分支。"
                               : "未读取到分支时仍可手动填写。"
@@ -5458,8 +5223,17 @@ export function CmdbShell() {
                           value={defaultBranchSelectValue}
                           onValueChange={(value) => {
                             if (!value) return;
-                            if (value === CUSTOM_BRANCH_VALUE) return;
+                            if (value === CUSTOM_BRANCH_VALUE) {
+                              setProjectBranchMode("custom");
+                              setProjectDraft((current) => ({
+                                ...current,
+                                defaultBranch:
+                                  current.defaultBranch.trim() || "main",
+                              }));
+                              return;
+                            }
 
+                            setProjectBranchMode("catalog");
                             setProjectDraft((current) => ({
                               ...current,
                               defaultBranch: value,
@@ -5481,16 +5255,30 @@ export function CmdbShell() {
                                   : projectDraft.defaultBranch.trim() || "main"}
                             </SelectValue>
                           </SelectTrigger>
-                          <SelectContent className="max-h-72 rounded-[12px]">
+                          <SelectContent
+                            align="start"
+                            alignItemWithTrigger={false}
+                            className="max-h-64 rounded-[12px]"
+                            side="bottom"
+                            sideOffset={6}
+                          >
                             <SelectGroup>
+                              <SelectItem value={CUSTOM_BRANCH_VALUE}>
+                                自定义分支
+                              </SelectItem>
+                              <SelectSeparator />
                               {branchNames.map((branch) => {
                                 const branchMeta = gitlabBranchItems.find(
                                   (item) => item.name === branch,
                                 );
 
                                 return (
-                                  <SelectItem key={branch} value={branch}>
-                                    <span className="min-w-0 truncate">
+                                  <SelectItem
+                                    key={branch}
+                                    value={branch}
+                                    className="min-w-0"
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">
                                       {branch}
                                     </span>
                                     {branchMeta?.isDefault ? (
@@ -5506,27 +5294,44 @@ export function CmdbShell() {
                                   </SelectItem>
                                 );
                               })}
-                              <SelectItem value={CUSTOM_BRANCH_VALUE}>
-                                自定义分支
-                              </SelectItem>
                             </SelectGroup>
                           </SelectContent>
                         </Select>
                       </ProjectDraftField>
 
-                      <ProjectDraftField label="手动分支">
-                        <Input
-                          value={projectDraft.defaultBranch}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              defaultBranch: event.target.value,
-                            }))
-                          }
-                          placeholder="main"
-                        />
-                      </ProjectDraftField>
+                      {shouldShowCustomBranchInput ? (
+                        <ProjectDraftField
+                          label="自定义分支"
+                          hint="可输入分支、Tag 或其他 GitLab ref。"
+                          className="gap-1.5"
+                        >
+                          <Input
+                            value={projectDraft.defaultBranch}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                defaultBranch: event.target.value,
+                              }))
+                            }
+                            placeholder="main"
+                          />
+                        </ProjectDraftField>
+                      ) : null}
                     </div>
+
+                    <ProjectDraftField label="描述">
+                      <Textarea
+                        value={projectDraft.description}
+                        onChange={(event) =>
+                          setProjectDraft((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                        placeholder="描述这个项目在 CMDB 中负责什么服务。"
+                        className="min-h-[104px]"
+                      />
+                    </ProjectDraftField>
                   </section>
                 ) : null}
 
@@ -5537,7 +5342,7 @@ export function CmdbShell() {
                         部署配置
                       </h3>
                       <p className="text-sm leading-6 text-slate-500">
-                        默认触发仓库里的 .gitlab-ci.yml，并注入部署目标变量。
+                        GitLab 负责标准化构建，CMDB 负责后续部署和远程运维。
                       </p>
                     </div>
 
@@ -5586,7 +5391,7 @@ export function CmdbShell() {
 
                     <ProjectDraftField
                       label="目标资产"
-                      hint="可选择多台服务器，发布时会作为 DEPLOY_TARGETS_JSON 传入 Pipeline。"
+                      hint="可选择多台服务器，发布时由 CMDB 依次登录目标资产执行部署。"
                     >
                       <div className="grid gap-3 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
                         <div className="flex min-h-7 flex-wrap gap-2">
@@ -5703,7 +5508,10 @@ export function CmdbShell() {
                     ) : null}
 
                     {projectDraft.deployTarget === "docker" ? (
-                      <ProjectDraftField label="Docker 镜像">
+                      <ProjectDraftField
+                        label="Docker 镜像"
+                        hint="构建流水线需要推送这个镜像；CMDB 会在目标资产上拉取并重启容器。"
+                      >
                         <Input
                           value={projectDraft.dockerImage}
                           onChange={(event) =>
@@ -5719,7 +5527,7 @@ export function CmdbShell() {
 
                     <ProjectDraftField
                       label="Trigger Token"
-                      hint="可选；用于触发 .gitlab-ci.yml，未配置则使用全局 GitLab API Token。"
+                      hint="可选；用于触发构建流水线，未配置则使用全局 GitLab API Token。"
                     >
                       <Input
                         value={projectDraft.triggerToken}
@@ -5737,19 +5545,16 @@ export function CmdbShell() {
                       <div className="grid gap-4">
                         <Alert className="border-sky-200 bg-sky-50 text-sky-900">
                           <GitBranchIcon className="size-4" />
-                          <AlertTitle>默认使用 .gitlab-ci.yml 发布</AlertTitle>
+                          <AlertTitle>由 CMDB 执行 SSH 部署</AlertTitle>
                           <AlertDescription>
-                            发布时会触发 GitLab Pipeline，并注入
-                            DEPLOY_HOST、DEPLOY_SSH_USER、DEPLOY_SSH_PASSWORD、DEPLOY_SSH_PORT
-                            等变量。部署路径和部署命令可留空，由仓库里的
-                            .gitlab-ci.yml 决定。
+                            GitLab 构建成功后，CMDB 会登录目标资产，并在部署路径下执行这里配置的部署命令。
                           </AlertDescription>
                         </Alert>
 
                         <div className="grid gap-4 md:grid-cols-2">
                           <ProjectDraftField
-                            label="部署路径变量"
-                            hint="可选；会作为 DEPLOY_PATH 传入 Pipeline。"
+                            label="部署路径"
+                            hint="可选；CMDB 会先切换到该目录再执行部署命令。"
                           >
                             <Input
                               value={projectDraft.sshPath}
@@ -5763,8 +5568,8 @@ export function CmdbShell() {
                             />
                           </ProjectDraftField>
                           <ProjectDraftField
-                            label="部署命令变量"
-                            hint="可选；会作为 DEPLOY_COMMAND 传入 Pipeline。"
+                            label="部署命令"
+                            hint="SSH 发布必填；GitLab 构建成功后由 CMDB 在目标资产上执行。"
                           >
                             <Input
                               value={projectDraft.sshDeployCommand}
@@ -5827,10 +5632,10 @@ export function CmdbShell() {
                   <section className="grid gap-4 rounded-[12px] border border-slate-200 bg-white p-4">
                     <div className="space-y-1">
                       <h3 className="text-sm font-semibold text-slate-950">
-                        默认流水线变量
+                        默认发布变量
                       </h3>
                       <p className="text-sm leading-6 text-slate-500">
-                        每行一个 KEY=VALUE，发布时可追加覆盖。
+                        每行一个 KEY=VALUE，会传给构建流水线，并可被 CMDB 部署步骤使用。
                       </p>
                     </div>
 
@@ -5905,8 +5710,7 @@ export function CmdbShell() {
           <DialogHeader>
             <DialogTitle>触发代码发布</DialogTitle>
             <DialogDescription>
-              当前发布将触发 GitLab Pipeline，默认由仓库里的 .gitlab-ci.yml
-              执行部署，并自动注入 CMDB 部署目标变量。
+              当前发布会先触发 GitLab 构建流水线；构建成功后，CMDB 会根据项目配置执行部署。
             </DialogDescription>
           </DialogHeader>
 
@@ -5940,9 +5744,30 @@ export function CmdbShell() {
                 />
               </ProjectDraftField>
             </div>
+            {releaseDraft.deployTarget === "docker" ? (
+              <ProjectDraftField
+                label="Docker 镜像"
+                hint="本次 Docker 发布会使用该镜像；这里会作为 DOCKER_IMAGE 传给构建流水线和 CMDB 部署步骤。"
+              >
+                <Input
+                  value={releaseDraft.dockerImage}
+                  onChange={(event) =>
+                    setReleaseDraft((current) => ({
+                      ...current,
+                      dockerImage: event.target.value,
+                    }))
+                  }
+                  placeholder="registry.local/cola/web:latest"
+                />
+              </ProjectDraftField>
+            ) : null}
             <ProjectDraftField
               label="本次附加变量"
-              hint="每行一个 KEY=VALUE，会覆盖项目默认变量。"
+              hint={
+                releaseDraft.deployTarget === "docker"
+                  ? "每行一个 KEY=VALUE，会覆盖项目默认变量；Docker 镜像请优先填写上方字段。"
+                  : "每行一个 KEY=VALUE，会覆盖项目默认变量。"
+              }
             >
               <Textarea
                 value={releaseDraft.variablesText}
@@ -5998,7 +5823,7 @@ export function CmdbShell() {
               主题发布
             </DialogTitle>
             <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              圈选多个项目后统一触发 GitLab Pipeline。Ref
+              圈选多个项目后统一触发构建流水线，并由 CMDB 在构建成功后部署。Ref
               留空时使用各项目默认分支，环境留空时使用项目默认环境。
             </DialogDescription>
           </DialogHeader>
@@ -6012,7 +5837,7 @@ export function CmdbShell() {
                   </h3>
                   <p className="mt-1 text-sm leading-6 text-slate-500">
                     本次批量发布会写入 CMDB_RELEASE_TOPIC
-                    变量，便于流水线和发布记录追踪。
+                    变量，便于构建和发布记录追踪。
                   </p>
                 </div>
 
@@ -6161,9 +5986,10 @@ export function CmdbShell() {
                 <div className="grid max-h-[430px] gap-2 overflow-y-auto pr-1">
                   {projects.map((project) => {
                     const selected = topicReleaseSelectedIds.has(project.id);
-                    const releaseIssue = projectReleaseIssue(
+                    const releaseIssue = topicReleaseProjectIssue(
                       project,
                       canTriggerPipelines,
+                      topicReleaseVariables,
                     );
 
                     return (

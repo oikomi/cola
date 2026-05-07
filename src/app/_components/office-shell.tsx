@@ -25,6 +25,7 @@ import {
 
 import { AdminChrome } from "@/app/_components/admin-chrome";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -489,11 +490,19 @@ export function OfficeShell({ snapshot }: Props) {
       pushFeedback("浏览器阻止了新窗口，请允许弹窗后重试。", "error");
       return;
     }
+    openedWindow.opener = null;
 
-    const linkedDevice =
-      liveSnapshot.devices.find((device) => device.id === agent.deviceId) ??
-      null;
-    let nativeUrl = linkedDevice?.nativeDashboardUrl ?? null;
+    let nativeUrl: string | null = null;
+    const baseTarget = {
+      agentId: agent.id,
+      deviceId: agent.deviceId,
+      engine: agent.engine,
+      openclawTemplate: process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,
+      hermesTemplate: process.env.NEXT_PUBLIC_HERMES_NATIVE_URL,
+      origin: window.location.origin,
+    };
+
+    openedWindow.location.replace(resolveBrowserNativeWorkspaceHref(baseTarget));
 
     try {
       const refreshed = await getNativeDashboardUrl.mutateAsync({
@@ -501,19 +510,23 @@ export function OfficeShell({ snapshot }: Props) {
       });
       nativeUrl = refreshed.url ?? nativeUrl;
     } catch {
-      nativeUrl = nativeUrl ?? null;
+      nativeUrl = null;
     }
 
     if (!nativeUrl) {
-      openedWindow.close();
       pushFeedback(
-        `${k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"]} 原生页面地址未配置。`,
-        "error",
+        `${k8sWorkspaceEngineLabels[agent.engine ?? "openclaw"]} 原生页面地址未配置，已打开本地工作区。`,
+        "success",
       );
       return;
     }
 
-    openedWindow.location.replace(nativeUrl);
+    openedWindow.location.replace(
+      resolveBrowserNativeWorkspaceHref({
+        ...baseTarget,
+        nativeUrl,
+      }),
+    );
   };
 
   return (
