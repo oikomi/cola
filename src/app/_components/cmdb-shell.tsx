@@ -8,6 +8,7 @@ import {
   ClipboardIcon,
   ExternalLinkIcon,
   GitBranchIcon,
+  InfoIcon,
   KeyRoundIcon,
   ListChecksIcon,
   LoaderCircleIcon,
@@ -26,11 +27,12 @@ import {
   XIcon,
   type LucideIcon,
 } from "lucide-react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import type { IDisposable } from "@xterm/xterm";
 import {
-  type ChangeEvent,
-  type CompositionEvent,
-  type KeyboardEvent,
   type ReactNode,
+  useCallback,
   useDeferredValue,
   useEffect,
   useRef,
@@ -80,6 +82,27 @@ type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
 type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
 type ProjectOperationResult = RouterOutputs["cmdb"]["projectOperation"];
 type ProjectOperationAction = "dockerStatus" | "dockerLogs" | "sshInfo";
+type DockerStatusPort = {
+  containerPort: string;
+  protocol: string | null;
+  hostIp: string | null;
+  hostPort: string | null;
+  label: string;
+};
+type DockerStatusResult = {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  running: boolean;
+  health: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string | null;
+  restartCount: number;
+  exitCode: number | null;
+  ports: DockerStatusPort[];
+};
 type TerminalSessionStatus =
   | "idle"
   | "connecting"
@@ -118,14 +141,19 @@ type TerminalSessionEvent =
       signal: string | null;
       message: string;
     };
+type TerminalDimensions = {
+  cols: number;
+  rows: number;
+};
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const UNSET_ARCH_VALUE = "__unset_arch__";
 const CUSTOM_ARCH_VALUE = "__custom_arch__";
+const CUSTOM_BRANCH_VALUE = "__custom_branch__";
 const STICKY_ACTION_HEAD_CLASS =
-  "sticky right-0 z-20 bg-slate-50/95 text-right shadow-[-18px_0_24px_-24px_rgba(15,23,42,0.55)] backdrop-blur";
+  "sticky right-0 z-20 border-l border-slate-200 bg-slate-50 text-right";
 const STICKY_ACTION_CELL_CLASS =
-  "sticky right-0 z-10 bg-white/96 shadow-[-18px_0_24px_-24px_rgba(15,23,42,0.45)] backdrop-blur group-hover:bg-sky-50/95";
+  "sticky right-0 z-10 border-l border-slate-200 bg-white group-hover:bg-muted/50";
 const CMDB_ACTION_GROUP_CLASS =
   "inline-flex shrink-0 overflow-hidden rounded-[9px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 const CMDB_ACTION_ICON_CLASS =
@@ -136,6 +164,8 @@ const CMDB_PROJECT_ACTION_CELL_CLASS = "text-right";
 const TERMINAL_OUTPUT_LIMIT = 120_000;
 const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
 const TERMINAL_INPUT_FLUSH_MS = 16;
+const TERMINAL_RESIZE_FLUSH_MS = 120;
+const TERMINAL_CONNECTING_MESSAGE = "正在建立 SSH 会话...\r\n";
 const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 type CmdbAreaKey = "assets" | "projects" | "deployments";
@@ -466,6 +496,53 @@ function monitorLabel(status: ProjectRow["monitor"]["status"]) {
   }
 }
 
+function monitorSummary(project: ProjectRow) {
+  const parts = [
+    project.monitor.statusCode ? `HTTP ${project.monitor.statusCode}` : null,
+    typeof project.monitor.responseTimeMs === "number"
+      ? `${project.monitor.responseTimeMs}ms`
+      : null,
+    project.monitor.errorType,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" · ") : project.monitor.message;
+}
+
+function monitorCheckedAtLabel(project: ProjectRow) {
+  return project.monitor.checkedAt
+    ? formatTime(project.monitor.checkedAt)
+    : "未执行";
+}
+
+function monitorDetailRows(project: ProjectRow) {
+  return [
+    ["项目", project.name],
+    ["状态", monitorLabel(project.monitor.status)],
+    ["检查地址", project.monitor.url ?? "未配置"],
+    ["检查时间", monitorCheckedAtLabel(project)],
+    ["请求方式", project.monitor.method ?? "GET"],
+    [
+      "超时阈值",
+      typeof project.monitor.timeoutMs === "number"
+        ? `${project.monitor.timeoutMs}ms`
+        : "-",
+    ],
+    [
+      "响应耗时",
+      typeof project.monitor.responseTimeMs === "number"
+        ? `${project.monitor.responseTimeMs}ms`
+        : "-",
+    ],
+    [
+      "HTTP 状态",
+      project.monitor.statusCode ? String(project.monitor.statusCode) : "-",
+    ],
+    ["Content-Type", project.monitor.contentType ?? "-"],
+    ["错误类型", project.monitor.errorType ?? "-"],
+    ["错误详情", project.monitor.errorDetail ?? project.monitor.message],
+  ];
+}
+
 function releaseTone(status: ReleaseRow["status"]) {
   switch (status) {
     case "success":
@@ -636,9 +713,9 @@ function projectOperationDescription(
 ) {
   switch (action) {
     case "dockerStatus":
-      return "通过目标资产 SSH 执行 docker ps / docker inspect，查看当前容器运行状态。";
+      return "查看目标容器的运行状态、镜像、端口和启动信息。";
     case "dockerLogs":
-      return "通过目标资产 SSH 执行 docker logs，读取最近运行日志。";
+      return "读取目标容器最近运行日志。";
     case "sshInfo":
       return deployTarget === "docker"
         ? "自动登录目标资产并执行 docker exec，打开容器内终端。"
@@ -650,8 +727,125 @@ function remoteLoginLabel(deployTarget?: ProjectRow["deployTarget"]) {
   return deployTarget === "docker" ? "容器登录" : "远程登录";
 }
 
+function dockerStatusFromResult(result: ProjectOperationResult | null) {
+  if (!result || !("dockerStatus" in result) || !result.dockerStatus) {
+    return null;
+  }
+
+  return result.dockerStatus as DockerStatusResult;
+}
+
+function dockerStateLabel(status: DockerStatusResult) {
+  switch (status.state) {
+    case "running":
+      return "运行中";
+    case "created":
+      return "已创建";
+    case "restarting":
+      return "重启中";
+    case "paused":
+      return "已暂停";
+    case "exited":
+      return "已停止";
+    case "dead":
+      return "异常";
+    default:
+      return status.state.length > 0 ? status.state : "未知";
+  }
+}
+
+function dockerHealthLabel(health: string | null) {
+  switch (health) {
+    case "healthy":
+      return "健康";
+    case "unhealthy":
+      return "异常";
+    case "starting":
+      return "启动中";
+    default:
+      return null;
+  }
+}
+
+function dockerStatusLabel(status: DockerStatusResult) {
+  const parts = [dockerStateLabel(status), dockerHealthLabel(status.health)];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function dockerStatusIsFailed(status: DockerStatusResult) {
+  return (
+    status.state === "dead" ||
+    status.state === "exited" ||
+    status.health === "unhealthy" ||
+    (!status.running && status.state !== "created")
+  );
+}
+
+function dockerStatusTone(status: DockerStatusResult) {
+  if (dockerStatusIsFailed(status)) {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  if (status.state === "restarting" || status.health === "starting") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (status.running) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function dockerRuntimeLabel(value: string | null) {
+  if (!value) return "-";
+
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "-";
+
+  const elapsedMs = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.floor(elapsedMs / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days} 天 ${hours % 24} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes % 60} 分钟`;
+  if (minutes > 0) return `${minutes} 分钟`;
+  return "刚刚";
+}
+
+function dockerStatusCopyText(
+  result: ProjectOperationResult,
+  status: DockerStatusResult,
+) {
+  return [
+    `项目: ${result.projectName}`,
+    `目标资产: ${result.targetAssetName}`,
+    `主机: ${result.host}`,
+    `容器: ${status.name}`,
+    `状态: ${dockerStatusLabel(status)}`,
+    `镜像: ${status.image.length > 0 ? status.image : "-"}`,
+    `端口: ${status.ports.length ? status.ports.map((port) => port.label).join(", ") : "未暴露"}`,
+    `启动时间: ${status.startedAt ? formatTime(status.startedAt) : "-"}`,
+    `运行时长: ${status.running ? dockerRuntimeLabel(status.startedAt) : "-"}`,
+    `重启次数: ${status.restartCount}`,
+    `退出码: ${status.running ? "-" : (status.exitCode ?? "-")}`,
+    `查询耗时: ${result.durationMs}ms`,
+  ].join("\n");
+}
+
 function operationResultText(result: ProjectOperationResult | null) {
   if (!result) return "";
+  const dockerStatus = dockerStatusFromResult(result);
+
+  if (dockerStatus) {
+    const parts = [
+      dockerStatusCopyText(result, dockerStatus),
+      result.stderr.trim() ? `错误输出:\n${result.stderr.trim()}` : "",
+    ].filter(Boolean);
+
+    return parts.join("\n\n");
+  }
 
   const parts = [
     result.stdout.trim(),
@@ -667,10 +861,6 @@ function normalizeTerminalOutput(value: string) {
     .replace(/\u0007/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
-}
-
-function normalizeTerminalInput(value: string) {
-  return value.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
 
 function terminalStatusLabel(status: TerminalSessionStatus) {
@@ -1036,6 +1226,142 @@ function AssetReadinessItem(props: {
   );
 }
 
+function DockerStatusMetric(props: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-[10px] border border-slate-200/90 bg-slate-50 px-3 py-3">
+      <p className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
+        {props.label}
+      </p>
+      <div className="mt-1.5 min-w-0 text-sm leading-5 font-medium break-words text-slate-950">
+        {props.value}
+      </div>
+      {props.hint ? (
+        <div className="mt-1 text-xs leading-5 break-words text-slate-500">
+          {props.hint}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DockerStatusPanel({
+  result,
+  status,
+}: {
+  result: ProjectOperationResult;
+  status: DockerStatusResult;
+}) {
+  const failed = dockerStatusIsFailed(status);
+  const statusLabel = dockerStatusLabel(status);
+  const startedLabel = status.startedAt ? formatTime(status.startedAt) : "-";
+  const finishedLabel = status.finishedAt ? formatTime(status.finishedAt) : "-";
+  const runtimeLabel = status.running
+    ? dockerRuntimeLabel(status.startedAt)
+    : finishedLabel !== "-"
+      ? `停止于 ${finishedLabel}`
+      : "-";
+  const exitCodeLabel = status.running ? "-" : (status.exitCode ?? "-");
+  const containerId = status.id ? status.id.slice(0, 12) : "-";
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.055)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <span
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-[12px] ring-1",
+                failed
+                  ? "bg-rose-50 text-rose-700 ring-rose-100"
+                  : status.running
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                    : "bg-slate-100 text-slate-600 ring-slate-200",
+              )}
+            >
+              <ActivityIcon className="size-4.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-base leading-6 font-semibold break-words text-slate-950">
+                {status.name}
+              </p>
+              <p className="mt-1 text-sm leading-5 break-all text-slate-600">
+                {status.image || "未读取到镜像信息"}
+              </p>
+            </div>
+          </div>
+          <Badge
+            className={cn("w-fit shrink-0 border", dockerStatusTone(status))}
+          >
+            {statusLabel}
+          </Badge>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <DockerStatusMetric label="运行时长" value={runtimeLabel} />
+          <DockerStatusMetric label="启动时间" value={startedLabel} />
+          <DockerStatusMetric label="重启次数" value={status.restartCount} />
+          <DockerStatusMetric label="退出码" value={exitCodeLabel} />
+        </div>
+      </section>
+
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-950">端口暴露</h3>
+            <Badge className="border border-slate-200 bg-slate-50 text-slate-700">
+              {status.ports.length} 条
+            </Badge>
+          </div>
+          {status.ports.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {status.ports.map((port, index) => (
+                <span
+                  key={`${port.label}-${index}`}
+                  className="max-w-full rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs leading-5 break-all text-slate-700"
+                >
+                  {port.label}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              当前容器未暴露端口。
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">查询信息</h3>
+          <div className="mt-3 grid gap-2 text-sm leading-6">
+            <div className="flex justify-between gap-3">
+              <span className="shrink-0 text-slate-500">容器 ID</span>
+              <span className="min-w-0 font-medium break-all text-slate-900">
+                {containerId}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="shrink-0 text-slate-500">查询耗时</span>
+              <span className="font-medium text-slate-900">
+                {result.durationMs}ms
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="shrink-0 text-slate-500">创建时间</span>
+              <span className="min-w-0 text-right font-medium text-slate-900">
+                {status.createdAt ? formatTime(status.createdAt) : "-"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function CmdbEmptyState(props: {
   icon: LucideIcon;
   title: string;
@@ -1117,6 +1443,7 @@ export function CmdbShell() {
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
   const [topicReleaseDialogOpen, setTopicReleaseDialogOpen] = useState(false);
   const [operationDialogOpen, setOperationDialogOpen] = useState(false);
+  const [monitorDialogOpen, setMonitorDialogOpen] = useState(false);
   const [activeArea, setActiveArea] = useState<CmdbAreaKey>("assets");
   const [projectDraftPanel, setProjectDraftPanel] =
     useState<ProjectDraftPanelKey>("basic");
@@ -1139,6 +1466,7 @@ export function CmdbShell() {
   const [operationProject, setOperationProject] = useState<ProjectRow | null>(
     null,
   );
+  const [monitorProject, setMonitorProject] = useState<ProjectRow | null>(null);
   const [operationAction, setOperationAction] =
     useState<ProjectOperationAction>("dockerStatus");
   const [operationResult, setOperationResult] =
@@ -1148,25 +1476,40 @@ export function CmdbShell() {
     useState(false);
   const [terminalSession, setTerminalSession] =
     useState<TerminalSessionInfo | null>(null);
-  const [terminalStatus, setTerminalStatus] =
+  const [terminalStatusState, setTerminalStatusState] =
     useState<TerminalSessionStatus>("idle");
   const [terminalOutput, setTerminalOutput] = useState("");
   const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [terminalHostElement, setTerminalHostElement] =
+    useState<HTMLDivElement | null>(null);
   const terminalEventSourceRef = useRef<EventSource | null>(null);
   const terminalSessionIdRef = useRef<string | null>(null);
   const terminalStatusRef = useRef<TerminalSessionStatus>("idle");
   const terminalStartTokenRef = useRef(0);
   const terminalWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const terminalInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const terminalFitAddonRef = useRef<FitAddon | null>(null);
+  const terminalInputDisposableRef = useRef<IDisposable | null>(null);
+  const terminalResizeDisposableRef = useRef<IDisposable | null>(null);
+  const terminalResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const terminalPendingOutputRef = useRef("");
+  const terminalLastResizeRef = useRef<TerminalDimensions | null>(null);
+  const terminalResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const terminalInputBufferRef = useRef("");
   const terminalInputSendingRef = useRef(false);
   const terminalInputFlushTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const terminalComposingRef = useRef(false);
-  const terminalScrollRef = useRef<HTMLPreElement | null>(null);
   const [gitlabSearch, setGitlabSearch] = useState("");
   const deferredGitlabSearch = useDeferredValue(gitlabSearch.trim());
+
+  const setTerminalHost = useCallback((element: HTMLDivElement | null) => {
+    terminalHostRef.current = element;
+    setTerminalHostElement(element);
+  }, []);
 
   const dashboardQuery = api.cmdb.dashboard.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -1176,8 +1519,13 @@ export function CmdbShell() {
   });
 
   useEffect(() => {
-    terminalStatusRef.current = terminalStatus;
-  }, [terminalStatus]);
+    terminalStatusRef.current = terminalStatusState;
+  }, [terminalStatusState]);
+
+  function setTerminalStatus(status: TerminalSessionStatus) {
+    terminalStatusRef.current = status;
+    setTerminalStatusState(status);
+  }
 
   const gitlabCatalogQuery = api.cmdb.gitlabCatalog.useQuery(
     { query: deferredGitlabSearch || undefined },
@@ -1188,12 +1536,24 @@ export function CmdbShell() {
       refetchOnWindowFocus: false,
     },
   );
+  const gitlabBranchesQuery = api.cmdb.gitlabBranches.useQuery(
+    { projectPath: projectDraft.gitlabPath },
+    {
+      enabled:
+        projectDialogOpen &&
+        projectDraft.gitlabPath.trim().length > 0 &&
+        Boolean(dashboardQuery.data?.gitlab.canBrowseCatalog),
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  );
 
   const saveProject = api.cmdb.saveProject.useMutation({
     onSuccess: async () => {
       await Promise.all([
         utils.cmdb.dashboard.invalidate(),
         utils.cmdb.gitlabCatalog.invalidate(),
+        utils.cmdb.gitlabBranches.invalidate(),
       ]);
       setProjectDialogOpen(false);
       setProjectDraft(emptyProjectDraft());
@@ -1289,19 +1649,126 @@ export function CmdbShell() {
   });
 
   useEffect(() => {
-    if (operationAction !== "sshInfo") return;
-    terminalScrollRef.current?.scrollTo({
-      top: terminalScrollRef.current.scrollHeight,
+    if (!operationDialogOpen || operationAction !== "sshInfo") return;
+    if (!terminalHostElement || terminalRef.current) return;
+
+    const terminal = new Terminal({
+      convertEol: true,
+      cursorBlink: true,
+      cursorInactiveStyle: "outline",
+      cursorStyle: "block",
+      disableStdin: terminalStatusRef.current !== "connected",
+      fontFamily:
+        "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 13,
+      lineHeight: 1.4,
+      minimumContrastRatio: 4.5,
+      scrollback: 5000,
+      theme: {
+        background: "#020617",
+        foreground: "#e2e8f0",
+        cursor: "#38bdf8",
+        cursorAccent: "#020617",
+        selectionBackground: "#334155",
+        selectionInactiveBackground: "#1e293b",
+        black: "#0f172a",
+        red: "#fb7185",
+        green: "#34d399",
+        yellow: "#fbbf24",
+        blue: "#60a5fa",
+        magenta: "#c084fc",
+        cyan: "#22d3ee",
+        white: "#e2e8f0",
+        brightBlack: "#64748b",
+        brightRed: "#fda4af",
+        brightGreen: "#86efac",
+        brightYellow: "#fde68a",
+        brightBlue: "#93c5fd",
+        brightMagenta: "#d8b4fe",
+        brightCyan: "#67e8f9",
+        brightWhite: "#f8fafc",
+      },
     });
-  }, [operationAction, terminalOutput]);
+    const fitAddon = new FitAddon();
+
+    terminal.loadAddon(fitAddon);
+    terminal.open(terminalHostElement);
+    terminalRef.current = terminal;
+    terminalFitAddonRef.current = fitAddon;
+    terminalInputDisposableRef.current = terminal.onData(queueTerminalInput);
+    terminalResizeDisposableRef.current = terminal.onResize((dimensions) => {
+      queueTerminalResize(dimensions);
+    });
+
+    const fitTerminal = () => {
+      try {
+        fitAddon.fit();
+        queueTerminalResize({ cols: terminal.cols, rows: terminal.rows });
+      } catch {
+        // The xterm viewport can briefly have no measurable size during dialog transitions.
+      }
+    };
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      fitTerminal();
+      terminal.focus();
+      if (terminalPendingOutputRef.current) {
+        terminal.write(terminalPendingOutputRef.current);
+        terminalPendingOutputRef.current = "";
+      }
+    });
+
+    terminalResizeObserverRef.current = new ResizeObserver(() => {
+      window.requestAnimationFrame(fitTerminal);
+    });
+    terminalResizeObserverRef.current.observe(terminalHostElement);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      terminalInputDisposableRef.current?.dispose();
+      terminalInputDisposableRef.current = null;
+      terminalResizeDisposableRef.current?.dispose();
+      terminalResizeDisposableRef.current = null;
+      terminalResizeObserverRef.current?.disconnect();
+      terminalResizeObserverRef.current = null;
+      terminalFitAddonRef.current?.dispose();
+      terminalFitAddonRef.current = null;
+      terminal.dispose();
+      terminalRef.current = null;
+      terminalLastResizeRef.current = null;
+    };
+  }, [operationAction, operationDialogOpen, terminalHostElement]);
 
   useEffect(() => {
-    if (operationAction !== "sshInfo" || terminalStatus !== "connected") {
-      return;
-    }
+    const terminal = terminalRef.current;
+    if (!terminal) return;
 
-    terminalInputRef.current?.focus({ preventScroll: true });
-  }, [operationAction, terminalStatus]);
+    terminal.options.disableStdin = terminalStatusState !== "connected";
+    if (terminalStatusState === "connected") {
+      terminal.focus();
+      terminalLastResizeRef.current = null;
+      queueTerminalResize({ cols: terminal.cols, rows: terminal.rows });
+    }
+  }, [terminalStatusState]);
+
+  useEffect(() => {
+    if (operationAction !== "sshInfo" || !operationDialogOpen) return;
+
+    const timer = window.setTimeout(() => {
+      try {
+        terminalFitAddonRef.current?.fit();
+        const terminal = terminalRef.current;
+        if (terminal) {
+          queueTerminalResize({ cols: terminal.cols, rows: terminal.rows });
+          terminal.focus();
+        }
+      } catch {
+        // The dialog can still be animating when maximized/restored.
+      }
+    }, 60);
+
+    return () => window.clearTimeout(timer);
+  }, [operationAction, operationDialogMaximized, operationDialogOpen]);
 
   useEffect(() => {
     return () => {
@@ -1309,6 +1776,9 @@ export function CmdbShell() {
       terminalEventSourceRef.current?.close();
       if (terminalInputFlushTimerRef.current) {
         clearTimeout(terminalInputFlushTimerRef.current);
+      }
+      if (terminalResizeTimerRef.current) {
+        clearTimeout(terminalResizeTimerRef.current);
       }
       const sessionId = terminalSessionIdRef.current;
       if (sessionId) {
@@ -1326,6 +1796,7 @@ export function CmdbShell() {
   const releases = data?.releases ?? [];
   const gitlabCatalogItems = gitlabCatalogQuery.data ?? [];
   const visibleGitLabCatalogItems = gitlabCatalogItems.slice(0, 20);
+  const gitlabBranchItems = gitlabBranchesQuery.data ?? [];
   const manualGitLabPath = gitlabSearch.trim();
   const canUseManualGitLabPath = isGitLabProjectPath(manualGitLabPath);
   const manualGitLabPathIsSelected =
@@ -1334,7 +1805,12 @@ export function CmdbShell() {
   const manualGitLabPathMatchesCatalog = gitlabCatalogItems.some(
     (item) => item.path === manualGitLabPath,
   );
+  const operationDockerStatus = dockerStatusFromResult(operationResult);
   const operationText = operationResultText(operationResult);
+  const selectedMonitorProject = monitorProject
+    ? (projects.find((project) => project.id === monitorProject.id) ??
+      monitorProject)
+    : null;
   const OperationIcon =
     operationAction === "dockerStatus"
       ? ActivityIcon
@@ -1344,7 +1820,7 @@ export function CmdbShell() {
   const operationExitCode = operationResult?.code ?? 0;
   const isTerminalOperation = operationAction === "sshInfo";
   const operationPending = isTerminalOperation
-    ? terminalStatus === "connecting"
+    ? terminalStatusState === "connecting"
     : projectOperation.isPending;
   const operationTargetAssetName =
     operationResult?.targetAssetName ??
@@ -1354,22 +1830,27 @@ export function CmdbShell() {
       : "-");
   const operationHost = operationResult?.host ?? terminalSession?.host ?? "-";
   const operationContainerName =
+    operationDockerStatus?.name ??
     operationResult?.containerName ??
     terminalSession?.containerName ??
     operationProject?.name ??
     "-";
   const operationStatusText = isTerminalOperation
-    ? terminalStatusLabel(terminalStatus)
-    : operationResult
-      ? `${operationResult.durationMs}ms`
-      : projectOperation.isPending
-        ? "执行中"
-        : "-";
+    ? terminalStatusLabel(terminalStatusState)
+    : operationDockerStatus
+      ? dockerStatusLabel(operationDockerStatus)
+      : operationResult
+        ? `${operationResult.durationMs}ms`
+        : projectOperation.isPending
+          ? "执行中"
+          : "-";
   const operationStatusFailed = isTerminalOperation
-    ? terminalStatus === "error"
-    : operationExitCode !== 0;
+    ? terminalStatusState === "error"
+    : operationDockerStatus
+      ? dockerStatusIsFailed(operationDockerStatus) || operationExitCode !== 0
+      : operationExitCode !== 0;
   const operationHasStatus = isTerminalOperation
-    ? terminalStatus !== "idle" && terminalStatus !== "connecting"
+    ? terminalStatusState !== "idle" && terminalStatusState !== "connecting"
     : Boolean(operationResult);
   const operationCopyText = isTerminalOperation
     ? terminalOutput
@@ -1379,6 +1860,20 @@ export function CmdbShell() {
   const selectedGitLabCandidate =
     gitlabCatalogItems.find((item) => item.path === projectDraft.gitlabPath) ??
     null;
+  const branchNames = Array.from(
+    new Set([
+      ...gitlabBranchItems.map((branch) => branch.name),
+      selectedGitLabCandidate?.defaultBranch,
+      projectDraft.defaultBranch.trim(),
+      "main",
+    ]),
+  ).filter((branch): branch is string => Boolean(branch));
+  const selectedBranchFromList = branchNames.includes(
+    projectDraft.defaultBranch.trim(),
+  );
+  const defaultBranchSelectValue = selectedBranchFromList
+    ? projectDraft.defaultBranch.trim()
+    : CUSTOM_BRANCH_VALUE;
   const selectedRepoSummary = projectDraft.gitlabPath.trim().length
     ? {
         name:
@@ -1640,9 +2135,11 @@ export function CmdbShell() {
       clearTimeout(terminalInputFlushTimerRef.current);
       terminalInputFlushTimerRef.current = null;
     }
-    if (terminalInputRef.current) {
-      terminalInputRef.current.value = "";
+    if (terminalResizeTimerRef.current) {
+      clearTimeout(terminalResizeTimerRef.current);
+      terminalResizeTimerRef.current = null;
     }
+    terminalLastResizeRef.current = null;
 
     const sessionId = terminalSessionIdRef.current;
     terminalSessionIdRef.current = null;
@@ -1658,6 +2155,8 @@ export function CmdbShell() {
       setTerminalStatus("idle");
       setTerminalOutput("");
       setTerminalError(null);
+      terminalPendingOutputRef.current = "";
+      terminalRef.current?.reset();
     }
   }
 
@@ -1670,6 +2169,12 @@ export function CmdbShell() {
   }
 
   function appendTerminalOutput(value: string) {
+    if (terminalRef.current) {
+      terminalRef.current.write(value);
+    } else {
+      terminalPendingOutputRef.current += value;
+    }
+
     const normalized = normalizeTerminalOutput(value);
     if (!normalized) return;
 
@@ -1679,6 +2184,19 @@ export function CmdbShell() {
         ? next.slice(-TERMINAL_OUTPUT_LIMIT)
         : next;
     });
+  }
+
+  function resetTerminalOutput(value: string) {
+    const terminal = terminalRef.current;
+    terminalPendingOutputRef.current = terminal ? "" : value;
+    terminal?.reset();
+    terminal?.write(value);
+    const normalized = normalizeTerminalOutput(value);
+    setTerminalOutput(
+      normalized.length > TERMINAL_OUTPUT_LIMIT
+        ? normalized.slice(-TERMINAL_OUTPUT_LIMIT)
+        : normalized,
+    );
   }
 
   function applyTerminalEvent(
@@ -1697,18 +2215,20 @@ export function CmdbShell() {
         if (event.status === "closed") {
           source.close();
           terminalEventSourceRef.current = null;
+          terminalLastResizeRef.current = null;
         }
         break;
       case "error":
         setTerminalStatus("error");
         setTerminalError(event.message);
-        appendTerminalOutput(`\n${event.message}\n`);
+        appendTerminalOutput(`\r\n${event.message}\r\n`);
         break;
       case "exit":
         setTerminalStatus("closed");
-        appendTerminalOutput(`\n${event.message}\n`);
+        appendTerminalOutput(`\r\n${event.message}\r\n`);
         source.close();
         terminalEventSourceRef.current = null;
+        terminalLastResizeRef.current = null;
         break;
     }
   }
@@ -1737,13 +2257,10 @@ export function CmdbShell() {
     terminalStartTokenRef.current = token;
     setTerminalSession(null);
     setTerminalStatus("connecting");
-    setTerminalOutput("正在建立 SSH 会话...\n");
+    resetTerminalOutput(TERMINAL_CONNECTING_MESSAGE);
     terminalWriteQueueRef.current = Promise.resolve();
     terminalInputBufferRef.current = "";
     terminalInputSendingRef.current = false;
-    if (terminalInputRef.current) {
-      terminalInputRef.current.value = "";
-    }
     setTerminalError(null);
 
     try {
@@ -1801,7 +2318,7 @@ export function CmdbShell() {
       const message = error instanceof Error ? error.message : "容器登录失败";
       setTerminalStatus("error");
       setTerminalError(message);
-      appendTerminalOutput(`\n${message}\n`);
+      appendTerminalOutput(`\r\n${message}\r\n`);
     }
   }
 
@@ -1839,7 +2356,7 @@ export function CmdbShell() {
         error instanceof Error ? error.message : "终端输入发送失败。";
       setTerminalStatus("error");
       setTerminalError(message);
-      appendTerminalOutput(`\n${message}\n`);
+      appendTerminalOutput(`\r\n${message}\r\n`);
     }
   }
 
@@ -1889,95 +2406,46 @@ export function CmdbShell() {
     );
   }
 
-  function terminalKeyData(event: KeyboardEvent<HTMLElement>) {
-    if (event.metaKey || event.altKey) return null;
+  async function resizeTerminalSession(dimensions: TerminalDimensions) {
+    const sessionId = terminalSessionIdRef.current;
+    if (!sessionId || terminalStatusRef.current !== "connected") return;
 
-    if (event.ctrlKey) {
-      const key = event.key.toLowerCase();
-      if (key.length === 1 && key >= "a" && key <= "z") {
-        return String.fromCharCode(key.charCodeAt(0) - 96);
-      }
-      if (key === "[") return "\u001b";
-      if (key === "]") return "\u001d";
-      if (key === "\\") return "\u001c";
-      if (key === "^") return "\u001e";
-      if (key === "_") return "\u001f";
-      if (key === " ") return "\u0000";
-      return null;
-    }
-
-    switch (event.key) {
-      case "Enter":
-        return "\r";
-      case "Backspace":
-        return "\u007f";
-      case "Tab":
-        return "\t";
-      case "Escape":
-        return "\u001b";
-      case "ArrowUp":
-        return "\u001b[A";
-      case "ArrowDown":
-        return "\u001b[B";
-      case "ArrowRight":
-        return "\u001b[C";
-      case "ArrowLeft":
-        return "\u001b[D";
-      case "Home":
-        return "\u001b[H";
-      case "End":
-        return "\u001b[F";
-      case "Delete":
-        return "\u001b[3~";
-      case "PageUp":
-        return "\u001b[5~";
-      case "PageDown":
-        return "\u001b[6~";
-      default:
-        return event.key.length === 1 ? event.key : null;
+    try {
+      await fetch(`/api/cmdb/terminal-session/${sessionId}/resize`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(dimensions),
+      });
+    } catch {
+      // Resizing improves wrapping, but failed resize sync should not break an active shell.
     }
   }
 
-  function handleTerminalKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (terminalStatus !== "connected") return;
-    if (terminalComposingRef.current || event.nativeEvent.isComposing) return;
-
-    const data = terminalKeyData(event);
-    if (!data) return;
-
-    event.preventDefault();
-    queueTerminalInput(data);
-  }
-
-  function handleTerminalInput(event: ChangeEvent<HTMLTextAreaElement>) {
-    if (terminalStatus !== "connected") {
-      event.currentTarget.value = "";
+  function queueTerminalResize(dimensions: TerminalDimensions) {
+    if (
+      !terminalSessionIdRef.current ||
+      terminalStatusRef.current !== "connected"
+    ) {
+      terminalLastResizeRef.current = null;
       return;
     }
 
-    if (terminalComposingRef.current) return;
+    const cols = Math.max(20, Math.min(400, Math.floor(dimensions.cols)));
+    const rows = Math.max(5, Math.min(200, Math.floor(dimensions.rows)));
+    const next = { cols, rows };
+    const previous = terminalLastResizeRef.current;
 
-    const value = event.currentTarget.value;
-    event.currentTarget.value = "";
-    if (!value) return;
+    if (previous?.cols === next.cols && previous.rows === next.rows) return;
+    terminalLastResizeRef.current = next;
 
-    queueTerminalInput(normalizeTerminalInput(value));
-  }
+    if (terminalResizeTimerRef.current) {
+      clearTimeout(terminalResizeTimerRef.current);
+    }
 
-  function handleTerminalCompositionStart() {
-    terminalComposingRef.current = true;
-  }
-
-  function handleTerminalCompositionEnd(
-    event: CompositionEvent<HTMLTextAreaElement>,
-  ) {
-    terminalComposingRef.current = false;
-
-    const value = event.currentTarget.value;
-    event.currentTarget.value = "";
-    if (!value || terminalStatus !== "connected") return;
-
-    queueTerminalInput(normalizeTerminalInput(value));
+    terminalResizeTimerRef.current = setTimeout(() => {
+      terminalResizeTimerRef.current = null;
+      void resizeTerminalSession(next);
+    }, TERMINAL_RESIZE_FLUSH_MS);
   }
 
   function openProjectOperation(
@@ -2008,6 +2476,11 @@ export function CmdbShell() {
       action,
       tail: action === "dockerLogs" ? 200 : undefined,
     });
+  }
+
+  function openMonitorDialog(project: ProjectRow) {
+    setMonitorProject(project);
+    setMonitorDialogOpen(true);
   }
 
   function openReleaseOperation(
@@ -2878,6 +3351,26 @@ export function CmdbShell() {
                             label={monitorLabel(project.monitor.status)}
                           />
                         </div>
+                        <div className="mt-1 min-w-0 text-[12px] leading-5 text-slate-600">
+                          <p
+                            className="truncate"
+                            title={project.monitor.message}
+                          >
+                            {project.monitor.message}
+                          </p>
+                          <p className="truncate text-slate-500">
+                            {monitorSummary(project)}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="mt-2 w-fit rounded-[8px] border-slate-200 bg-white"
+                          onClick={() => openMonitorDialog(project)}
+                        >
+                          <InfoIcon data-icon="inline-start" />
+                          详情
+                        </Button>
                       </div>
                     </div>
 
@@ -3033,14 +3526,14 @@ export function CmdbShell() {
               </div>
 
               <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
-                <Table className="min-w-[1080px] table-fixed">
+                <Table className="min-w-[1180px] table-fixed">
                   <colgroup>
                     <col className="w-[13%]" />
                     <col className="w-[8%]" />
-                    <col className="w-[28%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[16%]" />
                     <col className="w-[25%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[24%]" />
                   </colgroup>
                   <TableHeader className="bg-slate-50/90">
                     <TableRow className="hover:bg-transparent">
@@ -3132,20 +3625,60 @@ export function CmdbShell() {
                         </TableCell>
                         <TableCell>
                           <div className="grid gap-1">
-                            <Badge
-                              className={cn(
-                                "w-fit border",
-                                monitorTone(project.monitor.status),
-                              )}
-                            >
-                              {monitorLabel(project.monitor.status)}
-                            </Badge>
-                            <span
-                              className="truncate text-xs text-slate-500"
-                              title={project.monitor.message}
-                            >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                className={cn(
+                                  "w-fit border",
+                                  monitorTone(project.monitor.status),
+                                )}
+                              >
+                                {monitorLabel(project.monitor.status)}
+                              </Badge>
+                              <span className="text-xs font-medium text-slate-600">
+                                {monitorSummary(project)}
+                              </span>
+                            </div>
+                            <span className="[display:-webkit-box] overflow-hidden text-xs leading-5 break-words text-slate-500 [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                               {project.monitor.message}
                             </span>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                              {project.monitor.url ? (
+                                <span className="max-w-full truncate">
+                                  {project.monitor.url}
+                                </span>
+                              ) : (
+                                <span>未配置检查地址</span>
+                              )}
+                              <span>检查 {monitorCheckedAtLabel(project)}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="rounded-[8px] border-slate-200 bg-white"
+                                onClick={() => openMonitorDialog(project)}
+                              >
+                                <InfoIcon data-icon="inline-start" />
+                                详情
+                              </Button>
+                              {project.monitor.url ? (
+                                <a
+                                  href={project.monitor.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={cn(
+                                    buttonVariants({
+                                      variant: "outline",
+                                      size: "xs",
+                                    }),
+                                    "rounded-[8px] border-slate-200 bg-white",
+                                  )}
+                                >
+                                  <ExternalLinkIcon data-icon="inline-start" />
+                                  打开
+                                </a>
+                              ) : null}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className={CMDB_PROJECT_ACTION_CELL_CLASS}>
@@ -3637,6 +4170,126 @@ export function CmdbShell() {
         </ModuleSection>
       ) : null}
 
+      <Dialog open={monitorDialogOpen} onOpenChange={setMonitorDialogOpen}>
+        <DialogContent className="max-w-[720px] overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.14)]">
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-14">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
+                  监控诊断
+                </DialogTitle>
+                <DialogDescription className="mt-2 text-sm leading-6 text-slate-600">
+                  展示最近一次健康检查请求、响应和失败原因。
+                </DialogDescription>
+              </div>
+              {selectedMonitorProject ? (
+                <Badge
+                  className={cn(
+                    "w-fit border",
+                    monitorTone(selectedMonitorProject.monitor.status),
+                  )}
+                >
+                  {monitorLabel(selectedMonitorProject.monitor.status)}
+                </Badge>
+              ) : null}
+            </div>
+          </DialogHeader>
+
+          {selectedMonitorProject ? (
+            <div className="max-h-[calc(100dvh-13rem)] overflow-y-auto bg-slate-50/70 px-5 py-5">
+              <div className="grid gap-4">
+                <Alert
+                  className={cn(
+                    "text-slate-900",
+                    selectedMonitorProject.monitor.status === "healthy"
+                      ? "border-emerald-200 bg-emerald-50"
+                      : selectedMonitorProject.monitor.status === "degraded"
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-slate-200 bg-white",
+                  )}
+                >
+                  <AlertTriangleIcon className="size-4" />
+                  <AlertTitle>
+                    {selectedMonitorProject.monitor.message}
+                  </AlertTitle>
+                  <AlertDescription className="text-slate-600">
+                    {monitorSummary(selectedMonitorProject)}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white">
+                  <dl className="divide-y divide-slate-100">
+                    {monitorDetailRows(selectedMonitorProject).map(
+                      ([label, value]) => (
+                        <div
+                          key={label}
+                          className="grid gap-1 px-4 py-3 text-sm md:grid-cols-[120px_minmax(0,1fr)]"
+                        >
+                          <dt className="font-medium text-slate-500">
+                            {label}
+                          </dt>
+                          <dd className="min-w-0 font-medium break-words text-slate-900">
+                            {value}
+                          </dd>
+                        </div>
+                      ),
+                    )}
+                  </dl>
+                </div>
+
+                {selectedMonitorProject.monitor.responsePreview ? (
+                  <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white">
+                    <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-950">
+                      响应片段
+                    </div>
+                    <pre className="max-h-48 overflow-auto px-4 py-3 font-mono text-xs leading-6 whitespace-pre-wrap text-slate-700">
+                      {selectedMonitorProject.monitor.responsePreview}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter
+            bleed={false}
+            className="border-t border-slate-200/90 bg-white px-5 py-3"
+          >
+            {selectedMonitorProject?.monitor.url ? (
+              <a
+                href={selectedMonitorProject.monitor.url}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" }),
+                  "rounded-[10px]",
+                )}
+              >
+                <ExternalLinkIcon data-icon="inline-start" />
+                打开检查地址
+              </a>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-[10px]"
+              onClick={() => void dashboardQuery.refetch()}
+              disabled={dashboardQuery.isFetching}
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              重新检查
+            </Button>
+            <Button
+              size="sm"
+              className="rounded-[10px]"
+              onClick={() => setMonitorDialogOpen(false)}
+            >
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={operationDialogOpen}
         onOpenChange={(open) => {
@@ -3652,7 +4305,7 @@ export function CmdbShell() {
               : "max-h-[min(90vh,820px)] max-w-[calc(100vw-1rem)] rounded-[var(--radius-card)] sm:max-w-[1040px]",
           )}
         >
-          <DialogHeader className="gap-0 border-b border-slate-200/80 bg-white px-4 py-3 pr-12 sm:px-5">
+          <DialogHeader className="gap-0 border-b border-slate-200/80 bg-white px-4 py-3 sm:px-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-slate-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.12)]">
@@ -3673,7 +4326,7 @@ export function CmdbShell() {
                   </DialogDescription>
                 </div>
               </div>
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
                 {operationProject ? (
                   <Badge className="max-w-full truncate border border-slate-200 bg-slate-50 text-slate-700 md:max-w-[240px]">
                     {operationProject.name}
@@ -3704,13 +4357,13 @@ export function CmdbShell() {
 
           <div
             className={cn(
-              "grid min-h-0 gap-3 overflow-y-auto bg-slate-50/60 p-3 sm:p-4",
+              "flex min-h-0 flex-col gap-3 overflow-y-auto bg-slate-50/60 p-3 sm:p-4",
               operationDialogMaximized &&
                 operationAction === "sshInfo" &&
-                "grid-rows-[auto_minmax(0,1fr)]",
+                "overscroll-contain",
             )}
           >
-            <div className="grid overflow-hidden rounded-[12px] border border-slate-200 bg-slate-200 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid shrink-0 overflow-hidden rounded-[12px] border border-slate-200 bg-slate-200 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div className="bg-white px-3 py-2.5">
                 <div className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">
                   目标资产
@@ -3761,7 +4414,7 @@ export function CmdbShell() {
               <div
                 className={cn(
                   "grid gap-3",
-                  operationDialogMaximized && "min-h-0",
+                  operationDialogMaximized && "min-h-0 flex-1",
                 )}
               >
                 {terminalError ? (
@@ -3793,56 +4446,34 @@ export function CmdbShell() {
                     <Badge
                       className={cn(
                         "shrink-0 border text-xs",
-                        terminalStatus === "connected"
+                        terminalStatusState === "connected"
                           ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
-                          : terminalStatus === "error"
+                          : terminalStatusState === "error"
                             ? "border-rose-400/25 bg-rose-400/10 text-rose-200"
                             : "border-slate-400/25 bg-slate-400/10 text-slate-200",
                       )}
                     >
-                      {terminalStatusLabel(terminalStatus)}
+                      {terminalStatusLabel(terminalStatusState)}
                     </Badge>
                   </div>
                   <div
-                    onClick={() =>
-                      terminalInputRef.current?.focus({ preventScroll: true })
-                    }
+                    onClick={() => terminalRef.current?.focus()}
                     className={cn(
                       "relative overflow-hidden focus-within:ring-2 focus-within:ring-sky-500/70 focus-within:ring-inset",
                       operationDialogMaximized
                         ? "min-h-0 flex-1"
-                        : "max-h-[min(58vh,620px)] min-h-[420px]",
+                        : "h-[min(58vh,620px)] min-h-[420px]",
                     )}
                   >
-                    <textarea
-                      ref={terminalInputRef}
-                      aria-label="容器终端输入"
-                      autoCapitalize="off"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      disabled={terminalStatus !== "connected"}
-                      onKeyDown={handleTerminalKeyDown}
-                      onChange={handleTerminalInput}
-                      onCompositionStart={handleTerminalCompositionStart}
-                      onCompositionEnd={handleTerminalCompositionEnd}
-                      onPaste={() => {
-                        window.setTimeout(flushTerminalInput, 0);
-                      }}
-                      className="absolute top-3 left-3 h-px w-px resize-none border-0 bg-transparent p-0 font-mono text-base text-transparent caret-transparent opacity-0 outline-none disabled:cursor-not-allowed"
-                    />
-                    <pre
-                      ref={terminalScrollRef}
-                      aria-live="polite"
+                    <div
+                      ref={setTerminalHost}
+                      aria-label="容器终端"
+                      role="application"
                       className={cn(
-                        "h-full cursor-text overflow-auto px-3.5 py-3 font-mono text-[12px] leading-[1.65] whitespace-pre-wrap text-slate-100 [scrollbar-color:rgba(148,163,184,0.55)_transparent]",
-                        operationDialogMaximized
-                          ? "min-h-0"
-                          : "max-h-[min(58vh,620px)] min-h-[420px]",
+                        "h-full w-full cursor-text bg-slate-950 px-3 py-3 text-slate-100",
+                        "[&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto [&_.xterm-viewport]:[scrollbar-color:rgba(148,163,184,0.55)_transparent]",
                       )}
-                    >
-                      {terminalOutput || "正在建立 SSH 会话...\n"}
-                    </pre>
+                    />
                   </div>
                 </div>
               </div>
@@ -3860,7 +4491,20 @@ export function CmdbShell() {
                 </AlertDescription>
               </Alert>
             ) : operationResult ? (
-              <div className="grid gap-3">
+              operationDockerStatus ? (
+                <DockerStatusPanel
+                  result={operationResult}
+                  status={operationDockerStatus}
+                />
+              ) : operationAction === "dockerStatus" ? (
+                <Alert className="border-amber-200 bg-amber-50 text-amber-950">
+                  <AlertTriangleIcon className="size-4" />
+                  <AlertTitle>状态不可用</AlertTitle>
+                  <AlertDescription>
+                    {operationText || "未能解析目标容器状态。"}
+                  </AlertDescription>
+                </Alert>
+              ) : (
                 <div className="overflow-hidden rounded-[var(--radius-card)] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
                   <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
                     <div className="flex min-w-0 items-center gap-2">
@@ -3870,9 +4514,7 @@ export function CmdbShell() {
                         <span className="size-2 rounded-full bg-emerald-400" />
                       </span>
                       <span className="truncate font-mono text-xs text-slate-300">
-                        {operationAction === "dockerLogs"
-                          ? "docker logs --tail 200"
-                          : "docker ps / docker inspect"}
+                        最近日志
                       </span>
                     </div>
                     <Badge
@@ -3890,7 +4532,7 @@ export function CmdbShell() {
                     {operationText || "无输出"}
                   </pre>
                 </div>
-              </div>
+              )
             ) : null}
           </div>
 
@@ -3945,7 +4587,7 @@ export function CmdbShell() {
           initialFocus={false}
           className="flex max-h-[calc(100vh-1rem)] max-w-[1120px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]"
         >
-          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
                 <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
@@ -3956,7 +4598,7 @@ export function CmdbShell() {
                   端口可达性和运行画像，供部署目标选择与筛选使用。
                 </DialogDescription>
               </div>
-              <Badge className="w-fit border border-slate-200 bg-slate-50 text-slate-700">
+              <Badge className="w-fit max-w-full border border-slate-200 bg-slate-50 text-slate-700">
                 真实 SSH 登录
               </Badge>
             </div>
@@ -4009,8 +4651,8 @@ export function CmdbShell() {
                     </ProjectDraftField>
                   </div>
 
-                  <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_150px]">
-                    <ProjectDraftField label="SSH 用户">
+                  <div className="mt-4 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_120px]">
+                    <ProjectDraftField label="SSH 用户" className="gap-1.5">
                       <Input
                         value={assetDraft.sshUser}
                         onChange={(event) =>
@@ -4021,9 +4663,10 @@ export function CmdbShell() {
                         }
                         placeholder="root"
                         autoComplete="off"
+                        className="h-9 bg-white"
                       />
                     </ProjectDraftField>
-                    <ProjectDraftField label="SSH 密码">
+                    <ProjectDraftField label="SSH 密码" className="gap-1.5">
                       <Input
                         type="password"
                         value={assetDraft.sshPassword}
@@ -4035,6 +4678,7 @@ export function CmdbShell() {
                         }
                         placeholder="服务器登录密码"
                         autoComplete="new-password"
+                        className="h-9 bg-white"
                       />
                     </ProjectDraftField>
                     <ProjectDraftField
@@ -4042,6 +4686,7 @@ export function CmdbShell() {
                       hint={
                         assetSshPortValid ? "默认 22" : "请输入 1-65535 的整数"
                       }
+                      className="gap-1.5"
                     >
                       <Input
                         value={assetDraft.sshPort}
@@ -4055,6 +4700,7 @@ export function CmdbShell() {
                         autoComplete="off"
                         aria-invalid={!assetSshPortValid}
                         className={cn(
+                          "h-9 bg-white",
                           !assetSshPortValid &&
                             "border-rose-300 text-rose-900 focus-visible:ring-rose-200",
                         )}
@@ -4457,7 +5103,7 @@ export function CmdbShell() {
           initialFocus={false}
           className="flex max-h-[calc(100vh-1rem)] max-w-[1040px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]"
         >
-          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
                 <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
@@ -4467,7 +5113,7 @@ export function CmdbShell() {
                   先定仓库，再按步骤补齐部署、观测和变量。保存前底部会显示关键配置。
                 </DialogDescription>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
                 <Badge className={cn("border", gitlabBadgeTone)}>
                   {gitlabBadgeLabel}
                 </Badge>
@@ -4797,8 +5443,78 @@ export function CmdbShell() {
                       />
                     </ProjectDraftField>
 
-                    <div className="grid gap-4 md:grid-cols-[minmax(0,240px)]">
-                      <ProjectDraftField label="默认分支">
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+                      <ProjectDraftField
+                        label="默认分支"
+                        hint={
+                          gitlabBranchesQuery.isError
+                            ? "分支列表读取失败，可在右侧手动填写。"
+                            : gitlabBranchItems.length > 0
+                              ? "已从 GitLab 仓库读取分支。"
+                              : "未读取到分支时仍可手动填写。"
+                        }
+                      >
+                        <Select
+                          value={defaultBranchSelectValue}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            if (value === CUSTOM_BRANCH_VALUE) return;
+
+                            setProjectDraft((current) => ({
+                              ...current,
+                              defaultBranch: value,
+                            }));
+                          }}
+                          disabled={
+                            gitlabBranchesQuery.isLoading &&
+                            gitlabBranchItems.length === 0
+                          }
+                        >
+                          <SelectTrigger className="w-full rounded-[10px] bg-white">
+                            <SelectValue>
+                              {gitlabBranchesQuery.isLoading &&
+                              gitlabBranchItems.length === 0
+                                ? "读取分支中"
+                                : defaultBranchSelectValue ===
+                                    CUSTOM_BRANCH_VALUE
+                                  ? "自定义分支"
+                                  : projectDraft.defaultBranch.trim() || "main"}
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72 rounded-[12px]">
+                            <SelectGroup>
+                              {branchNames.map((branch) => {
+                                const branchMeta = gitlabBranchItems.find(
+                                  (item) => item.name === branch,
+                                );
+
+                                return (
+                                  <SelectItem key={branch} value={branch}>
+                                    <span className="min-w-0 truncate">
+                                      {branch}
+                                    </span>
+                                    {branchMeta?.isDefault ? (
+                                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                                        默认
+                                      </span>
+                                    ) : null}
+                                    {branchMeta?.isProtected ? (
+                                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">
+                                        保护
+                                      </span>
+                                    ) : null}
+                                  </SelectItem>
+                                );
+                              })}
+                              <SelectItem value={CUSTOM_BRANCH_VALUE}>
+                                自定义分支
+                              </SelectItem>
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      </ProjectDraftField>
+
+                      <ProjectDraftField label="手动分支">
                         <Input
                           value={projectDraft.defaultBranch}
                           onChange={(event) =>
@@ -4825,7 +5541,7 @@ export function CmdbShell() {
                       </p>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                       <ProjectDraftField label="部署目标">
                         <Select
                           value={projectDraft.deployTarget}
@@ -4854,88 +5570,6 @@ export function CmdbShell() {
                           </SelectContent>
                         </Select>
                       </ProjectDraftField>
-                      <ProjectDraftField
-                        label="目标资产"
-                        hint="可选择多台服务器，发布时会作为 DEPLOY_TARGETS_JSON 传入 Pipeline。"
-                      >
-                        <div className="grid gap-2 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
-                          <div className="flex min-h-7 flex-wrap gap-2">
-                            {projectDraft.targetAssetNames.length > 0 ? (
-                              projectDraft.targetAssetNames.map((assetName) => (
-                                <Badge
-                                  key={`target-asset-${assetName}`}
-                                  className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
-                                >
-                                  {assetName}
-                                  <button
-                                    type="button"
-                                    className="text-slate-400 hover:text-slate-700"
-                                    onClick={() =>
-                                      removeProjectTargetAsset(assetName)
-                                    }
-                                    aria-label={`移除目标资产 ${assetName}`}
-                                  >
-                                    <XIcon className="size-3.5" />
-                                  </button>
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-sm text-slate-400">
-                                还没有选择目标资产
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex gap-2">
-                            <Select
-                              value={UNASSIGNED_VALUE}
-                              onValueChange={(value) => {
-                                if (!value) return;
-                                addProjectTargetAsset(value);
-                              }}
-                            >
-                              <SelectTrigger className="w-full rounded-[10px] bg-white">
-                                <SelectValue placeholder="添加目标资产">
-                                  添加目标资产
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent className="rounded-[12px]">
-                                <SelectGroup>
-                                  <SelectItem value={UNASSIGNED_VALUE}>
-                                    选择资产
-                                  </SelectItem>
-                                  {assets
-                                    .filter(
-                                      (asset) =>
-                                        !projectDraft.targetAssetNames.includes(
-                                          asset.name,
-                                        ),
-                                    )
-                                    .map((asset) => (
-                                      <SelectItem
-                                        key={`cmdb-asset-${asset.name}`}
-                                        value={asset.name}
-                                      >
-                                        {asset.name} ({asset.ip})
-                                      </SelectItem>
-                                    ))}
-                                </SelectGroup>
-                              </SelectContent>
-                            </Select>
-                            {projectDraft.targetAssetNames.length > 0 ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="rounded-[10px] bg-white"
-                                onClick={clearProjectTargetAssets}
-                              >
-                                清空
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                      </ProjectDraftField>
                       <ProjectDraftField label="部署环境">
                         <Input
                           value={projectDraft.deployEnv}
@@ -4948,22 +5582,90 @@ export function CmdbShell() {
                           placeholder="prod"
                         />
                       </ProjectDraftField>
-                      <ProjectDraftField
-                        label="Trigger Token"
-                        hint="可选；用于触发 .gitlab-ci.yml，未配置则使用全局 GitLab API Token。"
-                      >
-                        <Input
-                          value={projectDraft.triggerToken}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              triggerToken: event.target.value,
-                            }))
-                          }
-                          placeholder="GitLab Pipeline Trigger Token"
-                        />
-                      </ProjectDraftField>
                     </div>
+
+                    <ProjectDraftField
+                      label="目标资产"
+                      hint="可选择多台服务器，发布时会作为 DEPLOY_TARGETS_JSON 传入 Pipeline。"
+                    >
+                      <div className="grid gap-3 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
+                        <div className="flex min-h-7 flex-wrap gap-2">
+                          {projectDraft.targetAssetNames.length > 0 ? (
+                            projectDraft.targetAssetNames.map((assetName) => (
+                              <Badge
+                                key={`target-asset-${assetName}`}
+                                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-700"
+                              >
+                                {assetName}
+                                <button
+                                  type="button"
+                                  className="text-slate-400 hover:text-slate-700"
+                                  onClick={() =>
+                                    removeProjectTargetAsset(assetName)
+                                  }
+                                  aria-label={`移除目标资产 ${assetName}`}
+                                >
+                                  <XIcon className="size-3.5" />
+                                </button>
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-sm text-slate-400">
+                              还没有选择目标资产
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Select
+                            value={UNASSIGNED_VALUE}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              addProjectTargetAsset(value);
+                            }}
+                          >
+                            <SelectTrigger className="w-full rounded-[10px] bg-white">
+                              <SelectValue placeholder="添加目标资产">
+                                添加目标资产
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent className="rounded-[12px]">
+                              <SelectGroup>
+                                <SelectItem value={UNASSIGNED_VALUE}>
+                                  选择资产
+                                </SelectItem>
+                                {assets
+                                  .filter(
+                                    (asset) =>
+                                      !projectDraft.targetAssetNames.includes(
+                                        asset.name,
+                                      ),
+                                  )
+                                  .map((asset) => (
+                                    <SelectItem
+                                      key={`cmdb-asset-${asset.name}`}
+                                      value={asset.name}
+                                    >
+                                      {asset.name} ({asset.ip})
+                                    </SelectItem>
+                                  ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          {projectDraft.targetAssetNames.length > 0 ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-9 rounded-[10px] bg-white sm:w-20"
+                              onClick={clearProjectTargetAssets}
+                            >
+                              清空
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </ProjectDraftField>
 
                     {projectDraft.deployTarget === "none" ? (
                       <div className="rounded-[10px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
@@ -5014,6 +5716,22 @@ export function CmdbShell() {
                         />
                       </ProjectDraftField>
                     ) : null}
+
+                    <ProjectDraftField
+                      label="Trigger Token"
+                      hint="可选；用于触发 .gitlab-ci.yml，未配置则使用全局 GitLab API Token。"
+                    >
+                      <Input
+                        value={projectDraft.triggerToken}
+                        onChange={(event) =>
+                          setProjectDraft((current) => ({
+                            ...current,
+                            triggerToken: event.target.value,
+                          }))
+                        }
+                        placeholder="GitLab Pipeline Trigger Token"
+                      />
+                    </ProjectDraftField>
 
                     {projectDraft.deployTarget === "ssh" ? (
                       <div className="grid gap-4">
@@ -5275,7 +5993,7 @@ export function CmdbShell() {
         }}
       >
         <DialogContent className="flex max-h-[calc(100vh-1rem)] max-w-[920px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
-          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4 pr-12">
+          <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4">
             <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
               主题发布
             </DialogTitle>

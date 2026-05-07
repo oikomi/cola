@@ -38,3 +38,25 @@ EOF
 
 mkdir -p "$HOME/Desktop" "$HOME/.config/gtk-3.0" "$HOME/.config/xfce4/terminal"
 
+if command -v xfconf-query >/dev/null 2>&1; then
+  for monitor_name in monitor0 monitorscreen; do
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/color-style" \
+      -n -t int -s 0 >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/image-show" \
+      -n -t bool -s true >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/image-style" \
+      -n -t int -s 5 >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/image-path" \
+      -n -t string -s /opt/remote-work/assets >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/image-filename" \
+      -n -t string -s /opt/remote-work/assets/workspace-wallpaper.svg >/dev/null 2>&1 || true
+    xfconf-query -c xfce4-desktop \
+      -p "/backdrop/screen0/${monitor_name}/workspace0/last-image" \
+      -n -t string -s /opt/remote-work/assets/workspace-wallpaper.svg >/dev/null 2>&1 || true
+  done
+fi

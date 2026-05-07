@@ -39,7 +39,7 @@ void test("Hugging Face model refs reject local paths", () => {
 
 void test("llama.cpp model refs accept local gguf paths under /models", () => {
   assert.equal(isLlamaCppModelRef(llamaCppModelRefExample), true);
-  assert.equal(isLlamaCppModelRef(`/models/${llamaCppModelRefExample}`), true);
+  assert.equal(isLlamaCppModelRef("unsloth/gemma-4-E2B-it-Q3_K_M.gguf"), true);
   assert.equal(isLlamaCppModelRef("Qwen/Qwen3-8B-Instruct"), false);
   assert.equal(isLlamaCppModelRef("../qwen3.gguf"), false);
   assert.equal(isLlamaCppModelRef("/models/../qwen3.gguf"), false);

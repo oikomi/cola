@@ -26,8 +26,10 @@ export type InferenceDeploymentStatus =
 const creatableInferenceDeploymentEngineSet =
   new Set<InferenceDeploymentEngine>(creatableInferenceDeploymentEngineValues);
 export const llamaCppModelRoot = "/models";
-export const llamaCppModelRefExample = "unsloth/gemma-4-E2B-it-Q3_K_M.gguf";
-export const llamaCppRemoteModelRefExample = "hf://owner/repo/model.gguf";
+export const llamaCppModelRefExample =
+  "/models/unsloth/gemma-4-E2B-it-Q3_K_M.gguf";
+export const llamaCppRemoteModelRefExample =
+  "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
 const huggingFaceModelRefPattern =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;

@@ -154,6 +154,14 @@ class CmdbTerminalSession {
     return true;
   }
 
+  resize(cols: number, rows: number) {
+    this.resetIdleTimer();
+    if (this.closed || !this.channel) return false;
+
+    this.channel.setWindow(rows, cols, 0, 0);
+    return true;
+  }
+
   close(message = "会话已关闭。") {
     if (this.closed) return;
 
@@ -254,6 +262,15 @@ export function getCmdbTerminalSession(sessionId: string) {
 
 export function writeCmdbTerminalSessionInput(sessionId: string, data: string) {
   return sessions.get(sessionId)?.write(data) ?? false;
+}
+
+export function resizeCmdbTerminalSession(
+  sessionId: string,
+  dimensions: { cols: number; rows: number },
+) {
+  return (
+    sessions.get(sessionId)?.resize(dimensions.cols, dimensions.rows) ?? false
+  );
 }
 
 export function closeCmdbTerminalSession(sessionId: string) {

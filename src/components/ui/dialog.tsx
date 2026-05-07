@@ -53,7 +53,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-[var(--radius-shell)] p-4 text-sm ring-1 duration-100 outline-none sm:max-h-[calc(100dvh-3rem)]",
+          "bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-[var(--radius-shell)] p-4 text-sm ring-1 duration-100 outline-none sm:max-h-[calc(100dvh-3rem)] [&>[data-slot=dialog-header]]:pr-14 sm:[&>[data-slot=dialog-header]]:pr-16",
           className,
         )}
         {...props}
@@ -65,7 +65,7 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
+                className="absolute top-2 right-2 z-10 rounded-full bg-popover/85 shadow-[0_1px_0_rgba(15,23,42,0.06)] hover:bg-muted"
                 size="icon-sm"
               />
             }
@@ -83,7 +83,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
+      className={cn("flex min-w-0 flex-col gap-2", className)}
       {...props}
     />
   );
@@ -103,7 +103,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "bg-muted/50 flex flex-col-reverse gap-2 rounded-b-[var(--radius-shell)] border-t p-4 sm:flex-row sm:justify-end",
+        "bg-muted/50 flex shrink-0 flex-col-reverse gap-2 rounded-b-[var(--radius-shell)] border-t p-4 sm:flex-row sm:justify-end",
         bleed && "-mx-4 -mb-4",
         className,
       )}
@@ -124,7 +124,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-base leading-none font-medium",
+        "font-heading text-base leading-tight font-medium",
         className,
       )}
       {...props}

@@ -14,7 +14,9 @@ export function ModulePageShell({
 }) {
   return (
     <AdminChrome>
-      <div className={cn("flex flex-col gap-5", className)}>{children}</div>
+      <div className={cn("flex min-w-0 flex-col gap-5", className)}>
+        {children}
+      </div>
     </AdminChrome>
   );
 }
@@ -102,10 +104,10 @@ export function ModuleHero({
                 </div>
                 <h1
                   className={cn(
-                    "text-foreground truncate font-semibold tracking-normal",
+                    "text-foreground font-semibold tracking-normal break-words",
                     isDense
-                      ? "mt-1.5 text-[1.34rem] leading-none md:text-[1.48rem]"
-                      : "mt-2 text-[1.5rem] leading-none md:text-[1.7rem]",
+                      ? "mt-1.5 text-[1.34rem] leading-tight md:text-[1.48rem]"
+                      : "mt-2 text-[1.5rem] leading-tight md:text-[1.7rem]",
                   )}
                 >
                   {title}
@@ -156,12 +158,12 @@ export function ModuleHero({
     <>
       <section className="border-border bg-card relative overflow-hidden rounded-[var(--radius-shell)] border px-6 py-5 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
         <div className="relative flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start xl:gap-4">
-          <div className="flex items-start gap-2.5">
+          <div className="flex min-w-0 items-start gap-2.5">
             <div className="bg-accent text-accent-foreground ring-border flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1">
               <Icon className="size-[14px]" />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="border border-slate-200/90 bg-white/88 text-slate-700">
                   {eyebrow}
@@ -170,7 +172,7 @@ export function ModuleHero({
               </div>
 
               <div className="space-y-0.5">
-                <h1 className="text-foreground max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-normal md:text-[2rem]">
+                <h1 className="text-foreground max-w-4xl text-[1.58rem] leading-tight font-semibold tracking-normal break-words md:text-[2rem]">
                   {title}
                 </h1>
                 <p className="max-w-3xl text-[13px] leading-6 text-slate-600 md:max-w-2xl">
@@ -297,12 +299,12 @@ export function ModuleSection({
           className={cn(
             isCompact
               ? "flex min-w-0 flex-col gap-1.5 md:flex-row md:items-baseline md:gap-3"
-              : "space-y-2",
+              : "min-w-0 space-y-2",
           )}
         >
           <h2
             className={cn(
-              "text-foreground font-semibold tracking-normal",
+              "text-foreground font-semibold tracking-normal break-words",
               isCompact ? "text-[1.2rem]" : "text-[1.5rem]",
             )}
           >
@@ -324,7 +326,7 @@ export function ModuleSection({
         {action ? (
           <div
             className={cn(
-              "flex shrink-0 flex-wrap gap-2",
+              "flex shrink-0 flex-wrap gap-2 md:justify-end",
               isCompact ? "items-center" : undefined,
             )}
           >

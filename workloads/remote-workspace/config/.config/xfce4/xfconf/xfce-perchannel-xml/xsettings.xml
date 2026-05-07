@@ -4,9 +4,9 @@
     <property name="EnableEventSounds" type="bool" value="false"/>
     <property name="EnableInputFeedbackSounds" type="bool" value="false"/>
     <property name="FontName" type="string" value="Noto Sans 10"/>
-    <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+    <property name="IconThemeName" type="string" value="Yaru"/>
     <property name="MonospaceFontName" type="string" value="JetBrains Mono 11"/>
-    <property name="ThemeName" type="string" value="Arc-Darker"/>
+    <property name="ThemeName" type="string" value="Yaru-dark"/>
     <property name="ToolbarIconSize" type="int" value="2"/>
     <property name="ToolbarStyle" type="string" value="icons"/>
   </property>

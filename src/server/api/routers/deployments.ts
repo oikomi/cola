@@ -25,7 +25,7 @@ import {
 function modelRefValidationMessage(engine: InferenceDeploymentEngine) {
   switch (engine) {
     case "llama.cpp":
-      return `llama.cpp 支持 /models 下的本地 GGUF，或可直接下载的 GGUF 来源，例如 ${llamaCppModelRefExample}、${llamaCppRemoteModelRefExample}。`;
+      return `llama.cpp 支持 /models 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "vllm":
     case "sglang":
       return "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";

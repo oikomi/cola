@@ -96,7 +96,7 @@ const defaultDraft: DraftState = {
 function modelRefHint(engine: DraftState["engine"]) {
   switch (engine) {
     case "llama.cpp":
-      return `支持 ${llamaCppModelRoot} 下的本地 GGUF，或可直接下载的 GGUF 来源，例如 ${llamaCppModelRefExample}、${llamaCppRemoteModelRefExample}。`;
+      return `支持 ${llamaCppModelRoot} 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "vllm":
     case "sglang":
       return "仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
@@ -597,8 +597,8 @@ export function DeploymentsShell() {
     parsedReplicaCount >= 1 &&
     parsedReplicaCount <= 16;
 
-  const handleCreate = async () => {
-    await createDeployment.mutateAsync({
+  const handleCreate = () => {
+    createDeployment.mutate({
       name: draft.name.trim(),
       engine: draft.engine,
       modelRef: draft.modelRef.trim(),
@@ -613,6 +613,14 @@ export function DeploymentsShell() {
     });
   };
 
+  const handleStart = (name: string) => {
+    startDeployment.mutate({ name });
+  };
+
+  const handleStop = (name: string) => {
+    stopDeployment.mutate({ name });
+  };
+
   const handleDelete = async (name: string) => {
     const confirmed = await confirm({
       title: `确认删除推理部署 ${name}？`,
@@ -621,7 +629,7 @@ export function DeploymentsShell() {
     });
     if (!confirmed) return;
 
-    await deleteDeployment.mutateAsync({ name });
+    deleteDeployment.mutate({ name });
   };
 
   return (
@@ -806,12 +814,8 @@ export function DeploymentsShell() {
                     isStarting={isStarting}
                     isStopping={isStopping}
                     isDeleting={isDeleting}
-                    onStart={() =>
-                      void startDeployment.mutateAsync({ name: row.name })
-                    }
-                    onStop={() =>
-                      void stopDeployment.mutateAsync({ name: row.name })
-                    }
+                    onStart={() => handleStart(row.name)}
+                    onStop={() => handleStop(row.name)}
                     onDelete={() => void handleDelete(row.name)}
                   />
                 );
@@ -921,16 +925,8 @@ export function DeploymentsShell() {
                             isStopping={isStopping}
                             isDeleting={isDeleting}
                             align="end"
-                            onStart={() =>
-                              void startDeployment.mutateAsync({
-                                name: row.name,
-                              })
-                            }
-                            onStop={() =>
-                              void stopDeployment.mutateAsync({
-                                name: row.name,
-                              })
-                            }
+                            onStart={() => handleStart(row.name)}
+                            onStop={() => handleStop(row.name)}
                             onDelete={() => void handleDelete(row.name)}
                           />
                         </TableCell>
@@ -945,10 +941,10 @@ export function DeploymentsShell() {
       </ModuleSection>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="border-border/70 grid max-h-[calc(100svh-2rem)] max-w-[1120px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-white p-0 text-slate-950">
-          <DialogHeader className="border-border/70 border-b bg-white px-5 py-5 pr-14 md:px-6">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-2">
+        <DialogContent className="border-border/70 grid max-h-[calc(100svh-1rem)] max-w-[min(1120px,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-white p-0 text-slate-950 sm:max-h-[calc(100dvh-2rem)]">
+          <DialogHeader className="border-border/70 border-b bg-white px-4 py-4 md:px-6 md:py-5">
+            <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0 space-y-2">
                 <DialogTitle className="text-[1.7rem] tracking-normal">
                   创建推理部署
                 </DialogTitle>
@@ -959,14 +955,14 @@ export function DeploymentsShell() {
 
               <Badge
                 variant="outline"
-                className="self-start rounded-full border-sky-200 bg-sky-50 text-sky-700"
+                className="w-fit max-w-full self-start rounded-full border-sky-200 bg-sky-50 text-sky-700"
               >
                 创建后保存为草稿
               </Badge>
             </div>
           </DialogHeader>
 
-          <div className="grid min-h-0 gap-4 overflow-y-auto bg-white px-5 py-5 md:px-6 xl:grid-cols-[minmax(0,1.08fr)_320px] xl:items-start">
+          <div className="grid min-h-0 gap-4 overflow-y-auto bg-white px-4 py-4 md:px-6 md:py-5 lg:grid-cols-[minmax(0,1.08fr)_320px] lg:items-start">
             <FormSection
               title="部署信息"
               description="名称、模型与镜像会直接决定后续上线行为。"
@@ -996,6 +992,12 @@ export function DeploymentsShell() {
                       setDraft((current) => ({
                         ...current,
                         engine: value,
+                        modelRef: isValidInferenceModelRef(
+                          value,
+                          current.modelRef,
+                        )
+                          ? current.modelRef
+                          : modelRefPlaceholder(value),
                         image: defaultInferenceImage(
                           value,
                           Number.parseInt(current.gpuCount, 10) ||
@@ -1277,7 +1279,7 @@ export function DeploymentsShell() {
 
           <DialogFooter
             bleed={false}
-            className="border-border/70 border-t bg-white px-5 py-3 md:px-6"
+            className="border-border/70 border-t bg-white px-4 py-3 md:px-6"
           >
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               取消
@@ -1285,7 +1287,7 @@ export function DeploymentsShell() {
             <Button
               className="min-w-[148px]"
               disabled={!canSubmit || createDeployment.isPending}
-              onClick={() => void handleCreate()}
+              onClick={handleCreate}
             >
               {createDeployment.isPending ? (
                 <LoaderCircleIcon

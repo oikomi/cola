@@ -31,7 +31,7 @@ import {
   llamaCppRemoteModelRefExample,
 } from "@/server/deployments/catalog";
 import {
-  assertLlamaCppModelFileExists,
+  assertLlamaCppModelFileExistsOnNodes,
   DEFAULT_INFERENCE_CACHE_ROOT,
   DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
   isInferencePodFailed,
@@ -80,6 +80,9 @@ type ClusterConfig = {
 type ClusterNode = {
   name: string;
   ip: string;
+  sshUser?: string;
+  sshPassword?: string;
+  sshPort?: number;
   roles: string[];
 };
 
@@ -248,10 +251,7 @@ function normalizeCreateEngine(engine: InferenceDeploymentEngine) {
   return engine;
 }
 
-function normalizeModelRef(
-  engine: InferenceDeploymentEngine,
-  input: string,
-) {
+function normalizeModelRef(engine: InferenceDeploymentEngine, input: string) {
   const value = input.trim();
 
   if (engine === "llama.cpp") {
@@ -318,19 +318,35 @@ function countInferenceDeploymentsOnNode(
   deployments: V1Deployment[],
   nodeName: string,
 ) {
-  return deployments.filter((deployment) => {
-    const affinity =
-      deployment.spec?.template?.spec?.affinity?.nodeAffinity
-        ?.requiredDuringSchedulingIgnoredDuringExecution;
+  return deployments.filter((deployment) =>
+    eligibleNodeNamesFromDeployment(deployment).includes(nodeName),
+  ).length;
+}
 
-    const hostnames =
-      affinity?.nodeSelectorTerms
-        ?.flatMap((term) => term.matchExpressions ?? [])
-        .filter((expression) => expression.key === "kubernetes.io/hostname")
-        .flatMap((expression) => expression.values ?? []) ?? [];
+function eligibleNodeNamesFromDeployment(deployment: V1Deployment) {
+  const affinity =
+    deployment.spec?.template?.spec?.affinity?.nodeAffinity
+      ?.requiredDuringSchedulingIgnoredDuringExecution;
 
-    return hostnames.includes(nodeName);
-  }).length;
+  return (
+    affinity?.nodeSelectorTerms
+      ?.flatMap((term) => term.matchExpressions ?? [])
+      .filter((expression) => expression.key === "kubernetes.io/hostname")
+      .flatMap((expression) => expression.values ?? []) ?? []
+  );
+}
+
+function resolveDeploymentCheckNodes(
+  deployment: V1Deployment,
+  configNodes: ClusterNode[],
+) {
+  const eligibleNames = new Set(eligibleNodeNamesFromDeployment(deployment));
+  const candidateNodes =
+    eligibleNames.size > 0
+      ? configNodes.filter((node) => eligibleNames.has(node.name))
+      : configNodes.filter((node) => node.roles.includes("worker"));
+
+  return candidateNodes.length > 0 ? candidateNodes : configNodes;
 }
 
 function selectEligibleInferenceNodes(params: {
@@ -659,7 +675,9 @@ function buildInferenceDeployment(input: {
           labels: deploymentLabels(input.name, input.engine),
         },
         spec: {
-          ...(usesGpuAcceleration(gpuSpec) ? { runtimeClassName: "nvidia" } : {}),
+          ...(usesGpuAcceleration(gpuSpec)
+            ? { runtimeClassName: "nvidia" }
+            : {}),
           ...(initContainers.length > 0 ? { initContainers } : {}),
           affinity: {
             nodeAffinity: {
@@ -1240,10 +1258,11 @@ function buildReplacementDeployment(input: {
           (metadata?.annotations?.[INFERENCE_METADATA.gpuAllocationMode] as
             | GpuAllocationSpec["gpuAllocationMode"]
             | undefined) ?? gpuSpec.gpuAllocationMode,
-        gpuMemoryGi: Number.parseInt(
-          metadata?.annotations?.[INFERENCE_METADATA.gpuMemoryGi] ?? "",
-          10,
-        ) || gpuSpec.gpuMemoryGi,
+        gpuMemoryGi:
+          Number.parseInt(
+            metadata?.annotations?.[INFERENCE_METADATA.gpuMemoryGi] ?? "",
+            10,
+          ) || gpuSpec.gpuMemoryGi,
         ...(refreshedAt
           ? { lastStartedAt: refreshedAt }
           : metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]
@@ -1296,7 +1315,10 @@ export async function startInferenceDeployment(name: string) {
 
   if (engine === "llama.cpp") {
     if (isLlamaCppLocalModelRef(modelRef)) {
-      assertLlamaCppModelFileExists(modelRef);
+      await assertLlamaCppModelFileExistsOnNodes({
+        modelRef,
+        nodes: resolveDeploymentCheckNodes(deployment, ctx.nodes),
+      });
     }
   }
 

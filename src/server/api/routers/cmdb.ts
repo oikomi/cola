@@ -10,6 +10,7 @@ import {
   createCmdbRelease,
   deleteCmdbAsset,
   getCmdbDashboard,
+  listGitLabBranches,
   listGitLabCatalog,
   runCmdbProjectOperation,
   testCmdbAssetConnectivity,
@@ -84,6 +85,16 @@ export const cmdbRouter = createTRPCRouter({
     )
     .query(async ({ input }) => {
       return listGitLabCatalog(input?.query);
+    }),
+
+  gitlabBranches: publicProcedure
+    .input(
+      z.object({
+        projectPath: z.string().min(1).max(512),
+      }),
+    )
+    .query(async ({ input }) => {
+      return listGitLabBranches(input.projectPath);
     }),
 
   saveProject: publicProcedure

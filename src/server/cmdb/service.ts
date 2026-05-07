@@ -36,6 +36,27 @@ type SshReadyAssetRow = CmdbAssetRow & {
   sshUser: string;
   sshPassword: string;
 };
+type DockerContainerPort = {
+  containerPort: string;
+  protocol: string | null;
+  hostIp: string | null;
+  hostPort: string | null;
+  label: string;
+};
+type DockerContainerStatus = {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  running: boolean;
+  health: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string | null;
+  restartCount: number;
+  exitCode: number | null;
+  ports: DockerContainerPort[];
+};
 
 type GitLabProject = {
   id: number;
@@ -51,6 +72,29 @@ type GitLabPipeline = {
   status: string;
   web_url?: string | null;
 };
+type GitLabBranch = {
+  name: string;
+  default?: boolean;
+  protected?: boolean;
+  web_url?: string | null;
+};
+type ProjectHealthProbeResult = {
+  status: "healthy" | "degraded" | "unknown";
+  statusCode: number | null;
+  responseTimeMs: number | null;
+  message: string;
+  checkedAt: Date;
+  url: string | null;
+  method: "GET";
+  timeoutMs: number;
+  contentType: string | null;
+  errorType: string | null;
+  errorDetail: string | null;
+  responsePreview: string | null;
+};
+
+const HEALTH_CHECK_TIMEOUT_MS = 2500;
+const HEALTH_RESPONSE_PREVIEW_LENGTH = 600;
 
 export type CmdbProjectTerminalTarget = {
   projectId: number;
@@ -85,6 +129,29 @@ function hasGitLabTriggerSupport() {
 function cleanString(value: string | null | undefined) {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function errorDetail(error: unknown) {
+  if (!(error instanceof Error)) return "未知错误";
+
+  const cause = error.cause;
+  if (!isRecord(cause)) return error.message;
+
+  const causeParts = [
+    typeof cause.code === "string" ? cause.code : null,
+    typeof cause.syscall === "string" ? cause.syscall : null,
+    typeof cause.hostname === "string" ? cause.hostname : null,
+    typeof cause.address === "string" ? cause.address : null,
+    typeof cause.port === "number" ? String(cause.port) : null,
+  ].filter(Boolean);
+
+  return causeParts.length > 0
+    ? `${error.message} (${causeParts.join(" · ")})`
+    : error.message;
 }
 
 function buildGitLabProjectUrl(
@@ -273,6 +340,59 @@ function truncateOutput(value: string, maxLength = 20000) {
   return `${value.slice(0, maxLength)}\n... output truncated ...`;
 }
 
+function compactPreview(
+  value: string,
+  maxLength = HEALTH_RESPONSE_PREVIEW_LENGTH,
+) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function parseJsonPayload<T>(value: string, source: string): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    const preview = compactPreview(value);
+    const detail = preview ? `响应片段: ${preview}` : "响应体为空";
+    const cause = error instanceof Error ? error.message : "JSON 解析失败";
+    throw new Error(`${source} 返回的不是有效 JSON。${cause}。${detail}`);
+  }
+}
+
+async function readResponseText(response: Response) {
+  return response.text().catch(() => "");
+}
+
+function apiErrorMessageFromResponse(
+  response: Response,
+  responseText: string,
+) {
+  if (!responseText) return `HTTP ${response.status}`;
+
+  try {
+    const payload = JSON.parse(responseText) as {
+      message?: unknown;
+      error?: unknown;
+    };
+    const rawMessage = payload.message ?? payload.error;
+
+    if (typeof rawMessage === "string") return rawMessage;
+    if (rawMessage != null) return JSON.stringify(rawMessage);
+  } catch {
+    const preview = compactPreview(responseText);
+    return [
+      `HTTP ${response.status}`,
+      response.statusText || null,
+      preview ? `响应不是 JSON: ${preview}` : "响应不是 JSON",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  return `HTTP ${response.status}`;
+}
+
 function dockerContainerName(project: Pick<CmdbProjectRow, "name" | "config">) {
   return (
     cleanString(project.config?.customVariables?.DOCKER_CONTAINER_NAME) ??
@@ -319,15 +439,142 @@ function buildDockerStatusCommand(containerName: string) {
   return [
     "set -eu",
     `CONTAINER=${container}`,
-    'echo "Container: ${CONTAINER}"',
-    'docker ps -a --filter "name=^/${CONTAINER}$" --format "table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}"',
-    'echo ""',
-    'docker inspect "${CONTAINER}" --format "Name={{.Name}}"',
-    'docker inspect "${CONTAINER}" --format "Image={{.Config.Image}}"',
-    'docker inspect "${CONTAINER}" --format "State={{.State.Status}}"',
-    'docker inspect "${CONTAINER}" --format "StartedAt={{.State.StartedAt}}"',
-    'docker inspect "${CONTAINER}" --format "RestartCount={{.RestartCount}}"',
+    'docker inspect "$CONTAINER" --format \'{{json .}}\'',
   ].join("\n");
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function booleanValue(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function dockerTimestamp(value: unknown) {
+  const timestamp = stringValue(value)?.trim();
+  if (!timestamp || timestamp.startsWith("0001-01-01")) return null;
+  return timestamp;
+}
+
+function dockerPortLabel(args: {
+  containerPort: string;
+  protocol: string | null;
+  hostIp: string | null;
+  hostPort: string | null;
+}) {
+  const target = `${args.containerPort}${args.protocol ? `/${args.protocol}` : ""}`;
+  if (!args.hostPort) return target;
+
+  const hostIp = args.hostIp?.trim() ?? "0.0.0.0";
+  return `${hostIp}:${args.hostPort} -> ${target}`;
+}
+
+function dockerPortsFromInspect(value: unknown): DockerContainerPort[] {
+  if (!isRecord(value)) return [];
+
+  return Object.entries(value).flatMap(([key, bindings]) => {
+    const [containerPort = key, protocol = null] = key.split("/");
+
+    if (!Array.isArray(bindings) || bindings.length === 0) {
+      const port = {
+        containerPort,
+        protocol,
+        hostIp: null,
+        hostPort: null,
+      };
+
+      return [
+        {
+          ...port,
+          label: dockerPortLabel(port),
+        },
+      ];
+    }
+
+    return bindings.map((binding) => {
+      const hostIp = isRecord(binding) ? stringValue(binding.HostIp) : null;
+      const hostPort = isRecord(binding) ? stringValue(binding.HostPort) : null;
+      const port = {
+        containerPort,
+        protocol,
+        hostIp,
+        hostPort,
+      };
+
+      return {
+        ...port,
+        label: dockerPortLabel(port),
+      };
+    });
+  });
+}
+
+function parseDockerStatusOutput(
+  stdout: string,
+  fallbackContainerName: string,
+): DockerContainerStatus | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed)) return null;
+
+  const config = isRecord(parsed.Config) ? parsed.Config : {};
+  const state = isRecord(parsed.State) ? parsed.State : {};
+  const health = isRecord(state.Health) ? state.Health : null;
+  const network = isRecord(parsed.NetworkSettings)
+    ? parsed.NetworkSettings
+    : {};
+  const rawName = stringValue(parsed.Name)?.replace(/^\/+/, "");
+  const stateName = stringValue(state.Status) ?? "unknown";
+  const running = booleanValue(state.Running) ?? stateName === "running";
+
+  return {
+    id: stringValue(parsed.Id) ?? "",
+    name: rawName ?? fallbackContainerName,
+    image: stringValue(config.Image) ?? stringValue(parsed.Image) ?? "",
+    state: stateName,
+    running,
+    health: stringValue(health?.Status),
+    startedAt: dockerTimestamp(state.StartedAt),
+    finishedAt: dockerTimestamp(state.FinishedAt),
+    createdAt: dockerTimestamp(parsed.Created),
+    restartCount: numberValue(parsed.RestartCount) ?? 0,
+    exitCode: numberValue(state.ExitCode),
+    ports: dockerPortsFromInspect(network.Ports),
+  };
+}
+
+function dockerStatusOutputText(status: DockerContainerStatus) {
+  const statusText = [
+    status.running ? "运行中" : status.state || "未知",
+    status.health ? `健康状态: ${status.health}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return [
+    `容器: ${status.name}`,
+    `状态: ${statusText}`,
+    `镜像: ${status.image || "-"}`,
+    `端口: ${status.ports.length ? status.ports.map((port) => port.label).join(", ") : "未暴露"}`,
+    `启动时间: ${status.startedAt ?? "-"}`,
+    `重启次数: ${status.restartCount}`,
+    status.running ? null : `退出码: ${status.exitCode ?? "-"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildDockerLogsCommand(containerName: string, tail: number) {
@@ -508,6 +755,16 @@ export async function runCmdbProjectOperation(
     },
     command,
   );
+  const dockerStatus =
+    input.action === "dockerStatus"
+      ? parseDockerStatusOutput(result.stdout, containerName)
+      : null;
+  const stdout =
+    input.action === "dockerStatus"
+      ? dockerStatus
+        ? dockerStatusOutputText(dockerStatus)
+        : "未能解析容器状态。"
+      : result.stdout;
 
   return {
     action: input.action,
@@ -519,10 +776,11 @@ export async function runCmdbProjectOperation(
     sshPort,
     sshCommand: hostSshCommand,
     containerName,
-    stdout: truncateOutput(result.stdout),
+    stdout: truncateOutput(stdout),
     stderr: truncateOutput(result.stderr),
     code: result.code,
     durationMs: result.durationMs,
+    dockerStatus,
   };
 }
 
@@ -548,23 +806,15 @@ async function gitlabApiFetch<T>(
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      message?: unknown;
-      error?: unknown;
-    } | null;
-    const rawMessage = payload?.message ?? payload?.error;
-    const message =
-      typeof rawMessage === "string"
-        ? rawMessage
-        : rawMessage == null
-          ? `HTTP ${response.status}`
-          : JSON.stringify(rawMessage);
+  const responseText = await readResponseText(response);
 
-    throw new Error(`GitLab API 错误: ${message}`);
+  if (!response.ok) {
+    throw new Error(
+      `GitLab API 错误: ${apiErrorMessageFromResponse(response, responseText)}`,
+    );
   }
 
-  return response.json() as Promise<T>;
+  return parseJsonPayload<T>(responseText, "GitLab API");
 }
 
 function normalizePipelineStatus(
@@ -634,6 +884,28 @@ export async function listGitLabCatalog(query?: string) {
   }));
 }
 
+export async function listGitLabBranches(projectPath: string) {
+  const normalizedProjectPath = cleanString(projectPath);
+  if (!normalizedProjectPath) {
+    throw new Error("请先选择或填写 GitLab 项目路径。");
+  }
+
+  const params = new URLSearchParams({
+    per_page: "100",
+  });
+  const encodedPath = encodeURIComponent(normalizedProjectPath);
+  const items = await gitlabApiFetch<GitLabBranch[]>(
+    `/projects/${encodedPath}/repository/branches?${params.toString()}`,
+  );
+
+  return items.map((branch) => ({
+    name: branch.name,
+    isDefault: Boolean(branch.default),
+    isProtected: Boolean(branch.protected),
+    webUrl: branch.web_url ?? null,
+  }));
+}
+
 export async function triggerGitLabPipeline(args: {
   gitlabProjectId?: number | null;
   gitlabPath: string;
@@ -670,23 +942,21 @@ export async function triggerGitLabPipeline(args: {
       },
     );
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
-        message?: unknown;
-        error?: unknown;
-      } | null;
-      const rawMessage = payload?.message ?? payload?.error;
-      const message =
-        typeof rawMessage === "string"
-          ? rawMessage
-          : rawMessage == null
-            ? `HTTP ${response.status}`
-            : JSON.stringify(rawMessage);
+    const responseText = await readResponseText(response);
 
-      throw new Error(`GitLab Trigger 失败: ${message}`);
+    if (!response.ok) {
+      throw new Error(
+        `GitLab Trigger 失败: ${apiErrorMessageFromResponse(
+          response,
+          responseText,
+        )}`,
+      );
     }
 
-    const pipeline = (await response.json()) as GitLabPipeline;
+    const pipeline = parseJsonPayload<GitLabPipeline>(
+      responseText,
+      "GitLab Trigger",
+    );
     return {
       pipelineId: pipeline.id,
       pipelineUrl:
@@ -778,8 +1048,9 @@ export async function refreshRunningCmdbReleases(database: Database) {
 
 async function probeProjectHealth(
   config: CmdbProjectConfig | null | undefined,
-) {
+): Promise<ProjectHealthProbeResult> {
   const healthUrl = cleanString(config?.healthUrl);
+  const checkedAt = new Date();
 
   if (!healthUrl) {
     return {
@@ -787,6 +1058,14 @@ async function probeProjectHealth(
       statusCode: null,
       responseTimeMs: null,
       message: "未配置健康检查地址",
+      checkedAt,
+      url: null,
+      method: "GET",
+      timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
+      contentType: null,
+      errorType: null,
+      errorDetail: null,
+      responsePreview: null,
     };
   }
 
@@ -795,23 +1074,55 @@ async function probeProjectHealth(
   try {
     const response = await fetch(healthUrl, {
       method: "GET",
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
       cache: "no-store",
     });
-
     const responseTimeMs = Date.now() - startedAt;
+    const contentType = cleanString(response.headers.get("content-type")) ?? null;
+    const responseText = await readResponseText(response);
+    const responsePreview = response.ok
+      ? null
+      : compactPreview(responseText) || null;
+
     return {
       status: response.ok ? ("healthy" as const) : ("degraded" as const),
       statusCode: response.status,
       responseTimeMs,
       message: response.ok ? "健康检查通过" : `健康检查返回 ${response.status}`,
+      checkedAt,
+      url: healthUrl,
+      method: "GET",
+      timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
+      contentType,
+      errorType: response.ok ? null : "HTTP_STATUS",
+      errorDetail: response.ok
+        ? null
+        : `${response.status} ${response.statusText || "HTTP 错误"}`,
+      responsePreview,
     };
   } catch (error) {
+    const responseTimeMs = Date.now() - startedAt;
+    const errorName = error instanceof Error ? error.name : "Error";
+    const timedOut =
+      errorName === "TimeoutError" || responseTimeMs >= HEALTH_CHECK_TIMEOUT_MS;
+
     return {
       status: "degraded" as const,
       statusCode: null,
-      responseTimeMs: Date.now() - startedAt,
-      message: error instanceof Error ? error.message : "健康检查失败",
+      responseTimeMs,
+      message: timedOut
+        ? `健康检查超时（${HEALTH_CHECK_TIMEOUT_MS}ms）`
+        : "健康检查请求失败",
+      checkedAt,
+      url: healthUrl,
+      method: "GET",
+      timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
+      contentType: null,
+      errorType: timedOut ? "TIMEOUT" : errorName,
+      errorDetail: timedOut
+        ? `超过 ${HEALTH_CHECK_TIMEOUT_MS}ms 未收到响应，请检查服务是否启动、端口是否暴露，以及 Cola 服务所在网络是否能访问该地址。`
+        : errorDetail(error),
+      responsePreview: null,
     };
   }
 }

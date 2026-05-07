@@ -4,7 +4,7 @@
     <property name="button_layout" type="string" value="O|HMC"/>
     <property name="easy_click" type="string" value="Alt"/>
     <property name="snap_to_border" type="bool" value="true"/>
-    <property name="theme" type="string" value="Arc-Darker"/>
+    <property name="theme" type="string" value="Yaru-dark"/>
     <property name="title_font" type="string" value="Noto Sans Bold 10"/>
     <property name="workspace_count" type="int" value="1"/>
   </property>

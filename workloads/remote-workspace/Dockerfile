@@ -48,6 +48,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    yaru-theme-gtk \
+    yaru-theme-icon \
+    yaru-theme-sound \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY scripts/ /opt/remote-work/
 COPY config/ /opt/remote-work/config/
 COPY assets/ /opt/remote-work/assets/

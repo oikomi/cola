@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   assertLlamaCppModelFileExists,
+  assertLlamaCppModelFileExistsOnNodes,
   isInferencePodFailed,
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
@@ -53,6 +54,18 @@ void test("llama.cpp host model validation accepts existing files", () => {
   } finally {
     fs.rmSync(modelRoot, { recursive: true, force: true });
   }
+});
+
+void test("llama.cpp node model validation rejects nodes without ssh credentials", async () => {
+  await assert.rejects(
+    () =>
+      assertLlamaCppModelFileExistsOnNodes({
+        modelRef: "unsloth/model.gguf",
+        modelRoot: "/srv/models",
+        nodes: [{ name: "worker-a", ip: "10.0.0.2" }],
+      }),
+    /缺少 sshUser 或 sshPassword/,
+  );
 });
 
 void test("downloadable llama.cpp refs resolve to stable download URLs and cache paths", () => {

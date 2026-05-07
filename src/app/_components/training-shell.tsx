@@ -1637,8 +1637,8 @@ export function TrainingShell() {
           if (!open) closeRuntimeDialog();
         }}
       >
-        <DialogContent className="border-border/70 bg-background text-foreground max-w-[1040px] p-0">
-          <DialogHeader className="border-border/70 border-b px-6 py-5">
+        <DialogContent className="border-border/70 grid max-w-[1040px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-background p-0 text-foreground">
+          <DialogHeader className="border-border/70 border-b px-4 py-4 sm:px-6 sm:py-5">
             <DialogTitle className="text-2xl tracking-normal">
               训练运行态
             </DialogTitle>
@@ -1649,7 +1649,7 @@ export function TrainingShell() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 px-6 py-5">
+          <div className="grid min-h-0 gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
@@ -1915,7 +1915,7 @@ export function TrainingShell() {
             ) : null}
           </div>
 
-          <DialogFooter className="border-border/70 bg-muted/30 border-t px-6 py-4">
+          <DialogFooter className="border-border/70 bg-muted/30 border-t px-4 py-3 sm:px-6 sm:py-4">
             <Button variant="outline" onClick={closeRuntimeDialog}>
               关闭
             </Button>
@@ -1924,10 +1924,10 @@ export function TrainingShell() {
       </Dialog>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogContent className="max-h-[min(92vh,980px)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)_auto] border-slate-200/85 bg-[linear-gradient(180deg,#ffffff,#f3f7fc)] p-0 text-slate-950 shadow-[0_32px_80px_rgba(15,23,42,0.16)] sm:max-w-[1120px]">
+        <DialogContent className="grid max-h-[calc(100dvh-1rem)] max-w-[min(1120px,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-slate-200/85 bg-[linear-gradient(180deg,#ffffff,#f3f7fc)] p-0 text-slate-950 shadow-[0_32px_80px_rgba(15,23,42,0.16)] sm:max-h-[min(92dvh,980px)]">
           <DialogHeader className="relative overflow-hidden border-b border-slate-200/80 px-4 py-5 sm:px-6">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(96,165,250,0.15),transparent_32%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.11),transparent_24%)]" />
-            <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="relative flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
@@ -1956,7 +1956,7 @@ export function TrainingShell() {
                 </DialogDescription>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -1971,7 +1971,7 @@ export function TrainingShell() {
           </DialogHeader>
 
           <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
               <div className="grid gap-5">
                 <FormSection
                   eyebrow="Job Brief"
@@ -2558,7 +2558,7 @@ export function TrainingShell() {
                 </FormSection>
               </div>
 
-              <aside className="grid gap-5 xl:sticky xl:top-0">
+              <aside className="grid gap-5 lg:sticky lg:top-0">
                 <div className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.9))] p-5 shadow-[0_16px_38px_rgba(15,23,42,0.045)]">
                   <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400 uppercase">
                     Live Summary

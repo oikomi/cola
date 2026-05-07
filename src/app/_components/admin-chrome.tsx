@@ -39,8 +39,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const activeArea = productAreaForPath(pathname);
 
   return (
-    <div className="text-foreground bg-background h-dvh overflow-hidden">
-      <div className="mx-auto grid h-full min-h-0 w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[256px_minmax(0,1fr)] 2xl:gap-3 2xl:px-5 2xl:py-5">
+    <div className="text-foreground bg-background min-h-dvh overflow-x-hidden md:h-dvh md:overflow-hidden">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:h-full md:min-h-0 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[256px_minmax(0,1fr)] 2xl:gap-3 2xl:px-5 2xl:py-5">
         <aside className="border-sidebar-border bg-sidebar text-sidebar-foreground relative z-30 min-h-0 min-w-0 overflow-visible rounded-[var(--radius-shell)] border shadow-[0_12px_34px_rgba(15,23,42,0.18)]">
           <div className="pointer-events-none absolute inset-y-0 left-0 w-px bg-white/18" />
 
