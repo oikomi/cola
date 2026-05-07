@@ -37,8 +37,10 @@ const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
+const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
 const OPENCLAW_DASHBOARD_COMMAND =
   "OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw dashboard --no-open";
+const OPENCLAW_DASHBOARD_TOKEN_COMMAND = `${OPENCLAW_DASHBOARD_COMMAND}; if command -v node >/dev/null 2>&1; then node -e 'try { const fs = require("fs"); const configPath = process.env.OPENCLAW_CONFIG_PATH || "/tmp/openclaw.generated.json"; const config = JSON.parse(fs.readFileSync(configPath, "utf8")); const token = config && config.gateway && config.gateway.auth && config.gateway.auth.token; if (typeof token === "string" && token.length > 0) console.log("${DASHBOARD_TOKEN_PREFIX}" + token); } catch (_) {}'; fi`;
 
 type ClusterConfig = {
   clusterName?: string;
@@ -221,6 +223,20 @@ function rewriteDashboardUrlForPublicHost(
   return rewritten.toString();
 }
 
+function appendDashboardToken(dashboardUrl: string, token?: string | null) {
+  const trimmedToken = token?.trim();
+  if (!trimmedToken) return dashboardUrl;
+
+  const url = new URL(dashboardUrl);
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  if (!hashParams.has("token")) {
+    hashParams.set("token", trimmedToken);
+  }
+  url.hash = hashParams.toString();
+
+  return url.toString();
+}
+
 async function execOpenClawDashboardUrl(options: {
   namespace: string;
   deploymentName: string;
@@ -294,7 +310,7 @@ async function execOpenClawDashboardUrl(options: {
         options.namespace,
         podName,
         RUNNER_CONTAINER_NAME,
-        ["sh", "-lc", OPENCLAW_DASHBOARD_COMMAND],
+        ["sh", "-lc", OPENCLAW_DASHBOARD_TOKEN_COMMAND],
         stdout,
         stderr,
         null,
@@ -316,7 +332,17 @@ async function execOpenClawDashboardUrl(options: {
   }
 
   const dashboardUrl = dashboardLine.replace(DASHBOARD_URL_PREFIX, "").trim();
-  return rewriteDashboardUrlForPublicHost(dashboardUrl, publicUrl);
+  const dashboardToken = stdoutText
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith(DASHBOARD_TOKEN_PREFIX))
+    ?.replace(DASHBOARD_TOKEN_PREFIX, "")
+    .trim();
+
+  return rewriteDashboardUrlForPublicHost(
+    appendDashboardToken(dashboardUrl, dashboardToken),
+    publicUrl,
+  );
 }
 
 function getErrorStatus(error: unknown) {
