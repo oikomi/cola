@@ -265,16 +265,85 @@ function FormSection(props: {
   );
 }
 
-function resourceLabel(row: DeploymentRow) {
+function gpuResourceLabel(row: DeploymentRow) {
   return `${formatGpuAllocationLabel({
     gpuAllocationMode: row.gpuAllocationMode,
     gpuCount: row.gpuCount,
     gpuMemoryGi: row.gpuMemoryGi,
-  })} · ${row.cpu} CPU · ${row.memory}`;
+  })}`;
 }
 
 function nodeLabel(row: DeploymentRow) {
   return row.nodeNames.length > 0 ? row.nodeNames.join(", ") : "未调度";
+}
+
+function ResourceMetric(props: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12px] leading-none font-semibold",
+        props.emphasis
+          ? "border-sky-200/85 bg-sky-50 text-sky-800"
+          : "border-slate-200/85 bg-white/90 text-slate-800",
+      )}
+    >
+      <span
+        className={cn(
+          "text-[10px] leading-none font-semibold text-slate-500",
+          props.emphasis ? "text-sky-600" : undefined,
+        )}
+      >
+        {props.label}
+      </span>
+      <span className="truncate">{props.value}</span>
+    </span>
+  );
+}
+
+function DeploymentResourceSummary(props: { row: DeploymentRow }) {
+  const scheduled = props.row.nodeNames.length > 0;
+
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap gap-1.5">
+        <ResourceMetric
+          label="GPU"
+          value={gpuResourceLabel(props.row)}
+          emphasis
+        />
+        <ResourceMetric label="CPU" value={String(props.row.cpu)} />
+        <ResourceMetric label="内存" value={props.row.memory} />
+      </div>
+      <div
+        className={cn(
+          "mt-2 flex min-w-0 items-center gap-1.5 text-[12px] leading-5",
+          scheduled ? "text-slate-600" : "text-amber-700",
+        )}
+      >
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            scheduled ? "bg-emerald-500" : "bg-amber-500",
+          )}
+        />
+        <span className="shrink-0 font-medium text-slate-500">节点</span>
+        <span
+          className={cn(
+            "min-w-0 truncate rounded-full border px-2 py-0.5",
+            scheduled
+              ? "border-slate-200/85 bg-slate-50/92 text-slate-600"
+              : "border-amber-200/80 bg-amber-50 text-amber-700",
+          )}
+        >
+          {nodeLabel(props.row)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function DeploymentActionButtons(props: {
@@ -460,12 +529,9 @@ function DeploymentCard(props: {
           <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
             资源 / 节点
           </p>
-          <p className="mt-2 font-medium text-slate-900">
-            {resourceLabel(props.row)}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            {nodeLabel(props.row)}
-          </p>
+          <div className="mt-2">
+            <DeploymentResourceSummary row={props.row} />
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 sm:col-span-2">
@@ -550,14 +616,7 @@ function DeploymentDesktopRow(props: {
         </p>
       </div>
 
-      <div className="min-w-0">
-        <p className="text-[14px] leading-5 font-semibold text-slate-950">
-          {resourceLabel(props.row)}
-        </p>
-        <p className="mt-1 inline-flex max-w-full rounded-full border border-slate-200/85 bg-slate-50/92 px-2.5 py-1 text-[12px] leading-none font-medium break-all text-slate-600">
-          {nodeLabel(props.row)}
-        </p>
-      </div>
+      <DeploymentResourceSummary row={props.row} />
 
       <div className="min-w-0">
         <div className="flex min-w-0 items-baseline gap-2">

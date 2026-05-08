@@ -7,7 +7,8 @@ import { TRPCReactProvider } from "@/trpc/react";
 
 export const metadata: Metadata = {
   title: "XDream Cloud",
-  description: "XDream Cloud control plane for multi-agent operations on Kubernetes",
+  description:
+    "XDream Cloud control plane for multi-agent operations on Kubernetes",
   icons: {
     icon: [{ url: "/xdream-cloud-mark.svg", type: "image/svg+xml" }],
     shortcut: ["/xdream-cloud-mark.svg"],
@@ -35,6 +36,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
       className={`${geist.variable} ${geistMono.variable} ${manrope.variable}`}
     >

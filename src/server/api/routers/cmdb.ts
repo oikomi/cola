@@ -9,6 +9,7 @@ import {
   createCmdbTopicRelease,
   createCmdbRelease,
   deleteCmdbAsset,
+  deleteCmdbProject,
   deleteCmdbTopicReleaseGroup,
   getCmdbDashboard,
   listGitLabBranches,
@@ -119,8 +120,7 @@ export const cmdbRouter = createTRPCRouter({
   deleteProject: publicProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.delete(cmdbProjects).where(eq(cmdbProjects.id, input.id));
-      return { success: true };
+      return deleteCmdbProject(ctx.db, input.id);
     }),
 
   triggerRelease: publicProcedure

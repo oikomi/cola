@@ -88,6 +88,38 @@ body {
   background: rgba(59, 130, 246, 0.18);
 }
 
+.control-shell-scan {
+  animation: control-shell-scan 7s ease-in-out infinite;
+}
+
+@keyframes control-shell-scan {
+  0%,
+  34% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+
+  46% {
+    opacity: 1;
+  }
+
+  72% {
+    transform: translateY(320%);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateY(320%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control-shell-scan {
+    animation: none;
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-manrope);
   --font-sans: var(--font-sans);

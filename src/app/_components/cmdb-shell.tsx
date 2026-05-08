@@ -2268,6 +2268,7 @@ export function CmdbShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [assetDialogOpen, setAssetDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
@@ -2296,8 +2297,7 @@ export function CmdbShell() {
   const [topicReleasePlans, setTopicReleasePlans] = useState<
     TopicReleasePlan[]
   >([]);
-  const [topicReleasePlansLoaded, setTopicReleasePlansLoaded] =
-    useState(false);
+  const [topicReleasePlansLoaded, setTopicReleasePlansLoaded] = useState(false);
   const [triggeringTopicReleasePlanId, setTriggeringTopicReleasePlanId] =
     useState<string | null>(null);
   const [topicReleaseResult, setTopicReleaseResult] =
@@ -2464,11 +2464,18 @@ export function CmdbShell() {
   });
 
   const deleteProject = api.cmdb.deleteProject.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await utils.cmdb.dashboard.invalidate();
+      const cleanedCount = result.cleanedContainers.length;
+      setSuccessMessage(
+        cleanedCount > 0
+          ? `已清理 ${cleanedCount} 个远程 Docker 容器，并删除 CMDB 项目。`
+          : "已删除 CMDB 项目。",
+      );
       setErrorMessage(null);
     },
     onError: (error) => {
+      setSuccessMessage(null);
       setErrorMessage(error.message);
     },
   });
@@ -3515,9 +3522,12 @@ export function CmdbShell() {
   }
 
   async function handleDeleteProject(project: ProjectRow) {
+    const isDockerProject = project.deployTarget === "docker";
     const accepted = await confirm({
       title: "删除 CMDB 项目",
-      description: `将删除 ${project.name} 的纳管配置及其发布记录。`,
+      description: isDockerProject
+        ? `将先通过 SSH 清理 ${project.name} 在目标资产上的 Docker 容器，再删除纳管配置及发布记录。远程清理失败时不会删除项目。`
+        : `将删除 ${project.name} 的纳管配置及其发布记录。`,
       confirmLabel: "删除",
       confirmVariant: "destructive",
     });
@@ -3725,22 +3735,25 @@ export function CmdbShell() {
     }
 
     setTriggeringTopicReleasePlanId(plan.id);
-    triggerTopicRelease.mutate({
-      topic: plan.topic || undefined,
-      projectIds: plan.projectIds,
-      ref: plan.ref || undefined,
-      deployEnv: plan.deployEnv || undefined,
-      variables: parseVariables(plan.variablesText),
-    }, {
-      onSuccess: () => {
-        setTopicReleasePlans((current) =>
-          current.filter((item) => item.id !== plan.id),
-        );
+    triggerTopicRelease.mutate(
+      {
+        topic: plan.topic || undefined,
+        projectIds: plan.projectIds,
+        ref: plan.ref || undefined,
+        deployEnv: plan.deployEnv || undefined,
+        variables: parseVariables(plan.variablesText),
       },
-      onSettled: () => {
-        setTriggeringTopicReleasePlanId(null);
+      {
+        onSuccess: () => {
+          setTopicReleasePlans((current) =>
+            current.filter((item) => item.id !== plan.id),
+          );
+        },
+        onSettled: () => {
+          setTriggeringTopicReleasePlanId(null);
+        },
       },
-    });
+    );
   }
 
   async function deleteTopicReleasePlanAction(plan: TopicReleasePlan) {
@@ -3922,6 +3935,13 @@ export function CmdbShell() {
           <AlertTriangleIcon className="size-4" />
           <AlertTitle>操作失败</AlertTitle>
           <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {successMessage ? (
+        <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
+          <AlertTitle>操作完成</AlertTitle>
+          <AlertDescription>{successMessage}</AlertDescription>
         </Alert>
       ) : null}
 

@@ -957,6 +957,27 @@ function buildDockerLogsCommand(containerName: string, tail: number) {
   ].join("\n");
 }
 
+function buildDockerRemoveCommand(containerName: string) {
+  const container = shellQuote(containerName);
+
+  return [
+    "set -eu",
+    `CONTAINER=${container}`,
+    'if ! command -v docker >/dev/null 2>&1; then echo "docker command not found" >&2; exit 127; fi',
+    'if docker inspect "$CONTAINER" >/dev/null 2>&1; then',
+    '  docker rm -f "$CONTAINER"',
+    "else",
+    "  inspect_status=$?",
+    "  if docker ps >/dev/null 2>&1; then",
+    '    echo "container $CONTAINER not found; skipped"',
+    "  else",
+    '    echo "docker daemon unavailable while removing $CONTAINER" >&2',
+    '    exit "$inspect_status"',
+    "  fi",
+    "fi",
+  ].join("\n");
+}
+
 function dockerImageForDeployment(
   project: CmdbProjectRow,
   release: CmdbReleaseRow,
@@ -2341,6 +2362,56 @@ export async function deleteCmdbTopicReleaseGroup(
     );
 
   return { success: true };
+}
+
+export async function deleteCmdbProject(database: Database, id: number) {
+  const [project] = await database
+    .select()
+    .from(cmdbProjects)
+    .where(eq(cmdbProjects.id, id));
+
+  if (!project) {
+    throw new Error("项目不存在，无法删除。");
+  }
+
+  const cleanupResults: Array<{
+    assetName: string;
+    containerName: string;
+    stdout: string;
+    stderr: string;
+    code: number | null;
+    durationMs: number;
+  }> = [];
+
+  if (project.deployTarget === "docker") {
+    const containerName = dockerContainerName(project);
+    const assets = await resolveProjectAssets(database, project);
+    const command = buildDockerRemoveCommand(containerName);
+
+    for (const asset of assets) {
+      const result = await sshExecOrThrow(
+        asset,
+        command,
+        `清理 Docker 容器 ${containerName} @ ${asset.name}`,
+      );
+
+      cleanupResults.push({
+        assetName: asset.name,
+        containerName,
+        stdout: truncateOutput(result.stdout),
+        stderr: truncateOutput(result.stderr),
+        code: result.code,
+        durationMs: result.durationMs,
+      });
+    }
+  }
+
+  await database.delete(cmdbProjects).where(eq(cmdbProjects.id, id));
+
+  return {
+    success: true,
+    cleanedContainers: cleanupResults,
+  };
 }
 
 async function syncAssetNameToProjects(
