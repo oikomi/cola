@@ -1,0 +1,4 @@
+# JuiceFS CSI Driver Helm values.
+# Keep this file intentionally small; put cluster-specific overrides here when
+# the official chart needs tuning.
+{}
