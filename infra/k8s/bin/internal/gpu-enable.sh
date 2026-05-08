@@ -146,30 +146,27 @@ for node_name in "${GPU_NODES[@]}"; do
   remote_sudo_ssh "$node_name" '
 set -euo pipefail
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "curl 未安装，无法继续。" >&2
-  exit 1
-fi
-
 source /etc/os-release
 
 if [[ "$ID" == "ubuntu" || "$ID" == "debian" ]]; then
-  apt-get update
-  apt-get install -y curl gnupg ca-certificates
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get -o DPkg::Lock::Timeout=300 update
+  apt-get -o DPkg::Lock::Timeout=300 install -y curl gnupg ca-certificates python3
   rm -f /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
     gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
   curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
     sed '"'"'s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#'"'"' | \
     tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-  apt-get update
-  apt-get install -y nvidia-container-toolkit
+  apt-get -o DPkg::Lock::Timeout=300 update
+  apt-get -o DPkg::Lock::Timeout=300 install -y nvidia-container-toolkit
 elif [[ "${ID_LIKE:-}" == *"rhel"* || "$ID" == "centos" || "$ID" == "rocky" || "$ID" == "almalinux" ]]; then
   if command -v dnf >/dev/null 2>&1; then
     PKG_MGR="dnf"
   else
     PKG_MGR="yum"
   fi
+  "$PKG_MGR" install -y curl ca-certificates python3
   curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
     tee /etc/yum.repos.d/nvidia-container-toolkit.repo >/dev/null
   "$PKG_MGR" install -y nvidia-container-toolkit

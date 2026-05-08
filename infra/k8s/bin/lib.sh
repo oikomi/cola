@@ -733,6 +733,31 @@ load_compressed_image_archive_into_nodes() {
   done
 }
 
+remote_ctr_resolver_script() {
+  cat <<'EOF'
+resolve_ctr() {
+  if command -v ctr >/dev/null 2>&1; then
+    command -v ctr
+    return 0
+  fi
+
+  for candidate in /opt/kube/bin/containerd-bin/ctr /usr/local/bin/ctr /usr/bin/ctr; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+CTR_BIN="$(resolve_ctr)" || {
+  echo "ERROR: ctr not found in PATH or kubeasz containerd-bin." >&2
+  exit 127
+}
+EOF
+}
+
 load_compressed_image_archive_into_remote_host() {
   local archive_path="$1"
   local host_ip="$2"
@@ -776,15 +801,17 @@ load_compressed_image_archive_into_remote_host() {
     remote_script="
 set -euo pipefail
 
+$(remote_ctr_resolver_script)
+
 archive=$(printf '%q' "/tmp/$archive_name")
 expected_ref=$(printf '%q' "$expected_import_ref")
 base_name=$(printf '%q' "$expected_base_name")
 
-gzip -dc \"\$archive\" | ctr -n k8s.io images import --local --base-name \"\$base_name\" --label io.cri-containerd.image=managed -
+gzip -dc \"\$archive\" | \"\$CTR_BIN\" -n k8s.io images import --local --base-name \"\$base_name\" --label io.cri-containerd.image=managed -
 
-if ! ctr -n k8s.io images list name==\"\$expected_ref\" | tail -n +2 | grep -q .; then
+if ! \"\$CTR_BIN\" -n k8s.io images list name==\"\$expected_ref\" | tail -n +2 | grep -q .; then
   echo \"ERROR: imported image \$expected_ref was not found in containerd.\" >&2
-  ctr -n k8s.io images list | grep -F \"\$base_name\" >&2 || true
+  \"\$CTR_BIN\" -n k8s.io images list | grep -F \"\$base_name\" >&2 || true
   exit 1
 fi
 
@@ -794,9 +821,11 @@ rm -f \"\$archive\"
     remote_script="
 set -euo pipefail
 
+$(remote_ctr_resolver_script)
+
 archive=$(printf '%q' "/tmp/$archive_name")
 
-gzip -dc \"\$archive\" | ctr -n k8s.io images import --local --label io.cri-containerd.image=managed -
+gzip -dc \"\$archive\" | \"\$CTR_BIN\" -n k8s.io images import --local --label io.cri-containerd.image=managed -
 rm -f \"\$archive\"
 "
   fi
@@ -1415,9 +1444,10 @@ remote_containerd_runtime_ready() {
   remote_sudo_ssh "$node_name" "
 set -euo pipefail
 
-command -v ctr >/dev/null 2>&1
+$(remote_ctr_resolver_script)
+
 [[ -S /run/containerd/containerd.sock ]]
-ctr --address /run/containerd/containerd.sock version >/dev/null 2>&1
+\"\$CTR_BIN\" --address /run/containerd/containerd.sock version >/dev/null 2>&1
 " >/dev/null 2>&1
 }
 
@@ -1430,14 +1460,16 @@ remote_tag_k8s_image_aliases() {
   local alias_ref
   for alias_ref in "$@"; do
     [[ -n "$alias_ref" && "$alias_ref" != "$source_ref" ]] || continue
-    alias_script+="ctr -n k8s.io images rm $(printf '%q' "$alias_ref") >/dev/null 2>&1 || true; "
-    alias_script+="ctr -n k8s.io images tag $(printf '%q' "$source_ref") $(printf '%q' "$alias_ref") >/dev/null 2>&1; "
+    alias_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$alias_ref") >/dev/null 2>&1 || true; "
+    alias_script+="\"\$CTR_BIN\" -n k8s.io images tag $(printf '%q' "$source_ref") $(printf '%q' "$alias_ref") >/dev/null 2>&1; "
   done
 
   [[ -n "$alias_script" ]] || return 0
 
   remote_sudo_ssh_retry "$node_name" "
 set -euo pipefail
+
+$(remote_ctr_resolver_script)
 
 ${alias_script}
 "
@@ -1467,15 +1499,17 @@ remote_pull_k8s_image() {
   local ref
   for ref in "$image_ref" "$@"; do
     [[ -n "$ref" ]] || continue
-    cleanup_script+="ctr -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
+    cleanup_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
     if [[ "$ref" != "$image_ref" ]]; then
-      alias_script+="ctr -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
-      alias_script+="ctr -n k8s.io images tag $(printf '%q' "$image_ref") $(printf '%q' "$ref") >/dev/null 2>&1; "
+      alias_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
+      alias_script+="\"\$CTR_BIN\" -n k8s.io images tag $(printf '%q' "$image_ref") $(printf '%q' "$ref") >/dev/null 2>&1; "
     fi
   done
 
   remote_sudo_ssh_retry "$node_name" "
 set -euo pipefail
+
+$(remote_ctr_resolver_script)
 
 pull_log=\"/tmp/remote-work-ctr-pull.\$\$.log\"
 
@@ -1493,11 +1527,11 @@ cleanup_corrupt_content() {
     sort -u | \
     while IFS= read -r digest; do
       [[ -n \"\$digest\" ]] || continue
-      ctr -n k8s.io content rm \"\$digest\" >/dev/null 2>&1 || true
+      \"\$CTR_BIN\" -n k8s.io content rm \"\$digest\" >/dev/null 2>&1 || true
     done || true
 }
 
-if ctr -n k8s.io images pull --platform $(printf '%q' "$platform") $(printf '%q' "$image_ref") >\"\$pull_log\" 2>&1; then
+if \"\$CTR_BIN\" -n k8s.io images pull --platform $(printf '%q' "$platform") $(printf '%q' "$image_ref") >\"\$pull_log\" 2>&1; then
   ${alias_script}
   rm -f \"\$pull_log\"
   exit 0
