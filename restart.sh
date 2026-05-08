@@ -141,6 +141,47 @@ find_repo_next_pids() {
   '
 }
 
+process_cwd() {
+  local pid="$1"
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | awk '
+      /^n/ {
+        sub(/^n/, "")
+        print
+        exit
+      }
+    '
+  fi
+}
+
+process_belongs_to_repo() {
+  local pid="$1"
+  local command="${2:-}"
+  local cwd=""
+  local parent_pid=""
+  local parent_command=""
+
+  cwd="$(process_cwd "$pid")"
+  if [[ "$cwd" == "$ROOT_DIR"* ]]; then
+    return 0
+  fi
+
+  if [[ "$command" == *"$ROOT_DIR"* ]]; then
+    return 0
+  fi
+
+  parent_pid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d '[:space:]')"
+  if [[ "$parent_pid" =~ ^[0-9]+$ && "$parent_pid" != "1" ]]; then
+    parent_command="$(ps -p "$parent_pid" -o command= 2>/dev/null || true)"
+    if process_belongs_to_repo "$parent_pid" "$parent_command"; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 if [[ -f "$PID_FILE" ]]; then
   stored_pid="$(tr -d '[:space:]' < "$PID_FILE")"
   if [[ "$stored_pid" =~ ^[0-9]+$ ]]; then
@@ -160,7 +201,7 @@ if command -v lsof >/dev/null 2>&1; then
   while IFS= read -r pid; do
     [[ -z "$pid" || "$pid" == "$$" ]] && continue
     command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-    if [[ "$command" == *"$ROOT_DIR"* ]]; then
+    if process_belongs_to_repo "$pid" "$command"; then
       stop_pid "$pid" "port $PORT listener"
       continue
     fi
