@@ -83,6 +83,15 @@ type GitLabBranch = {
   protected?: boolean;
   web_url?: string | null;
 };
+type GitLabJob = {
+  id: number;
+  name: string;
+  status: string;
+  artifacts_file?: {
+    filename?: string | null;
+    size?: number | null;
+  } | null;
+};
 type ProjectHealthProbeResult = {
   status: "healthy" | "degraded" | "unknown";
   statusCode: number | null;
@@ -235,10 +244,7 @@ function deployTargetLabel(deployTarget: CmdbProjectRow["deployTarget"]) {
   }
 }
 
-function assertProjectReleaseReady(
-  project: CmdbProjectRow,
-  variables?: Record<string, string>,
-) {
+function assertProjectReleaseReady(project: CmdbProjectRow) {
   if (!deployTargetRequiresAsset(project.deployTarget)) return;
 
   const targetAssetNames = normalizeTargetAssetNames(
@@ -249,16 +255,6 @@ function assertProjectReleaseReady(
   if (targetAssetNames.length === 0) {
     throw new Error(
       `${deployTargetLabel(project.deployTarget)} 发布需要至少选择一台目标资产。`,
-    );
-  }
-
-  if (
-    project.deployTarget === "docker" &&
-    !cleanString(variables?.DOCKER_IMAGE) &&
-    !cleanString(project.config?.dockerImage)
-  ) {
-    throw new Error(
-      "Docker 发布需要在 CMDB 项目中配置 Docker 镜像，或在本次发布变量中传入 DOCKER_IMAGE。",
     );
   }
 }
@@ -404,6 +400,60 @@ function sshExec(
   });
 }
 
+function sshUploadBuffer(
+  input: {
+    ip: string;
+    sshUser?: string | null;
+    sshPassword?: string | null;
+    sshPort?: number;
+  },
+  remotePath: string,
+  data: Buffer,
+) {
+  const config = buildSshConfig(input);
+  const startedAt = Date.now();
+
+  return new Promise<{ durationMs: number }>((resolve, reject) => {
+    const client = new Client();
+    let settled = false;
+
+    const finish = (error?: Error | null) => {
+      if (settled) return;
+      settled = true;
+      client.end();
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve({ durationMs: Date.now() - startedAt });
+    };
+
+    client.once("ready", () => {
+      client.sftp((error, sftp) => {
+        if (error) {
+          finish(error);
+          return;
+        }
+
+        const stream = sftp.createWriteStream(remotePath, {
+          mode: 0o600,
+        });
+        stream.once("error", finish);
+        stream.once("close", () => finish());
+        stream.end(data);
+      });
+    });
+
+    client.once("error", (error) => {
+      finish(error);
+    });
+
+    client.connect(config);
+  });
+}
+
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
@@ -531,6 +581,46 @@ function parseJsonPayload<T>(value: string, source: string): T {
 
 async function readResponseText(response: Response) {
   return response.text().catch(() => "");
+}
+
+function parseDotenvVariables(value: string) {
+  const variables: Record<string, string> = {};
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) continue;
+
+    const key = line.slice(0, separatorIndex).trim();
+    if (!SHELL_ENV_NAME_PATTERN.test(key)) continue;
+
+    let parsedValue = line.slice(separatorIndex + 1).trim();
+    if (
+      (parsedValue.startsWith('"') && parsedValue.endsWith('"')) ||
+      (parsedValue.startsWith("'") && parsedValue.endsWith("'"))
+    ) {
+      parsedValue = parsedValue.slice(1, -1);
+    }
+
+    if (parsedValue.length > 0) {
+      variables[key] = parsedValue;
+    }
+  }
+
+  return variables;
+}
+
+function findGitLabArtifactJob(jobs: GitLabJob[]) {
+  const candidates = jobs.filter((job) => {
+    const filename = cleanString(job.artifacts_file?.filename);
+    return job.status === "success" && Boolean(filename);
+  });
+
+  return (
+    candidates.find((job) => job.name === "docker-image") ?? candidates[0]
+  );
 }
 
 function apiErrorMessageFromResponse(
@@ -682,6 +772,30 @@ async function sshExecOrThrow(
   }
 
   return result;
+}
+
+async function sshUploadBufferOrThrow(
+  asset: SshReadyAssetRow,
+  remotePath: string,
+  data: Buffer,
+  commandLabel: string,
+) {
+  return sshUploadBuffer(
+    {
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort: asset.sshPort ?? 22,
+    },
+    remotePath,
+    data,
+  ).catch((error: unknown) => {
+    throw new Error(
+      `${commandLabel} 失败：${
+        error instanceof Error ? error.message : "未知错误"
+      }`,
+    );
+  });
 }
 
 function buildDockerStatusCommand(containerName: string) {
@@ -838,18 +952,15 @@ function buildDockerLogsCommand(containerName: string, tail: number) {
   ].join("\n");
 }
 
-function dockerImageForDeployment(project: CmdbProjectRow, release: CmdbReleaseRow) {
-  const image =
+function dockerImageForDeployment(
+  project: CmdbProjectRow,
+  release: CmdbReleaseRow,
+) {
+  return (
     cleanString(release.variables?.DOCKER_IMAGE) ??
-    cleanString(project.config?.dockerImage);
-
-  if (!image) {
-    throw new Error(
-      "Docker 发布需要配置 Docker 镜像，或在本次发布变量中传入 DOCKER_IMAGE。",
-    );
-  }
-
-  return image;
+    cleanString(project.config?.dockerImage) ??
+    null
+  );
 }
 
 function dockerRunArgs(project: CmdbProjectRow, release: CmdbReleaseRow) {
@@ -906,17 +1017,31 @@ function buildDockerRegistryLoginCommand(
   ];
 }
 
+function dockerImageArtifactPath(release: CmdbReleaseRow) {
+  return cleanString(release.variables?.DOCKER_IMAGE_ARTIFACT_PATH);
+}
+
 function buildDockerDeployCommand(args: {
   project: CmdbProjectRow;
   release: CmdbReleaseRow;
   asset: SshReadyAssetRow;
+  imageArchivePath?: string | null;
 }) {
   const image = dockerImageForDeployment(args.project, args.release);
+  if (!image) {
+    throw new Error(
+      "Docker 部署缺少镜像。请确认 GitLab 流水线 build.env 产出了 DOCKER_IMAGE，且 CMDB 可读取该 artifact。",
+    );
+  }
+
   const containerName = dockerContainerName(args.project);
   const runArgs = dockerRunArgs(args.project, args.release);
   const restartPolicy = dockerRestartPolicy(args.project, args.release);
   const variables = args.release.variables ?? {};
   const loginCommand = buildDockerRegistryLoginCommand(image, variables);
+  const loadCommand = args.imageArchivePath
+    ? `gzip -dc ${shellQuote(args.imageArchivePath)} | docker load`
+    : null;
 
   return [
     "set -eu",
@@ -925,7 +1050,9 @@ function buildDockerDeployCommand(args: {
     `RESTART_POLICY=${shellQuote(restartPolicy)}`,
     `echo "CMDB Docker deploy: ${containerName} on ${args.asset.name}"`,
     ...(loginCommand ?? []),
-    'docker pull "$IMAGE"',
+    loadCommand
+      ? `docker image inspect "$IMAGE" >/dev/null 2>&1 || ${loadCommand}`
+      : 'docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"',
     'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true',
     [
       'docker run -d --restart "$RESTART_POLICY" --name "$CONTAINER"',
@@ -990,11 +1117,42 @@ async function executeCmdbDeployment(
   const assets = await resolveProjectAssets(database, project);
   const startedAt = Date.now();
   const logs: string[] = [];
+  const imageArtifactPath =
+    project.deployTarget === "docker" ? dockerImageArtifactPath(release) : null;
+  const imageArchive = imageArtifactPath
+    ? await readGitLabReleaseArtifactFile({
+        project,
+        release,
+        artifactPath: imageArtifactPath,
+      })
+    : null;
 
   for (const asset of assets) {
+    const remoteImageArchivePath =
+      imageArchive && imageArtifactPath
+        ? `/tmp/cola-${project.name}-${release.id}-image.tar.gz`.replace(
+            /[^A-Za-z0-9._/-]/g,
+            "-",
+          )
+        : null;
+
+    if (imageArchive && remoteImageArchivePath) {
+      await sshUploadBufferOrThrow(
+        asset,
+        remoteImageArchivePath,
+        imageArchive,
+        `上传 Docker 镜像产物到 ${asset.name}`,
+      );
+    }
+
     const command =
       project.deployTarget === "docker"
-        ? buildDockerDeployCommand({ project, release, asset })
+        ? buildDockerDeployCommand({
+            project,
+            release,
+            asset,
+            imageArchivePath: remoteImageArchivePath,
+          })
         : buildSshDeployCommand({ project, release, asset });
     const result = await sshExecOrThrow(
       asset,
@@ -1003,6 +1161,9 @@ async function executeCmdbDeployment(
     );
     const output = [
       `# ${asset.name} (${asset.ip})`,
+      imageArchive && remoteImageArchivePath
+        ? `已上传镜像产物: ${remoteImageArchivePath}`
+        : null,
       result.stdout.trim(),
       result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : null,
     ]
@@ -1247,6 +1408,157 @@ async function gitlabApiFetch<T>(
   }
 
   return parseJsonPayload<T>(responseText, "GitLab API");
+}
+
+async function gitlabApiFetchText(pathname: string, init?: RequestInit) {
+  const apiBaseUrl = gitlabApiBaseUrl();
+
+  if (!apiBaseUrl || !env.GITLAB_API_TOKEN) {
+    throw new Error(
+      "GitLab API 未配置，请设置 GITLAB_URL 和 GITLAB_API_TOKEN。",
+    );
+  }
+
+  const response = await fetch(`${apiBaseUrl}${pathname}`, {
+    ...init,
+    headers: {
+      "PRIVATE-TOKEN": env.GITLAB_API_TOKEN,
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  const responseText = await readResponseText(response);
+
+  if (!response.ok) {
+    throw new Error(
+      `GitLab API 错误: ${apiErrorMessageFromResponse(response, responseText)}`,
+    );
+  }
+
+  return responseText;
+}
+
+async function gitlabApiFetchBuffer(pathname: string, init?: RequestInit) {
+  const apiBaseUrl = gitlabApiBaseUrl();
+
+  if (!apiBaseUrl || !env.GITLAB_API_TOKEN) {
+    throw new Error(
+      "GitLab API 未配置，请设置 GITLAB_URL 和 GITLAB_API_TOKEN。",
+    );
+  }
+
+  const response = await fetch(`${apiBaseUrl}${pathname}`, {
+    ...init,
+    headers: {
+      "PRIVATE-TOKEN": env.GITLAB_API_TOKEN,
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const responseText = await readResponseText(response);
+    throw new Error(
+      `GitLab API 错误: ${apiErrorMessageFromResponse(response, responseText)}`,
+    );
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function readGitLabReleaseArtifactVariables(
+  project: CmdbProjectRow,
+  release: CmdbReleaseRow,
+) {
+  if (!release.gitlabPipelineId || !hasGitLabApiAccess()) {
+    return {};
+  }
+
+  const projectRef =
+    project.gitlabProjectId ?? encodeURIComponent(project.gitlabPath);
+  const jobs = await gitlabApiFetch<GitLabJob[]>(
+    `/projects/${projectRef}/pipelines/${release.gitlabPipelineId}/jobs?per_page=100`,
+  );
+  const artifactJob = findGitLabArtifactJob(jobs);
+
+  if (!artifactJob) return {};
+
+  const artifactText = await gitlabApiFetchText(
+    `/projects/${projectRef}/jobs/${artifactJob.id}/artifacts/build.env`,
+  );
+
+  return parseDotenvVariables(artifactText);
+}
+
+async function readGitLabReleaseArtifactFile(args: {
+  project: CmdbProjectRow;
+  release: CmdbReleaseRow;
+  artifactPath: string;
+}) {
+  if (!args.release.gitlabPipelineId || !hasGitLabApiAccess()) {
+    return null;
+  }
+
+  const projectRef =
+    args.project.gitlabProjectId ?? encodeURIComponent(args.project.gitlabPath);
+  const jobs = await gitlabApiFetch<GitLabJob[]>(
+    `/projects/${projectRef}/pipelines/${args.release.gitlabPipelineId}/jobs?per_page=100`,
+  );
+  const artifactJob = findGitLabArtifactJob(jobs);
+
+  if (!artifactJob) return null;
+
+  return gitlabApiFetchBuffer(
+    `/projects/${projectRef}/jobs/${artifactJob.id}/artifacts/${encodeURIComponent(
+      args.artifactPath,
+    )}`,
+  );
+}
+
+async function hydrateReleaseDeploymentVariables(
+  database: Database,
+  project: CmdbProjectRow,
+  release: CmdbReleaseRow,
+) {
+  if (project.deployTarget !== "docker") return release;
+  const configuredDockerImage =
+    cleanString(release.variables?.DOCKER_IMAGE) ??
+    cleanString(project.config?.dockerImage);
+
+  let artifactVariables: Record<string, string>;
+  try {
+    artifactVariables = await readGitLabReleaseArtifactVariables(
+      project,
+      release,
+    );
+  } catch (error: unknown) {
+    if (configuredDockerImage) return release;
+
+    throw new Error(
+      `读取 GitLab 构建产物变量失败：${
+        error instanceof Error ? error.message : "未知错误"
+      }`,
+    );
+  }
+
+  if (Object.keys(artifactVariables).length === 0) return release;
+
+  const dockerImage =
+    configuredDockerImage ??
+    cleanString(artifactVariables.DOCKER_IMAGE);
+
+  const variables = {
+    ...(release.variables ?? {}),
+    ...artifactVariables,
+  };
+  if (dockerImage) variables.DOCKER_IMAGE = dockerImage;
+  const [updatedRelease] = await database
+    .update(cmdbReleases)
+    .set({ variables })
+    .where(eq(cmdbReleases.id, release.id))
+    .returning();
+
+  return updatedRelease ?? { ...release, variables };
 }
 
 function normalizePipelineStatus(
@@ -1514,10 +1826,15 @@ async function completeCmdbReleaseDeployment(
   if (!lockedRelease) return;
 
   try {
-    const deploymentResult = await executeCmdbDeployment(
+    const hydratedRelease = await hydrateReleaseDeploymentVariables(
       database,
       project,
       lockedRelease,
+    );
+    const deploymentResult = await executeCmdbDeployment(
+      database,
+      project,
+      hydratedRelease,
     );
     const deploymentSummary = deploymentResult
       ? [
@@ -1813,7 +2130,7 @@ export async function createCmdbRelease(
     args.project,
     args.variables,
   );
-  assertProjectReleaseReady(args.project, variables);
+  assertProjectReleaseReady(args.project);
 
   const [release] = await database
     .insert(cmdbReleases)
