@@ -463,6 +463,8 @@ http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
 
 在混合架构场景下，脚本会先按 `cluster/nodes.json` 重新渲染完整 inventory，再执行 `ezctl destroy`，因此已经自动接力加入的 `arm64` worker 也会一并纳入销毁；同时会清理远端 `~/.remote-work-secondary-arch/<clusterName>` staging 目录。
 
+清理会删除 `/etc/kubeasz/clusters/<clusterName>` 和 `/etc/kubeasz/bin`。后者是为了避免下一次 `cluster bootstrap` 因为 kubeasz 检测到旧二进制已存在而跳过下载，导致 `cluster/config.json` 里的 `kubernetesVersion` 没有真正生效。
+
 如果还要顺手清每台节点上的工作区持久目录：
 
 ```bash

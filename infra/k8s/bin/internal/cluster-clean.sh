@@ -24,6 +24,7 @@ By default it will:
   3. keep node-side container runtime and local Docker/containerd image store intact
   4. keep local image archives and secondary-arch asset bundles for reuse
   5. remove local /etc/kubeasz cluster config for the current cluster
+  6. remove local /etc/kubeasz/bin binaries so bootstrap cannot reuse stale Kubernetes versions
 
 Options:
   --purge-remote-data      Also remove /var/lib/remote-work/workspaces on every node
@@ -176,6 +177,9 @@ cleanup_remote_secondary_arch_staging
 
 print_step "清理 /etc/kubeasz 中当前 cluster 的本地配置"
 sudo rm -rf "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"
+
+print_step "清理 /etc/kubeasz/bin，避免下次 bootstrap 复用旧 Kubernetes 二进制"
+sudo rm -rf "$KUBEASZ_BASE_DIR/bin"
 
 if [[ "$PURGE_LOCAL_CACHE" -eq 1 ]]; then
   print_step "清理 infra/k8s/runtime"
