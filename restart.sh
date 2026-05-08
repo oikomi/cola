@@ -244,7 +244,7 @@ fi
 
 for _ in {1..30}; do
   if [[ "$started_with_screen" -eq 1 ]]; then
-    if ! screen -list | awk -v session="$SCREEN_SESSION" '$0 ~ "\\." session "([[:space:]]|$)" { found = 1 } END { exit found ? 0 : 1 }'; then
+    if ! (screen -list 2>/dev/null || true) | awk -v session="$SCREEN_SESSION" '$0 ~ "\\." session "([[:space:]]|$)" { found = 1 } END { exit found ? 0 : 1 }'; then
       echo "Next dev server exited before becoming ready."
       rm -f "$PID_FILE"
       tail -n 40 "$LOG_FILE" || true
