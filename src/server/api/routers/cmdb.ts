@@ -182,6 +182,7 @@ export const cmdbRouter = createTRPCRouter({
       z.object({
         projectId: z.number(),
         action: z.enum(["dockerStatus", "dockerLogs", "sshInfo"]),
+        targetAssetName: z.string().optional(),
         tail: z.number().int().min(20).max(1000).optional(),
       }),
     )

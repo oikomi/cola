@@ -618,15 +618,10 @@ function findGitLabArtifactJob(jobs: GitLabJob[]) {
     return job.status === "success" && Boolean(filename);
   });
 
-  return (
-    candidates.find((job) => job.name === "docker-image") ?? candidates[0]
-  );
+  return candidates.find((job) => job.name === "docker-image") ?? candidates[0];
 }
 
-function apiErrorMessageFromResponse(
-  response: Response,
-  responseText: string,
-) {
+function apiErrorMessageFromResponse(response: Response, responseText: string) {
   if (!responseText) return `HTTP ${response.status}`;
 
   try {
@@ -662,14 +657,24 @@ function dockerContainerName(project: Pick<CmdbProjectRow, "name" | "config">) {
 async function resolvePrimaryProjectAsset(
   database: Database,
   project: Pick<CmdbProjectRow, "name" | "config">,
+  preferredAssetName?: string,
 ): Promise<SshReadyAssetRow> {
-  const [targetAssetName] = normalizeTargetAssetNames(
+  const targetAssetNames = normalizeTargetAssetNames(
     project.config?.targetAssetNames,
     project.config?.targetAssetName,
   );
+  const preferredTargetAssetName = cleanString(preferredAssetName);
+  const targetAssetName = preferredTargetAssetName ?? targetAssetNames[0];
 
   if (!targetAssetName) {
     throw new Error("项目未配置目标资产，无法执行远程运维操作。");
+  }
+
+  if (
+    preferredTargetAssetName &&
+    !targetAssetNames.includes(preferredTargetAssetName)
+  ) {
+    throw new Error(`项目未部署到目标资产 ${preferredTargetAssetName}。`);
   }
 
   const [asset] = await database
@@ -804,7 +809,7 @@ function buildDockerStatusCommand(containerName: string) {
   return [
     "set -eu",
     `CONTAINER=${container}`,
-    'docker inspect "$CONTAINER" --format \'{{json .}}\'',
+    "docker inspect \"$CONTAINER\" --format '{{json .}}'",
   ].join("\n");
 }
 
@@ -1234,6 +1239,7 @@ export async function testCmdbAssetConnectivity(input: {
 export async function resolveCmdbProjectTerminalTarget(
   database: Database,
   projectId: number,
+  targetAssetName?: string,
 ): Promise<CmdbProjectTerminalTarget> {
   const [project] = await database
     .select()
@@ -1244,7 +1250,11 @@ export async function resolveCmdbProjectTerminalTarget(
     throw new Error("项目不存在，无法登录目标资产。");
   }
 
-  const asset = await resolvePrimaryProjectAsset(database, project);
+  const asset = await resolvePrimaryProjectAsset(
+    database,
+    project,
+    targetAssetName,
+  );
   const sshPort = asset.sshPort ?? 22;
   const containerName =
     project.deployTarget === "docker" ? dockerContainerName(project) : null;
@@ -1275,6 +1285,7 @@ export async function runCmdbProjectOperation(
   input: {
     projectId: number;
     action: "dockerStatus" | "dockerLogs" | "sshInfo";
+    targetAssetName?: string;
     tail?: number;
   },
 ) {
@@ -1287,7 +1298,11 @@ export async function runCmdbProjectOperation(
     throw new Error("项目不存在，无法执行运维操作。");
   }
 
-  const asset = await resolvePrimaryProjectAsset(database, project);
+  const asset = await resolvePrimaryProjectAsset(
+    database,
+    project,
+    input.targetAssetName,
+  );
   const sshPort = asset.sshPort ?? 22;
   const sshUser = asset.sshUser;
   if (!sshUser) {
@@ -1544,8 +1559,7 @@ async function hydrateReleaseDeploymentVariables(
   if (Object.keys(artifactVariables).length === 0) return release;
 
   const dockerImage =
-    configuredDockerImage ??
-    cleanString(artifactVariables.DOCKER_IMAGE);
+    configuredDockerImage ?? cleanString(artifactVariables.DOCKER_IMAGE);
 
   const variables = {
     ...(release.variables ?? {}),
@@ -1902,7 +1916,8 @@ async function probeProjectHealth(
       cache: "no-store",
     });
     const responseTimeMs = Date.now() - startedAt;
-    const contentType = cleanString(response.headers.get("content-type")) ?? null;
+    const contentType =
+      cleanString(response.headers.get("content-type")) ?? null;
     const responseText = await readResponseText(response);
     const responsePreview = response.ok
       ? null
@@ -2169,7 +2184,11 @@ export async function createCmdbRelease(
       .returning();
 
     if (updatedRelease && result.status === "success") {
-      await completeCmdbReleaseDeployment(database, args.project, updatedRelease);
+      await completeCmdbReleaseDeployment(
+        database,
+        args.project,
+        updatedRelease,
+      );
       const [completedRelease] = await database
         .select()
         .from(cmdbReleases)
@@ -2612,7 +2631,10 @@ export async function getCmdbDashboard(database: Database) {
     }
 
     if (!latestReleaseByProject.has(release.projectId)) {
-      latestReleaseByProject.set(release.projectId, releaseWithProject(release));
+      latestReleaseByProject.set(
+        release.projectId,
+        releaseWithProject(release),
+      );
     }
   }
 

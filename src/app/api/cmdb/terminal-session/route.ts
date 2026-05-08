@@ -9,13 +9,18 @@ export const runtime = "nodejs";
 
 const startTerminalSessionSchema = z.object({
   projectId: z.number().int().positive(),
+  targetAssetName: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
     const json: unknown = await request.json();
     const input = startTerminalSessionSchema.parse(json);
-    const target = await resolveCmdbProjectTerminalTarget(db, input.projectId);
+    const target = await resolveCmdbProjectTerminalTarget(
+      db,
+      input.projectId,
+      input.targetAssetName,
+    );
     const session = createCmdbTerminalSession(target);
 
     return NextResponse.json(session);

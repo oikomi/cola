@@ -32,6 +32,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { IDisposable } from "@xterm/xterm";
 import {
+  Fragment,
   type ReactNode,
   useCallback,
   useDeferredValue,
@@ -84,6 +85,25 @@ type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
 type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
 type ProjectOperationResult = RouterOutputs["cmdb"]["projectOperation"];
 type ProjectOperationAction = "dockerStatus" | "dockerLogs" | "sshInfo";
+type AssetServiceRow = {
+  project: ProjectRow;
+  latestRelease: ProjectRow["latestRelease"];
+  targetAssetName: string;
+};
+type TopicReleaseGroup = {
+  topic: string;
+  releases: ReleaseRow[];
+  latestRelease: ReleaseRow;
+  releaseTotal: number;
+  projectTotal: number;
+  successTotal: number;
+  runningTotal: number;
+  failedTotal: number;
+  canceledTotal: number;
+  refs: string[];
+  deployEnvs: string[];
+  projectLabels: string[];
+};
 type DockerStatusPort = {
   containerPort: string;
   protocol: string | null;
@@ -167,7 +187,7 @@ const TERMINAL_RESIZE_FLUSH_MS = 120;
 const TERMINAL_CONNECTING_MESSAGE = "正在建立 SSH 会话...\r\n";
 const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-type CmdbAreaKey = "assets" | "projects";
+type CmdbAreaKey = "assets" | "projects" | "topicReleases";
 type ProjectDraftPanelKey = "basic" | "deploy" | "observe" | "variables";
 type ProjectBranchMode = "catalog" | "custom";
 
@@ -608,6 +628,73 @@ function topicReleaseStatusTone(status: ReleaseRow["status"] | "skipped") {
 function topicReleaseStatusLabel(status: ReleaseRow["status"] | "skipped") {
   if (status === "skipped") return "已跳过";
   return releaseLabel(status);
+}
+
+function buildTopicReleaseGroups(releases: ReleaseRow[]) {
+  const grouped = new Map<string, ReleaseRow[]>();
+
+  for (const release of releases) {
+    const topic = releaseTopic(release);
+    if (!topic) continue;
+
+    const current = grouped.get(topic);
+    if (current) {
+      current.push(release);
+    } else {
+      grouped.set(topic, [release]);
+    }
+  }
+
+  return Array.from(grouped.entries())
+    .map(([topic, topicReleases]): TopicReleaseGroup => {
+      const sortedReleases = [...topicReleases].sort(
+        (first, second) =>
+          new Date(second.createdAt).getTime() -
+          new Date(first.createdAt).getTime(),
+      );
+      const latestRelease = sortedReleases[0]!;
+      const projectLabels = Array.from(
+        new Set(
+          sortedReleases.map(
+            (release) =>
+              release.project?.name ??
+              release.project?.gitlabPath ??
+              `项目 ${release.projectId}`,
+          ),
+        ),
+      );
+
+      return {
+        topic,
+        releases: sortedReleases,
+        latestRelease,
+        releaseTotal: sortedReleases.length,
+        projectTotal: projectLabels.length,
+        successTotal: sortedReleases.filter(
+          (release) => release.status === "success",
+        ).length,
+        runningTotal: sortedReleases.filter(
+          (release) =>
+            release.status === "pending" || release.status === "running",
+        ).length,
+        failedTotal: sortedReleases.filter(
+          (release) => release.status === "failed",
+        ).length,
+        canceledTotal: sortedReleases.filter(
+          (release) => release.status === "canceled",
+        ).length,
+        refs: Array.from(new Set(sortedReleases.map((release) => release.ref))),
+        deployEnvs: Array.from(
+          new Set(sortedReleases.map((release) => release.deployEnv ?? "-")),
+        ),
+        projectLabels,
+      };
+    })
+    .sort(
+      (first, second) =>
+        new Date(second.latestRelease.createdAt).getTime() -
+        new Date(first.latestRelease.createdAt).getTime(),
+    );
 }
 
 function projectStatusLabel(value: ProjectDraft["enabled"]) {
@@ -1432,6 +1519,559 @@ function CmdbEmptyState(props: {
   );
 }
 
+function ProjectReleaseHistory(props: {
+  releases: ReleaseRow[];
+  showProject?: boolean;
+  onOpenOperation: (
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) => void;
+}) {
+  if (props.releases.length === 0) {
+    return (
+      <div className="rounded-[10px] border border-dashed border-slate-200 bg-white px-3 py-4 text-sm text-slate-500">
+        {props.showProject
+          ? "还没有主题发布记录。"
+          : "这个项目还没有发布记录。"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-3 xl:hidden">
+        {props.releases.map((release) => {
+          const topic = releaseTopic(release);
+
+          return (
+            <article
+              key={`project-release-card-${release.id}`}
+              className="rounded-[10px] border border-slate-200/90 bg-white px-3 py-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge
+                      className={cn("border", releaseTone(release.status))}
+                    >
+                      {releaseLabel(release.status)}
+                    </Badge>
+                    <span className="text-xs text-slate-500">
+                      {formatTime(release.createdAt)}
+                    </span>
+                  </div>
+                  <p className="mt-2 truncate text-sm font-medium text-slate-900">
+                    {release.ref}
+                    {release.deployEnv ? ` -> ${release.deployEnv}` : ""}
+                  </p>
+                  {props.showProject ? (
+                    <p className="mt-1 truncate text-xs text-slate-500">
+                      {release.project?.name ?? "未知项目"}
+                      {release.project?.gitlabPath
+                        ? ` · ${release.project.gitlabPath}`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {topic ? (
+                    <Badge className="mt-1.5 border border-sky-200 bg-sky-50 text-sky-700">
+                      {topic}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className={CMDB_ACTION_GROUP_CLASS}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={CMDB_ACTION_ICON_CLASS}
+                    onClick={() =>
+                      props.onOpenOperation(release, "dockerStatus")
+                    }
+                    disabled={Boolean(
+                      releaseOperationIssue(release, "dockerStatus"),
+                    )}
+                    title={
+                      releaseOperationIssue(release, "dockerStatus") ??
+                      "容器状态"
+                    }
+                  >
+                    <ActivityIcon />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={CMDB_ACTION_ICON_CLASS}
+                    onClick={() => props.onOpenOperation(release, "dockerLogs")}
+                    disabled={Boolean(
+                      releaseOperationIssue(release, "dockerLogs"),
+                    )}
+                    title={
+                      releaseOperationIssue(release, "dockerLogs") ?? "运行日志"
+                    }
+                  >
+                    <ScrollTextIcon />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={CMDB_ACTION_ICON_CLASS}
+                    onClick={() => props.onOpenOperation(release, "sshInfo")}
+                    disabled={Boolean(
+                      releaseOperationIssue(release, "sshInfo"),
+                    )}
+                    title={
+                      releaseOperationIssue(release, "sshInfo") ??
+                      remoteLoginLabel(release.project?.deployTarget)
+                    }
+                  >
+                    <TerminalIcon />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                {release.gitlabPipelineUrl ? (
+                  <a
+                    href={release.gitlabPipelineUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                      "h-8 rounded-[9px]",
+                    )}
+                  >
+                    Pipeline #{release.gitlabPipelineId ?? release.id}
+                    <ExternalLinkIcon data-icon="inline-end" />
+                  </a>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    {release.lastError ?? "尚未返回流水线链接"}
+                  </p>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-[10px] border border-slate-200/90 xl:block">
+        <Table
+          className={props.showProject ? "min-w-[960px]" : "min-w-[820px]"}
+        >
+          <TableHeader className="bg-slate-50/90">
+            <TableRow className="hover:bg-transparent">
+              <TableHead>时间</TableHead>
+              {props.showProject ? <TableHead>项目</TableHead> : null}
+              <TableHead>主题</TableHead>
+              <TableHead>Ref</TableHead>
+              <TableHead>环境</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>流水线</TableHead>
+              <TableHead className={STICKY_ACTION_HEAD_CLASS}>操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.releases.map((release) => (
+              <TableRow
+                key={`project-release-row-${release.id}`}
+                className="group"
+              >
+                <TableCell className="text-sm text-slate-600">
+                  {formatTime(release.createdAt)}
+                </TableCell>
+                {props.showProject ? (
+                  <TableCell>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-900">
+                        {release.project?.name ?? "未知项目"}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {release.project?.gitlabPath ?? "-"}
+                      </p>
+                    </div>
+                  </TableCell>
+                ) : null}
+                <TableCell>
+                  {releaseTopic(release) ? (
+                    <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                      {releaseTopic(release)}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-slate-400">-</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-sm text-slate-600">
+                  {release.ref}
+                </TableCell>
+                <TableCell className="text-sm text-slate-600">
+                  {release.deployEnv ?? "-"}
+                </TableCell>
+                <TableCell>
+                  <Badge className={cn("border", releaseTone(release.status))}>
+                    {releaseLabel(release.status)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {release.gitlabPipelineUrl ? (
+                    <a
+                      href={release.gitlabPipelineUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
+                    >
+                      Pipeline #{release.gitlabPipelineId ?? release.id}
+                      <ExternalLinkIcon className="size-3.5" />
+                    </a>
+                  ) : (
+                    <span className="text-sm text-slate-500">
+                      {release.lastError ?? "尚未返回流水线链接"}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className={STICKY_ACTION_CELL_CLASS}>
+                  <div className="flex justify-end gap-2">
+                    <div className={CMDB_ACTION_GROUP_CLASS}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className={CMDB_ACTION_ICON_CLASS}
+                        onClick={() =>
+                          props.onOpenOperation(release, "dockerStatus")
+                        }
+                        disabled={Boolean(
+                          releaseOperationIssue(release, "dockerStatus"),
+                        )}
+                        title={
+                          releaseOperationIssue(release, "dockerStatus") ??
+                          "容器状态"
+                        }
+                      >
+                        <ActivityIcon />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className={CMDB_ACTION_ICON_CLASS}
+                        onClick={() =>
+                          props.onOpenOperation(release, "dockerLogs")
+                        }
+                        disabled={Boolean(
+                          releaseOperationIssue(release, "dockerLogs"),
+                        )}
+                        title={
+                          releaseOperationIssue(release, "dockerLogs") ??
+                          "运行日志"
+                        }
+                      >
+                        <ScrollTextIcon />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className={CMDB_ACTION_ICON_CLASS}
+                        onClick={() =>
+                          props.onOpenOperation(release, "sshInfo")
+                        }
+                        disabled={Boolean(
+                          releaseOperationIssue(release, "sshInfo"),
+                        )}
+                        title={
+                          releaseOperationIssue(release, "sshInfo") ??
+                          remoteLoginLabel(release.project?.deployTarget)
+                        }
+                      >
+                        <TerminalIcon />
+                      </Button>
+                    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function TopicReleaseList(props: {
+  groups: TopicReleaseGroup[];
+  onOpenOperation: (
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) => void;
+  onCreate: () => void;
+}) {
+  if (props.groups.length === 0) {
+    return (
+      <CmdbEmptyState
+        icon={ListChecksIcon}
+        title="还没有主题发布"
+        description="新建主题发布后，系统会按主题聚合展示项目发布状态、流水线和运维入口。"
+        action={
+          <Button className="rounded-[10px]" onClick={props.onCreate}>
+            <PlusIcon data-icon="inline-start" />
+            新建主题发布
+          </Button>
+        }
+        hints={[
+          "点击新建主题发布",
+          "填写主题名称并圈选项目",
+          "发布后回到列表跟踪结果",
+        ]}
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      {props.groups.map((group) => {
+        const hasFailures = group.failedTotal > 0;
+        const hasRunning = group.runningTotal > 0;
+        const statusTone = hasFailures
+          ? "border-rose-200 bg-rose-50 text-rose-700"
+          : hasRunning
+            ? "border-sky-200 bg-sky-50 text-sky-700"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700";
+        const statusLabel = hasFailures
+          ? "有失败"
+          : hasRunning
+            ? "进行中"
+            : "已完成";
+
+        return (
+          <article
+            key={`topic-release-group-${group.topic}`}
+            className="rounded-[12px] border border-slate-200/95 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 className="truncate text-base font-semibold text-slate-950">
+                    {group.topic}
+                  </h3>
+                  <Badge className={cn("border", statusTone)}>
+                    {statusLabel}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {group.projectTotal} 个项目 · {group.releaseTotal} 条发布记录
+                  · 最近 {formatTime(group.latestRelease.createdAt)}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                <Badge className="justify-center border border-emerald-200 bg-emerald-50 text-emerald-700">
+                  成功 {group.successTotal}
+                </Badge>
+                <Badge className="justify-center border border-sky-200 bg-sky-50 text-sky-700">
+                  进行中 {group.runningTotal}
+                </Badge>
+                <Badge className="justify-center border border-rose-200 bg-rose-50 text-rose-700">
+                  失败 {group.failedTotal}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 rounded-[10px] border border-slate-200/75 bg-slate-50/80 px-3 py-3 md:grid-cols-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">项目</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {group.projectLabels.join("、")}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">Ref</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {group.refs.join("、")}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">环境</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {group.deployEnvs.join("、")}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <ProjectReleaseHistory
+                releases={group.releases}
+                showProject
+                onOpenOperation={props.onOpenOperation}
+              />
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssetServiceList(props: {
+  assetName: string;
+  services: AssetServiceRow[];
+  onOpenOperation: (
+    project: ProjectRow,
+    action: ProjectOperationAction,
+    targetAssetName?: string,
+  ) => void;
+}) {
+  if (props.services.length === 0) {
+    return (
+      <div className="rounded-[10px] border border-dashed border-slate-200 bg-white px-3 py-4 text-sm text-slate-500">
+        这个服务器还没有挂载服务。
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-2">
+      {props.services.map(({ project, latestRelease, targetAssetName }) => {
+        const releaseTopicLabel = latestRelease
+          ? releaseTopic(latestRelease)
+          : null;
+
+        return (
+          <article
+            key={`asset-service-${targetAssetName}-${project.id}`}
+            className="grid gap-3 rounded-[10px] border border-slate-200/90 bg-white px-3 py-3 lg:grid-cols-[minmax(180px,0.9fr)_minmax(220px,1fr)_minmax(180px,0.75fr)_auto] lg:items-center"
+          >
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h4 className="truncate text-sm font-semibold text-slate-950">
+                  {project.name}
+                </h4>
+                <Badge className="border border-slate-200 bg-white text-slate-700">
+                  {deployTargetLabel(project.deployTarget)}
+                </Badge>
+                {!project.enabled ? (
+                  <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
+                    已禁用
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                {project.gitlabPath}
+              </p>
+              <p className="mt-1 truncate font-mono text-xs text-slate-500">
+                {projectDeployConfigLabel(project)}
+              </p>
+            </div>
+
+            <div className="min-w-0 rounded-[9px] bg-slate-50/85 px-3 py-2">
+              <p className="text-[11px] font-medium text-slate-500">最近发布</p>
+              {latestRelease ? (
+                <>
+                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                    <Badge
+                      className={cn(
+                        "shrink-0 border",
+                        releaseTone(latestRelease.status),
+                      )}
+                    >
+                      {releaseLabel(latestRelease.status)}
+                    </Badge>
+                    <span className="truncate text-xs text-slate-500">
+                      {formatTime(latestRelease.createdAt)}
+                    </span>
+                  </div>
+                  <p className="mt-1 truncate text-sm text-slate-700">
+                    {latestRelease.ref}
+                    {latestRelease.deployEnv
+                      ? ` -> ${latestRelease.deployEnv}`
+                      : ""}
+                    {releaseTopicLabel ? ` · ${releaseTopicLabel}` : ""}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500">暂无发布</p>
+              )}
+            </div>
+
+            <div className="min-w-0 rounded-[9px] border border-slate-200/75 bg-white px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <Badge
+                  className={cn(
+                    "shrink-0 border",
+                    monitorTone(project.monitor.status),
+                  )}
+                >
+                  {monitorLabel(project.monitor.status)}
+                </Badge>
+                <span className="truncate text-xs font-medium text-slate-600">
+                  {monitorSummary(project)}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                {project.monitor.message}
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <div className={CMDB_ACTION_GROUP_CLASS}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={CMDB_ACTION_ICON_CLASS}
+                  onClick={() =>
+                    props.onOpenOperation(
+                      project,
+                      "dockerStatus",
+                      props.assetName,
+                    )
+                  }
+                  disabled={Boolean(
+                    projectOperationIssue(project, "dockerStatus"),
+                  )}
+                  title={
+                    projectOperationIssue(project, "dockerStatus") ?? "容器状态"
+                  }
+                >
+                  <ActivityIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={CMDB_ACTION_ICON_CLASS}
+                  onClick={() =>
+                    props.onOpenOperation(
+                      project,
+                      "dockerLogs",
+                      props.assetName,
+                    )
+                  }
+                  disabled={Boolean(
+                    projectOperationIssue(project, "dockerLogs"),
+                  )}
+                  title={
+                    projectOperationIssue(project, "dockerLogs") ?? "运行日志"
+                  }
+                >
+                  <ScrollTextIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={CMDB_ACTION_ICON_CLASS}
+                  onClick={() =>
+                    props.onOpenOperation(project, "sshInfo", props.assetName)
+                  }
+                  disabled={Boolean(projectOperationIssue(project, "sshInfo"))}
+                  title={
+                    projectOperationIssue(project, "sshInfo") ??
+                    remoteLoginLabel(project.deployTarget)
+                  }
+                >
+                  <TerminalIcon />
+                </Button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function LoadingBlock() {
   return (
     <div className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/84 px-5 py-5 shadow-[0_18px_56px_rgba(15,23,42,0.055)] md:px-6">
@@ -1482,9 +2122,16 @@ export function CmdbShell() {
   );
   const [topicReleaseResult, setTopicReleaseResult] =
     useState<TopicReleaseResult | null>(null);
+  const [expandedProjectReleaseIds, setExpandedProjectReleaseIds] = useState<
+    number[]
+  >([]);
+  const [expandedAssetNames, setExpandedAssetNames] = useState<string[]>([]);
   const [operationProject, setOperationProject] = useState<ProjectRow | null>(
     null,
   );
+  const [operationSelectedAssetName, setOperationSelectedAssetName] = useState<
+    string | null
+  >(null);
   const [monitorProject, setMonitorProject] = useState<ProjectRow | null>(null);
   const [operationAction, setOperationAction] =
     useState<ProjectOperationAction>("dockerStatus");
@@ -1814,6 +2461,8 @@ export function CmdbShell() {
   const assets = data?.assets ?? [];
   const projects = data?.projects ?? [];
   const releases = data?.releases ?? [];
+  const expandedProjectReleaseIdSet = new Set(expandedProjectReleaseIds);
+  const expandedAssetNameSet = new Set(expandedAssetNames);
   const gitlabCatalogItems = gitlabCatalogQuery.data ?? [];
   const visibleGitLabCatalogItems = gitlabCatalogItems.slice(0, 20);
   const gitlabBranchItems = gitlabBranchesQuery.data ?? [];
@@ -1845,6 +2494,7 @@ export function CmdbShell() {
   const operationTargetAssetName =
     operationResult?.targetAssetName ??
     terminalSession?.targetAssetName ??
+    operationSelectedAssetName ??
     (operationProject
       ? projectTargetAssetsLabel(operationProject.config)
       : "-");
@@ -1987,6 +2637,36 @@ export function CmdbShell() {
   );
   const topicReleaseCanSubmit =
     topicReleaseDraft.projectIds.length > 0 && !triggerTopicRelease.isPending;
+  const topicReleaseRows = releases.filter((release) =>
+    Boolean(releaseTopic(release)),
+  );
+  const topicReleaseGroups = buildTopicReleaseGroups(releases);
+  const topicReleaseSuccessTotal = topicReleaseRows.filter(
+    (release) => release.status === "success",
+  ).length;
+  const topicReleaseRunningTotal = topicReleaseRows.filter(
+    (release) => release.status === "pending" || release.status === "running",
+  ).length;
+  const topicReleaseFailedTotal = topicReleaseRows.filter(
+    (release) => release.status === "failed",
+  ).length;
+  const servicesByAssetName = new Map<string, AssetServiceRow[]>();
+  for (const project of projects) {
+    for (const targetAssetName of projectTargetAssetNames(project.config)) {
+      const service = {
+        project,
+        latestRelease: project.latestRelease,
+        targetAssetName,
+      };
+      const current = servicesByAssetName.get(targetAssetName);
+
+      if (current) {
+        current.push(service);
+      } else {
+        servicesByAssetName.set(targetAssetName, [service]);
+      }
+    }
+  }
   const connectedAssetTotal =
     data?.overview.connectedAssetTotal ??
     assets.filter((asset) => asset.status === "connected").length;
@@ -2096,6 +2776,15 @@ export function CmdbShell() {
           } 个进行中`,
       icon: GitBranchIcon,
     },
+    {
+      key: "topicReleases" as const,
+      label: "主题发布",
+      description: "按发布主题批量圈选项目、配置变量，并集中跟踪主题发布结果。",
+      countLabel: dashboardUnavailable
+        ? "无数据"
+        : `${topicReleaseGroups.length} 个主题 · ${topicReleaseRows.length} 条记录`,
+      icon: ListChecksIcon,
+    },
   ];
   const activeAreaMeta =
     areaCards.find((item) => item.key === activeArea) ?? areaCards[0]!;
@@ -2139,6 +2828,22 @@ export function CmdbShell() {
 
     setReleaseDraft(releaseDraftFromRow(project));
     setReleaseDialogOpen(true);
+  }
+
+  function toggleProjectReleaseHistory(projectId: number) {
+    setExpandedProjectReleaseIds((current) =>
+      current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId],
+    );
+  }
+
+  function toggleAssetServices(assetName: string) {
+    setExpandedAssetNames((current) =>
+      current.includes(assetName)
+        ? current.filter((name) => name !== assetName)
+        : [...current, assetName],
+    );
   }
 
   function closeTerminalSession(options: { reset?: boolean } = {}) {
@@ -2268,7 +2973,10 @@ export function CmdbShell() {
     return fallback;
   }
 
-  async function startTerminalLogin(project: ProjectRow) {
+  async function startTerminalLogin(
+    project: ProjectRow,
+    targetAssetName?: string,
+  ) {
     closeTerminalSession();
     const token = terminalStartTokenRef.current + 1;
     terminalStartTokenRef.current = token;
@@ -2284,7 +2992,7 @@ export function CmdbShell() {
       const response = await fetch("/api/cmdb/terminal-session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId: project.id }),
+        body: JSON.stringify({ projectId: project.id, targetAssetName }),
       });
 
       if (!response.ok) {
@@ -2468,6 +3176,7 @@ export function CmdbShell() {
   function openProjectOperation(
     project: ProjectRow,
     action: ProjectOperationAction,
+    targetAssetName?: string,
   ) {
     const issue = projectOperationIssue(project, action);
     if (issue) {
@@ -2476,6 +3185,7 @@ export function CmdbShell() {
     }
 
     setOperationProject(project);
+    setOperationSelectedAssetName(targetAssetName ?? null);
     setOperationAction(action);
     setOperationResult(null);
     setOperationCopied(false);
@@ -2483,7 +3193,7 @@ export function CmdbShell() {
 
     if (action === "sshInfo") {
       projectOperation.reset();
-      void startTerminalLogin(project);
+      void startTerminalLogin(project, targetAssetName);
       return;
     }
 
@@ -2491,6 +3201,7 @@ export function CmdbShell() {
     projectOperation.mutate({
       projectId: project.id,
       action,
+      targetAssetName,
       tail: action === "dockerLogs" ? 200 : undefined,
     });
   }
@@ -2538,6 +3249,10 @@ export function CmdbShell() {
     });
     setTopicReleaseResult(null);
     setTopicReleaseDialogOpen(true);
+  }
+
+  function openTopicReleaseArea() {
+    setActiveArea("topicReleases");
   }
 
   function toggleTopicReleaseProject(projectId: number) {
@@ -2769,9 +3484,7 @@ export function CmdbShell() {
       topicReleaseDraft.projectIds.includes(project.id),
     );
     const releaseIssue = selectedProjects
-      .map((project) =>
-        topicReleaseProjectIssue(project, canTriggerPipelines),
-      )
+      .map((project) => topicReleaseProjectIssue(project, canTriggerPipelines))
       .find((issue): issue is string => Boolean(issue));
 
     if (releaseIssue) {
@@ -2813,7 +3526,8 @@ export function CmdbShell() {
                   资产与发布管理
                 </h1>
                 <p className="mt-0.5 max-w-3xl text-[13px] leading-5 text-slate-600">
-                  统一维护服务器、GitLab 项目、构建与部署记录，优先暴露连通性、健康检查和发布风险。
+                  统一维护服务器、GitLab
+                  项目、构建与部署记录，优先暴露连通性、健康检查和发布风险。
                 </p>
               </div>
             </div>
@@ -3037,98 +3751,154 @@ export function CmdbShell() {
           ) : (
             <div className="grid gap-3">
               <div className="grid gap-3 2xl:hidden">
-                {assets.map((asset) => (
-                  <article
-                    key={`asset-card-${asset.name}`}
-                    className="grid gap-3 rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:grid-cols-[minmax(0,1.3fr)_minmax(120px,0.55fr)_minmax(120px,0.55fr)_auto] md:items-center"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate font-semibold tracking-normal text-slate-950">
-                          {asset.name}
-                        </h3>
-                        {asset.isController ? (
-                          <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                            Master
+                {assets.map((asset) => {
+                  const assetServices =
+                    servicesByAssetName.get(asset.name) ?? [];
+                  const servicesExpanded = expandedAssetNameSet.has(asset.name);
+
+                  return (
+                    <article
+                      key={`asset-card-${asset.name}`}
+                      className="grid gap-3 rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:grid-cols-[minmax(0,1.3fr)_minmax(120px,0.55fr)_minmax(120px,0.55fr)_auto] md:items-center"
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 text-left focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:outline-none"
+                        onClick={() => toggleAssetServices(asset.name)}
+                        aria-expanded={servicesExpanded}
+                        aria-controls={`asset-services-${asset.id}`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate font-semibold tracking-normal text-slate-950">
+                            {asset.name}
+                          </h3>
+                          {asset.isController ? (
+                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                              Master
+                            </Badge>
+                          ) : null}
+                          {asset.hasGpu ? (
+                            <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
+                              GPU
+                            </Badge>
+                          ) : null}
+                          <Badge
+                            className={cn(
+                              "border md:hidden",
+                              assetStatusTone(asset.status),
+                            )}
+                          >
+                            {assetStatusLabel(asset.status)}
                           </Badge>
-                        ) : null}
-                        {asset.hasGpu ? (
-                          <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
-                            GPU
-                          </Badge>
-                        ) : null}
+                          <ChevronDownIcon
+                            className={cn(
+                              "size-4 text-slate-400 transition-transform",
+                              servicesExpanded ? "rotate-180" : "",
+                            )}
+                          />
+                        </div>
+                        <p className="mt-1 truncate text-[13px] text-slate-500">
+                          {asset.ip} · {asset.sshUser ?? "root"}:{asset.sshPort}
+                        </p>
+                      </button>
+
+                      <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
+                        <span className="text-slate-500 md:block md:text-[11px]">
+                          架构
+                        </span>
+                        <span className="font-medium text-slate-900 md:mt-1 md:block">
+                          {asset.arch ?? "-"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
+                        <span className="text-slate-500 md:block md:text-[11px]">
+                          挂载服务
+                        </span>
+                        <span className="font-medium text-slate-900 md:mt-1 md:block">
+                          {asset.attachedProjectCount}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
+                        <div className="flex flex-wrap gap-1.5 md:mr-auto md:hidden">
+                          {asset.roles.map((role) => (
+                            <Badge
+                              key={`asset-card-${asset.name}-${role}`}
+                              className="border border-slate-200 bg-white text-slate-700"
+                            >
+                              {role}
+                            </Badge>
+                          ))}
+                        </div>
                         <Badge
                           className={cn(
-                            "border md:hidden",
+                            "hidden border md:inline-flex",
                             assetStatusTone(asset.status),
                           )}
                         >
                           {assetStatusLabel(asset.status)}
                         </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-[9px] border-slate-300 bg-white"
+                          onClick={() => toggleAssetServices(asset.name)}
+                          aria-expanded={servicesExpanded}
+                          aria-controls={`asset-services-${asset.id}`}
+                        >
+                          <ChevronDownIcon
+                            data-icon="inline-start"
+                            className={cn(
+                              "transition-transform",
+                              servicesExpanded ? "rotate-180" : "",
+                            )}
+                          />
+                          服务 {assetServices.length}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-[9px] border-slate-300 bg-white"
+                          onClick={() => openEditAssetDialog(asset)}
+                        >
+                          <PencilIcon data-icon="inline-start" />
+                          编辑
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-[9px] border-rose-200 bg-white text-rose-700"
+                          onClick={() => void handleDeleteAsset(asset)}
+                        >
+                          <Trash2Icon data-icon="inline-start" />
+                          删除
+                        </Button>
                       </div>
-                      <p className="mt-1 truncate text-[13px] text-slate-500">
-                        {asset.ip} · {asset.sshUser ?? "root"}:{asset.sshPort}
-                      </p>
-                    </div>
 
-                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
-                      <span className="text-slate-500 md:block md:text-[11px]">
-                        架构
-                      </span>
-                      <span className="font-medium text-slate-900 md:mt-1 md:block">
-                        {asset.arch ?? "-"}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
-                      <span className="text-slate-500 md:block md:text-[11px]">
-                        挂载服务
-                      </span>
-                      <span className="font-medium text-slate-900 md:mt-1 md:block">
-                        {asset.attachedProjectCount}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
-                      <div className="flex flex-wrap gap-1.5 md:mr-auto md:hidden">
-                        {asset.roles.map((role) => (
-                          <Badge
-                            key={`asset-card-${asset.name}-${role}`}
-                            className="border border-slate-200 bg-white text-slate-700"
-                          >
-                            {role}
-                          </Badge>
-                        ))}
-                      </div>
-                      <Badge
-                        className={cn(
-                          "hidden border md:inline-flex",
-                          assetStatusTone(asset.status),
-                        )}
-                      >
-                        {assetStatusLabel(asset.status)}
-                      </Badge>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 rounded-[9px] border-slate-300 bg-white"
-                        onClick={() => openEditAssetDialog(asset)}
-                      >
-                        <PencilIcon data-icon="inline-start" />
-                        编辑
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 rounded-[9px] border-rose-200 bg-white text-rose-700"
-                        onClick={() => void handleDeleteAsset(asset)}
-                      >
-                        <Trash2Icon data-icon="inline-start" />
-                        删除
-                      </Button>
-                    </div>
-                  </article>
-                ))}
+                      {servicesExpanded ? (
+                        <div
+                          id={`asset-services-${asset.id}`}
+                          className="min-w-0 border-t border-slate-200/80 pt-3 md:col-span-4"
+                        >
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">
+                              部署服务
+                            </p>
+                            <span className="text-xs text-slate-500">
+                              {assetServices.length} 个服务挂载到 {asset.name}
+                            </span>
+                          </div>
+                          <AssetServiceList
+                            assetName={asset.name}
+                            services={assetServices}
+                            onOpenOperation={openProjectOperation}
+                          />
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
 
               <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 2xl:block">
@@ -3147,83 +3917,156 @@ export function CmdbShell() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {assets.map((asset) => (
-                      <TableRow key={asset.name} className="group">
-                        <TableCell>
-                          <div className="grid gap-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-slate-950">
-                                {asset.name}
-                              </span>
-                              {asset.isController ? (
-                                <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                                  Master
-                                </Badge>
-                              ) : null}
-                              {asset.hasGpu ? (
-                                <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
-                                  GPU
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          <div>{asset.ip}</div>
-                          <div>
-                            {asset.sshUser ?? "root"}:{asset.sshPort}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1.5">
-                            {asset.roles.map((role) => (
-                              <Badge
-                                key={`${asset.name}-${role}`}
-                                className="border border-slate-200 bg-white text-slate-700"
+                    {assets.map((asset) => {
+                      const assetServices =
+                        servicesByAssetName.get(asset.name) ?? [];
+                      const servicesExpanded = expandedAssetNameSet.has(
+                        asset.name,
+                      );
+
+                      return (
+                        <Fragment key={`asset-row-${asset.name}`}>
+                          <TableRow className="group">
+                            <TableCell>
+                              <button
+                                type="button"
+                                className="grid gap-1 text-left focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:outline-none"
+                                onClick={() => toggleAssetServices(asset.name)}
+                                aria-expanded={servicesExpanded}
+                                aria-controls={`asset-services-${asset.id}`}
                               >
-                                {role}
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-slate-950">
+                                    {asset.name}
+                                  </span>
+                                  {asset.isController ? (
+                                    <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                                      Master
+                                    </Badge>
+                                  ) : null}
+                                  {asset.hasGpu ? (
+                                    <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
+                                      GPU
+                                    </Badge>
+                                  ) : null}
+                                  <ChevronDownIcon
+                                    className={cn(
+                                      "size-4 text-slate-400 transition-transform",
+                                      servicesExpanded ? "rotate-180" : "",
+                                    )}
+                                  />
+                                </div>
+                              </button>
+                            </TableCell>
+                            <TableCell className="text-sm text-slate-600">
+                              <div>{asset.ip}</div>
+                              <div>
+                                {asset.sshUser ?? "root"}:{asset.sshPort}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1.5">
+                                {asset.roles.map((role) => (
+                                  <Badge
+                                    key={`${asset.name}-${role}`}
+                                    className="border border-slate-200 bg-white text-slate-700"
+                                  >
+                                    {role}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-slate-600">
+                              {asset.arch ?? "-"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                className={cn(
+                                  "border",
+                                  assetStatusTone(asset.status),
+                                )}
+                              >
+                                {assetStatusLabel(asset.status)}
                               </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {asset.arch ?? "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={cn(
-                              "border",
-                              assetStatusTone(asset.status),
-                            )}
-                          >
-                            {assetStatusLabel(asset.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right text-sm font-medium text-slate-700">
-                          {asset.attachedProjectCount}
-                        </TableCell>
-                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              className="rounded-[10px]"
-                              onClick={() => openEditAssetDialog(asset)}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-medium text-slate-700">
+                              {asset.attachedProjectCount}
+                            </TableCell>
+                            <TableCell className={STICKY_ACTION_CELL_CLASS}>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="rounded-[10px]"
+                                  onClick={() =>
+                                    toggleAssetServices(asset.name)
+                                  }
+                                  aria-expanded={servicesExpanded}
+                                  aria-controls={`asset-services-${asset.id}`}
+                                  title={
+                                    servicesExpanded ? "收起服务" : "展开服务"
+                                  }
+                                >
+                                  <ChevronDownIcon
+                                    className={cn(
+                                      "transition-transform",
+                                      servicesExpanded ? "rotate-180" : "",
+                                    )}
+                                  />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="rounded-[10px]"
+                                  onClick={() => openEditAssetDialog(asset)}
+                                >
+                                  <PencilIcon />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="rounded-[10px] text-rose-700"
+                                  onClick={() => void handleDeleteAsset(asset)}
+                                >
+                                  <Trash2Icon />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {servicesExpanded ? (
+                            <TableRow
+                              key={`${asset.name}-services`}
+                              className="hover:bg-transparent"
                             >
-                              <PencilIcon />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              className="rounded-[10px] text-rose-700"
-                              onClick={() => void handleDeleteAsset(asset)}
-                            >
-                              <Trash2Icon />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                              <TableCell
+                                colSpan={7}
+                                className="bg-slate-50/60 p-3"
+                              >
+                                <div
+                                  id={`asset-services-${asset.id}`}
+                                  className="rounded-[12px] border border-slate-200/90 bg-white p-3"
+                                >
+                                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">
+                                      部署服务
+                                    </p>
+                                    <span className="text-xs text-slate-500">
+                                      {assetServices.length} 个服务挂载到{" "}
+                                      {asset.name}
+                                    </span>
+                                  </div>
+                                  <AssetServiceList
+                                    assetName={asset.name}
+                                    services={assetServices}
+                                    onOpenOperation={openProjectOperation}
+                                  />
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -3266,13 +4109,7 @@ export function CmdbShell() {
                   variant="outline"
                   size="sm"
                   className="rounded-[9px] border-slate-300 bg-white"
-                  onClick={() => openTopicReleaseDialog()}
-                  disabled={releasableProjects.length === 0}
-                  title={
-                    releasableProjects.length === 0
-                      ? "当前没有可发布的项目。"
-                      : undefined
-                  }
+                  onClick={openTopicReleaseArea}
                 >
                   <ListChecksIcon data-icon="inline-start" />
                   主题发布
@@ -3314,6 +4151,10 @@ export function CmdbShell() {
               <div className="grid gap-2">
                 {projects.map((project) => {
                   const release = project.latestRelease;
+                  const projectReleases = project.releases;
+                  const releasesExpanded = expandedProjectReleaseIdSet.has(
+                    project.id,
+                  );
                   const releaseTopicLabel = release
                     ? releaseTopic(release)
                     : null;
@@ -3365,9 +4206,40 @@ export function CmdbShell() {
                         </div>
 
                         <div className="min-w-0 rounded-[10px] bg-slate-50/85 px-3 py-2">
-                          <p className="text-[11px] leading-4 font-medium text-slate-500">
-                            最近发布
-                          </p>
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <p className="text-[11px] leading-4 font-medium text-slate-500">
+                              最近发布
+                            </p>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="h-6 rounded-[7px] px-1.5 text-slate-600 hover:bg-white"
+                              onClick={() =>
+                                toggleProjectReleaseHistory(project.id)
+                              }
+                              aria-expanded={releasesExpanded}
+                              aria-controls={`project-release-history-${project.id}`}
+                              aria-label={
+                                releasesExpanded
+                                  ? "收起发布记录"
+                                  : "展开发布记录"
+                              }
+                              title={
+                                releasesExpanded
+                                  ? "收起发布记录"
+                                  : "展开发布记录"
+                              }
+                            >
+                              <ChevronDownIcon
+                                data-icon="inline-start"
+                                className={cn(
+                                  "transition-transform",
+                                  releasesExpanded ? "rotate-180" : "",
+                                )}
+                              />
+                              {projectReleases.length}
+                            </Button>
+                          </div>
                           {release ? (
                             <>
                               <div className="mt-1 flex min-w-0 items-center gap-2">
@@ -3557,353 +4429,69 @@ export function CmdbShell() {
                           </Button>
                         </div>
                       </div>
+
+                      {releasesExpanded ? (
+                        <div
+                          id={`project-release-history-${project.id}`}
+                          className="min-w-0 border-t border-slate-200/80 pt-3 lg:col-span-4"
+                        >
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">
+                              发布记录
+                            </p>
+                            <span className="text-xs text-slate-500">
+                              最近 {projectReleases.length} 条
+                            </span>
+                          </div>
+                          <ProjectReleaseHistory
+                            releases={projectReleases}
+                            onOpenOperation={openReleaseOperation}
+                          />
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })}
               </div>
             )}
           </ModuleSection>
+        </div>
+      ) : null}
 
+      {data && activeArea === "topicReleases" ? (
+        <div id="cmdb-panel-topicReleases" className="grid gap-4">
           <ModuleSection
-            title="最近发布与部署状态"
-            description="跟随 GitLab 项目管理展示最近发布记录、构建状态和部署环境。"
+            title="主题发布"
+            description="按主题集中管理批量发布记录，查看每个项目的发布结果和运维入口。"
             density="compact"
             className="rounded-[12px] border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
             action={
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-slate-500">
-                  运行中{" "}
-                  <span className="font-semibold text-slate-950">
-                    {data.overview.runningReleaseTotal}
-                  </span>
-                </span>
-                {projects.length > 0 ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-[9px] border-slate-300 bg-white"
-                    onClick={() => openTopicReleaseDialog()}
-                    disabled={releasableProjects.length === 0}
-                    title={
-                      releasableProjects.length === 0
-                        ? "当前没有可发布的项目。"
-                        : undefined
-                    }
-                  >
-                    <ListChecksIcon data-icon="inline-start" />
-                    主题发布
-                  </Button>
-                ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+                  成功 {topicReleaseSuccessTotal}
+                </Badge>
+                <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                  进行中 {topicReleaseRunningTotal}
+                </Badge>
+                <Badge className="border border-rose-200 bg-rose-50 text-rose-700">
+                  失败 {topicReleaseFailedTotal}
+                </Badge>
+                <Button
+                  size="sm"
+                  className="rounded-[9px]"
+                  onClick={() => openTopicReleaseDialog()}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  新建主题发布
+                </Button>
               </div>
             }
           >
-            {releases.length === 0 ? (
-              <CmdbEmptyState
-                icon={RocketIcon}
-                title="还没有发布记录"
-                description="从 GitLab 项目管理中触发发布后，这里会显示最近的构建和 CMDB 部署状态。"
-                hints={[
-                  "先在 GitLab 项目管理中纳管项目",
-                  "确认 GitLab URL、API Token 或 Trigger Token",
-                  "触发发布后在这里跟踪构建和部署状态",
-                ]}
-                action={
-                  projects.length > 0 ? (
-                    <Button
-                      size="sm"
-                      className="rounded-[10px]"
-                      onClick={() => openTopicReleaseDialog()}
-                      disabled={releasableProjects.length === 0}
-                    >
-                      <ListChecksIcon data-icon="inline-start" />
-                      主题发布
-                    </Button>
-                  ) : null
-                }
-              />
-            ) : (
-              <div className="grid gap-3">
-                <div className="grid gap-3 xl:hidden">
-                  {releases.map((release) => (
-                    <article
-                      key={`release-card-${release.id}`}
-                      className="rounded-[12px] border border-slate-200/90 bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                    >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
-                          {release.project?.name ?? "未知项目"}
-                        </h3>
-                        <p className="mt-1 text-[13px] break-all text-slate-500">
-                          {release.project?.gitlabPath ?? "-"}
-                        </p>
-                        {releaseTopic(release) ? (
-                          <Badge className="mt-1.5 border border-sky-200 bg-sky-50 text-sky-700">
-                            主题 {releaseTopic(release)}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <Badge
-                        className={cn("border", releaseTone(release.status))}
-                      >
-                        {releaseLabel(release.status)}
-                      </Badge>
-                    </div>
-
-                    <div className="mt-3 grid gap-x-5 gap-y-2 rounded-[10px] bg-slate-50/80 px-3 py-2.5 text-[13px] md:grid-cols-3">
-                      <div>
-                        <span className="block text-[11px] text-slate-500">
-                          时间
-                        </span>
-                        <span className="mt-1 block font-medium text-slate-800">
-                          {formatTime(release.createdAt)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-[11px] text-slate-500">
-                          Ref
-                        </span>
-                        <span className="mt-1 block font-medium text-slate-800">
-                          {release.ref}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block text-[11px] text-slate-500">
-                          环境
-                        </span>
-                        <span className="mt-1 block font-medium text-slate-800">
-                          {release.deployEnv ?? "-"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      {release.gitlabPipelineUrl ? (
-                        <a
-                          href={release.gitlabPipelineUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={cn(
-                            buttonVariants({ variant: "outline", size: "sm" }),
-                            "h-8 rounded-[9px]",
-                          )}
-                        >
-                          Pipeline #{release.gitlabPipelineId ?? release.id}
-                          <ExternalLinkIcon data-icon="inline-end" />
-                        </a>
-                      ) : (
-                        <p className="text-sm text-slate-500">
-                          {release.lastError ?? "尚未返回流水线链接"}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex justify-end border-t border-slate-100 pt-2.5">
-                      <div className={CMDB_ACTION_GROUP_CLASS}>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className={CMDB_ACTION_ICON_CLASS}
-                          onClick={() =>
-                            openReleaseOperation(release, "dockerStatus")
-                          }
-                          disabled={Boolean(
-                            releaseOperationIssue(release, "dockerStatus"),
-                          )}
-                          title={
-                            releaseOperationIssue(release, "dockerStatus") ??
-                            "容器状态"
-                          }
-                        >
-                          <ActivityIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className={CMDB_ACTION_ICON_CLASS}
-                          onClick={() =>
-                            openReleaseOperation(release, "dockerLogs")
-                          }
-                          disabled={Boolean(
-                            releaseOperationIssue(release, "dockerLogs"),
-                          )}
-                          title={
-                            releaseOperationIssue(release, "dockerLogs") ??
-                            "运行日志"
-                          }
-                        >
-                          <ScrollTextIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className={CMDB_ACTION_ICON_CLASS}
-                          onClick={() =>
-                            openReleaseOperation(release, "sshInfo")
-                          }
-                          disabled={Boolean(
-                            releaseOperationIssue(release, "sshInfo"),
-                          )}
-                          title={
-                            releaseOperationIssue(release, "sshInfo") ??
-                            remoteLoginLabel(release.project?.deployTarget)
-                          }
-                        >
-                          <TerminalIcon />
-                        </Button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-
-              <div className="hidden overflow-hidden rounded-[12px] border border-slate-200/90 xl:block">
-                <Table className="min-w-[900px]">
-                  <TableHeader className="bg-slate-50/90">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>时间</TableHead>
-                      <TableHead>项目</TableHead>
-                      <TableHead>主题</TableHead>
-                      <TableHead>Ref</TableHead>
-                      <TableHead>环境</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>流水线</TableHead>
-                      <TableHead className={STICKY_ACTION_HEAD_CLASS}>
-                        操作
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {releases.map((release) => (
-                      <TableRow key={release.id} className="group">
-                        <TableCell className="text-sm text-slate-600">
-                          {formatTime(release.createdAt)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="grid gap-1">
-                            <span className="font-medium text-slate-950">
-                              {release.project?.name ?? "未知项目"}
-                            </span>
-                            <span className="text-xs text-slate-500">
-                              {release.project?.gitlabPath ?? "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {releaseTopic(release) ? (
-                            <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                              {releaseTopic(release)}
-                            </Badge>
-                          ) : (
-                            <span className="text-sm text-slate-400">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {release.ref}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {release.deployEnv ?? "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={cn(
-                              "border",
-                              releaseTone(release.status),
-                            )}
-                          >
-                            {releaseLabel(release.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {release.gitlabPipelineUrl ? (
-                            <a
-                              href={release.gitlabPipelineUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
-                            >
-                              Pipeline #{release.gitlabPipelineId ?? release.id}
-                              <ExternalLinkIcon className="size-3.5" />
-                            </a>
-                          ) : (
-                            <span className="text-sm text-slate-500">
-                              {release.lastError ?? "尚未返回流水线链接"}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className={STICKY_ACTION_CELL_CLASS}>
-                          <div className="flex justify-end gap-2">
-                            <div className={CMDB_ACTION_GROUP_CLASS}>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openReleaseOperation(release, "dockerStatus")
-                                }
-                                disabled={Boolean(
-                                  releaseOperationIssue(
-                                    release,
-                                    "dockerStatus",
-                                  ),
-                                )}
-                                title={
-                                  releaseOperationIssue(
-                                    release,
-                                    "dockerStatus",
-                                  ) ?? "容器状态"
-                                }
-                              >
-                                <ActivityIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openReleaseOperation(release, "dockerLogs")
-                                }
-                                disabled={Boolean(
-                                  releaseOperationIssue(release, "dockerLogs"),
-                                )}
-                                title={
-                                  releaseOperationIssue(
-                                    release,
-                                    "dockerLogs",
-                                  ) ?? "运行日志"
-                                }
-                              >
-                                <ScrollTextIcon />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className={CMDB_ACTION_ICON_CLASS}
-                                onClick={() =>
-                                  openReleaseOperation(release, "sshInfo")
-                                }
-                                disabled={Boolean(
-                                  releaseOperationIssue(release, "sshInfo"),
-                                )}
-                                title={
-                                  releaseOperationIssue(release, "sshInfo") ??
-                                  remoteLoginLabel(
-                                    release.project?.deployTarget,
-                                  )
-                                }
-                              >
-                                <TerminalIcon />
-                              </Button>
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          )}
+            <TopicReleaseList
+              groups={topicReleaseGroups}
+              onOpenOperation={openReleaseOperation}
+              onCreate={() => openTopicReleaseDialog()}
+            />
           </ModuleSection>
         </div>
       ) : null}
@@ -4775,8 +5363,8 @@ export function CmdbShell() {
 
                   <div className="mt-4 rounded-[12px] border border-sky-100 bg-sky-50/70 px-3 py-3 text-sm leading-6 text-slate-700">
                     当前 CMDB 会保存 SSH 用户、密码和端口；“登录测试”会真正建立
-                    SSH 会话。部署目标选择 Docker 或 SSH 时，GitLab 只负责构建镜像，
-                    后续部署由 CMDB 登录目标资产执行。
+                    SSH 会话。部署目标选择 Docker 或 SSH 时，GitLab
+                    只负责构建镜像，后续部署由 CMDB 登录目标资产执行。
                   </div>
 
                   <div className="mt-3 grid gap-2 text-xs text-slate-600">
@@ -5506,7 +6094,8 @@ export function CmdbShell() {
                           <GitBranchIcon className="size-4" />
                           <AlertTitle>由 CMDB 执行 SSH 部署</AlertTitle>
                           <AlertDescription>
-                            GitLab 构建成功后，CMDB 会登录目标资产，并在部署路径下执行这里配置的部署命令。
+                            GitLab 构建成功后，CMDB
+                            会登录目标资产，并在部署路径下执行这里配置的部署命令。
                           </AlertDescription>
                         </Alert>
 
@@ -5594,7 +6183,8 @@ export function CmdbShell() {
                         默认发布变量
                       </h3>
                       <p className="text-sm leading-6 text-slate-500">
-                        每行一个 KEY=VALUE，会传给构建流水线，并可被 CMDB 部署步骤使用。
+                        每行一个 KEY=VALUE，会传给构建流水线，并可被 CMDB
+                        部署步骤使用。
                       </p>
                     </div>
 
@@ -5669,7 +6259,8 @@ export function CmdbShell() {
           <DialogHeader>
             <DialogTitle>触发代码发布</DialogTitle>
             <DialogDescription>
-              当前发布会先触发 GitLab 构建流水线；构建成功后，CMDB 会根据项目配置执行部署。
+              当前发布会先触发 GitLab 构建流水线；构建成功后，CMDB
+              会根据项目配置执行部署。
             </DialogDescription>
           </DialogHeader>
 
@@ -5779,7 +6370,7 @@ export function CmdbShell() {
         <DialogContent className="flex max-h-[calc(100vh-1rem)] max-w-[920px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
           <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4">
             <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
-              主题发布
+              新建主题发布
             </DialogTitle>
             <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               圈选多个项目后统一触发构建流水线，并由 CMDB 在构建成功后部署。Ref
@@ -5854,6 +6445,8 @@ export function CmdbShell() {
                   hint="每行一个 KEY=VALUE，会覆盖各项目默认变量。"
                 >
                   <Textarea
+                    id="topic-release-dialog-variables"
+                    name="topicReleaseVariables"
                     value={topicReleaseDraft.variablesText}
                     onChange={(event) => {
                       setTopicReleaseDraft((current) => ({
@@ -5866,6 +6459,21 @@ export function CmdbShell() {
                     className="min-h-[120px]"
                   />
                 </ProjectDraftField>
+
+                <div className="grid gap-2 rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs text-slate-500">可发布项目</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-950">
+                      {releasableProjects.length}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">已选项目</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-950">
+                      {selectedTopicProjects.length}
+                    </p>
+                  </div>
+                </div>
 
                 {topicReleaseResult ? (
                   <div className="rounded-[12px] border border-slate-200 bg-slate-50 px-3 py-3">
@@ -5908,7 +6516,7 @@ export function CmdbShell() {
               </section>
 
               <section className="grid content-start gap-4 rounded-[var(--radius-card)] border border-slate-200/95 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.035)]">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-slate-950">
                       选择项目
@@ -5918,31 +6526,31 @@ export function CmdbShell() {
                       {selectedTopicProjects.length} 个。
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
-                      type="button"
                       variant="outline"
                       size="sm"
-                      className="rounded-[9px]"
+                      className="rounded-[9px] border-slate-300 bg-white"
                       onClick={selectAllTopicReleaseProjects}
                       disabled={releasableProjects.length === 0}
                     >
+                      <CheckCircle2Icon data-icon="inline-start" />
                       全选
                     </Button>
                     <Button
-                      type="button"
                       variant="outline"
                       size="sm"
-                      className="rounded-[9px]"
+                      className="rounded-[9px] border-slate-300 bg-white"
                       onClick={clearTopicReleaseProjects}
                       disabled={topicReleaseDraft.projectIds.length === 0}
                     >
+                      <RefreshCwIcon data-icon="inline-start" />
                       清空
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid max-h-[430px] gap-2 overflow-y-auto pr-1">
+                <div className="grid max-h-[520px] gap-2 overflow-y-auto pr-1">
                   {projects.map((project) => {
                     const selected = topicReleaseSelectedIds.has(project.id);
                     const releaseIssue = topicReleaseProjectIssue(
@@ -5952,7 +6560,7 @@ export function CmdbShell() {
 
                     return (
                       <label
-                        key={`topic-release-${project.id}`}
+                        key={`topic-release-dialog-${project.id}`}
                         className={cn(
                           "flex cursor-pointer items-start gap-3 rounded-[12px] border px-3 py-3 transition",
                           selected
@@ -5964,6 +6572,8 @@ export function CmdbShell() {
                       >
                         <input
                           type="checkbox"
+                          name="topicReleaseProjectIds"
+                          value={project.id}
                           className="sr-only"
                           checked={selected}
                           disabled={Boolean(releaseIssue)}
@@ -5991,11 +6601,6 @@ export function CmdbShell() {
                             <Badge className="border border-slate-200 bg-white text-slate-700">
                               {deployTargetLabel(project.deployTarget)}
                             </Badge>
-                            {!project.enabled ? (
-                              <Badge className="border border-slate-200 bg-slate-100 text-slate-700">
-                                已禁用
-                              </Badge>
-                            ) : null}
                           </span>
                           <span className="mt-1 block truncate text-xs text-slate-500">
                             {project.gitlabPath}
