@@ -6,6 +6,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$ROOT_DIR/.next-dev.pid"
 LOG_FILE="$ROOT_DIR/.next-dev.log"
 PORT="${PORT:-50038}"
+SCREEN_SESSION="${SCREEN_SESSION:-cola-next-dev-${PORT}}"
 NEXT_BIN="$ROOT_DIR/node_modules/.bin/next"
 DB_CHECK_SCRIPT="$ROOT_DIR/scripts/check-office-db.mjs"
 START_DB_SCRIPT="$ROOT_DIR/start-database.sh"
@@ -186,8 +187,14 @@ if [[ -f "$PID_FILE" ]]; then
   stored_pid="$(tr -d '[:space:]' < "$PID_FILE")"
   if [[ "$stored_pid" =~ ^[0-9]+$ ]]; then
     stop_pid "$stored_pid" "stored dev process"
+  elif [[ "$stored_pid" == screen:* ]] && command -v screen >/dev/null 2>&1; then
+    screen -S "${stored_pid#screen:}" -X quit >/dev/null 2>&1 || true
   fi
   rm -f "$PID_FILE"
+fi
+
+if command -v screen >/dev/null 2>&1; then
+  screen -S "$SCREEN_SESSION" -X quit >/dev/null 2>&1 || true
 fi
 
 while IFS= read -r pid; do
@@ -218,12 +225,32 @@ if [[ "$RUN_MODE" == "foreground" ]]; then
   exec "$NEXT_BIN" dev --turbo --port "$PORT"
 fi
 
-nohup "$NEXT_BIN" dev --turbo --port "$PORT" >> "$LOG_FILE" 2>&1 < /dev/null &
-server_pid=$!
-echo "$server_pid" > "$PID_FILE"
+started_with_screen=0
+server_pid=""
+
+if command -v screen >/dev/null 2>&1; then
+  root_quoted="$(printf "%q" "$ROOT_DIR")"
+  next_quoted="$(printf "%q" "$NEXT_BIN")"
+  log_quoted="$(printf "%q" "$LOG_FILE")"
+  port_quoted="$(printf "%q" "$PORT")"
+  screen -dmS "$SCREEN_SESSION" bash -lc "cd $root_quoted && exec $next_quoted dev --turbo --port $port_quoted >> $log_quoted 2>&1"
+  echo "screen:$SCREEN_SESSION" > "$PID_FILE"
+  started_with_screen=1
+else
+  nohup "$NEXT_BIN" dev --turbo --port "$PORT" >> "$LOG_FILE" 2>&1 < /dev/null &
+  server_pid=$!
+  echo "$server_pid" > "$PID_FILE"
+fi
 
 for _ in {1..30}; do
-  if ! kill -0 "$server_pid" 2>/dev/null; then
+  if [[ "$started_with_screen" -eq 1 ]]; then
+    if ! screen -list | awk -v session="$SCREEN_SESSION" '$0 ~ "\\." session "([[:space:]]|$)" { found = 1 } END { exit found ? 0 : 1 }'; then
+      echo "Next dev server exited before becoming ready."
+      rm -f "$PID_FILE"
+      tail -n 40 "$LOG_FILE" || true
+      exit 1
+    fi
+  elif ! kill -0 "$server_pid" 2>/dev/null; then
     echo "Next dev server exited before becoming ready."
     rm -f "$PID_FILE"
     tail -n 40 "$LOG_FILE" || true
@@ -231,9 +258,11 @@ for _ in {1..30}; do
   fi
 
   if command -v lsof >/dev/null 2>&1; then
-    if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    listener_pid="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$listener_pid" ]]; then
+      echo "$listener_pid" > "$PID_FILE"
       echo "Next dev server restarted successfully."
-      echo "PID: $server_pid"
+      echo "PID: $listener_pid"
       echo "Log: $LOG_FILE"
       exit 0
     fi

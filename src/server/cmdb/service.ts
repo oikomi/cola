@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { Client } from "ssh2";
 import type { ConnectConfig } from "ssh2";
@@ -2323,6 +2323,24 @@ export async function createCmdbTopicRelease(
     failedTotal,
     results,
   };
+}
+
+export async function deleteCmdbTopicReleaseGroup(
+  database: Database,
+  topic: string,
+) {
+  const normalizedTopic = cleanString(topic);
+  if (!normalizedTopic) {
+    throw new Error("主题名称不能为空。");
+  }
+
+  await database
+    .delete(cmdbReleases)
+    .where(
+      sql`${cmdbReleases.variables}->>'CMDB_RELEASE_TOPIC' = ${normalizedTopic}`,
+    );
+
+  return { success: true };
 }
 
 async function syncAssetNameToProjects(

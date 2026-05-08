@@ -9,6 +9,7 @@ import {
   createCmdbTopicRelease,
   createCmdbRelease,
   deleteCmdbAsset,
+  deleteCmdbTopicReleaseGroup,
   getCmdbDashboard,
   listGitLabBranches,
   listGitLabCatalog,
@@ -175,6 +176,12 @@ export const cmdbRouter = createTRPCRouter({
         variables: input.variables,
         triggeredBy: input.triggeredBy,
       });
+    }),
+
+  deleteTopicReleaseGroup: publicProcedure
+    .input(z.object({ topic: z.string().min(1).max(256) }))
+    .mutation(async ({ ctx, input }) => {
+      return deleteCmdbTopicReleaseGroup(ctx.db, input.topic);
     }),
 
   projectOperation: publicProcedure

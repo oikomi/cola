@@ -185,6 +185,7 @@ const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
 const TERMINAL_INPUT_FLUSH_MS = 16;
 const TERMINAL_RESIZE_FLUSH_MS = 120;
 const TERMINAL_CONNECTING_MESSAGE = "正在建立 SSH 会话...\r\n";
+const TOPIC_RELEASE_PLANS_STORAGE_KEY = "cola.cmdb.topicReleasePlans";
 const ANSI_ESCAPE_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 type CmdbAreaKey = "assets" | "projects" | "topicReleases";
@@ -273,6 +274,15 @@ type TopicReleaseDraft = {
   deployEnv: string;
   variablesText: string;
 };
+type TopicReleasePlan = {
+  id: string;
+  topic: string;
+  projectIds: number[];
+  ref: string;
+  deployEnv: string;
+  variablesText: string;
+  createdAt: string;
+};
 
 function emptyProjectDraft(): ProjectDraft {
   return {
@@ -357,6 +367,64 @@ function parseVariables(raw: string) {
       })
       .filter(([key, value]) => key.length > 0 && value.length > 0),
   );
+}
+
+function parseStoredTopicReleasePlans(raw: string | null) {
+  if (!raw) return [];
+
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (!Array.isArray(value)) return [];
+
+    return value.flatMap((item): TopicReleasePlan[] => {
+      if (!isRecord(item)) return [];
+      if (
+        typeof item.id !== "string" ||
+        typeof item.topic !== "string" ||
+        !Array.isArray(item.projectIds) ||
+        typeof item.ref !== "string" ||
+        typeof item.deployEnv !== "string" ||
+        typeof item.variablesText !== "string" ||
+        typeof item.createdAt !== "string"
+      ) {
+        return [];
+      }
+
+      const projectIds = item.projectIds.filter(
+        (projectId): projectId is number =>
+          typeof projectId === "number" && Number.isInteger(projectId),
+      );
+      if (projectIds.length === 0) return [];
+
+      return [
+        {
+          id: item.id,
+          topic: item.topic,
+          projectIds,
+          ref: item.ref,
+          deployEnv: item.deployEnv,
+          variablesText: item.variablesText,
+          createdAt: item.createdAt,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredTopicReleasePlans() {
+  if (typeof window === "undefined") return [];
+  return parseStoredTopicReleasePlans(
+    window.localStorage.getItem(TOPIC_RELEASE_PLANS_STORAGE_KEY),
+  );
+}
+
+function topicReleasePlanTitle(draft: TopicReleaseDraft) {
+  const topic = draft.topic.trim();
+  if (topic.length > 0) return topic;
+
+  return `主题发布 ${formatTime(new Date())}`;
 }
 
 function mergeReleaseVariables(draft: ReleaseDraft) {
@@ -1795,13 +1863,19 @@ function ProjectReleaseHistory(props: {
 
 function TopicReleaseList(props: {
   groups: TopicReleaseGroup[];
+  plans: TopicReleasePlan[];
+  projects: ProjectRow[];
+  triggeringPlanId: string | null;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
   ) => void;
   onCreate: () => void;
+  onTriggerPlan: (plan: TopicReleasePlan) => void;
+  onDeletePlan: (plan: TopicReleasePlan) => void;
+  onDeleteGroup: (group: TopicReleaseGroup) => void;
 }) {
-  if (props.groups.length === 0) {
+  if (props.groups.length === 0 && props.plans.length === 0) {
     return (
       <CmdbEmptyState
         icon={ListChecksIcon}
@@ -1816,14 +1890,104 @@ function TopicReleaseList(props: {
         hints={[
           "点击新建主题发布",
           "填写主题名称并圈选项目",
-          "发布后回到列表跟踪结果",
+          "在列表中一键发布并跟踪结果",
         ]}
       />
     );
   }
 
+  const projectById = new Map(
+    props.projects.map((project) => [project.id, project]),
+  );
+
   return (
     <div className="grid gap-3">
+      {props.plans.map((plan) => {
+        const selectedProjects = plan.projectIds.map((projectId) =>
+          projectById.get(projectId),
+        );
+        const projectLabels = selectedProjects.map(
+          (project, index) =>
+            project?.name ??
+            project?.gitlabPath ??
+            `项目 ${plan.projectIds[index]}`,
+        );
+        const isTriggering = props.triggeringPlanId === plan.id;
+
+        return (
+          <article
+            key={`topic-release-plan-${plan.id}`}
+            className="rounded-[12px] border border-amber-200/95 bg-amber-50/40 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          >
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 className="truncate text-base font-semibold text-slate-950">
+                    {plan.topic}
+                  </h3>
+                  <Badge className="border border-amber-200 bg-amber-100 text-amber-800">
+                    待发布
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {plan.projectIds.length} 个项目 · 新建于{" "}
+                  {formatTime(plan.createdAt)}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  className="rounded-[9px]"
+                  onClick={() => props.onTriggerPlan(plan)}
+                  disabled={isTriggering}
+                >
+                  {isTriggering ? (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : (
+                    <RocketIcon data-icon="inline-start" />
+                  )}
+                  一键发布
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  onClick={() => props.onDeletePlan(plan)}
+                  disabled={isTriggering}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  删除
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 rounded-[10px] border border-amber-200/75 bg-white/85 px-3 py-3 md:grid-cols-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">项目</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {projectLabels.join("、")}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">Ref</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {plan.ref || "各项目默认分支"}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">环境</p>
+                <p className="mt-1 truncate text-sm text-slate-900">
+                  {plan.deployEnv || "各项目默认环境"}
+                </p>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+
       {props.groups.map((group) => {
         const hasFailures = group.failedTotal > 0;
         const hasRunning = group.runningTotal > 0;
@@ -1868,6 +2032,15 @@ function TopicReleaseList(props: {
                 <Badge className="justify-center border border-rose-200 bg-rose-50 text-rose-700">
                   失败 {group.failedTotal}
                 </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  onClick={() => props.onDeleteGroup(group)}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  删除
+                </Button>
               </div>
             </div>
 
@@ -2120,6 +2293,13 @@ export function CmdbShell() {
   const [topicReleaseDraft, setTopicReleaseDraft] = useState<TopicReleaseDraft>(
     emptyTopicReleaseDraft,
   );
+  const [topicReleasePlans, setTopicReleasePlans] = useState<
+    TopicReleasePlan[]
+  >([]);
+  const [topicReleasePlansLoaded, setTopicReleasePlansLoaded] =
+    useState(false);
+  const [triggeringTopicReleasePlanId, setTriggeringTopicReleasePlanId] =
+    useState<string | null>(null);
   const [topicReleaseResult, setTopicReleaseResult] =
     useState<TopicReleaseResult | null>(null);
   const [expandedProjectReleaseIds, setExpandedProjectReleaseIds] = useState<
@@ -2187,6 +2367,19 @@ export function CmdbShell() {
   useEffect(() => {
     terminalStatusRef.current = terminalStatusState;
   }, [terminalStatusState]);
+
+  useEffect(() => {
+    setTopicReleasePlans(loadStoredTopicReleasePlans());
+    setTopicReleasePlansLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!topicReleasePlansLoaded || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      TOPIC_RELEASE_PLANS_STORAGE_KEY,
+      JSON.stringify(topicReleasePlans),
+    );
+  }, [topicReleasePlans, topicReleasePlansLoaded]);
 
   function setTerminalStatus(status: TerminalSessionStatus) {
     terminalStatusRef.current = status;
@@ -2296,6 +2489,16 @@ export function CmdbShell() {
     onSuccess: async (result) => {
       await utils.cmdb.dashboard.invalidate();
       setTopicReleaseResult(result);
+      setErrorMessage(null);
+    },
+    onError: (error) => {
+      setErrorMessage(error.message);
+    },
+  });
+
+  const deleteTopicReleaseGroup = api.cmdb.deleteTopicReleaseGroup.useMutation({
+    onSuccess: async () => {
+      await utils.cmdb.dashboard.invalidate();
       setErrorMessage(null);
     },
     onError: (error) => {
@@ -2635,8 +2838,7 @@ export function CmdbShell() {
   const selectedTopicProjects = projects.filter((project) =>
     topicReleaseSelectedIds.has(project.id),
   );
-  const topicReleaseCanSubmit =
-    topicReleaseDraft.projectIds.length > 0 && !triggerTopicRelease.isPending;
+  const topicReleaseCanCreate = topicReleaseDraft.projectIds.length > 0;
   const topicReleaseRows = releases.filter((release) =>
     Boolean(releaseTopic(release)),
   );
@@ -3473,13 +3675,12 @@ export function CmdbShell() {
     });
   }
 
-  function triggerTopicReleaseDraftAction() {
+  function createTopicReleasePlanAction() {
     if (topicReleaseDraft.projectIds.length === 0) {
       setErrorMessage("请选择至少一个要发布的项目。");
       return;
     }
 
-    const variables = parseVariables(topicReleaseDraft.variablesText);
     const selectedProjects = projects.filter((project) =>
       topicReleaseDraft.projectIds.includes(project.id),
     );
@@ -3492,13 +3693,82 @@ export function CmdbShell() {
       return;
     }
 
+    const plan: TopicReleasePlan = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      topic: topicReleasePlanTitle(topicReleaseDraft),
+      projectIds: [...topicReleaseDraft.projectIds],
+      ref: topicReleaseDraft.ref.trim(),
+      deployEnv: topicReleaseDraft.deployEnv.trim(),
+      variablesText: topicReleaseDraft.variablesText,
+      createdAt: new Date().toISOString(),
+    };
+
+    setTopicReleasePlans((current) => [plan, ...current]);
+    setTopicReleaseDraft(emptyTopicReleaseDraft());
+    setTopicReleaseResult(null);
+    setErrorMessage(null);
+    setTopicReleaseDialogOpen(false);
+    setActiveArea("topicReleases");
+  }
+
+  function triggerTopicReleasePlanAction(plan: TopicReleasePlan) {
+    const selectedProjects = projects.filter((project) =>
+      plan.projectIds.includes(project.id),
+    );
+    const releaseIssue = selectedProjects
+      .map((project) => topicReleaseProjectIssue(project, canTriggerPipelines))
+      .find((issue): issue is string => Boolean(issue));
+
+    if (releaseIssue) {
+      setErrorMessage(releaseIssue);
+      return;
+    }
+
+    setTriggeringTopicReleasePlanId(plan.id);
     triggerTopicRelease.mutate({
-      topic: topicReleaseDraft.topic || undefined,
-      projectIds: topicReleaseDraft.projectIds,
-      ref: topicReleaseDraft.ref || undefined,
-      deployEnv: topicReleaseDraft.deployEnv || undefined,
-      variables,
+      topic: plan.topic || undefined,
+      projectIds: plan.projectIds,
+      ref: plan.ref || undefined,
+      deployEnv: plan.deployEnv || undefined,
+      variables: parseVariables(plan.variablesText),
+    }, {
+      onSuccess: () => {
+        setTopicReleasePlans((current) =>
+          current.filter((item) => item.id !== plan.id),
+        );
+      },
+      onSettled: () => {
+        setTriggeringTopicReleasePlanId(null);
+      },
     });
+  }
+
+  async function deleteTopicReleasePlanAction(plan: TopicReleasePlan) {
+    const accepted = await confirm({
+      title: "删除主题发布",
+      description: `将删除待发布主题 ${plan.topic}。`,
+      confirmLabel: "删除",
+      confirmVariant: "destructive",
+    });
+
+    if (!accepted) return;
+
+    setTopicReleasePlans((current) =>
+      current.filter((item) => item.id !== plan.id),
+    );
+  }
+
+  async function deleteTopicReleaseGroupAction(group: TopicReleaseGroup) {
+    const accepted = await confirm({
+      title: "删除主题发布记录",
+      description: `将删除主题 ${group.topic} 下的 ${group.releaseTotal} 条发布记录。`,
+      confirmLabel: "删除",
+      confirmVariant: "destructive",
+    });
+
+    if (!accepted) return;
+
+    deleteTopicReleaseGroup.mutate({ topic: group.topic });
   }
 
   return (
@@ -4476,6 +4746,11 @@ export function CmdbShell() {
                 <Badge className="border border-rose-200 bg-rose-50 text-rose-700">
                   失败 {topicReleaseFailedTotal}
                 </Badge>
+                {topicReleasePlans.length > 0 ? (
+                  <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
+                    待发布 {topicReleasePlans.length}
+                  </Badge>
+                ) : null}
                 <Button
                   size="sm"
                   className="rounded-[9px]"
@@ -4489,8 +4764,14 @@ export function CmdbShell() {
           >
             <TopicReleaseList
               groups={topicReleaseGroups}
+              plans={topicReleasePlans}
+              projects={projects}
+              triggeringPlanId={triggeringTopicReleasePlanId}
               onOpenOperation={openReleaseOperation}
               onCreate={() => openTopicReleaseDialog()}
+              onTriggerPlan={triggerTopicReleasePlanAction}
+              onDeletePlan={deleteTopicReleasePlanAction}
+              onDeleteGroup={deleteTopicReleaseGroupAction}
             />
           </ModuleSection>
         </div>
@@ -6640,18 +6921,11 @@ export function CmdbShell() {
             </Button>
             <Button
               className="rounded-[10px]"
-              onClick={triggerTopicReleaseDraftAction}
-              disabled={!topicReleaseCanSubmit}
+              onClick={createTopicReleasePlanAction}
+              disabled={!topicReleaseCanCreate}
             >
-              {triggerTopicRelease.isPending ? (
-                <LoaderCircleIcon
-                  className="animate-spin"
-                  data-icon="inline-start"
-                />
-              ) : (
-                <RocketIcon data-icon="inline-start" />
-              )}
-              一键发布
+              <PlusIcon data-icon="inline-start" />
+              新建
             </Button>
           </DialogFooter>
         </DialogContent>
