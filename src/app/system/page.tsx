@@ -1,11 +1,14 @@
 import {
   ActivityIcon,
   ExternalLinkIcon,
+  GaugeIcon,
+  GpuIcon,
   NetworkIcon,
   ServerIcon,
   ShieldCheckIcon,
 } from "lucide-react";
 
+import clusterConfig from "../../../infra/k8s/cluster/config.json";
 import {
   ModuleHero,
   ModuleMetricCard,
@@ -17,10 +20,20 @@ import { buttonVariants } from "@/components/ui/button";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_K8S_DASHBOARD_URL = "https://172.16.60.198:8443/";
+const clusterControllerIp =
+  typeof clusterConfig.controllerIp === "string" &&
+  clusterConfig.controllerIp.trim().length > 0
+    ? clusterConfig.controllerIp.trim()
+    : "172.16.60.198";
+const DEFAULT_K8S_DASHBOARD_URL = `https://${clusterControllerIp}:8443/`;
+const DEFAULT_HAMI_WEBUI_URL = `http://${clusterControllerIp}:3000/`;
 
 function dashboardUrl() {
   return env.NEXT_PUBLIC_K8S_DASHBOARD_URL ?? DEFAULT_K8S_DASHBOARD_URL;
+}
+
+function hamiWebUiUrl() {
+  return env.NEXT_PUBLIC_HAMI_WEBUI_URL ?? DEFAULT_HAMI_WEBUI_URL;
 }
 
 function hostLabel(url: string) {
@@ -28,13 +41,15 @@ function hostLabel(url: string) {
     const parsed = new URL(url);
     return parsed.host;
   } catch {
-    return "172.16.60.198:8443";
+    return clusterControllerIp;
   }
 }
 
 export default function SystemPage() {
-  const url = dashboardUrl();
-  const host = hostLabel(url);
+  const k8sDashboardUrl = dashboardUrl();
+  const k8sDashboardHost = hostLabel(k8sDashboardUrl);
+  const hamiUrl = hamiWebUiUrl();
+  const hamiHost = hostLabel(hamiUrl);
 
   return (
     <ModulePageShell>
@@ -48,21 +63,38 @@ export default function SystemPage() {
             <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
               Dashboard 入口
             </Badge>
+            <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+              HAMi-WebUI
+            </Badge>
             <Badge className="border border-slate-200 bg-white text-slate-700">
-              {host}
+              {k8sDashboardHost}
             </Badge>
           </>
         }
         actions={
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(buttonVariants({ size: "lg" }), "rounded-[12px]")}
-          >
-            <ExternalLinkIcon data-icon="inline-start" />
-            打开 Kubernetes Dashboard
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={k8sDashboardUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ size: "lg" }), "rounded-[12px]")}
+            >
+              <ExternalLinkIcon data-icon="inline-start" />
+              打开 Kubernetes Dashboard
+            </a>
+            <a
+              href={hamiUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "lg" }),
+                "rounded-[12px] border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800",
+              )}
+            >
+              <GaugeIcon data-icon="inline-start" />
+              打开 HAMi-WebUI
+            </a>
+          </div>
         }
         size="compact"
       >
@@ -77,7 +109,7 @@ export default function SystemPage() {
           <ModuleMetricCard
             size="compact"
             label="Dashboard Host"
-            value={host}
+            value={k8sDashboardHost}
             description="默认指向 Kubernetes Dashboard 外部入口。"
             icon={ServerIcon}
           />
@@ -88,6 +120,13 @@ export default function SystemPage() {
             description="如使用自签证书，请在新标签页内确认信任。"
             icon={ShieldCheckIcon}
           />
+          <ModuleMetricCard
+            size="compact"
+            label="HAMi-WebUI"
+            value={hamiHost}
+            description="默认指向 GPU 监控端口转发入口。"
+            icon={GpuIcon}
+          />
         </div>
       </ModuleHero>
 
@@ -97,29 +136,56 @@ export default function SystemPage() {
         density="compact"
       >
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="rounded-[16px] border border-slate-200/90 bg-slate-50/70 px-5 py-5">
+          <div className="grid gap-3">
+            <div className="rounded-[16px] border border-slate-200/90 bg-slate-50/70 px-5 py-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-slate-500">
+                    Kubernetes Dashboard URL
+                  </p>
+                  <p className="mt-1 font-mono text-sm break-all text-slate-800">
+                    {k8sDashboardUrl}
+                  </p>
+                </div>
+                <a
+                  href={k8sDashboardUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "lg" }),
+                    "rounded-[12px] border-slate-300 bg-white",
+                  )}
+                >
+                  <ExternalLinkIcon data-icon="inline-start" />
+                  新标签页打开
+                </a>
+              </div>
+            </div>
+
+            <div className="rounded-[16px] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="text-[12px] font-medium text-slate-500">
-                  Dashboard URL
+                  HAMi-WebUI URL
                 </p>
                 <p className="mt-1 font-mono text-sm break-all text-slate-800">
-                  {url}
+                  {hamiUrl}
                 </p>
               </div>
               <a
-                href={url}
+                href={hamiUrl}
                 target="_blank"
                 rel="noreferrer"
                 className={cn(
                   buttonVariants({ variant: "outline", size: "lg" }),
-                  "rounded-[12px] border-slate-300 bg-white",
+                  "rounded-[12px] border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800",
                 )}
               >
-                <ExternalLinkIcon data-icon="inline-start" />
+                <GaugeIcon data-icon="inline-start" />
                 新标签页打开
               </a>
             </div>
+          </div>
           </div>
 
           <div className="rounded-[16px] border border-slate-200/90 bg-white px-5 py-5">
@@ -130,7 +196,8 @@ export default function SystemPage() {
               <div>
                 <p className="font-semibold text-slate-950">体验修正</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  当前页面保留在 XDream Cloud 内，Dashboard 只通过明确操作打开。
+                  当前页面保留在 XDream Cloud 内，Dashboard 和 HAMi-WebUI
+                  都只通过明确操作打开。
                 </p>
               </div>
             </div>
