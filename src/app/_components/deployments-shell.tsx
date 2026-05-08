@@ -41,14 +41,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   formatGpuAllocationLabel,
   gpuAllocationModeLabels,
   gpuAllocationModeValues,
@@ -182,6 +174,40 @@ function statusTone(status: DeploymentRow["status"]) {
   }
 }
 
+function statusDotTone(status: DeploymentRow["status"]) {
+  switch (status) {
+    case "serving":
+      return "bg-emerald-500";
+    case "starting":
+      return "bg-amber-500";
+    case "draft":
+      return "bg-sky-500";
+    case "paused":
+      return "bg-stone-500";
+    case "failed":
+      return "bg-rose-500";
+    default:
+      return "bg-slate-400";
+  }
+}
+
+function DeploymentStatusBadge(props: { status: DeploymentRow["status"] }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "gap-2 rounded-full px-2.5 py-1 text-[12px] font-semibold",
+        statusTone(props.status),
+      )}
+    >
+      <span
+        className={cn("size-1.5 rounded-full", statusDotTone(props.status))}
+      />
+      {inferenceDeploymentStatusLabels[props.status]}
+    </Badge>
+  );
+}
+
 function Field(props: {
   label: string;
   children: ReactNode;
@@ -260,14 +286,18 @@ function DeploymentActionButtons(props: {
   isStopping: boolean;
   isDeleting: boolean;
   align?: "start" | "end";
+  density?: "default" | "compact";
   onStart: () => void;
   onStop: () => void;
   onDelete: () => void;
 }) {
+  const isCompact = props.density === "compact";
+
   return (
     <div
       className={cn(
         "flex flex-wrap gap-2",
+        isCompact ? "items-center" : undefined,
         props.align === "end" ? "justify-end" : "justify-start",
       )}
     >
@@ -276,13 +306,30 @@ function DeploymentActionButtons(props: {
           href={props.row.endpoint!}
           target="_blank"
           rel="noreferrer"
-          className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
+          className={cn(
+            buttonVariants({
+              variant: "outline",
+              size: isCompact ? "sm" : "default",
+            }),
+            isCompact
+              ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
+              : "rounded-full",
+          )}
         >
           <GlobeIcon data-icon="inline-start" />
           API
         </a>
       ) : (
-        <Button variant="outline" className="rounded-full" disabled>
+        <Button
+          variant="outline"
+          size={isCompact ? "sm" : "default"}
+          className={cn(
+            isCompact
+              ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
+              : "rounded-full",
+          )}
+          disabled
+        >
           API
         </Button>
       )}
@@ -290,7 +337,12 @@ function DeploymentActionButtons(props: {
       {props.canStart ? (
         <Button
           variant="outline"
-          className="rounded-full"
+          size={isCompact ? "sm" : "default"}
+          className={cn(
+            isCompact
+              ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
+              : "rounded-full",
+          )}
           disabled={props.isStarting || props.isStopping || props.isDeleting}
           onClick={props.onStart}
         >
@@ -309,7 +361,12 @@ function DeploymentActionButtons(props: {
       {props.canStop ? (
         <Button
           variant="outline"
-          className="rounded-full"
+          size={isCompact ? "sm" : "default"}
+          className={cn(
+            isCompact
+              ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
+              : "rounded-full",
+          )}
           disabled={props.isStarting || props.isStopping || props.isDeleting}
           onClick={props.onStop}
         >
@@ -326,17 +383,27 @@ function DeploymentActionButtons(props: {
       ) : null}
 
       <Button
-        variant="destructive"
-        className="rounded-full"
+        variant={isCompact ? "ghost" : "destructive"}
+        size={isCompact ? "icon-sm" : "default"}
+        className={cn(
+          isCompact
+            ? "size-8 rounded-[9px] border border-rose-200/80 bg-rose-50/75 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            : "rounded-full",
+        )}
         disabled={props.isStarting || props.isStopping || props.isDeleting}
         onClick={props.onDelete}
+        title={`删除推理部署 ${props.row.name}`}
       >
         {props.isDeleting ? (
           <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
         ) : (
           <Trash2Icon data-icon="inline-start" />
         )}
-        删除
+        {isCompact ? (
+          <span className="sr-only">删除推理部署 {props.row.name}</span>
+        ) : (
+          "删除"
+        )}
       </Button>
     </div>
   );
@@ -426,6 +493,97 @@ function DeploymentCard(props: {
           isStarting={props.isStarting}
           isStopping={props.isStopping}
           isDeleting={props.isDeleting}
+          onStart={props.onStart}
+          onStop={props.onStop}
+          onDelete={props.onDelete}
+        />
+      </div>
+    </article>
+  );
+}
+
+function DeploymentDesktopRow(props: {
+  row: DeploymentRow;
+  canOpenApi: boolean;
+  canStart: boolean;
+  canStop: boolean;
+  isStarting: boolean;
+  isStopping: boolean;
+  isDeleting: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <article className="group grid gap-4 border-b border-slate-200/80 bg-white/92 px-4 py-4 transition-colors last:border-b-0 hover:bg-sky-50/50 2xl:grid-cols-[minmax(230px,0.88fr)_minmax(330px,1.2fr)_minmax(210px,0.72fr)_minmax(260px,0.85fr)_minmax(190px,auto)] 2xl:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] border border-slate-200/85 bg-slate-50/90 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
+          <BlocksIcon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
+              {props.row.name}
+            </p>
+            <DeploymentStatusBadge status={props.row.status} />
+          </div>
+          <p className="mt-1 text-[12px] leading-5 text-slate-500">
+            {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
+          </p>
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[14px] leading-5 font-semibold text-slate-950">
+            {inferenceDeploymentEngineLabels[props.row.engine]}
+          </span>
+          <span className="rounded-full border border-slate-200/80 bg-slate-50/90 px-2 py-0.5 text-[11px] leading-4 font-medium text-slate-500">
+            Runtime
+          </span>
+        </div>
+        <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-600">
+          {props.row.modelRef}
+        </p>
+        <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
+          {props.row.image}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-[14px] leading-5 font-semibold text-slate-950">
+          {resourceLabel(props.row)}
+        </p>
+        <p className="mt-1 inline-flex max-w-full rounded-full border border-slate-200/85 bg-slate-50/92 px-2.5 py-1 text-[12px] leading-none font-medium break-all text-slate-600">
+          {nodeLabel(props.row)}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="font-mono text-[15px] leading-5 font-semibold text-slate-950">
+            {props.row.nodePort ? `:${props.row.nodePort}` : "-"}
+          </span>
+          <span className="text-[12px] leading-5 text-slate-500">
+            {props.row.updatedAt ?? "-"}
+          </span>
+        </div>
+        <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-500">
+          {props.row.endpoint ?? "入口地址待分配"}
+        </p>
+      </div>
+
+      <div className="flex justify-start 2xl:justify-end">
+        <DeploymentActionButtons
+          row={props.row}
+          canOpenApi={props.canOpenApi}
+          canStart={props.canStart}
+          canStop={props.canStop}
+          isStarting={props.isStarting}
+          isStopping={props.isStopping}
+          isDeleting={props.isDeleting}
+          align="end"
+          density="compact"
           onStart={props.onStart}
           onStop={props.onStop}
           onDelete={props.onDelete}
@@ -822,119 +980,51 @@ export function DeploymentsShell() {
               })}
             </div>
 
-            <div className="hidden 2xl:block">
-              <Table className="min-w-[1080px] table-fixed">
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[145px]">部署</TableHead>
-                    <TableHead className="w-[95px]">状态</TableHead>
-                    <TableHead className="w-[300px]">Runtime / 模型</TableHead>
-                    <TableHead className="w-[190px]">资源 / 节点</TableHead>
-                    <TableHead className="w-[160px]">入口</TableHead>
-                    <TableHead className="w-[110px]">更新时间</TableHead>
-                    <TableHead className="w-[160px] text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => {
-                    const isStarting =
-                      startDeployment.isPending &&
-                      startDeployment.variables?.name === row.name;
-                    const isStopping =
-                      stopDeployment.isPending &&
-                      stopDeployment.variables?.name === row.name;
-                    const isDeleting =
-                      deleteDeployment.isPending &&
-                      deleteDeployment.variables?.name === row.name;
-                    const canStart = ["draft", "paused", "failed"].includes(
-                      row.status,
-                    );
-                    const canStop = ["serving", "starting", "failed"].includes(
-                      row.status,
-                    );
-                    const canOpenApi =
-                      row.status === "serving" && Boolean(row.endpoint);
+            <div className="hidden overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))] shadow-[0_18px_38px_rgba(15,23,42,0.05)] 2xl:block">
+              <div className="grid border-b border-slate-200/80 bg-slate-50/90 px-4 py-3 text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase 2xl:grid-cols-[minmax(230px,0.88fr)_minmax(330px,1.2fr)_minmax(210px,0.72fr)_minmax(260px,0.85fr)_minmax(190px,auto)]">
+                <span>部署 / 状态</span>
+                <span>Runtime / 模型</span>
+                <span>资源 / 节点</span>
+                <span>入口 / 更新时间</span>
+                <span className="text-right">操作</span>
+              </div>
+              <div>
+                {rows.map((row) => {
+                  const isStarting =
+                    startDeployment.isPending &&
+                    startDeployment.variables?.name === row.name;
+                  const isStopping =
+                    stopDeployment.isPending &&
+                    stopDeployment.variables?.name === row.name;
+                  const isDeleting =
+                    deleteDeployment.isPending &&
+                    deleteDeployment.variables?.name === row.name;
+                  const canStart = ["draft", "paused", "failed"].includes(
+                    row.status,
+                  );
+                  const canStop = ["serving", "starting", "failed"].includes(
+                    row.status,
+                  );
+                  const canOpenApi =
+                    row.status === "serving" && Boolean(row.endpoint);
 
-                    return (
-                      <TableRow key={row.id} className="border-border/70">
-                        <TableCell className="align-top whitespace-normal">
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <p className="text-foreground font-medium">
-                              {row.name}
-                            </p>
-                            <p className="text-muted-foreground text-sm">
-                              {row.readyReplicas}/{row.desiredReplicas} Ready
-                              副本
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "rounded-full",
-                              statusTone(row.status),
-                            )}
-                          >
-                            {inferenceDeploymentStatusLabels[row.status]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="align-top whitespace-normal">
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-foreground font-medium">
-                              {inferenceDeploymentEngineLabels[row.engine]}
-                            </span>
-                            <span className="text-muted-foreground text-sm leading-5 break-all">
-                              {row.modelRef}
-                            </span>
-                            <span className="text-muted-foreground/85 text-xs leading-5 break-all">
-                              {row.image}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top whitespace-normal">
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-foreground leading-5 font-medium">
-                              {resourceLabel(row)}
-                            </span>
-                            <span className="text-muted-foreground text-sm leading-5 break-all">
-                              {nodeLabel(row)}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top whitespace-normal">
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="text-foreground font-medium">
-                              {row.nodePort ? `:${row.nodePort}` : "-"}
-                            </span>
-                            <span className="text-muted-foreground text-sm leading-5 break-all">
-                              {row.endpoint ?? "-"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground align-top whitespace-normal">
-                          {row.updatedAt ?? "-"}
-                        </TableCell>
-                        <TableCell className="align-top whitespace-normal">
-                          <DeploymentActionButtons
-                            row={row}
-                            canOpenApi={canOpenApi}
-                            canStart={canStart}
-                            canStop={canStop}
-                            isStarting={isStarting}
-                            isStopping={isStopping}
-                            isDeleting={isDeleting}
-                            align="end"
-                            onStart={() => handleStart(row.name)}
-                            onStop={() => handleStop(row.name)}
-                            onDelete={() => void handleDelete(row.name)}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                  return (
+                    <DeploymentDesktopRow
+                      key={row.id}
+                      row={row}
+                      canOpenApi={canOpenApi}
+                      canStart={canStart}
+                      canStop={canStop}
+                      isStarting={isStarting}
+                      isStopping={isStopping}
+                      isDeleting={isDeleting}
+                      onStart={() => handleStart(row.name)}
+                      onStop={() => handleStop(row.name)}
+                      onDelete={() => void handleDelete(row.name)}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </>
         ) : null}
