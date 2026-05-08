@@ -72,29 +72,26 @@ const RESOLUTION_PRESETS = [
   "1920x1080x24",
 ] as const;
 const PRIMARY_ACTION_CLASS =
-  "rounded-full border border-[#7cc0ff]/80 bg-[linear-gradient(135deg,#2f73ff_0%,#63a8ff_100%)] text-white shadow-[0_22px_38px_rgba(47,115,255,0.22),0_10px_18px_rgba(55,107,171,0.16),inset_0_1px_0_rgba(255,255,255,0.24)] hover:border-[#92d0ff] hover:brightness-[1.03]";
+  "rounded-[var(--radius-card)] border border-primary/90 bg-primary text-primary-foreground shadow-[0_1px_0_rgba(15,23,42,0.06)] hover:bg-primary/90";
 const SECONDARY_ACTION_CLASS =
-  "rounded-full border border-[#d8e4f6] bg-white/92 text-[#21406f] shadow-[0_12px_24px_rgba(15,23,42,0.06)] hover:border-[#bfd7fb] hover:bg-[#f8fbff]";
+  "rounded-[var(--radius-card)] border border-slate-200/90 bg-white text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.04)] hover:bg-slate-50 hover:text-slate-950";
 const ALERT_SURFACE_CLASS =
   "rounded-[var(--radius-shell)] border px-4 py-3 shadow-[0_18px_32px_rgba(15,23,42,0.05)]";
 
 const METRIC_TONE_STYLES = {
   sky: {
-    container:
-      "border-sky-200/80 bg-[linear-gradient(180deg,rgba(247,251,255,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(59,130,246,0.07),0_3px_10px_rgba(15,23,42,0.03)]",
-    glow: "bg-sky-100/90 shadow-[0_0_0_6px_rgba(219,234,254,0.52)]",
+    accent: "bg-sky-500",
+    dotRing: "bg-sky-50 text-sky-700 ring-sky-100",
     dot: "bg-sky-500",
   },
   emerald: {
-    container:
-      "border-emerald-200/85 bg-[linear-gradient(180deg,rgba(237,252,245,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(16,185,129,0.08),0_3px_10px_rgba(15,23,42,0.03)]",
-    glow: "bg-emerald-100/90 shadow-[0_0_0_6px_rgba(209,250,229,0.54)]",
+    accent: "bg-emerald-500",
+    dotRing: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     dot: "bg-emerald-500",
   },
   amber: {
-    container:
-      "border-amber-200/85 bg-[linear-gradient(180deg,rgba(255,249,235,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_24px_rgba(245,158,11,0.09),0_3px_10px_rgba(15,23,42,0.03)]",
-    glow: "bg-amber-100/90 shadow-[0_0_0_6px_rgba(254,243,199,0.58)]",
+    accent: "bg-amber-500",
+    dotRing: "bg-amber-50 text-amber-700 ring-amber-100",
     dot: "bg-amber-500",
   },
 } as const;
@@ -116,12 +113,14 @@ function WorkspaceMetric({
 
   return (
     <div
-      className={cn(
-        "relative overflow-hidden rounded-[var(--radius-shell)] px-4 py-3.5",
-        styles.container,
-      )}
+      className="relative overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/75" />
+      <div
+        className={cn(
+          "absolute inset-y-3 left-0 w-1 rounded-r-full",
+          styles.accent,
+        )}
+      />
 
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -138,8 +137,8 @@ function WorkspaceMetric({
 
         <span
           className={cn(
-            "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full",
-            styles.glow,
+            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1",
+            styles.dotRing,
           )}
         >
           <span className={cn("size-1.5 rounded-full", styles.dot)} />
@@ -545,11 +544,11 @@ export function WorkspaceShell() {
       <ModuleSection
         title="Workspace 列表"
         description="按统一表格查看状态、资源规格、节点地址和访问入口。"
-        className="border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.92))] shadow-[0_24px_56px_rgba(15,23,42,0.05),0_6px_16px_rgba(15,23,42,0.03)]"
+        className="border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]"
         action={
           <Badge
             variant="outline"
-            className="rounded-full border-slate-200/90 bg-slate-50/92 px-3 py-1 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+            className="h-8 rounded-[var(--radius-card)] border-slate-200/90 bg-slate-50 px-3 text-[13px] text-slate-700"
           >
             登录就绪 {readyCount}
           </Badge>
@@ -580,7 +579,7 @@ export function WorkspaceShell() {
               {rows.map((workspace) => (
                 <article
                   key={`workspace-card-${workspace.id}`}
-                  className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/92 p-4 shadow-[0_16px_34px_rgba(15,23,42,0.055)]"
+                  className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
@@ -670,7 +669,7 @@ export function WorkspaceShell() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9 rounded-full border-rose-200/80 bg-rose-50/75 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      className="h-9 rounded-[var(--radius-card)] border-rose-200/80 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                       disabled={deleteWorkspace.isPending}
                       onClick={() => void handleDelete(workspace.name)}
                     >
@@ -689,7 +688,7 @@ export function WorkspaceShell() {
               ))}
             </div>
 
-            <div className="hidden overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,250,252,0.9))] shadow-[0_18px_38px_rgba(15,23,42,0.05)] 2xl:block">
+            <div className="hidden overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)] 2xl:block">
               <Table>
                 <TableHeader className="bg-slate-50/90">
                   <TableRow className="hover:bg-transparent">
@@ -717,7 +716,7 @@ export function WorkspaceShell() {
                   {rows.map((workspace) => (
                     <TableRow
                       key={workspace.id}
-                      className="group border-border/70 hover:bg-sky-50/55"
+                      className="group border-border/70 hover:bg-slate-50/80"
                     >
                       <TableCell className="px-4 py-4 align-middle">
                         <div className="flex items-center gap-3">
@@ -805,7 +804,7 @@ export function WorkspaceShell() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            className="rounded-full border border-rose-200/80 bg-rose-50/75 text-rose-600 shadow-[0_10px_18px_rgba(244,63,94,0.08)] hover:bg-rose-50 hover:text-rose-700"
+                            className="rounded-[var(--radius-card)] border border-rose-200/80 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                             disabled={deleteWorkspace.isPending}
                             onClick={() => void handleDelete(workspace.name)}
                             title={`删除远程桌面 ${workspace.name}`}

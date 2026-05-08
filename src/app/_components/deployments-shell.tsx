@@ -4,7 +4,6 @@ import {
   BlocksIcon,
   GlobeIcon,
   LoaderCircleIcon,
-  PauseCircleIcon,
   PlayIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -350,14 +349,11 @@ function DeploymentActionButtons(props: {
   row: DeploymentRow;
   canOpenApi: boolean;
   canStart: boolean;
-  canStop: boolean;
   isStarting: boolean;
-  isStopping: boolean;
   isDeleting: boolean;
   align?: "start" | "end";
   density?: "default" | "compact";
   onStart: () => void;
-  onStop: () => void;
   onDelete: () => void;
 }) {
   const isCompact = props.density === "compact";
@@ -412,7 +408,7 @@ function DeploymentActionButtons(props: {
               ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
               : "rounded-full",
           )}
-          disabled={props.isStarting || props.isStopping || props.isDeleting}
+          disabled={props.isStarting || props.isDeleting}
           onClick={props.onStart}
         >
           {props.isStarting ? (
@@ -427,30 +423,6 @@ function DeploymentActionButtons(props: {
         </Button>
       ) : null}
 
-      {props.canStop ? (
-        <Button
-          variant="outline"
-          size={isCompact ? "sm" : "default"}
-          className={cn(
-            isCompact
-              ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
-              : "rounded-full",
-          )}
-          disabled={props.isStarting || props.isStopping || props.isDeleting}
-          onClick={props.onStop}
-        >
-          {props.isStopping ? (
-            <LoaderCircleIcon
-              className="animate-spin"
-              data-icon="inline-start"
-            />
-          ) : (
-            <PauseCircleIcon data-icon="inline-start" />
-          )}
-          暂停
-        </Button>
-      ) : null}
-
       <Button
         variant={isCompact ? "ghost" : "destructive"}
         size={isCompact ? "icon-sm" : "default"}
@@ -459,7 +431,7 @@ function DeploymentActionButtons(props: {
             ? "size-8 rounded-[9px] border border-rose-200/80 bg-rose-50/75 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
             : "rounded-full",
         )}
-        disabled={props.isStarting || props.isStopping || props.isDeleting}
+        disabled={props.isStarting || props.isDeleting}
         onClick={props.onDelete}
         title={`删除推理部署 ${props.row.name}`}
       >
@@ -482,12 +454,9 @@ function DeploymentCard(props: {
   row: DeploymentRow;
   canOpenApi: boolean;
   canStart: boolean;
-  canStop: boolean;
   isStarting: boolean;
-  isStopping: boolean;
   isDeleting: boolean;
   onStart: () => void;
-  onStop: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -555,12 +524,9 @@ function DeploymentCard(props: {
           row={props.row}
           canOpenApi={props.canOpenApi}
           canStart={props.canStart}
-          canStop={props.canStop}
           isStarting={props.isStarting}
-          isStopping={props.isStopping}
           isDeleting={props.isDeleting}
           onStart={props.onStart}
-          onStop={props.onStop}
           onDelete={props.onDelete}
         />
       </div>
@@ -572,12 +538,9 @@ function DeploymentDesktopRow(props: {
   row: DeploymentRow;
   canOpenApi: boolean;
   canStart: boolean;
-  canStop: boolean;
   isStarting: boolean;
-  isStopping: boolean;
   isDeleting: boolean;
   onStart: () => void;
-  onStop: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -637,14 +600,11 @@ function DeploymentDesktopRow(props: {
           row={props.row}
           canOpenApi={props.canOpenApi}
           canStart={props.canStart}
-          canStop={props.canStop}
           isStarting={props.isStarting}
-          isStopping={props.isStopping}
           isDeleting={props.isDeleting}
           align="end"
           density="compact"
           onStart={props.onStart}
-          onStop={props.onStop}
           onDelete={props.onDelete}
         />
       </div>
@@ -718,16 +678,6 @@ export function DeploymentsShell() {
   });
 
   const startDeployment = api.deployments.start.useMutation({
-    onSuccess: async (result) => {
-      await utils.deployments.list.invalidate();
-      setFeedback({ tone: "success", message: result.message });
-    },
-    onError: (error) => {
-      setFeedback({ tone: "error", message: error.message });
-    },
-  });
-
-  const stopDeployment = api.deployments.stop.useMutation({
     onSuccess: async (result) => {
       await utils.deployments.list.invalidate();
       setFeedback({ tone: "success", message: result.message });
@@ -832,10 +782,6 @@ export function DeploymentsShell() {
 
   const handleStart = (name: string) => {
     startDeployment.mutate({ name });
-  };
-
-  const handleStop = (name: string) => {
-    stopDeployment.mutate({ name });
   };
 
   const handleDelete = async (name: string) => {
@@ -1006,16 +952,10 @@ export function DeploymentsShell() {
                 const isStarting =
                   startDeployment.isPending &&
                   startDeployment.variables?.name === row.name;
-                const isStopping =
-                  stopDeployment.isPending &&
-                  stopDeployment.variables?.name === row.name;
                 const isDeleting =
                   deleteDeployment.isPending &&
                   deleteDeployment.variables?.name === row.name;
                 const canStart = ["draft", "paused", "failed"].includes(
-                  row.status,
-                );
-                const canStop = ["serving", "starting", "failed"].includes(
                   row.status,
                 );
                 const canOpenApi =
@@ -1027,12 +967,9 @@ export function DeploymentsShell() {
                     row={row}
                     canOpenApi={canOpenApi}
                     canStart={canStart}
-                    canStop={canStop}
                     isStarting={isStarting}
-                    isStopping={isStopping}
                     isDeleting={isDeleting}
                     onStart={() => handleStart(row.name)}
-                    onStop={() => handleStop(row.name)}
                     onDelete={() => void handleDelete(row.name)}
                   />
                 );
@@ -1052,16 +989,10 @@ export function DeploymentsShell() {
                   const isStarting =
                     startDeployment.isPending &&
                     startDeployment.variables?.name === row.name;
-                  const isStopping =
-                    stopDeployment.isPending &&
-                    stopDeployment.variables?.name === row.name;
                   const isDeleting =
                     deleteDeployment.isPending &&
                     deleteDeployment.variables?.name === row.name;
                   const canStart = ["draft", "paused", "failed"].includes(
-                    row.status,
-                  );
-                  const canStop = ["serving", "starting", "failed"].includes(
                     row.status,
                   );
                   const canOpenApi =
@@ -1073,12 +1004,9 @@ export function DeploymentsShell() {
                       row={row}
                       canOpenApi={canOpenApi}
                       canStart={canStart}
-                      canStop={canStop}
                       isStarting={isStarting}
-                      isStopping={isStopping}
                       isDeleting={isDeleting}
                       onStart={() => handleStart(row.name)}
-                      onStop={() => handleStop(row.name)}
                       onDelete={() => void handleDelete(row.name)}
                     />
                   );

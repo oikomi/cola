@@ -96,6 +96,7 @@ type TopicReleaseGroup = {
   latestRelease: ReleaseRow;
   releaseTotal: number;
   projectTotal: number;
+  projectIds: number[];
   successTotal: number;
   runningTotal: number;
   failedTotal: number;
@@ -191,6 +192,7 @@ const ANSI_ESCAPE_PATTERN =
 type CmdbAreaKey = "assets" | "projects" | "topicReleases";
 type ProjectDraftPanelKey = "basic" | "deploy" | "observe" | "variables";
 type ProjectBranchMode = "catalog" | "custom";
+type TopicReleaseDialogMode = "createPlan" | "triggerNow";
 
 const projectDraftPanels: Array<{
   key: ProjectDraftPanelKey;
@@ -685,6 +687,19 @@ function releaseTopic(release: Pick<ReleaseRow, "variables">) {
   return topic && topic.length > 0 ? topic : null;
 }
 
+function releaseOverrideVariables(release: Pick<ReleaseRow, "variables">) {
+  return Object.fromEntries(
+    Object.entries(release.variables ?? {}).filter(([key]) => {
+      if (key === "CMDB_RELEASE_TOPIC") return false;
+      if (key.startsWith("CMDB_")) return false;
+      if (key.startsWith("DEPLOY_")) return false;
+      if (key.startsWith("K8S_")) return false;
+      if (key === "DOCKER_IMAGE") return false;
+      return true;
+    }),
+  );
+}
+
 function topicReleaseStatusTone(status: ReleaseRow["status"] | "skipped") {
   if (status === "skipped") {
     return "border-slate-200 bg-slate-100 text-slate-700";
@@ -731,6 +746,9 @@ function buildTopicReleaseGroups(releases: ReleaseRow[]) {
           ),
         ),
       );
+      const projectIds = Array.from(
+        new Set(sortedReleases.map((release) => release.projectId)),
+      );
 
       return {
         topic,
@@ -738,6 +756,7 @@ function buildTopicReleaseGroups(releases: ReleaseRow[]) {
         latestRelease,
         releaseTotal: sortedReleases.length,
         projectTotal: projectLabels.length,
+        projectIds,
         successTotal: sortedReleases.filter(
           (release) => release.status === "success",
         ).length,
@@ -1861,17 +1880,45 @@ function ProjectReleaseHistory(props: {
   );
 }
 
+function TopicReleaseCountPill(props: {
+  label: string;
+  value: number;
+  tone: "success" | "running" | "failed";
+}) {
+  const toneClass =
+    props.tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : props.tone === "running"
+        ? "border-sky-200 bg-sky-50 text-sky-700"
+        : "border-rose-200 bg-rose-50 text-rose-700";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-[9px] border px-2 text-[12px] leading-none font-semibold whitespace-nowrap",
+        toneClass,
+      )}
+    >
+      <span>{props.label}</span>
+      <span>{props.value}</span>
+    </span>
+  );
+}
+
 function TopicReleaseList(props: {
   groups: TopicReleaseGroup[];
   plans: TopicReleasePlan[];
   projects: ProjectRow[];
   triggeringPlanId: string | null;
+  triggeringTopicRelease: boolean;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
   ) => void;
   onCreate: () => void;
   onTriggerPlan: (plan: TopicReleasePlan) => void;
+  onTriggerGroup: (group: TopicReleaseGroup) => void;
+  onRetryGroup: (group: TopicReleaseGroup) => void;
   onDeletePlan: (plan: TopicReleasePlan) => void;
   onDeleteGroup: (group: TopicReleaseGroup) => void;
 }) {
@@ -2007,7 +2054,7 @@ function TopicReleaseList(props: {
             key={`topic-release-group-${group.topic}`}
             className="rounded-[12px] border border-slate-200/95 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <h3 className="truncate text-base font-semibold text-slate-950">
@@ -2022,20 +2069,37 @@ function TopicReleaseList(props: {
                   · 最近 {formatTime(group.latestRelease.createdAt)}
                 </p>
               </div>
-              <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                <Badge className="justify-center border border-emerald-200 bg-emerald-50 text-emerald-700">
-                  成功 {group.successTotal}
-                </Badge>
-                <Badge className="justify-center border border-sky-200 bg-sky-50 text-sky-700">
-                  进行中 {group.runningTotal}
-                </Badge>
-                <Badge className="justify-center border border-rose-200 bg-rose-50 text-rose-700">
-                  失败 {group.failedTotal}
-                </Badge>
+              <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                <Button
+                  size="sm"
+                  className="h-8 rounded-[9px] px-2.5 text-[12px]"
+                  onClick={() => props.onTriggerGroup(group)}
+                  disabled={props.triggeringTopicRelease}
+                >
+                  {props.triggeringTopicRelease ? (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : (
+                    <RocketIcon data-icon="inline-start" />
+                  )}
+                  一键发布
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  className="h-8 rounded-[9px] border-sky-200 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+                  onClick={() => props.onRetryGroup(group)}
+                  disabled={props.triggeringTopicRelease}
+                >
+                  <CheckCircle2Icon data-icon="inline-start" />
+                  指定项目
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-[9px] border-rose-200 bg-white px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={() => props.onDeleteGroup(group)}
                 >
                   <Trash2Icon data-icon="inline-start" />
@@ -2044,7 +2108,7 @@ function TopicReleaseList(props: {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 rounded-[10px] border border-slate-200/75 bg-slate-50/80 px-3 py-3 md:grid-cols-3">
+            <div className="mt-4 grid gap-3 rounded-[10px] border border-slate-200/75 bg-slate-50/80 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(220px,0.78fr)]">
               <div className="min-w-0">
                 <p className="text-[11px] font-medium text-slate-500">项目</p>
                 <p className="mt-1 truncate text-sm text-slate-900">
@@ -2062,6 +2126,28 @@ function TopicReleaseList(props: {
                 <p className="mt-1 truncate text-sm text-slate-900">
                   {group.deployEnvs.join("、")}
                 </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-slate-500">
+                  发布状态
+                </p>
+                <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                  <TopicReleaseCountPill
+                    label="成功"
+                    value={group.successTotal}
+                    tone="success"
+                  />
+                  <TopicReleaseCountPill
+                    label="进行中"
+                    value={group.runningTotal}
+                    tone="running"
+                  />
+                  <TopicReleaseCountPill
+                    label="失败"
+                    value={group.failedTotal}
+                    tone="failed"
+                  />
+                </div>
               </div>
             </div>
 
@@ -2294,6 +2380,8 @@ export function CmdbShell() {
   const [topicReleaseDraft, setTopicReleaseDraft] = useState<TopicReleaseDraft>(
     emptyTopicReleaseDraft,
   );
+  const [topicReleaseDialogMode, setTopicReleaseDialogMode] =
+    useState<TopicReleaseDialogMode>("createPlan");
   const [topicReleasePlans, setTopicReleasePlans] = useState<
     TopicReleasePlan[]
   >([]);
@@ -2496,9 +2584,15 @@ export function CmdbShell() {
     onSuccess: async (result) => {
       await utils.cmdb.dashboard.invalidate();
       setTopicReleaseResult(result);
+      setSuccessMessage(
+        result.topic
+          ? `已触发主题 ${result.topic}，成功创建 ${result.successTotal} / ${result.total} 条发布。`
+          : `已触发主题发布，成功创建 ${result.successTotal} / ${result.total} 条发布。`,
+      );
       setErrorMessage(null);
     },
     onError: (error) => {
+      setSuccessMessage(null);
       setErrorMessage(error.message);
     },
   });
@@ -2845,7 +2939,16 @@ export function CmdbShell() {
   const selectedTopicProjects = projects.filter((project) =>
     topicReleaseSelectedIds.has(project.id),
   );
-  const topicReleaseCanCreate = topicReleaseDraft.projectIds.length > 0;
+  const topicReleaseCanSubmit =
+    topicReleaseDraft.projectIds.length > 0 && !triggerTopicRelease.isPending;
+  const topicReleaseDialogTitle =
+    topicReleaseDialogMode === "triggerNow" ? "再次发布主题" : "新建主题发布";
+  const topicReleaseDialogDescription =
+    topicReleaseDialogMode === "triggerNow"
+      ? "选择本次要重新发布的项目，可只发布主题中的部分项目。提交后会立即触发构建流水线。"
+      : "圈选多个项目后统一触发构建流水线，并由 CMDB 在构建成功后部署。系统会使用各项目默认分支和默认环境。";
+  const topicReleaseSubmitLabel =
+    topicReleaseDialogMode === "triggerNow" ? "立即发布" : "新建";
   const topicReleaseRows = releases.filter((release) =>
     Boolean(releaseTopic(release)),
   );
@@ -3451,13 +3554,76 @@ export function CmdbShell() {
     }
   }
 
-  function openTopicReleaseDialog(initialProjectIds: number[] = []) {
+  function openTopicReleaseDialog(
+    initialProjectIds: number[] = [],
+    mode: TopicReleaseDialogMode = "createPlan",
+    initialDraft?: Partial<TopicReleaseDraft>,
+  ) {
+    setTopicReleaseDialogMode(mode);
     setTopicReleaseDraft({
       ...emptyTopicReleaseDraft(),
+      ...initialDraft,
       projectIds: initialProjectIds,
     });
     setTopicReleaseResult(null);
     setTopicReleaseDialogOpen(true);
+  }
+
+  function retryTopicReleaseGroupAction(group: TopicReleaseGroup) {
+    const groupProjectIds = group.projectIds.filter((projectId) =>
+      projects.some((project) => project.id === projectId),
+    );
+    if (groupProjectIds.length === 0) {
+      setErrorMessage("这个主题没有可重新发布的项目。");
+      return;
+    }
+
+    openTopicReleaseDialog(groupProjectIds, "triggerNow", {
+      topic: group.topic,
+      ref: group.refs.length === 1 ? (group.refs[0] ?? "") : "",
+      deployEnv:
+        group.deployEnvs.length === 1 && group.deployEnvs[0] !== "-"
+          ? (group.deployEnvs[0] ?? "")
+          : "",
+      variablesText: serializeVariables(
+        releaseOverrideVariables(group.latestRelease),
+      ),
+    });
+    setActiveArea("topicReleases");
+  }
+
+  function triggerTopicReleaseGroupAction(group: TopicReleaseGroup) {
+    const groupProjectIds = group.projectIds.filter((projectId) =>
+      projects.some((project) => project.id === projectId),
+    );
+    if (groupProjectIds.length === 0) {
+      setErrorMessage("这个主题没有可重新发布的项目。");
+      return;
+    }
+
+    const selectedProjects = projects.filter((project) =>
+      groupProjectIds.includes(project.id),
+    );
+    const releaseIssue = selectedProjects
+      .map((project) => topicReleaseProjectIssue(project, canTriggerPipelines))
+      .find((issue): issue is string => Boolean(issue));
+
+    if (releaseIssue) {
+      setErrorMessage(releaseIssue);
+      return;
+    }
+
+    triggerTopicRelease.mutate({
+      topic: group.topic,
+      projectIds: groupProjectIds,
+      ref: group.refs.length === 1 ? (group.refs[0] ?? undefined) : undefined,
+      deployEnv:
+        group.deployEnvs.length === 1 && group.deployEnvs[0] !== "-"
+          ? (group.deployEnvs[0] ?? undefined)
+          : undefined,
+      variables: releaseOverrideVariables(group.latestRelease),
+    });
+    setActiveArea("topicReleases");
   }
 
   function openTopicReleaseArea() {
@@ -3719,6 +3885,42 @@ export function CmdbShell() {
     setErrorMessage(null);
     setTopicReleaseDialogOpen(false);
     setActiveArea("topicReleases");
+  }
+
+  function triggerTopicReleaseDraftAction() {
+    if (topicReleaseDraft.projectIds.length === 0) {
+      setErrorMessage("请选择至少一个要发布的项目。");
+      return;
+    }
+
+    const selectedProjects = projects.filter((project) =>
+      topicReleaseDraft.projectIds.includes(project.id),
+    );
+    const releaseIssue = selectedProjects
+      .map((project) => topicReleaseProjectIssue(project, canTriggerPipelines))
+      .find((issue): issue is string => Boolean(issue));
+
+    if (releaseIssue) {
+      setErrorMessage(releaseIssue);
+      return;
+    }
+
+    triggerTopicRelease.mutate({
+      topic: topicReleasePlanTitle(topicReleaseDraft),
+      projectIds: topicReleaseDraft.projectIds,
+      ref: topicReleaseDraft.ref.trim() || undefined,
+      deployEnv: topicReleaseDraft.deployEnv.trim() || undefined,
+      variables: parseVariables(topicReleaseDraft.variablesText),
+    });
+  }
+
+  function submitTopicReleaseDialogAction() {
+    if (topicReleaseDialogMode === "triggerNow") {
+      triggerTopicReleaseDraftAction();
+      return;
+    }
+
+    createTopicReleasePlanAction();
   }
 
   function triggerTopicReleasePlanAction(plan: TopicReleasePlan) {
@@ -4787,9 +4989,12 @@ export function CmdbShell() {
               plans={topicReleasePlans}
               projects={projects}
               triggeringPlanId={triggeringTopicReleasePlanId}
+              triggeringTopicRelease={triggerTopicRelease.isPending}
               onOpenOperation={openReleaseOperation}
               onCreate={() => openTopicReleaseDialog()}
               onTriggerPlan={triggerTopicReleasePlanAction}
+              onTriggerGroup={triggerTopicReleaseGroupAction}
+              onRetryGroup={retryTopicReleaseGroupAction}
               onDeletePlan={deleteTopicReleasePlanAction}
               onDeleteGroup={deleteTopicReleaseGroupAction}
             />
@@ -6671,11 +6876,10 @@ export function CmdbShell() {
         <DialogContent className="flex max-h-[calc(100vh-1rem)] max-w-[920px] flex-col gap-0 overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
           <DialogHeader className="gap-0 border-b border-slate-200/90 px-5 py-4">
             <DialogTitle className="text-lg leading-6 font-semibold tracking-normal">
-              新建主题发布
+              {topicReleaseDialogTitle}
             </DialogTitle>
             <DialogDescription className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              圈选多个项目后统一触发构建流水线，并由 CMDB 在构建成功后部署。Ref
-              留空时使用各项目默认分支，环境留空时使用项目默认环境。
+              {topicReleaseDialogDescription}
             </DialogDescription>
           </DialogHeader>
 
@@ -6706,10 +6910,10 @@ export function CmdbShell() {
                   />
                 </ProjectDraftField>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <ProjectDraftField
-                    label="Ref / Branch / Tag"
-                    hint="留空使用各项目默认分支。"
+                    label="Ref"
+                    hint="留空时使用各项目默认分支。"
                   >
                     <Input
                       value={topicReleaseDraft.ref}
@@ -6720,12 +6924,13 @@ export function CmdbShell() {
                         }));
                         setTopicReleaseResult(null);
                       }}
-                      placeholder="main / v1.2.0"
+                      placeholder="main"
                     />
                   </ProjectDraftField>
+
                   <ProjectDraftField
-                    label="部署环境"
-                    hint="留空使用项目默认环境。"
+                    label="环境"
+                    hint="留空时使用各项目默认环境。"
                   >
                     <Input
                       value={topicReleaseDraft.deployEnv}
@@ -6941,11 +7146,20 @@ export function CmdbShell() {
             </Button>
             <Button
               className="rounded-[10px]"
-              onClick={createTopicReleasePlanAction}
-              disabled={!topicReleaseCanCreate}
+              onClick={submitTopicReleaseDialogAction}
+              disabled={!topicReleaseCanSubmit}
             >
-              <PlusIcon data-icon="inline-start" />
-              新建
+              {triggerTopicRelease.isPending ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : topicReleaseDialogMode === "triggerNow" ? (
+                <RocketIcon data-icon="inline-start" />
+              ) : (
+                <PlusIcon data-icon="inline-start" />
+              )}
+              {topicReleaseSubmitLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

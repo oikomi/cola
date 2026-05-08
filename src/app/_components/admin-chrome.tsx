@@ -8,18 +8,13 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   ChevronRightIcon,
-  CircleDotIcon,
-  ExternalLinkIcon,
   MonitorSmartphoneIcon,
-  NetworkIcon,
   ServerIcon,
   Settings2Icon,
-  ShieldCheckIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import clusterConfig from "../../../infra/k8s/cluster/config.json";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -38,41 +33,9 @@ const areaIcons = {
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
 
 type ProductArea = (typeof PRODUCT_AREAS)[number];
-
-const clusterControllerIp =
-  typeof clusterConfig.controllerIp === "string" &&
-  clusterConfig.controllerIp.trim().length > 0
-    ? clusterConfig.controllerIp.trim()
-    : "172.16.60.198";
-const clusterName =
-  typeof clusterConfig.clusterName === "string" &&
-  clusterConfig.clusterName.trim().length > 0
-    ? clusterConfig.clusterName.trim()
-    : "xdream-cloud";
-const kubernetesVersion =
-  typeof clusterConfig.kubernetesVersion === "string" &&
-  clusterConfig.kubernetesVersion.trim().length > 0
-    ? clusterConfig.kubernetesVersion.trim()
-    : "1.34.7";
-const workspaceNamespace =
-  typeof clusterConfig.workspaceNamespace === "string" &&
-  clusterConfig.workspaceNamespace.trim().length > 0
-    ? clusterConfig.workspaceNamespace.trim()
-    : "remote-work";
-const k8sDashboardUrl =
-  process.env.NEXT_PUBLIC_K8S_DASHBOARD_URL ??
-  `https://${clusterControllerIp}:8443/`;
-const k8sApiHost = `${clusterControllerIp}:8443`;
-
-function hostLabel(url: string) {
-  try {
-    return new URL(url).host;
-  } catch {
-    return k8sApiHost;
-  }
-}
-
-const k8sDashboardHost = hostLabel(k8sDashboardUrl);
+const visibleProductAreas = PRODUCT_AREAS.filter(
+  (area) => area.key !== "system",
+);
 
 const areaChrome = {
   office: {
@@ -196,25 +159,6 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                   </div>
                 </div>
               </div>
-
-              <div className="mt-3 hidden grid-cols-2 gap-2 2xl:grid">
-                <div className="rounded-[var(--radius-card)] border border-white/8 bg-slate-950/16 px-2.5 py-2">
-                  <p className="text-[9px] font-medium tracking-[0.18em] text-slate-400 uppercase">
-                    Cluster
-                  </p>
-                  <p className="mt-0.5 truncate text-[11.5px] font-semibold text-slate-100">
-                    {clusterName}
-                  </p>
-                </div>
-                <div className="rounded-[var(--radius-card)] border border-white/8 bg-slate-950/16 px-2.5 py-2">
-                  <p className="text-[9px] font-medium tracking-[0.18em] text-slate-400 uppercase">
-                    Version
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-[11.5px] font-semibold text-cyan-100">
-                    v{kubernetesVersion}
-                  </p>
-                </div>
-              </div>
             </div>
 
             <nav
@@ -226,13 +170,13 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                   Operations
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/[0.065] px-2 py-0.5 text-[10px] font-medium text-slate-200/74">
-                  {PRODUCT_AREAS.length} modules
+                  {visibleProductAreas.length} modules
                 </span>
               </div>
 
               <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1.5 md:overflow-visible md:pb-0 2xl:overflow-y-auto">
                 <span className="pointer-events-none absolute top-5 bottom-5 left-[31px] hidden w-px bg-gradient-to-b from-transparent via-cyan-100/12 to-transparent 2xl:block" />
-                {PRODUCT_AREAS.map((area) => {
+                {visibleProductAreas.map((area) => {
                   const active = area.key === activeArea;
 
                   return (
@@ -244,8 +188,6 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                   );
                 })}
               </div>
-
-              <KubernetesDock />
             </nav>
           </div>
         </aside>
@@ -408,82 +350,6 @@ function NavTooltip({
       <div className="mt-1.5 text-[12px] leading-5 text-slate-500">
         {area.description}
       </div>
-    </div>
-  );
-}
-
-function KubernetesDock() {
-  return (
-    <div className="mt-3 hidden 2xl:block">
-      <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-white/10 bg-[linear-gradient(145deg,rgba(15,23,42,0.38),rgba(255,255,255,0.075))] p-3 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
-
-        <div className="relative flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-slate-950/22 text-cyan-100 ring-1 ring-white/10">
-            <NetworkIcon className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <Link
-                href="/system"
-                className="truncate text-[13px] font-semibold text-white transition-colors hover:text-cyan-100"
-              >
-                Kubernetes
-              </Link>
-              <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-100/82">
-                <span className="size-1.5 rounded-full bg-emerald-300 shadow-[0_0_0_4px_rgba(16,185,129,0.1)]" />
-                Ready
-              </span>
-            </div>
-            <p className="mt-1 truncate font-mono text-[11px] text-slate-300/76">
-              {k8sApiHost}
-            </p>
-          </div>
-        </div>
-
-        <div className="relative mt-3 grid grid-cols-2 gap-2">
-          <ClusterFact label="Version" value={`v${kubernetesVersion}`} />
-          <ClusterFact label="Namespace" value={workspaceNamespace} />
-        </div>
-
-        <div className="relative mt-3 flex gap-2">
-          <Link
-            href="/system"
-            className="min-w-0 flex-1 rounded-full border border-white/8 bg-slate-950/16 px-2.5 py-1.5 transition-colors hover:border-emerald-200/18 hover:bg-emerald-100/9"
-          >
-            <div className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-emerald-100/86">
-              <ShieldCheckIcon className="size-3" />
-              Host
-            </div>
-          </Link>
-          <a
-            href={k8sDashboardUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`打开 Kubernetes Dashboard：${k8sDashboardHost}`}
-            className="min-w-0 flex-1 rounded-full border border-white/8 bg-slate-950/16 px-2.5 py-1.5 transition-colors hover:border-cyan-200/20 hover:bg-cyan-100/9"
-          >
-            <div className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-cyan-100/86">
-              <CircleDotIcon className="size-3" />
-              Dashboard
-              <ExternalLinkIcon className="size-2.5 opacity-70" />
-            </div>
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ClusterFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-white/8 bg-white/[0.045] px-2.5 py-2">
-      <p className="text-[9px] font-medium tracking-[0.16em] text-slate-400 uppercase">
-        {label}
-      </p>
-      <p className="mt-0.5 truncate font-mono text-[10.5px] font-semibold text-slate-100">
-        {value}
-      </p>
     </div>
   );
 }

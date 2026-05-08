@@ -4,7 +4,6 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
-require_cmd sudo
 require_cmd python3
 
 NAMESPACE="kubernetes-dashboard"
@@ -12,6 +11,8 @@ SERVICE_ACCOUNT="admin-user"
 SECRET_NAME="admin-user-token"
 WAIT_TIMEOUT_SECONDS=60
 WAIT_INTERVAL_SECONDS=3
+TOKEN_KUBECONFIG=""
+TOKEN_KUBECTL_BIN=""
 
 usage() {
   cat <<'EOF'
@@ -56,12 +57,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-run_cluster_kubectl apply -f "$ROOT_DIR/manifests/dashboard/admin-user.yaml" >/dev/null
+if [[ -r "$(user_kubeconfig_path)" ]] && command -v kubectl >/dev/null 2>&1; then
+  TOKEN_KUBECONFIG="$(user_kubeconfig_path)"
+  TOKEN_KUBECTL_BIN="$(command -v kubectl)"
+else
+  TOKEN_KUBECONFIG="$(cluster_kubeconfig_path)"
+  TOKEN_KUBECTL_BIN="$(kubectl_bin_path)"
+fi
+
+run_dashboard_token_kubectl() {
+  if [[ "$TOKEN_KUBECONFIG" == "$(cluster_kubeconfig_path)" ]]; then
+    sudo env KUBECONFIG="$TOKEN_KUBECONFIG" "$TOKEN_KUBECTL_BIN" "$@"
+    return
+  fi
+
+  KUBECONFIG="$TOKEN_KUBECONFIG" "$TOKEN_KUBECTL_BIN" "$@"
+}
+
+run_dashboard_token_kubectl apply -f "$ROOT_DIR/manifests/dashboard/admin-user.yaml" >/dev/null
 
 TOKEN=""
 elapsed=0
 while (( elapsed < WAIT_TIMEOUT_SECONDS )); do
-  TOKEN_B64="$(run_cluster_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o jsonpath='{.data.token}' 2>/dev/null || true)"
+  TOKEN_B64="$(run_dashboard_token_kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o jsonpath='{.data.token}' 2>/dev/null || true)"
 
   if [[ -n "$TOKEN_B64" ]]; then
     TOKEN="$(

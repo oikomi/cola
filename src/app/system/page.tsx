@@ -8,6 +8,7 @@ import {
   ShieldCheckIcon,
 } from "lucide-react";
 
+import { K8sDashboardTokenButton } from "@/app/_components/k8s-dashboard-token-button";
 import clusterConfig from "../../../infra/k8s/cluster/config.json";
 import {
   ModuleHero,
@@ -56,7 +57,7 @@ export default function SystemPage() {
       <ModuleHero
         eyebrow="Cluster Surface"
         title="集群管理"
-        description="在控制台内保留 Kubernetes 入口、连接地址和日常排障提示，外部 Dashboard 会在新标签页打开。"
+        description="在控制台内保留 Kubernetes 入口、连接地址和日常排障提示；打开 Dashboard 时会先复制登录 Token。"
         icon={NetworkIcon}
         badges={
           <>
@@ -73,15 +74,7 @@ export default function SystemPage() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            <a
-              href={k8sDashboardUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants({ size: "lg" }), "rounded-[12px]")}
-            >
-              <ExternalLinkIcon data-icon="inline-start" />
-              打开 Kubernetes Dashboard
-            </a>
+            <K8sDashboardTokenButton dashboardUrl={k8sDashboardUrl} />
             <a
               href={hamiUrl}
               target="_blank"
@@ -102,8 +95,8 @@ export default function SystemPage() {
           <ModuleMetricCard
             size="compact"
             label="Dashboard"
-            value="外部入口"
-            description="保持当前控制台页面，不再整页跳走。"
+            value="Token 预复制"
+            description="点击入口后先复制登录 Token，再打开 Dashboard。"
             icon={ExternalLinkIcon}
           />
           <ModuleMetricCard
@@ -117,7 +110,7 @@ export default function SystemPage() {
             size="compact"
             label="Access"
             value="HTTPS"
-            description="如使用自签证书，请在新标签页内确认信任。"
+            description="如使用自签证书，请在新标签页内确认信任后粘贴 Token。"
             icon={ShieldCheckIcon}
           />
           <ModuleMetricCard
@@ -147,45 +140,39 @@ export default function SystemPage() {
                     {k8sDashboardUrl}
                   </p>
                 </div>
-                <a
-                  href={k8sDashboardUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "lg" }),
-                    "rounded-[12px] border-slate-300 bg-white",
-                  )}
-                >
-                  <ExternalLinkIcon data-icon="inline-start" />
-                  新标签页打开
-                </a>
+                <K8sDashboardTokenButton
+                  dashboardUrl={k8sDashboardUrl}
+                  variant="outline"
+                  label="复制 Token 并打开"
+                  className="border-slate-300 bg-white"
+                />
               </div>
             </div>
 
             <div className="rounded-[16px] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-[12px] font-medium text-slate-500">
-                  HAMi-WebUI URL
-                </p>
-                <p className="mt-1 font-mono text-sm break-all text-slate-800">
-                  {hamiUrl}
-                </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[12px] font-medium text-slate-500">
+                    HAMi-WebUI URL
+                  </p>
+                  <p className="mt-1 font-mono text-sm break-all text-slate-800">
+                    {hamiUrl}
+                  </p>
+                </div>
+                <a
+                  href={hamiUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "lg" }),
+                    "rounded-[12px] border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800",
+                  )}
+                >
+                  <GaugeIcon data-icon="inline-start" />
+                  新标签页打开
+                </a>
               </div>
-              <a
-                href={hamiUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(
-                  buttonVariants({ variant: "outline", size: "lg" }),
-                  "rounded-[12px] border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800",
-                )}
-              >
-                <GaugeIcon data-icon="inline-start" />
-                新标签页打开
-              </a>
             </div>
-          </div>
           </div>
 
           <div className="rounded-[16px] border border-slate-200/90 bg-white px-5 py-5">
@@ -196,8 +183,8 @@ export default function SystemPage() {
               <div>
                 <p className="font-semibold text-slate-950">体验修正</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  当前页面保留在 XDream Cloud 内，Dashboard 和 HAMi-WebUI
-                  都只通过明确操作打开。
+                  Dashboard Token
+                  不会预渲染到页面里，只在点击入口时读取并写入剪贴板。
                 </p>
               </div>
             </div>
