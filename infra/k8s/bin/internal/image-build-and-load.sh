@@ -109,6 +109,7 @@ ensure_runtime_dirs
   die "找不到工作区镜像上下文目录: $WORKSPACE_IMAGE_CONTEXT_DIR"
 
 IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
+CANONICAL_IMAGE_REF="$(canonical_k8s_image_ref "$IMAGE_REF")"
 ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
 if [[ -z "$TARGET_ARCH" ]]; then
   TARGET_ARCH="$(cluster_query nodeArch "$(cluster_query nodeNames | head -n 1)")"
@@ -132,9 +133,9 @@ if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then
 fi
 
 print_step "分发镜像到 ${#TARGET_NODES[@]} 个 arch=$LOCAL_ARCH 节点"
-load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" --image-ref "$IMAGE_REF" -- "${TARGET_NODES[@]}"
+load_compressed_image_archive_into_nodes "$ARCHIVE_PATH" --image-ref "$CANONICAL_IMAGE_REF" -- "${TARGET_NODES[@]}"
 
 mkdir -p "$WORKSPACE_IMAGE_METADATA_DIR"
-printf '%s\n' "$IMAGE_REF" > "$WORKSPACE_IMAGE_REF_PATH"
+printf '%s\n' "$CANONICAL_IMAGE_REF" > "$WORKSPACE_IMAGE_REF_PATH"
 
 echo "镜像已导入 arch=$LOCAL_ARCH 的节点，默认镜像已写入 runtime/workspace/latest-image.txt"
