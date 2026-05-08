@@ -2578,10 +2578,41 @@ export async function getCmdbDashboard(database: Database) {
     database.select().from(cmdbReleases).orderBy(desc(cmdbReleases.createdAt)),
   ]);
 
-  const latestReleaseByProject = new Map<number, CmdbReleaseRow>();
+  const projectSummaryById = new Map(
+    projectRows.map((project) => [
+      project.id,
+      {
+        id: project.id,
+        name: project.name,
+        gitlabPath: project.gitlabPath,
+        gitlabWebUrl: buildGitLabProjectUrl(
+          project.gitlabPath,
+          project.gitlabWebUrl,
+        ),
+        deployTarget: project.deployTarget,
+      },
+    ]),
+  );
+  const releaseRowsByProject = new Map<number, CmdbReleaseRow[]>();
+  const releaseWithProject = (release: CmdbReleaseRow) => ({
+    ...release,
+    project: projectSummaryById.get(release.projectId) ?? null,
+  });
+
+  const latestReleaseByProject = new Map<
+    number,
+    ReturnType<typeof releaseWithProject>
+  >();
   for (const release of releaseRows) {
+    const projectReleases = releaseRowsByProject.get(release.projectId);
+    if (projectReleases) {
+      projectReleases.push(release);
+    } else {
+      releaseRowsByProject.set(release.projectId, [release]);
+    }
+
     if (!latestReleaseByProject.has(release.projectId)) {
-      latestReleaseByProject.set(release.projectId, release);
+      latestReleaseByProject.set(release.projectId, releaseWithProject(release));
     }
   }
 
@@ -2633,30 +2664,14 @@ export async function getCmdbDashboard(database: Database) {
         project.gitlabWebUrl,
       ),
       latestRelease: latestReleaseByProject.get(project.id) ?? null,
+      releases: (releaseRowsByProject.get(project.id) ?? [])
+        .slice(0, 8)
+        .map(releaseWithProject),
       monitor: await probeProjectHealth(project.config),
     })),
   );
 
-  const recentReleases = releaseRows.slice(0, 12).map((release) => {
-    const project =
-      projectRows.find((item) => item.id === release.projectId) ?? null;
-
-    return {
-      ...release,
-      project: project
-        ? {
-            id: project.id,
-            name: project.name,
-            gitlabPath: project.gitlabPath,
-            gitlabWebUrl: buildGitLabProjectUrl(
-              project.gitlabPath,
-              project.gitlabWebUrl,
-            ),
-            deployTarget: project.deployTarget,
-          }
-        : null,
-    };
-  });
+  const recentReleases = releaseRows.slice(0, 12).map(releaseWithProject);
 
   return {
     gitlab: {
