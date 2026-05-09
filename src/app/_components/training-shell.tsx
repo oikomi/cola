@@ -1511,20 +1511,6 @@ export function TrainingShell() {
       setJupyterLabDraft(defaultJupyterLabDraft);
       setIsJupyterLabCreateOpen(false);
       void utils.training.listJupyterLabs.invalidate();
-
-      if (result.labUrl) {
-        const openedWindow = window.open(
-          result.labUrl,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        if (!openedWindow) {
-          setFeedback({
-            tone: "success",
-            message: `${result.message} 浏览器拦截了新窗口，可在 JupyterLab 列表中打开入口。`,
-          });
-        }
-      }
     },
     onError: (error) => {
       setFeedback({ tone: "error", message: error.message });

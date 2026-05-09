@@ -83,7 +83,8 @@ JupyterLab 环境变量：
 ## 持久化说明
 
 - 设置 `COLA_TRAINING_PVC_NAME` 时，训练输出和 Hugging Face 缓存会写入挂载卷
-- 未设置 PVC 时，任务使用 `emptyDir`，Pod 删除后产物不会保留
+- 未设置 `COLA_TRAINING_PVC_NAME` 时，训练任务使用 `emptyDir`，Pod 删除后产物不会保留
+- JupyterLab 默认不继承 `COLA_TRAINING_PVC_NAME`
 
 ## 权限要求
 
@@ -120,8 +121,9 @@ JupyterLab 环境变量：
 
 默认持久化行为：
 
+- 默认使用 `emptyDir`，环境删除后内容不会保留
 - 设置 `COLA_JUPYTERLAB_PVC_NAME` 时，JupyterLab 工作目录挂载到该 PVC
-- 未设置时使用 `emptyDir`，环境删除后内容不会保留
+- `COLA_TRAINING_PVC_NAME` 只影响训练任务，不会让 JupyterLab 自动依赖 PVC
 
 ## 原生页面入口
 

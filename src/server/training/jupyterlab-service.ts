@@ -23,6 +23,7 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -385,10 +386,7 @@ function isGpuCapable(
   );
 }
 
-function countJupyterLabsOnNode(
-  deployments: V1Deployment[],
-  nodeName: string,
-) {
+function countJupyterLabsOnNode(deployments: V1Deployment[], nodeName: string) {
   return deployments.filter(
     (deployment) =>
       deployment.metadata?.name?.startsWith("jupyterlab-") &&
@@ -511,7 +509,9 @@ function buildLabUrl(params: {
 
   if (!params.nodeIp || typeof nodePort !== "number") return null;
 
-  const token = params.token ? `?token=${encodeURIComponent(params.token)}` : "";
+  const token = params.token
+    ? `?token=${encodeURIComponent(params.token)}`
+    : "";
   return `http://${params.nodeIp}:${nodePort}/lab${token}`;
 }
 
@@ -528,31 +528,10 @@ function buildEndpoint(params: {
 }
 
 function resolveWorkVolume() {
-  const pvcName =
-    process.env.COLA_JUPYTERLAB_PVC_NAME?.trim() ??
-    process.env.COLA_TRAINING_PVC_NAME?.trim();
-  if (pvcName) {
-    return {
-      volume: {
-        name: "jupyterlab-workdir",
-        persistentVolumeClaim: {
-          claimName: pvcName,
-        },
-      },
-      mountPath:
-        process.env.COLA_JUPYTERLAB_PVC_MOUNT_PATH?.trim() ??
-        process.env.COLA_TRAINING_PVC_MOUNT_PATH?.trim() ??
-        JUPYTERLAB_WORKDIR,
-    };
-  }
-
-  return {
-    volume: {
-      name: "jupyterlab-workdir",
-      emptyDir: {},
-    },
-    mountPath: JUPYTERLAB_WORKDIR,
-  };
+  return resolveJupyterLabWorkVolume({
+    env: process.env,
+    workdir: JUPYTERLAB_WORKDIR,
+  });
 }
 
 function buildJupyterLabCommand(workdir: string) {
@@ -710,14 +689,16 @@ function buildJupyterLabDeployment(input: {
               name: "jupyterlab",
               image: input.image,
               imagePullPolicy:
-                process.env.COLA_JUPYTERLAB_IMAGE_PULL_POLICY ??
-                "IfNotPresent",
+                process.env.COLA_JUPYTERLAB_IMAGE_PULL_POLICY ?? "IfNotPresent",
               workingDir: mountPath,
               command: ["bash", "-lc"],
               args: [buildJupyterLabCommand(mountPath)],
               ports: [{ containerPort: JUPYTERLAB_PORT, name: "http" }],
               env: [
-                { name: "TZ", value: process.env.COLA_TRAINING_TZ ?? "Asia/Shanghai" },
+                {
+                  name: "TZ",
+                  value: process.env.COLA_TRAINING_TZ ?? "Asia/Shanghai",
+                },
                 { name: "JUPYTER_ENABLE_LAB", value: "yes" },
                 { name: "JUPYTER_TOKEN", value: input.token },
                 { name: "COLA_JUPYTERLAB_NAME", value: input.name },
