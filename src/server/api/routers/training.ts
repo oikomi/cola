@@ -10,10 +10,7 @@ import {
   gpuAllocationModeValues,
   MAX_GPU_MEMORY_GI,
 } from "@/lib/gpu-allocation";
-import {
-  priorityValues,
-  priorityLabels,
-} from "@/server/office/catalog";
+import { priorityValues, priorityLabels } from "@/server/office/catalog";
 import {
   trainingConfigSourceValues,
   trainingDistributedBackendLabels,
@@ -34,6 +31,7 @@ import {
   deleteJupyterLabRuntime,
   listJupyterLabRuntimes,
 } from "@/server/training/jupyterlab-service";
+import { resolveJupyterLabImageOptions } from "@/server/training/jupyterlab-images";
 import {
   inspectTrainingJobRuntime,
   stopTrainingJobRun,
@@ -41,38 +39,40 @@ import {
   syncTrainingJobs,
 } from "@/server/training/service";
 
-const createTrainingJobInput = z.object({
-  title: z.string().trim().min(3).max(160),
-  objective: z.string().trim().min(8).max(600),
-  jobType: z.enum(trainingJobTypeValues),
-  priority: z.enum(priorityValues),
-  baseModel: z.string().trim().min(2).max(120),
-  datasetName: z.string().trim().min(2).max(120),
-  datasetSplit: z.string().trim().min(1).max(32).default("train"),
-  datasetTextField: z.string().trim().min(1).max(64).default("text"),
-  gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
-  nodeCount: z.number().int().min(1).max(32),
-  gpusPerNode: z.number().int().min(1).max(16),
-  gpuMemoryGi: z.number().int().min(1).max(MAX_GPU_MEMORY_GI).nullable(),
-  configSource: z.enum(trainingConfigSourceValues).default("manual"),
-  launcherType: z.enum(trainingLauncherTypeValues).default("torchrun"),
-  distributedBackend: z
-    .enum(trainingDistributedBackendValues)
-    .default("deepspeed"),
-  deepspeedStage: z.number().int().min(2).max(3).nullable().default(2),
-  precision: z.enum(trainingPrecisionValues).default("bf16"),
-  loadIn4bit: z.boolean().default(true),
-  studioConfigSnapshot: z.unknown().optional(),
-  trainingConfigSnapshot: z.unknown().optional(),
-}).superRefine((input, ctx) => {
-  if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["gpuMemoryGi"],
-      message: "显存模式下必须填写每个 GPU 份额的显存大小。",
-    });
-  }
-});
+const createTrainingJobInput = z
+  .object({
+    title: z.string().trim().min(3).max(160),
+    objective: z.string().trim().min(8).max(600),
+    jobType: z.enum(trainingJobTypeValues),
+    priority: z.enum(priorityValues),
+    baseModel: z.string().trim().min(2).max(120),
+    datasetName: z.string().trim().min(2).max(120),
+    datasetSplit: z.string().trim().min(1).max(32).default("train"),
+    datasetTextField: z.string().trim().min(1).max(64).default("text"),
+    gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
+    nodeCount: z.number().int().min(1).max(32),
+    gpusPerNode: z.number().int().min(1).max(16),
+    gpuMemoryGi: z.number().int().min(1).max(MAX_GPU_MEMORY_GI).nullable(),
+    configSource: z.enum(trainingConfigSourceValues).default("manual"),
+    launcherType: z.enum(trainingLauncherTypeValues).default("torchrun"),
+    distributedBackend: z
+      .enum(trainingDistributedBackendValues)
+      .default("deepspeed"),
+    deepspeedStage: z.number().int().min(2).max(3).nullable().default(2),
+    precision: z.enum(trainingPrecisionValues).default("bf16"),
+    loadIn4bit: z.boolean().default(true),
+    studioConfigSnapshot: z.unknown().optional(),
+    trainingConfigSnapshot: z.unknown().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gpuMemoryGi"],
+        message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+      });
+    }
+  });
 
 const trainingJobActionInput = z.object({
   jobId: z.string().uuid(),
@@ -87,6 +87,7 @@ const trainingRuntimeDetailInput = z.object({
 const createJupyterLabInput = z
   .object({
     name: z.string().trim().min(2).max(48),
+    image: z.string().trim().min(1).max(240),
     cpu: z.string().trim().min(1).max(20),
     memoryGi: z.number().int().positive().max(2048),
     gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
@@ -110,7 +111,9 @@ const jupyterLabActionInput = z.object({
 type CreateTrainingJobInput = z.infer<typeof createTrainingJobInput>;
 type TrainingJobReader = Pick<typeof db, "select">;
 
-function buildTrainingJobSelection(runtimeColumns: TrainingRuntimeColumnSupport) {
+function buildTrainingJobSelection(
+  runtimeColumns: TrainingRuntimeColumnSupport,
+) {
   return {
     id: trainingJobs.id,
     title: trainingJobs.title,
@@ -278,7 +281,11 @@ export const trainingRouter = createTRPCRouter({
   }),
 
   listJupyterLabs: publicProcedure.query(async () => {
-    return listJupyterLabRuntimes();
+    const result = await listJupyterLabRuntimes();
+    return {
+      ...result,
+      imageOptions: resolveJupyterLabImageOptions(),
+    };
   }),
 
   createJupyterLab: publicProcedure
@@ -334,9 +341,7 @@ export const trainingRouter = createTRPCRouter({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message:
-            error instanceof Error
-              ? error.message
-              : "读取训练任务运行态失败。",
+            error instanceof Error ? error.message : "读取训练任务运行态失败。",
         });
       }
     }),
@@ -433,9 +438,7 @@ export const trainingRouter = createTRPCRouter({
               gpuAllocationMode: input.gpuAllocationMode,
               gpuCount: input.gpusPerNode,
               gpuMemoryGi:
-                input.gpuAllocationMode === "memory"
-                  ? input.gpuMemoryGi
-                  : null,
+                input.gpuAllocationMode === "memory" ? input.gpuMemoryGi : null,
             },
           )} · ${trainingDistributedBackendLabels[input.distributedBackend]} · ${priorityLabels[input.priority]}优先级`,
           occurredAt: now,

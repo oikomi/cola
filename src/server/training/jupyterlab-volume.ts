@@ -1,6 +1,4 @@
-type JupyterLabWorkVolumeEnv = {
-  readonly [key: string]: string | undefined;
-};
+type JupyterLabWorkVolumeEnv = Readonly<Record<string, string | undefined>>;
 
 export function resolveJupyterLabWorkVolume(input: {
   env: JupyterLabWorkVolumeEnv;

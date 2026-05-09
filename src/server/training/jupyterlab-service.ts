@@ -23,6 +23,7 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -97,6 +98,7 @@ export type JupyterLabListResult = {
 
 export type CreateJupyterLabInput = {
   name: string;
+  image: string;
   cpu: string;
   memoryGi: number;
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
@@ -131,13 +133,6 @@ function resolveKubeconfigPath(clusterName: string) {
     process.env.REMOTE_WORK_KUBECONFIG_PATH ??
     process.env.WORKSPACE_KUBECONFIG ??
     path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
-  );
-}
-
-function resolveJupyterLabImage() {
-  return (
-    process.env.COLA_JUPYTERLAB_IMAGE?.trim() ??
-    "quay.io/jupyter/pytorch-notebook:latest"
   );
 }
 
@@ -859,7 +854,7 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
         gpuAllocationMode: gpuAllocation.gpuAllocationMode,
         gpuCount: gpuAllocation.gpuCount,
         gpuMemoryGi: gpuAllocation.gpuMemoryGi,
-        image: container?.image ?? resolveJupyterLabImage(),
+        image: container?.image ?? resolveJupyterLabImage(null),
         nodeName,
         nodeIp,
         endpoint: buildEndpoint({ service, nodeIp }),
@@ -908,7 +903,7 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
     gpuLabelKey: ctx.gpuLabelKey,
   });
   const nodePort = resolveJupyterLabNodePort(resources.allServices);
-  const image = resolveJupyterLabImage();
+  const image = resolveJupyterLabImage(input.image);
   const token = crypto.randomBytes(18).toString("hex");
   const deployment = buildJupyterLabDeployment({
     name,

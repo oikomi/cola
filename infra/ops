@@ -18,3 +18,8 @@ sudo KUBECONFIG=/etc/kubeasz/clusters/remote-work/kubectl.kubeconfig /etc/kubeas
 
 
 sudo ctr -n k8s.io images ls | grep openclaw
+
+
+kubectl -n remote-work cp /home/tts-data/fishaudio_dataset.zip  \
+    jupyterlab-testt-55ddc8794c-znbbg:/home/jovyan/work/litetts-auv/fishaudio_dataset.zip  \
+    -c jupyterlab

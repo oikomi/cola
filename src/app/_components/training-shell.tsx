@@ -14,7 +14,7 @@ import {
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   ModuleEmptyState,
@@ -93,10 +93,13 @@ type TrainingDraft = {
 type TrainingJobItem = RouterOutputs["training"]["listJobs"][number];
 type JupyterLabItem =
   RouterOutputs["training"]["listJupyterLabs"]["items"][number];
+type JupyterLabImageOption =
+  RouterOutputs["training"]["listJupyterLabs"]["imageOptions"][number];
 type TrainingListFilter = "all" | "running" | "issues" | "scheduling";
 
 type JupyterLabDraft = {
   name: string;
+  image: string;
   cpu: string;
   memoryGi: string;
   gpuAllocationMode: (typeof gpuAllocationModeValues)[number];
@@ -152,6 +155,7 @@ const minimalQwenLoraExample = {
 
 const defaultJupyterLabDraft: JupyterLabDraft = {
   name: "",
+  image: "",
   cpu: "4",
   memoryGi: "16",
   gpuAllocationMode: "whole",
@@ -269,6 +273,12 @@ function formatJupyterLabDraftSpec(draft: JupyterLabDraft) {
         ? gpuMemoryGi
         : null,
   })} · ${draft.cpu || "-"} CPU · ${draft.memoryGi || "-"}Gi`;
+}
+
+function jupyterLabImageLabel(option?: JupyterLabImageOption) {
+  if (!option) return "选择镜像";
+
+  return `${option.label} · ${option.image}`;
 }
 
 function sanitizeDnsNameInput(value: string) {
@@ -949,13 +959,13 @@ function JupyterLabCard(props: {
         </div>
         <div>
           <SurfaceLabel>节点 / 入口</SurfaceLabel>
-          <p className="mt-1 break-all font-mono text-[12px] text-slate-700">
+          <p className="mt-1 font-mono text-[12px] break-all text-slate-700">
             {lab.nodeName ?? "未分配节点"} · {lab.endpoint ?? "入口待分配"}
           </p>
         </div>
         <div>
           <SurfaceLabel>镜像</SurfaceLabel>
-          <p className="mt-1 break-all font-mono text-[12px] text-slate-700">
+          <p className="mt-1 font-mono text-[12px] break-all text-slate-700">
             {lab.image}
           </p>
         </div>
@@ -1442,10 +1452,8 @@ export function TrainingShell() {
   const [jupyterLabDraft, setJupyterLabDraft] = useState(
     defaultJupyterLabDraft,
   );
-  const [
-    pendingDeletedJupyterLabNames,
-    setPendingDeletedJupyterLabNames,
-  ] = useState<string[]>([]);
+  const [pendingDeletedJupyterLabNames, setPendingDeletedJupyterLabNames] =
+    useState<string[]>([]);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "error";
     message: string;
@@ -1543,9 +1551,38 @@ export function TrainingShell() {
   const jupyterLabCapabilityReason =
     jupyterLabsQuery.data?.reason ?? jupyterLabsQuery.error?.message ?? null;
   const jupyterLabAvailable = jupyterLabsQuery.data?.available === true;
+  const jupyterLabImageOptions = useMemo(
+    () => jupyterLabsQuery.data?.imageOptions ?? [],
+    [jupyterLabsQuery.data?.imageOptions],
+  );
+  const selectedJupyterLabImage =
+    jupyterLabImageOptions.find(
+      (option) => option.image === jupyterLabDraft.image,
+    ) ??
+    jupyterLabImageOptions[0] ??
+    null;
+  const selectedJupyterLabImageValue = selectedJupyterLabImage?.image ?? "";
   const readyJupyterLabCount = jupyterLabs.filter(
     (lab) => lab.status === "running" && Boolean(lab.labUrl),
   ).length;
+
+  useEffect(() => {
+    if (jupyterLabImageOptions.length === 0) return;
+    if (
+      jupyterLabDraft.image &&
+      jupyterLabImageOptions.some(
+        (option) => option.image === jupyterLabDraft.image,
+      )
+    ) {
+      return;
+    }
+
+    setJupyterLabDraft((current) => ({
+      ...current,
+      image: jupyterLabImageOptions[0]?.image ?? "",
+    }));
+  }, [jupyterLabDraft.image, jupyterLabImageOptions]);
+
   const runtimeDetail = runtimeDetailQuery.data;
   const runningCount = jobs.filter((job) => job.status === "running").length;
   const issueCount = jobs.filter(
@@ -1598,6 +1635,7 @@ export function TrainingShell() {
   const parsedJupyterLabGpuCount = Number(jupyterLabDraft.gpuCount);
   const parsedJupyterLabGpuMemoryGi = Number(jupyterLabDraft.gpuMemoryGi);
   const jupyterLabNameReady = jupyterLabDraft.name.trim().length >= 2;
+  const jupyterLabImageReady = Boolean(selectedJupyterLabImage);
   const jupyterLabMemoryReady =
     Number.isInteger(parsedJupyterLabMemoryGi) &&
     parsedJupyterLabMemoryGi >= 1 &&
@@ -1616,6 +1654,7 @@ export function TrainingShell() {
   const canCreateJupyterLab =
     jupyterLabAvailable &&
     jupyterLabNameReady &&
+    jupyterLabImageReady &&
     jupyterLabMemoryReady &&
     jupyterLabGpuCountReady &&
     jupyterLabGpuMemoryReady;
@@ -1623,15 +1662,17 @@ export function TrainingShell() {
     ? (jupyterLabCapabilityReason ?? "Kubernetes 当前不可用")
     : !jupyterLabNameReady
       ? "名称至少 2 个字符"
-      : !jupyterLabMemoryReady
-        ? "内存必须是 1-2048 Gi 的整数"
-        : !jupyterLabGpuCountReady
-          ? jupyterLabDraft.gpuAllocationMode === "memory"
-            ? "显存模式下 GPU 份额至少为 1"
-            : "GPU 数量需在 0-16 之间"
-          : !jupyterLabGpuMemoryReady
-            ? "每份额显存必须是 1-1024 Gi 的整数"
-            : null;
+      : !jupyterLabImageReady
+        ? "请选择 JupyterLab 镜像"
+        : !jupyterLabMemoryReady
+          ? "内存必须是 1-2048 Gi 的整数"
+          : !jupyterLabGpuCountReady
+            ? jupyterLabDraft.gpuAllocationMode === "memory"
+              ? "显存模式下 GPU 份额至少为 1"
+              : "GPU 数量需在 0-16 之间"
+            : !jupyterLabGpuMemoryReady
+              ? "每份额显存必须是 1-1024 Gi 的整数"
+              : null;
 
   const isMemoryMode = draft.gpuAllocationMode === "memory";
   const parsedNodeCount = Number(draft.nodeCount);
@@ -1802,6 +1843,7 @@ export function TrainingShell() {
 
     createJupyterLab.mutate({
       name: jupyterLabDraft.name.trim(),
+      image: selectedJupyterLabImageValue,
       cpu: jupyterLabDraft.cpu.trim(),
       memoryGi: parsedJupyterLabMemoryGi,
       gpuAllocationMode: jupyterLabDraft.gpuAllocationMode,
@@ -2068,7 +2110,7 @@ export function TrainingShell() {
           if (!open) closeRuntimeDialog();
         }}
       >
-        <DialogContent className="border-border/70 grid max-w-[1040px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden bg-background p-0 text-foreground">
+        <DialogContent className="border-border/70 bg-background text-foreground grid max-w-[1040px] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0">
           <DialogHeader className="border-border/70 border-b px-4 py-4 sm:px-6 sm:py-5">
             <DialogTitle className="text-2xl tracking-normal">
               训练运行态
@@ -2373,8 +2415,8 @@ export function TrainingShell() {
             </div>
             <DialogTitle>新建 JupyterLab</DialogTitle>
             <DialogDescription>
-              选择 CPU、内存、整卡或 HAMi 显存份额后，Cola
-              会在训练命名空间拉起 JupyterLab 并分配 NodePort 入口。
+              选择 CPU、内存、整卡或 HAMi 显存份额后，Cola 会在训练命名空间拉起
+              JupyterLab 并分配 NodePort 入口。
             </DialogDescription>
           </DialogHeader>
 
@@ -2398,6 +2440,44 @@ export function TrainingShell() {
                 }
                 placeholder="例如：data-lab-01"
               />
+            </Field>
+
+            <Field
+              label="镜像"
+              hint={
+                selectedJupyterLabImage?.description ??
+                "镜像列表由后端提供，最多 5 个。"
+              }
+            >
+              <Select
+                value={selectedJupyterLabImageValue}
+                onValueChange={(value) =>
+                  setJupyterLabDraft((current) => ({
+                    ...current,
+                    image: value ?? "",
+                  }))
+                }
+              >
+                <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                  <SelectValue placeholder="选择镜像">
+                    {jupyterLabImageLabel(selectedJupyterLabImage ?? undefined)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {jupyterLabImageOptions.map((option) => (
+                      <SelectItem key={option.image} value={option.image}>
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="font-medium">{option.label}</span>
+                          <span className="text-muted-foreground max-w-[520px] truncate text-xs">
+                            {option.image}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -2443,7 +2523,8 @@ export function TrainingShell() {
                   onValueChange={(value) =>
                     setJupyterLabDraft((current) => ({
                       ...current,
-                      gpuAllocationMode: value === "memory" ? "memory" : "whole",
+                      gpuAllocationMode:
+                        value === "memory" ? "memory" : "whole",
                       gpuCount:
                         value === "memory" &&
                         Number.parseInt(current.gpuCount, 10) < 1
@@ -2454,7 +2535,9 @@ export function TrainingShell() {
                     }))
                   }
                 >
-                  <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                  <SelectTrigger
+                    className={cn("w-full", dialogControlClassName)}
+                  >
                     <SelectValue placeholder="选择分配方式">
                       {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
                     </SelectValue>
@@ -2536,7 +2619,10 @@ export function TrainingShell() {
               <span className="mx-1 font-semibold text-slate-950">
                 {formatJupyterLabDraftSpec(jupyterLabDraft)}
               </span>
-              ，默认镜像由 COLA_JUPYTERLAB_IMAGE 控制。
+              ，镜像：
+              <span className="ml-1 font-semibold text-slate-950">
+                {selectedJupyterLabImage?.label ?? "未选择"}
+              </span>
             </div>
 
             {jupyterLabSubmitDisabledReason ? (

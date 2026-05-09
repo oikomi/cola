@@ -49,6 +49,7 @@ JupyterLab 环境变量：
 - `COLA_JUPYTERLAB_K8S_NAMESPACE`
 - `COLA_JUPYTERLAB_KUBECONFIG_PATH`
 - `COLA_JUPYTERLAB_IMAGE`，默认 `quay.io/jupyter/pytorch-notebook:latest`
+- `COLA_JUPYTERLAB_IMAGE_OPTIONS`，逗号或换行分隔的 `名称=镜像` 列表，最多展示 5 个
 - `COLA_JUPYTERLAB_IMAGE_PULL_POLICY`
 - `COLA_JUPYTERLAB_NODE_PORT_START`，默认 `31980`
 - `COLA_JUPYTERLAB_NODE_PORT_END`，默认 `32079`
@@ -112,6 +113,7 @@ JupyterLab 环境变量：
 
 创建时可以选择：
 
+- 镜像，默认列表包含 PyTorch CPU、PyTorch CUDA 12、PyTorch CUDA 13
 - CPU
 - 内存
 - 整卡 GPU，支持 `0` 表示 CPU-only
