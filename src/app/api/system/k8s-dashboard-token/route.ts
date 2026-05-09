@@ -247,9 +247,10 @@ exit 1
     },
   );
 
-  const tokenMatch = stdout.match(
-    /__COLA_DASHBOARD_TOKEN_BEGIN__\s*([A-Za-z0-9+/=]+)\s*__COLA_DASHBOARD_TOKEN_END__/,
-  );
+  const tokenMatch =
+    /__COLA_DASHBOARD_TOKEN_BEGIN__\s*([A-Za-z0-9+/=]+)\s*__COLA_DASHBOARD_TOKEN_END__/.exec(
+      stdout,
+    );
 
   if (!tokenMatch) {
     throw new Error(cleanCommandOutput(stdout) || "controller 节点未返回 Dashboard Token。");

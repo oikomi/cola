@@ -6,6 +6,7 @@
 - 训练容器默认使用 `unsloth/unsloth:latest`
 - `training.stopJob` 会删除对应的 Kubernetes `Job`
 - `training.listJobs` 会回读 Job 状态，把完成/失败同步回数据库
+- 训练页可以新建 JupyterLab 环境，用于数据检查、notebook 实验和训练代码调试
 
 ## 调度位置
 
@@ -13,6 +14,7 @@
 - 未设置时回退到 `infra/k8s/cluster/config.json` 里的 `workspaceNamespace`
 - GPU 节点选择器默认使用 `infra/k8s/cluster/config.json` 里的 `gpuLabelKey`
 - `COLA_TRAINING_RUNTIME_CLASS_NAME` 未设置时，训练 Pod 不会强制注入 `runtimeClassName`
+- JupyterLab 默认复用训练 namespace，也可以通过 `COLA_JUPYTERLAB_K8S_NAMESPACE` 单独覆盖
 
 ## Kubernetes 连接
 
@@ -41,6 +43,19 @@
 - `COLA_TRAINING_CPU_LIMIT`
 - `COLA_TRAINING_MEMORY_REQUEST`
 - `COLA_TRAINING_MEMORY_LIMIT`
+
+JupyterLab 环境变量：
+
+- `COLA_JUPYTERLAB_K8S_NAMESPACE`
+- `COLA_JUPYTERLAB_KUBECONFIG_PATH`
+- `COLA_JUPYTERLAB_IMAGE`，默认 `quay.io/jupyter/pytorch-notebook:latest`
+- `COLA_JUPYTERLAB_IMAGE_PULL_POLICY`
+- `COLA_JUPYTERLAB_NODE_PORT_START`，默认 `31980`
+- `COLA_JUPYTERLAB_NODE_PORT_END`，默认 `32079`
+- `COLA_JUPYTERLAB_RUNTIME_CLASS_NAME`
+- `COLA_JUPYTERLAB_PVC_NAME`
+- `COLA_JUPYTERLAB_PVC_MOUNT_PATH`
+- `COLA_JUPYTERLAB_WORKDIR`
 
 前端跳转配置：
 
@@ -75,6 +90,9 @@
 - Web 所在的 ServiceAccount 或 kubeconfig 用户需要具备：
   - `namespaces` 的 `get/create`
   - `jobs.batch` 的 `get/create/delete`
+  - `deployments.apps` 的 `get/list/create/delete`
+  - `services` 的 `get/list/create/delete`
+  - `nodes` 的 `list`
 
 ## 页面可见信息
 
@@ -82,6 +100,28 @@
   - Kubernetes namespace / job name
   - 产物目录
   - 最后错误信息
+- JupyterLab 环境会显示：
+  - 状态、资源规格、镜像
+  - 节点和 NodePort 入口
+  - 带 token 的 `/lab` 访问链接
+
+## JupyterLab 环境
+
+训练页右上角的“新建 JupyterLab”会创建一个 Kubernetes `Deployment` 和 `NodePort Service`。默认镜像使用 Jupyter Docker Stacks 的 PyTorch Notebook 镜像，启动入口是 JupyterLab `/lab`。
+
+创建时可以选择：
+
+- CPU
+- 内存
+- 整卡 GPU，支持 `0` 表示 CPU-only
+- HAMi 显存份额，需填写 GPU 份额数和每份额显存 Gi
+
+入口 token 会写入 Deployment 的 `JUPYTER_TOKEN` 环境变量，并用于页面里的 Lab 链接。生产环境如果需要更严格的凭证管理，可以改成 Secret 挂载。
+
+默认持久化行为：
+
+- 设置 `COLA_JUPYTERLAB_PVC_NAME` 时，JupyterLab 工作目录挂载到该 PVC
+- 未设置时使用 `emptyDir`，环境删除后内容不会保留
 
 ## 原生页面入口
 

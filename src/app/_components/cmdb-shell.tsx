@@ -15,6 +15,7 @@ import {
   LoaderCircleIcon,
   Maximize2Icon,
   Minimize2Icon,
+  MonitorCogIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -23,6 +24,8 @@ import {
   ServerIcon,
   ShieldCheckIcon,
   ScrollTextIcon,
+  HistoryIcon,
+  StopCircleIcon,
   TerminalIcon,
   Trash2Icon,
   XIcon,
@@ -84,7 +87,12 @@ type ReleaseRow = DashboardData["releases"][number];
 type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
 type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
 type ProjectOperationResult = RouterOutputs["cmdb"]["projectOperation"];
-type ProjectOperationAction = "dockerStatus" | "dockerLogs" | "sshInfo";
+type CancelReleaseResult = RouterOutputs["cmdb"]["cancelRelease"];
+type ProjectOperationAction =
+  | "dockerStatus"
+  | "dockerLogs"
+  | "containerMonitor"
+  | "sshInfo";
 type AssetServiceRow = {
   project: ProjectRow;
   latestRelease: ProjectRow["latestRelease"];
@@ -104,6 +112,21 @@ type TopicReleaseGroup = {
   refs: string[];
   deployEnvs: string[];
   projectLabels: string[];
+};
+type TopicReleaseProjectSummary = {
+  key: string;
+  projectId: number;
+  projectName: string;
+  gitlabPath: string;
+  latestRelease: ReleaseRow;
+  releases: ReleaseRow[];
+  releaseTotal: number;
+  successTotal: number;
+  runningTotal: number;
+  failedTotal: number;
+  canceledTotal: number;
+  refs: string[];
+  deployEnvs: string[];
 };
 type DockerStatusPort = {
   containerPort: string;
@@ -878,7 +901,7 @@ function projectOperationIssue(
   }
 
   if (action !== "sshInfo" && project.deployTarget !== "docker") {
-    return "当前仅 Docker 部署项目支持查看容器状态和日志。";
+    return "当前仅 Docker 部署项目支持查看容器状态、日志和监控。";
   }
 
   return null;
@@ -893,10 +916,77 @@ function releaseOperationIssue(
   }
 
   if (action !== "sshInfo" && release.project.deployTarget !== "docker") {
-    return "当前仅 Docker 部署项目支持查看容器状态和日志。";
+    return "当前仅 Docker 部署项目支持查看容器状态、日志和监控。";
   }
 
   return null;
+}
+
+function releaseCancelIssue(release: ReleaseRow, canCancelReleases: boolean) {
+  if (!canCancelReleases) {
+    return "GitLab API Token 未配置，无法停止 Pipeline。";
+  }
+
+  if (!release.project) {
+    return "发布记录缺少项目信息。";
+  }
+
+  if (release.status !== "pending" && release.status !== "running") {
+    return "只有排队中或运行中的发布可以停止。";
+  }
+
+  if (!release.gitlabPipelineId) {
+    return "发布记录缺少 GitLab Pipeline ID。";
+  }
+
+  return null;
+}
+
+function mergeCanceledRelease(
+  summary: TopicReleaseProjectSummary,
+  updatedRelease: CancelReleaseResult,
+) {
+  let previousStatus: ReleaseRow["status"] | null = null;
+  let didUpdate = false;
+  const releases = summary.releases.map((release) => {
+    if (release.id !== updatedRelease.id) return release;
+
+    didUpdate = true;
+    previousStatus = release.status;
+    return {
+      ...release,
+      status: updatedRelease.status,
+      gitlabStatus: updatedRelease.gitlabStatus,
+      gitlabPipelineUrl: updatedRelease.gitlabPipelineUrl,
+      completedAt: updatedRelease.completedAt,
+      lastError: updatedRelease.lastError,
+    };
+  });
+
+  if (!didUpdate) return summary;
+
+  const countDelta = (status: ReleaseRow["status"]) =>
+    (updatedRelease.status === status ? 1 : 0) -
+    (previousStatus === status ? 1 : 0);
+  const activeDelta =
+    (updatedRelease.status === "pending" || updatedRelease.status === "running"
+      ? 1
+      : 0) -
+    (previousStatus === "pending" || previousStatus === "running" ? 1 : 0);
+
+  return {
+    ...summary,
+    latestRelease:
+      summary.latestRelease.id === updatedRelease.id
+        ? releases.find((release) => release.id === updatedRelease.id) ??
+          summary.latestRelease
+        : summary.latestRelease,
+    releases,
+    successTotal: Math.max(0, summary.successTotal + countDelta("success")),
+    runningTotal: Math.max(0, summary.runningTotal + activeDelta),
+    failedTotal: Math.max(0, summary.failedTotal + countDelta("failed")),
+    canceledTotal: Math.max(0, summary.canceledTotal + countDelta("canceled")),
+  };
 }
 
 function projectOperationLabel(
@@ -908,6 +998,8 @@ function projectOperationLabel(
       return "容器状态";
     case "dockerLogs":
       return "运行日志";
+    case "containerMonitor":
+      return "容器监控";
     case "sshInfo":
       return deployTarget === "docker" ? "容器登录" : "远程登录";
   }
@@ -922,6 +1014,8 @@ function projectOperationDescription(
       return "查看目标容器的运行状态、镜像、端口和启动信息。";
     case "dockerLogs":
       return "读取目标容器最近运行日志。";
+    case "containerMonitor":
+      return "打开项目监控面板，并展示目标容器暴露端口的候选入口。";
     case "sshInfo":
       return deployTarget === "docker"
         ? "自动登录目标资产并执行 docker exec，打开容器内终端。"
@@ -939,6 +1033,117 @@ function dockerStatusFromResult(result: ProjectOperationResult | null) {
   }
 
   return result.dockerStatus as DockerStatusResult;
+}
+
+function operationMonitorUrl(result: ProjectOperationResult | null) {
+  if (!result || !("monitorUrl" in result)) return null;
+  return typeof result.monitorUrl === "string" &&
+    result.monitorUrl.trim().length > 0
+    ? result.monitorUrl.trim()
+    : null;
+}
+
+function externalUrlHref(value: string) {
+  const normalized = value.trim();
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) return normalized;
+  return `http://${normalized}`;
+}
+
+function hostForUrl(host: string) {
+  const normalized = host.trim();
+  return normalized.includes(":") && !normalized.startsWith("[")
+    ? `[${normalized}]`
+    : normalized;
+}
+
+function portHostForMonitorUrl(port: DockerStatusPort, fallbackHost: string) {
+  const hostIp = port.hostIp?.trim();
+  if (!hostIp || hostIp === "0.0.0.0" || hostIp === "::" || hostIp === "[::]") {
+    return fallbackHost;
+  }
+
+  if (hostIp === "127.0.0.1" || hostIp === "::1" || hostIp === "[::1]") {
+    return fallbackHost;
+  }
+
+  return hostIp;
+}
+
+type ContainerMonitorLink = {
+  key: string;
+  label: string;
+  url: string;
+  description: string;
+  source: "configured" | "port";
+};
+
+function containerMonitorLinks(
+  project: ProjectRow | null,
+  result: ProjectOperationResult | null,
+  status: DockerStatusResult | null,
+) {
+  const links: ContainerMonitorLink[] = [];
+  const seenUrls = new Set<string>();
+  const configuredUrl =
+    operationMonitorUrl(result) ?? project?.config?.monitorUrl?.trim() ?? null;
+
+  if (configuredUrl) {
+    const url = externalUrlHref(configuredUrl);
+    seenUrls.add(url);
+    links.push({
+      key: "configured",
+      label: "监控面板",
+      url,
+      description: "来自项目观测配置的监控面板 URL。",
+      source: "configured",
+    });
+  }
+
+  const host = result?.host?.trim();
+  if (host && status) {
+    for (const port of status.ports) {
+      if (!port.hostPort) continue;
+      if (port.protocol && port.protocol !== "tcp") continue;
+
+      const targetHost = portHostForMonitorUrl(port, host);
+      const url = `http://${hostForUrl(targetHost)}:${port.hostPort}`;
+      if (seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      links.push({
+        key: `port-${port.hostPort}-${port.containerPort}-${port.protocol ?? "tcp"}`,
+        label: `端口 ${port.hostPort}`,
+        url,
+        description: port.label,
+        source: "port",
+      });
+    }
+  }
+
+  return links;
+}
+
+function containerMonitorCopyText(
+  project: ProjectRow | null,
+  result: ProjectOperationResult | null,
+  status: DockerStatusResult | null,
+) {
+  const links = containerMonitorLinks(project, result, status);
+  const lines = [
+    `项目: ${result?.projectName ?? project?.name ?? "-"}`,
+    `目标资产: ${
+      result?.targetAssetName ??
+      (project ? projectTargetAssetsLabel(project.config) : "-")
+    }`,
+    `主机: ${result?.host ?? "-"}`,
+    `容器: ${status?.name ?? result?.containerName ?? project?.name ?? "-"}`,
+    `状态: ${status ? dockerStatusLabel(status) : "-"}`,
+    "监控入口:",
+    ...(links.length > 0
+      ? links.map((link) => `- ${link.label}: ${link.url}`)
+      : ["- 未配置监控面板，且未发现可用宿主端口。"]),
+  ];
+
+  return lines.join("\n");
 }
 
 function dockerStateLabel(status: DockerStatusResult) {
@@ -1553,6 +1758,181 @@ function DockerStatusPanel({
   );
 }
 
+function ContainerMonitorPanel({
+  project,
+  result,
+  status,
+}: {
+  project: ProjectRow | null;
+  result: ProjectOperationResult;
+  status: DockerStatusResult | null;
+}) {
+  const links = containerMonitorLinks(project, result, status);
+  const configuredLink = links.find((link) => link.source === "configured");
+  const portLinks = links.filter((link) => link.source === "port");
+  const statusLabel = status ? dockerStatusLabel(status) : "状态不可用";
+  const failed = status ? dockerStatusIsFailed(status) : result.code !== 0;
+
+  return (
+    <div className="grid gap-3">
+      <section className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.055)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <span
+              className={cn(
+                "flex size-10 shrink-0 items-center justify-center rounded-[12px] ring-1",
+                failed
+                  ? "bg-amber-50 text-amber-700 ring-amber-100"
+                  : "bg-emerald-50 text-emerald-700 ring-emerald-100",
+              )}
+            >
+              <MonitorCogIcon className="size-4.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-base leading-6 font-semibold break-words text-slate-950">
+                {project?.name ?? result.projectName}
+              </p>
+              <p className="mt-1 text-sm leading-5 break-words text-slate-600">
+                {status
+                  ? `${status.name} · ${status.image || "未读取到镜像信息"}`
+                  : "未能解析目标容器状态。"}
+              </p>
+            </div>
+          </div>
+          <Badge
+            className={cn(
+              "w-fit shrink-0 border",
+              status
+                ? dockerStatusTone(status)
+                : "border-amber-200 bg-amber-50 text-amber-700",
+            )}
+          >
+            {statusLabel}
+          </Badge>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <DockerStatusMetric
+            label="目标资产"
+            value={result.targetAssetName}
+            hint={result.host}
+          />
+          <DockerStatusMetric
+            label="监控面板"
+            value={configuredLink ? "已配置" : "未配置"}
+            hint={configuredLink?.url ?? "可在项目观测配置中补充 URL"}
+          />
+          <DockerStatusMetric
+            label="端口入口"
+            value={`${portLinks.length} 个`}
+            hint={
+              portLinks.length > 0
+                ? portLinks.map((link) => link.label).join(", ")
+                : "未发现已绑定宿主端口"
+            }
+          />
+          <DockerStatusMetric label="查询耗时" value={`${result.durationMs}ms`} />
+        </div>
+      </section>
+
+      <section className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-950">监控入口</h3>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              优先使用项目配置的监控面板；端口入口根据 Docker 暴露端口生成。
+            </p>
+          </div>
+          {configuredLink ? (
+            <a
+              href={configuredLink.url}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "shrink-0 rounded-[10px]",
+              )}
+            >
+              <ExternalLinkIcon data-icon="inline-start" />
+              打开监控面板
+            </a>
+          ) : null}
+        </div>
+
+        {links.length > 0 ? (
+          <div className="mt-4 grid gap-2">
+            {links.map((link) => (
+              <a
+                key={link.key}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="grid gap-2 rounded-[10px] border border-slate-200 bg-slate-50 px-3 py-3 transition-colors hover:border-sky-200 hover:bg-sky-50 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <span className="min-w-0">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-medium text-slate-950">
+                      {link.label}
+                    </span>
+                    <Badge className="border border-slate-200 bg-white text-slate-600">
+                      {link.source === "configured" ? "配置" : "端口"}
+                    </Badge>
+                  </span>
+                  <span className="mt-1 block break-all font-mono text-xs leading-5 text-slate-600">
+                    {link.url}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-500">
+                    {link.description}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1 text-sm font-medium text-sky-700">
+                  打开
+                  <ExternalLinkIcon className="size-3.5" />
+                </span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <Alert className="mt-4 border-amber-200 bg-amber-50 text-amber-950">
+            <AlertTriangleIcon className="size-4" />
+            <AlertTitle>未找到监控入口</AlertTitle>
+            <AlertDescription>
+              当前项目未配置监控面板 URL，目标容器也没有读取到已绑定宿主端口。
+            </AlertDescription>
+          </Alert>
+        )}
+      </section>
+
+      {status ? (
+        <section className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-950">容器端口</h3>
+            <Badge className="border border-slate-200 bg-slate-50 text-slate-700">
+              {status.ports.length} 条
+            </Badge>
+          </div>
+          {status.ports.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {status.ports.map((port, index) => (
+                <span
+                  key={`${port.label}-${index}`}
+                  className="max-w-full rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs leading-5 break-all text-slate-700"
+                >
+                  {port.label}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              当前容器未暴露端口。
+            </p>
+          )}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function CmdbEmptyState(props: {
   icon: LucideIcon;
   title: string;
@@ -1609,6 +1989,9 @@ function CmdbEmptyState(props: {
 function ProjectReleaseHistory(props: {
   releases: ReleaseRow[];
   showProject?: boolean;
+  canCancelReleases: boolean;
+  cancelingReleaseId: number | null;
+  onCancelRelease: (release: ReleaseRow) => void;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
@@ -1665,54 +2048,13 @@ function ProjectReleaseHistory(props: {
                     </Badge>
                   ) : null}
                 </div>
-                <div className={CMDB_ACTION_GROUP_CLASS}>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className={CMDB_ACTION_ICON_CLASS}
-                    onClick={() =>
-                      props.onOpenOperation(release, "dockerStatus")
-                    }
-                    disabled={Boolean(
-                      releaseOperationIssue(release, "dockerStatus"),
-                    )}
-                    title={
-                      releaseOperationIssue(release, "dockerStatus") ??
-                      "容器状态"
-                    }
-                  >
-                    <ActivityIcon />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className={CMDB_ACTION_ICON_CLASS}
-                    onClick={() => props.onOpenOperation(release, "dockerLogs")}
-                    disabled={Boolean(
-                      releaseOperationIssue(release, "dockerLogs"),
-                    )}
-                    title={
-                      releaseOperationIssue(release, "dockerLogs") ?? "运行日志"
-                    }
-                  >
-                    <ScrollTextIcon />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className={CMDB_ACTION_ICON_CLASS}
-                    onClick={() => props.onOpenOperation(release, "sshInfo")}
-                    disabled={Boolean(
-                      releaseOperationIssue(release, "sshInfo"),
-                    )}
-                    title={
-                      releaseOperationIssue(release, "sshInfo") ??
-                      remoteLoginLabel(release.project?.deployTarget)
-                    }
-                  >
-                    <TerminalIcon />
-                  </Button>
-                </div>
+                <TopicReleaseOperationButtons
+                  release={release}
+                  canCancelReleases={props.canCancelReleases}
+                  cancelingReleaseId={props.cancelingReleaseId}
+                  onCancelRelease={props.onCancelRelease}
+                  onOpenOperation={props.onOpenOperation}
+                />
               </div>
 
               <div className="mt-3">
@@ -1816,59 +2158,13 @@ function ProjectReleaseHistory(props: {
                 </TableCell>
                 <TableCell className={STICKY_ACTION_CELL_CLASS}>
                   <div className="flex justify-end gap-2">
-                    <div className={CMDB_ACTION_GROUP_CLASS}>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className={CMDB_ACTION_ICON_CLASS}
-                        onClick={() =>
-                          props.onOpenOperation(release, "dockerStatus")
-                        }
-                        disabled={Boolean(
-                          releaseOperationIssue(release, "dockerStatus"),
-                        )}
-                        title={
-                          releaseOperationIssue(release, "dockerStatus") ??
-                          "容器状态"
-                        }
-                      >
-                        <ActivityIcon />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className={CMDB_ACTION_ICON_CLASS}
-                        onClick={() =>
-                          props.onOpenOperation(release, "dockerLogs")
-                        }
-                        disabled={Boolean(
-                          releaseOperationIssue(release, "dockerLogs"),
-                        )}
-                        title={
-                          releaseOperationIssue(release, "dockerLogs") ??
-                          "运行日志"
-                        }
-                      >
-                        <ScrollTextIcon />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className={CMDB_ACTION_ICON_CLASS}
-                        onClick={() =>
-                          props.onOpenOperation(release, "sshInfo")
-                        }
-                        disabled={Boolean(
-                          releaseOperationIssue(release, "sshInfo"),
-                        )}
-                        title={
-                          releaseOperationIssue(release, "sshInfo") ??
-                          remoteLoginLabel(release.project?.deployTarget)
-                        }
-                      >
-                        <TerminalIcon />
-                      </Button>
-                    </div>
+                    <TopicReleaseOperationButtons
+                      release={release}
+                      canCancelReleases={props.canCancelReleases}
+                      cancelingReleaseId={props.cancelingReleaseId}
+                      onCancelRelease={props.onCancelRelease}
+                      onOpenOperation={props.onOpenOperation}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -1907,38 +2203,11 @@ function TopicReleaseCountPill(props: {
   );
 }
 
-type TopicReleaseBatch = {
-  key: string;
-  label: string;
-  releases: ReleaseRow[];
-  releaseTotal: number;
-  successTotal: number;
-  runningTotal: number;
-  failedTotal: number;
-  canceledTotal: number;
-  refs: string[];
-  deployEnvs: string[];
-};
-
-function topicReleaseBatchKey(value: ReleaseRow["createdAt"]) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "unknown";
-
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-  ].join("-");
-}
-
-function buildTopicReleaseBatches(releases: ReleaseRow[]) {
+function buildTopicReleaseProjectSummaries(releases: ReleaseRow[]) {
   const grouped = new Map<string, ReleaseRow[]>();
 
   for (const release of releases) {
-    const key = topicReleaseBatchKey(release.createdAt);
+    const key = String(release.projectId);
     const current = grouped.get(key);
     if (current) {
       current.push(release);
@@ -1948,18 +2217,24 @@ function buildTopicReleaseBatches(releases: ReleaseRow[]) {
   }
 
   return Array.from(grouped.entries())
-    .map(([key, batchReleases]): TopicReleaseBatch => {
-      const sortedReleases = [...batchReleases].sort(
+    .map(([key, projectReleases]): TopicReleaseProjectSummary => {
+      const sortedReleases = [...projectReleases].sort(
         (first, second) =>
           new Date(second.createdAt).getTime() -
           new Date(first.createdAt).getTime(),
       );
       const latestRelease = sortedReleases[0]!;
+      const projectName =
+        latestRelease.project?.name ??
+        latestRelease.project?.gitlabPath ??
+        `项目 ${latestRelease.projectId}`;
 
       return {
         key,
-        label:
-          key === "unknown" ? "未知时间" : formatTime(latestRelease.createdAt),
+        projectId: latestRelease.projectId,
+        projectName,
+        gitlabPath: latestRelease.project?.gitlabPath ?? "-",
+        latestRelease,
         releases: sortedReleases,
         releaseTotal: sortedReleases.length,
         successTotal: sortedReleases.filter(
@@ -2123,11 +2398,20 @@ function TopicReleaseActionButtons(props: {
 
 function TopicReleaseOperationButtons(props: {
   release: ReleaseRow;
+  canCancelReleases: boolean;
+  cancelingReleaseId: number | null;
+  onCancelRelease: (release: ReleaseRow) => void;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
   ) => void;
 }) {
+  const cancelIssue = releaseCancelIssue(
+    props.release,
+    props.canCancelReleases,
+  );
+  const isCanceling = props.cancelingReleaseId === props.release.id;
+
   return (
     <div className={CMDB_ACTION_GROUP_CLASS}>
       <Button
@@ -2141,6 +2425,23 @@ function TopicReleaseOperationButtons(props: {
         }
       >
         <ActivityIcon />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={CMDB_ACTION_ICON_CLASS}
+        onClick={() =>
+          props.onOpenOperation(props.release, "containerMonitor")
+        }
+        disabled={Boolean(
+          releaseOperationIssue(props.release, "containerMonitor"),
+        )}
+        title={
+          releaseOperationIssue(props.release, "containerMonitor") ??
+          "容器监控"
+        }
+      >
+        <MonitorCogIcon />
       </Button>
       <Button
         variant="ghost"
@@ -2165,12 +2466,32 @@ function TopicReleaseOperationButtons(props: {
       >
         <TerminalIcon />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={cn(
+          CMDB_ACTION_ICON_CLASS,
+          "text-rose-600 hover:text-rose-700 disabled:text-slate-300",
+        )}
+        onClick={() => props.onCancelRelease(props.release)}
+        disabled={Boolean(cancelIssue) || isCanceling}
+        title={cancelIssue ?? "停止发布"}
+      >
+        {isCanceling ? (
+          <LoaderCircleIcon className="animate-spin" />
+        ) : (
+          <StopCircleIcon />
+        )}
+      </Button>
     </div>
   );
 }
 
-function TopicReleaseRecordRow(props: {
+function TopicReleaseReleaseRow(props: {
   release: ReleaseRow;
+  canCancelReleases: boolean;
+  cancelingReleaseId: number | null;
+  onCancelRelease: (release: ReleaseRow) => void;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
@@ -2235,6 +2556,9 @@ function TopicReleaseRecordRow(props: {
       <div className="flex justify-start lg:justify-end">
         <TopicReleaseOperationButtons
           release={props.release}
+          canCancelReleases={props.canCancelReleases}
+          cancelingReleaseId={props.cancelingReleaseId}
+          onCancelRelease={props.onCancelRelease}
           onOpenOperation={props.onOpenOperation}
         />
       </div>
@@ -2242,65 +2566,96 @@ function TopicReleaseRecordRow(props: {
   );
 }
 
-function TopicReleaseBatchSection(props: {
-  batch: TopicReleaseBatch;
+function TopicReleaseProjectRow(props: {
+  summary: TopicReleaseProjectSummary;
+  canCancelReleases: boolean;
+  cancelingReleaseId: number | null;
+  onCancelRelease: (release: ReleaseRow) => void;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
   ) => void;
+  onOpenHistory: (summary: TopicReleaseProjectSummary) => void;
 }) {
+  const latestRelease = props.summary.latestRelease;
+
   return (
-    <section className="border-b border-slate-200/80 last:border-b-0">
-      <div className="flex flex-col gap-3 bg-slate-50/75 px-4 py-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-950">
-              {props.batch.label}
-            </p>
-            <span className="text-xs leading-5 text-slate-500">
-              {props.batch.releaseTotal} 条发布
-            </span>
-          </div>
-          <p className="mt-1 truncate text-xs leading-5 text-slate-500">
-            Ref {props.batch.refs.join("、")} · 环境{" "}
-            {props.batch.deployEnvs.join("、")}
-          </p>
+    <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(200px,1.05fr)_minmax(180px,0.76fr)_minmax(180px,0.8fr)_auto] lg:items-center">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Badge className={cn("border", releaseTone(latestRelease.status))}>
+            {releaseLabel(latestRelease.status)}
+          </Badge>
+          <span className="text-xs leading-5 text-slate-500">
+            最近 {formatTime(latestRelease.createdAt)}
+          </span>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-1.5">
+        <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+          {props.summary.projectName}
+        </p>
+        <p className="mt-0.5 truncate text-xs leading-5 text-slate-500">
+          {props.summary.gitlabPath}
+        </p>
+      </div>
+
+      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1">
+        <TopicReleaseInfoLine label="Ref">
+          <TopicReleaseValueChips values={props.summary.refs} />
+        </TopicReleaseInfoLine>
+        <TopicReleaseInfoLine label="环境">
+          <TopicReleaseValueChips values={props.summary.deployEnvs} />
+        </TopicReleaseInfoLine>
+      </div>
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap gap-1.5">
           <TopicReleaseCountPill
             label="成功"
-            value={props.batch.successTotal}
+            value={props.summary.successTotal}
             tone="success"
           />
           <TopicReleaseCountPill
             label="进行中"
-            value={props.batch.runningTotal}
+            value={props.summary.runningTotal}
             tone="running"
           />
           <TopicReleaseCountPill
             label="失败"
-            value={props.batch.failedTotal}
+            value={props.summary.failedTotal}
             tone="failed"
           />
-          {props.batch.canceledTotal > 0 ? (
+          {props.summary.canceledTotal > 0 ? (
             <TopicReleaseCountPill
               label="取消"
-              value={props.batch.canceledTotal}
+              value={props.summary.canceledTotal}
               tone="neutral"
             />
           ) : null}
         </div>
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          共 {props.summary.releaseTotal} 条部署记录
+        </p>
       </div>
-      <div className="divide-y divide-slate-200/75 bg-white">
-        {props.batch.releases.map((release) => (
-          <TopicReleaseRecordRow
-            key={`topic-release-record-${release.id}`}
-            release={release}
-            onOpenOperation={props.onOpenOperation}
-          />
-        ))}
+
+      <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-[9px] bg-white px-2.5 text-[12px]"
+          onClick={() => props.onOpenHistory(props.summary)}
+        >
+          <HistoryIcon data-icon="inline-start" />
+          部署记录
+        </Button>
+        <TopicReleaseOperationButtons
+          release={latestRelease}
+          canCancelReleases={props.canCancelReleases}
+          cancelingReleaseId={props.cancelingReleaseId}
+          onCancelRelease={props.onCancelRelease}
+          onOpenOperation={props.onOpenOperation}
+        />
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -2310,10 +2665,14 @@ function TopicReleaseList(props: {
   projects: ProjectRow[];
   triggeringPlanId: string | null;
   triggeringTopicRelease: boolean;
+  canCancelReleases: boolean;
+  cancelingReleaseId: number | null;
+  onCancelRelease: (release: ReleaseRow) => void;
   onOpenOperation: (
     release: ReleaseRow,
     action: ProjectOperationAction,
   ) => void;
+  onOpenHistory: (summary: TopicReleaseProjectSummary) => void;
   onCreate: () => void;
   onTriggerPlan: (plan: TopicReleasePlan) => void;
   onTriggerGroup: (group: TopicReleaseGroup) => void;
@@ -2433,7 +2792,9 @@ function TopicReleaseList(props: {
 
       {props.groups.map((group) => {
         const state = topicReleaseGroupState(group);
-        const batches = buildTopicReleaseBatches(group.releases);
+        const projectSummaries = buildTopicReleaseProjectSummaries(
+          group.releases,
+        );
 
         return (
           <article
@@ -2511,23 +2872,29 @@ function TopicReleaseList(props: {
                 <div className="flex flex-col gap-1 border-b border-slate-200/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-950">
-                      发布批次
+                      发布项目
                     </p>
                     <p className="text-xs leading-5 text-slate-500">
-                      按触发时间聚合，最近批次在前。
+                      每个项目显示最近状态，部署记录点击弹窗查看。
                     </p>
                   </div>
                   <span className="text-xs leading-5 text-slate-500">
-                    {batches.length} 个批次
+                    {projectSummaries.length} 个项目
                   </span>
                 </div>
-                {batches.map((batch) => (
-                  <TopicReleaseBatchSection
-                    key={`topic-release-batch-${group.topic}-${batch.key}`}
-                    batch={batch}
-                    onOpenOperation={props.onOpenOperation}
-                  />
-                ))}
+                <div className="divide-y divide-slate-200/75 bg-white">
+                  {projectSummaries.map((summary) => (
+                    <TopicReleaseProjectRow
+                      key={`topic-release-project-${group.topic}-${summary.key}`}
+                      summary={summary}
+                      canCancelReleases={props.canCancelReleases}
+                      cancelingReleaseId={props.cancelingReleaseId}
+                      onCancelRelease={props.onCancelRelease}
+                      onOpenOperation={props.onOpenOperation}
+                      onOpenHistory={props.onOpenHistory}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </article>
@@ -2666,6 +3033,27 @@ function AssetServiceList(props: {
                   onClick={() =>
                     props.onOpenOperation(
                       project,
+                      "containerMonitor",
+                      props.assetName,
+                    )
+                  }
+                  disabled={Boolean(
+                    projectOperationIssue(project, "containerMonitor"),
+                  )}
+                  title={
+                    projectOperationIssue(project, "containerMonitor") ??
+                    "容器监控"
+                  }
+                >
+                  <MonitorCogIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={CMDB_ACTION_ICON_CLASS}
+                  onClick={() =>
+                    props.onOpenOperation(
+                      project,
                       "dockerLogs",
                       props.assetName,
                     )
@@ -2762,6 +3150,8 @@ export function CmdbShell() {
     useState<string | null>(null);
   const [topicReleaseResult, setTopicReleaseResult] =
     useState<TopicReleaseResult | null>(null);
+  const [topicReleaseHistory, setTopicReleaseHistory] =
+    useState<TopicReleaseProjectSummary | null>(null);
   const [expandedProjectReleaseIds, setExpandedProjectReleaseIds] = useState<
     number[]
   >([]);
@@ -2948,6 +3338,25 @@ export function CmdbShell() {
       setErrorMessage(null);
     },
     onError: (error) => {
+      setErrorMessage(error.message);
+    },
+  });
+
+  const cancelRelease = api.cmdb.cancelRelease.useMutation({
+    onSuccess: async (release) => {
+      await utils.cmdb.dashboard.invalidate();
+      setTopicReleaseHistory((current) =>
+        current ? mergeCanceledRelease(current, release) : current,
+      );
+      setSuccessMessage(
+        release.status === "canceled"
+          ? "已请求停止发布。"
+          : "发布状态已更新。",
+      );
+      setErrorMessage(null);
+    },
+    onError: (error) => {
+      setSuccessMessage(null);
       setErrorMessage(error.message);
     },
   });
@@ -3161,7 +3570,9 @@ export function CmdbShell() {
       ? ActivityIcon
       : operationAction === "dockerLogs"
         ? ScrollTextIcon
-        : TerminalIcon;
+        : operationAction === "containerMonitor"
+          ? MonitorCogIcon
+          : TerminalIcon;
   const operationExitCode = operationResult?.code ?? 0;
   const isTerminalOperation = operationAction === "sshInfo";
   const operationPending = isTerminalOperation
@@ -3200,9 +3611,15 @@ export function CmdbShell() {
     : Boolean(operationResult);
   const operationCopyText = isTerminalOperation
     ? terminalOutput
-    : operationText.length > 0
-      ? operationText
-      : (operationResult?.sshCommand ?? "");
+    : operationAction === "containerMonitor" && operationResult
+      ? containerMonitorCopyText(
+          operationProject,
+          operationResult,
+          operationDockerStatus,
+        )
+      : operationText.length > 0
+        ? operationText
+        : (operationResult?.sshCommand ?? "");
   const selectedGitLabCandidate =
     gitlabCatalogItems.find((item) => item.path === projectDraft.gitlabPath) ??
     null;
@@ -3304,6 +3721,10 @@ export function CmdbShell() {
     (project) => project.enabled,
   ).length;
   const canTriggerPipelines = Boolean(data?.gitlab.canTriggerPipelines);
+  const canCancelReleases = Boolean(data?.gitlab.hasApiToken);
+  const cancelingReleaseId = cancelRelease.isPending
+    ? (cancelRelease.variables?.releaseId ?? null)
+    : null;
   const topicReleaseSelectedIds = new Set(topicReleaseDraft.projectIds);
   const releasableProjects = projects.filter(
     (project) => !topicReleaseProjectIssue(project, canTriggerPipelines),
@@ -3912,6 +4333,32 @@ export function CmdbShell() {
     }
 
     openProjectOperation(project, action);
+  }
+
+  function openTopicReleaseHistory(summary: TopicReleaseProjectSummary) {
+    setTopicReleaseHistory(summary);
+  }
+
+  async function cancelReleaseAction(release: ReleaseRow) {
+    const issue = releaseCancelIssue(release, Boolean(data?.gitlab.hasApiToken));
+    if (issue) {
+      setSuccessMessage(null);
+      setErrorMessage(issue);
+      return;
+    }
+
+    const accepted = await confirm({
+      title: "停止发布",
+      description: `将请求停止 ${
+        release.project?.name ?? "当前项目"
+      } 的 GitLab Pipeline #${release.gitlabPipelineId}。如果流水线已经完成并进入 CMDB 部署阶段，系统会拒绝停止。`,
+      confirmLabel: "停止",
+      confirmVariant: "destructive",
+    });
+
+    if (!accepted) return;
+
+    cancelRelease.mutate({ releaseId: release.id });
   }
 
   async function copyOperationOutput() {
@@ -5224,6 +5671,28 @@ export function CmdbShell() {
                             size="icon-sm"
                             className={CMDB_ACTION_ICON_CLASS}
                             onClick={() =>
+                              openProjectOperation(project, "containerMonitor")
+                            }
+                            disabled={Boolean(
+                              projectOperationIssue(
+                                project,
+                                "containerMonitor",
+                              ),
+                            )}
+                            title={
+                              projectOperationIssue(
+                                project,
+                                "containerMonitor",
+                              ) ?? "容器监控"
+                            }
+                          >
+                            <MonitorCogIcon />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className={CMDB_ACTION_ICON_CLASS}
+                            onClick={() =>
                               openProjectOperation(project, "dockerLogs")
                             }
                             disabled={Boolean(
@@ -5309,6 +5778,11 @@ export function CmdbShell() {
                           </div>
                           <ProjectReleaseHistory
                             releases={projectReleases}
+                            canCancelReleases={canCancelReleases}
+                            cancelingReleaseId={cancelingReleaseId}
+                            onCancelRelease={(release) =>
+                              void cancelReleaseAction(release)
+                            }
                             onOpenOperation={openReleaseOperation}
                           />
                         </div>
@@ -5362,7 +5836,11 @@ export function CmdbShell() {
               projects={projects}
               triggeringPlanId={triggeringTopicReleasePlanId}
               triggeringTopicRelease={triggerTopicRelease.isPending}
+              canCancelReleases={canCancelReleases}
+              cancelingReleaseId={cancelingReleaseId}
+              onCancelRelease={(release) => void cancelReleaseAction(release)}
               onOpenOperation={openReleaseOperation}
+              onOpenHistory={openTopicReleaseHistory}
               onCreate={() => openTopicReleaseDialog()}
               onTriggerPlan={triggerTopicReleasePlanAction}
               onTriggerGroup={triggerTopicReleaseGroupAction}
@@ -5373,6 +5851,105 @@ export function CmdbShell() {
           </ModuleSection>
         </div>
       ) : null}
+
+      <Dialog
+        open={Boolean(topicReleaseHistory)}
+        onOpenChange={(open) => {
+          if (!open) setTopicReleaseHistory(null);
+        }}
+      >
+        <DialogContent className="grid max-h-[min(90vh,820px)] max-w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-slate-200/90 bg-white p-0 shadow-[0_28px_70px_rgba(15,23,42,0.16)] sm:max-w-[980px]">
+          <DialogHeader className="gap-0 border-b border-slate-200/80 bg-white px-4 py-3 pr-14 sm:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <DialogTitle className="text-base leading-6 font-semibold tracking-normal text-slate-950">
+                  {topicReleaseHistory?.projectName ?? "部署记录"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-sm leading-5 text-slate-600">
+                  {topicReleaseHistory?.gitlabPath ?? "-"}
+                </DialogDescription>
+              </div>
+              {topicReleaseHistory ? (
+                <div className="flex shrink-0 flex-wrap gap-1.5">
+                  <TopicReleaseCountPill
+                    label="成功"
+                    value={topicReleaseHistory.successTotal}
+                    tone="success"
+                  />
+                  <TopicReleaseCountPill
+                    label="进行中"
+                    value={topicReleaseHistory.runningTotal}
+                    tone="running"
+                  />
+                  <TopicReleaseCountPill
+                    label="失败"
+                    value={topicReleaseHistory.failedTotal}
+                    tone="failed"
+                  />
+                  {topicReleaseHistory.canceledTotal > 0 ? (
+                    <TopicReleaseCountPill
+                      label="取消"
+                      value={topicReleaseHistory.canceledTotal}
+                      tone="neutral"
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-y-auto bg-slate-50/65 p-3 sm:p-4">
+            {topicReleaseHistory ? (
+              <div className="overflow-hidden rounded-[12px] border border-slate-200/90 bg-white">
+                <div className="flex flex-col gap-2 border-b border-slate-200/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-950">
+                      部署记录
+                    </p>
+                    <p className="text-xs leading-5 text-slate-500">
+                      最近 {topicReleaseHistory.releaseTotal}{" "}
+                      条，按创建时间倒序。
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <TopicReleaseValueChips values={topicReleaseHistory.refs} />
+                    <TopicReleaseValueChips
+                      values={topicReleaseHistory.deployEnvs}
+                    />
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-200/75">
+                  {topicReleaseHistory.releases.map((release) => (
+                    <TopicReleaseReleaseRow
+                      key={`topic-release-history-${release.id}`}
+                      release={release}
+                      canCancelReleases={canCancelReleases}
+                      cancelingReleaseId={cancelingReleaseId}
+                      onCancelRelease={(item) =>
+                        void cancelReleaseAction(item)
+                      }
+                      onOpenOperation={openReleaseOperation}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter
+            bleed={false}
+            className="border-t border-slate-200/90 bg-white px-5 py-3"
+          >
+            <Button
+              size="sm"
+              className="rounded-[10px]"
+              onClick={() => setTopicReleaseHistory(null)}
+            >
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={monitorDialogOpen} onOpenChange={setMonitorDialogOpen}>
         <DialogContent className="max-w-[720px] overflow-hidden border border-slate-200/95 bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.14)]">
@@ -5695,7 +6272,13 @@ export function CmdbShell() {
                 </AlertDescription>
               </Alert>
             ) : operationResult ? (
-              operationDockerStatus ? (
+              operationAction === "containerMonitor" ? (
+                <ContainerMonitorPanel
+                  project={operationProject}
+                  result={operationResult}
+                  status={operationDockerStatus}
+                />
+              ) : operationDockerStatus ? (
                 <DockerStatusPanel
                   result={operationResult}
                   status={operationDockerStatus}
@@ -5766,7 +6349,11 @@ export function CmdbShell() {
                   size="sm"
                   className="rounded-[10px]"
                   onClick={() =>
-                    openProjectOperation(operationProject, operationAction)
+                    openProjectOperation(
+                      operationProject,
+                      operationAction,
+                      operationSelectedAssetName ?? undefined,
+                    )
                   }
                   disabled={projectOperation.isPending}
                 >

@@ -6,6 +6,7 @@ import {
   BrainCircuitIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  NotebookTabsIcon,
   LoaderCircleIcon,
   PlayIcon,
   PlusIcon,
@@ -22,7 +23,7 @@ import {
 } from "@/app/_components/module-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -46,6 +47,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn, optionLabel } from "@/lib/utils";
 import {
   formatDistributedGpuAllocationLabel,
+  formatGpuAllocationLabel,
   gpuAllocationModeLabels,
   gpuAllocationModeValues,
   type GpuAllocationSpec,
@@ -89,7 +91,18 @@ type TrainingDraft = {
 };
 
 type TrainingJobItem = RouterOutputs["training"]["listJobs"][number];
+type JupyterLabItem =
+  RouterOutputs["training"]["listJupyterLabs"]["items"][number];
 type TrainingListFilter = "all" | "running" | "issues" | "scheduling";
+
+type JupyterLabDraft = {
+  name: string;
+  cpu: string;
+  memoryGi: string;
+  gpuAllocationMode: (typeof gpuAllocationModeValues)[number];
+  gpuCount: string;
+  gpuMemoryGi: string;
+};
 
 const defaultDraft: TrainingDraft = {
   title: "",
@@ -136,6 +149,15 @@ const minimalQwenLoraExample = {
   loadIn4bit: "true" as const,
   studioConfigJson: "",
 } satisfies TrainingDraft;
+
+const defaultJupyterLabDraft: JupyterLabDraft = {
+  name: "",
+  cpu: "4",
+  memoryGi: "16",
+  gpuAllocationMode: "whole",
+  gpuCount: "0",
+  gpuMemoryGi: "",
+};
 
 const dialogControlClassName =
   "h-11 rounded-2xl border-slate-200/90 bg-white/92 px-3 text-[15px] shadow-[0_1px_0_rgba(255,255,255,0.7)]";
@@ -199,6 +221,62 @@ function runtimeSummaryTone(
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
+}
+
+function jupyterLabStatusTone(status: JupyterLabItem["status"]) {
+  switch (status) {
+    case "running":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "starting":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "error":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function jupyterLabStatusLabel(status: JupyterLabItem["status"]) {
+  switch (status) {
+    case "running":
+      return "运行中";
+    case "starting":
+      return "启动中";
+    case "error":
+      return "异常";
+    default:
+      return status;
+  }
+}
+
+function jupyterLabSpecLabel(lab: JupyterLabItem) {
+  return `${formatGpuAllocationLabel({
+    gpuAllocationMode: lab.gpuAllocationMode,
+    gpuCount: lab.gpuCount,
+    gpuMemoryGi: lab.gpuMemoryGi,
+  })} · ${lab.cpu} CPU · ${lab.memory}`;
+}
+
+function formatJupyterLabDraftSpec(draft: JupyterLabDraft) {
+  const gpuCount = Number(draft.gpuCount);
+  const gpuMemoryGi = Number(draft.gpuMemoryGi);
+
+  return `${formatGpuAllocationLabel({
+    gpuAllocationMode: draft.gpuAllocationMode,
+    gpuCount: Number.isFinite(gpuCount) ? gpuCount : 0,
+    gpuMemoryGi:
+      draft.gpuAllocationMode === "memory" && Number.isFinite(gpuMemoryGi)
+        ? gpuMemoryGi
+        : null,
+  })} · ${draft.cpu || "-"} CPU · ${draft.memoryGi || "-"}Gi`;
+}
+
+function sanitizeDnsNameInput(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function gpuSpecFromJob(job: TrainingJobItem): GpuAllocationSpec {
@@ -318,9 +396,12 @@ function TrainingTopBar(props: {
   draftCount: number;
   activeGpuCount: number;
   activeGpuDescription: string;
+  jupyterLabCount: number;
+  readyJupyterLabCount: number;
   isRefreshing: boolean;
   onRefresh: () => void;
   onCreate: () => void;
+  onCreateJupyterLab: () => void;
   onOpenStudio: () => void;
 }) {
   return (
@@ -362,6 +443,10 @@ function TrainingTopBar(props: {
               <PlusIcon data-icon="inline-start" />
               新建任务
             </Button>
+            <Button variant="outline" onClick={props.onCreateJupyterLab}>
+              <NotebookTabsIcon data-icon="inline-start" />
+              新建 JupyterLab
+            </Button>
             <Button variant="outline" onClick={props.onOpenStudio}>
               <ArrowUpRightIcon data-icon="inline-start" />
               Unsloth Studio
@@ -393,6 +478,12 @@ function TrainingTopBar(props: {
             value={String(props.activeGpuCount)}
             description={props.activeGpuDescription}
             icon={LoaderCircleIcon}
+          />
+          <TrainingMetricStripItem
+            label="JupyterLab"
+            value={`${props.readyJupyterLabCount}/${props.jupyterLabCount}`}
+            description="就绪环境"
+            icon={NotebookTabsIcon}
           />
         </div>
       </div>
@@ -786,6 +877,133 @@ function LoadingRows() {
         </div>
       ))}
     </div>
+  );
+}
+
+function JupyterLabLoadingRows() {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={`jupyterlab-skeleton-${index}`}
+          className="rounded-[var(--radius-shell)] border border-slate-200/80 bg-white/86 p-4"
+        >
+          <div className="flex items-start gap-3">
+            <Skeleton className="size-10 rounded-[11px]" />
+            <div className="grid flex-1 gap-2">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-8 w-full rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function JupyterLabCard(props: {
+  lab: JupyterLabItem;
+  isDeleting: boolean;
+  onDelete: () => void;
+}) {
+  const { lab } = props;
+
+  return (
+    <article className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-4 shadow-[0_14px_32px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-[11px] border border-slate-200/85 bg-white text-slate-700 shadow-[0_10px_18px_rgba(15,23,42,0.035)]">
+            <NotebookTabsIcon className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-[15px] leading-6 font-semibold tracking-normal text-slate-950">
+              {lab.name}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              JupyterLab 环境
+            </p>
+          </div>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0 rounded-full px-3 py-1 text-xs",
+            jupyterLabStatusTone(lab.status),
+          )}
+        >
+          {jupyterLabStatusLabel(lab.status)}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 rounded-[var(--radius-shell)] border border-slate-200/75 bg-slate-50/80 px-3.5 py-3 text-sm leading-6 text-slate-600">
+        <div>
+          <SurfaceLabel>资源规格</SurfaceLabel>
+          <p className="mt-1 font-medium text-slate-950">
+            {jupyterLabSpecLabel(lab)}
+          </p>
+        </div>
+        <div>
+          <SurfaceLabel>节点 / 入口</SurfaceLabel>
+          <p className="mt-1 break-all font-mono text-[12px] text-slate-700">
+            {lab.nodeName ?? "未分配节点"} · {lab.endpoint ?? "入口待分配"}
+          </p>
+        </div>
+        <div>
+          <SurfaceLabel>镜像</SurfaceLabel>
+          <p className="mt-1 break-all font-mono text-[12px] text-slate-700">
+            {lab.image}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+        {lab.labUrl ? (
+          <a
+            href={lab.labUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              buttonVariants({ size: "sm" }),
+              "h-8 rounded-full px-3 text-[13px]",
+            )}
+          >
+            <ArrowUpRightIcon data-icon="inline-start" />
+            打开 Lab
+          </a>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 rounded-full px-3 text-[13px] text-slate-500"
+            disabled
+          >
+            打开 Lab
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 rounded-full border-rose-200/80 bg-white px-3 text-[13px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+          disabled={props.isDeleting}
+          onClick={props.onDelete}
+        >
+          {props.isDeleting ? (
+            <LoaderCircleIcon
+              className="animate-spin"
+              data-icon="inline-start"
+            />
+          ) : (
+            <Trash2Icon data-icon="inline-start" />
+          )}
+          {props.isDeleting ? "删除中" : "删除"}
+        </Button>
+      </div>
+    </article>
   );
 }
 
@@ -1202,7 +1420,13 @@ export function TrainingShell() {
   const jobsQuery = api.training.listJobs.useQuery(undefined, {
     refetchOnWindowFocus: true,
   });
+  const jupyterLabsQuery = api.training.listJupyterLabs.useQuery(undefined, {
+    refetchOnWindowFocus: true,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isJupyterLabCreateOpen, setIsJupyterLabCreateOpen] = useState(false);
   const [listFilter, setListFilter] = useState<TrainingListFilter>("all");
   const [expandedJobDetails, setExpandedJobDetails] = useState<
     Record<string, boolean>
@@ -1215,6 +1439,13 @@ export function TrainingShell() {
     string | undefined
   >(undefined);
   const [draft, setDraft] = useState(defaultDraft);
+  const [jupyterLabDraft, setJupyterLabDraft] = useState(
+    defaultJupyterLabDraft,
+  );
+  const [
+    pendingDeletedJupyterLabNames,
+    setPendingDeletedJupyterLabNames,
+  ] = useState<string[]>([]);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "error";
     message: string;
@@ -1274,7 +1505,61 @@ export function TrainingShell() {
     },
   });
 
+  const createJupyterLab = api.training.createJupyterLab.useMutation({
+    onSuccess: (result) => {
+      setFeedback({ tone: "success", message: result.message });
+      setJupyterLabDraft(defaultJupyterLabDraft);
+      setIsJupyterLabCreateOpen(false);
+      void utils.training.listJupyterLabs.invalidate();
+
+      if (result.labUrl) {
+        const openedWindow = window.open(
+          result.labUrl,
+          "_blank",
+          "noopener,noreferrer",
+        );
+        if (!openedWindow) {
+          setFeedback({
+            tone: "success",
+            message: `${result.message} 浏览器拦截了新窗口，可在 JupyterLab 列表中打开入口。`,
+          });
+        }
+      }
+    },
+    onError: (error) => {
+      setFeedback({ tone: "error", message: error.message });
+    },
+  });
+
+  const deleteJupyterLab = api.training.deleteJupyterLab.useMutation({
+    onMutate: ({ name }) => {
+      setFeedback(null);
+      setPendingDeletedJupyterLabNames((current) =>
+        current.includes(name) ? current : [...current, name],
+      );
+    },
+    onSuccess: (result) => {
+      setFeedback({ tone: "success", message: result.message });
+      void utils.training.listJupyterLabs.invalidate();
+    },
+    onError: (error, variables) => {
+      setPendingDeletedJupyterLabNames((current) =>
+        current.filter((name) => name !== variables.name),
+      );
+      setFeedback({ tone: "error", message: error.message });
+    },
+  });
+
   const jobs = jobsQuery.data ?? [];
+  const jupyterLabs = (jupyterLabsQuery.data?.items ?? []).filter(
+    (lab) => !pendingDeletedJupyterLabNames.includes(lab.name),
+  );
+  const jupyterLabCapabilityReason =
+    jupyterLabsQuery.data?.reason ?? jupyterLabsQuery.error?.message ?? null;
+  const jupyterLabAvailable = jupyterLabsQuery.data?.available === true;
+  const readyJupyterLabCount = jupyterLabs.filter(
+    (lab) => lab.status === "running" && Boolean(lab.labUrl),
+  ).length;
   const runtimeDetail = runtimeDetailQuery.data;
   const runningCount = jobs.filter((job) => job.status === "running").length;
   const issueCount = jobs.filter(
@@ -1322,6 +1607,45 @@ export function TrainingShell() {
         Boolean(job.gpuMemoryGi),
     )
     .reduce((total, job) => total + job.gpuCount * (job.gpuMemoryGi ?? 0), 0);
+
+  const parsedJupyterLabMemoryGi = Number(jupyterLabDraft.memoryGi);
+  const parsedJupyterLabGpuCount = Number(jupyterLabDraft.gpuCount);
+  const parsedJupyterLabGpuMemoryGi = Number(jupyterLabDraft.gpuMemoryGi);
+  const jupyterLabNameReady = jupyterLabDraft.name.trim().length >= 2;
+  const jupyterLabMemoryReady =
+    Number.isInteger(parsedJupyterLabMemoryGi) &&
+    parsedJupyterLabMemoryGi >= 1 &&
+    parsedJupyterLabMemoryGi <= 2048;
+  const jupyterLabGpuCountMin =
+    jupyterLabDraft.gpuAllocationMode === "memory" ? 1 : 0;
+  const jupyterLabGpuCountReady =
+    Number.isInteger(parsedJupyterLabGpuCount) &&
+    parsedJupyterLabGpuCount >= jupyterLabGpuCountMin &&
+    parsedJupyterLabGpuCount <= 16;
+  const jupyterLabGpuMemoryReady =
+    jupyterLabDraft.gpuAllocationMode !== "memory" ||
+    (Number.isInteger(parsedJupyterLabGpuMemoryGi) &&
+      parsedJupyterLabGpuMemoryGi >= 1 &&
+      parsedJupyterLabGpuMemoryGi <= 1024);
+  const canCreateJupyterLab =
+    jupyterLabAvailable &&
+    jupyterLabNameReady &&
+    jupyterLabMemoryReady &&
+    jupyterLabGpuCountReady &&
+    jupyterLabGpuMemoryReady;
+  const jupyterLabSubmitDisabledReason = !jupyterLabAvailable
+    ? (jupyterLabCapabilityReason ?? "Kubernetes 当前不可用")
+    : !jupyterLabNameReady
+      ? "名称至少 2 个字符"
+      : !jupyterLabMemoryReady
+        ? "内存必须是 1-2048 Gi 的整数"
+        : !jupyterLabGpuCountReady
+          ? jupyterLabDraft.gpuAllocationMode === "memory"
+            ? "显存模式下 GPU 份额至少为 1"
+            : "GPU 数量需在 0-16 之间"
+          : !jupyterLabGpuMemoryReady
+            ? "每份额显存必须是 1-1024 Gi 的整数"
+            : null;
 
   const isMemoryMode = draft.gpuAllocationMode === "memory";
   const parsedNodeCount = Number(draft.nodeCount);
@@ -1381,6 +1705,11 @@ export function TrainingShell() {
     setDraft(minimalQwenLoraExample);
     setFeedback(null);
     setIsCreateOpen(true);
+  }
+
+  function openJupyterLabCreateDialog() {
+    setFeedback(null);
+    setIsJupyterLabCreateOpen(true);
   }
 
   function parseStudioConfigSnapshot() {
@@ -1482,6 +1811,33 @@ export function TrainingShell() {
     deleteJob.mutate({ jobId });
   };
 
+  const handleCreateJupyterLab = () => {
+    if (!canCreateJupyterLab) return;
+
+    createJupyterLab.mutate({
+      name: jupyterLabDraft.name.trim(),
+      cpu: jupyterLabDraft.cpu.trim(),
+      memoryGi: parsedJupyterLabMemoryGi,
+      gpuAllocationMode: jupyterLabDraft.gpuAllocationMode,
+      gpuCount: parsedJupyterLabGpuCount,
+      gpuMemoryGi:
+        jupyterLabDraft.gpuAllocationMode === "memory"
+          ? parsedJupyterLabGpuMemoryGi
+          : null,
+    });
+  };
+
+  const handleDeleteJupyterLab = async (name: string) => {
+    const confirmed = await confirm({
+      title: `确认删除 JupyterLab「${name}」？`,
+      description: "删除后会释放对应的 Kubernetes Deployment 和访问入口。",
+      confirmLabel: "删除 JupyterLab",
+    });
+    if (!confirmed) return;
+
+    deleteJupyterLab.mutate({ name });
+  };
+
   return (
     <ModulePageShell>
       <TrainingTopBar
@@ -1494,9 +1850,12 @@ export function TrainingShell() {
             ? `含 ${activeGpuMemoryGi} Gi 显存份额`
             : "运行中占用"
         }
+        jupyterLabCount={jupyterLabs.length}
+        readyJupyterLabCount={readyJupyterLabCount}
         isRefreshing={jobsQuery.isFetching}
         onRefresh={() => void jobsQuery.refetch()}
         onCreate={() => setIsCreateOpen(true)}
+        onCreateJupyterLab={openJupyterLabCreateDialog}
         onOpenStudio={openUnslothStudio}
       />
 
@@ -1517,6 +1876,92 @@ export function TrainingShell() {
           <AlertDescription>{feedback.message}</AlertDescription>
         </Alert>
       ) : null}
+
+      {jupyterLabCapabilityReason ? (
+        <Alert variant="destructive">
+          <AlertTitle>JupyterLab 集群访问异常</AlertTitle>
+          <AlertDescription>{jupyterLabCapabilityReason}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <ModuleSection
+        density="compact"
+        title="JupyterLab 环境"
+        description="快速拉起面向训练调试、数据检查和 notebook 实验的 JupyterLab。"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className="border-border/80 bg-background/60 h-8 rounded-full px-3 text-[13px]"
+            >
+              就绪 {readyJupyterLabCount}
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-full px-3 text-[13px]"
+              disabled={jupyterLabsQuery.isFetching}
+              onClick={() => void jupyterLabsQuery.refetch()}
+            >
+              <RefreshCwIcon
+                className={cn(
+                  jupyterLabsQuery.isFetching ? "animate-spin" : undefined,
+                )}
+                data-icon="inline-start"
+              />
+              刷新
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 rounded-full px-3 text-[13px]"
+              disabled={!jupyterLabAvailable}
+              title={
+                !jupyterLabAvailable
+                  ? (jupyterLabCapabilityReason ?? "Kubernetes 当前不可用")
+                  : undefined
+              }
+              onClick={openJupyterLabCreateDialog}
+            >
+              <NotebookTabsIcon data-icon="inline-start" />
+              新建 JupyterLab
+            </Button>
+          </div>
+        }
+      >
+        {jupyterLabsQuery.isLoading ? <JupyterLabLoadingRows /> : null}
+
+        {!jupyterLabsQuery.isLoading && jupyterLabs.length === 0 ? (
+          <ModuleEmptyState
+            title="还没有 JupyterLab 环境"
+            description="创建一个环境，用于查看数据、运行 notebook 和调试训练代码。"
+            action={
+              <Button
+                disabled={!jupyterLabAvailable}
+                onClick={openJupyterLabCreateDialog}
+              >
+                <NotebookTabsIcon data-icon="inline-start" />
+                新建 JupyterLab
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!jupyterLabsQuery.isLoading && jupyterLabs.length > 0 ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {jupyterLabs.map((lab) => (
+              <JupyterLabCard
+                key={lab.id}
+                lab={lab}
+                isDeleting={
+                  deleteJupyterLab.isPending &&
+                  deleteJupyterLab.variables?.name === lab.name
+                }
+                onDelete={() => void handleDeleteJupyterLab(lab.name)}
+              />
+            ))}
+          </div>
+        ) : null}
+      </ModuleSection>
 
       <ModuleSection
         density="compact"
@@ -1918,6 +2363,223 @@ export function TrainingShell() {
           <DialogFooter className="border-border/70 bg-muted/30 border-t px-4 py-3 sm:px-6 sm:py-4">
             <Button variant="outline" onClick={closeRuntimeDialog}>
               关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isJupyterLabCreateOpen}
+        onOpenChange={setIsJupyterLabCreateOpen}
+      >
+        <DialogContent className="border-slate-200/85 bg-white shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-2xl">
+          <DialogHeader>
+            <div className="mb-2 flex items-center gap-2">
+              <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                JupyterLab
+              </Badge>
+              <Badge
+                variant="outline"
+                className="border-slate-200/90 bg-white/90"
+              >
+                Kubernetes Deployment
+              </Badge>
+            </div>
+            <DialogTitle>新建 JupyterLab</DialogTitle>
+            <DialogDescription>
+              选择 CPU、内存、整卡或 HAMi 显存份额后，Cola
+              会在训练命名空间拉起 JupyterLab 并分配 NodePort 入口。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <Field
+              label="环境名称"
+              hint={
+                jupyterLabNameReady
+                  ? "将用于生成 Kubernetes Deployment / Service 名称。"
+                  : "名称至少 2 个字符，仅支持小写字母、数字和连字符。"
+              }
+            >
+              <Input
+                className={dialogControlClassName}
+                value={jupyterLabDraft.name}
+                onChange={(event) =>
+                  setJupyterLabDraft((current) => ({
+                    ...current,
+                    name: sanitizeDnsNameInput(event.target.value),
+                  }))
+                }
+                placeholder="例如：data-lab-01"
+              />
+            </Field>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="CPU">
+                <Input
+                  className={dialogControlClassName}
+                  inputMode="decimal"
+                  value={jupyterLabDraft.cpu}
+                  onChange={(event) =>
+                    setJupyterLabDraft((current) => ({
+                      ...current,
+                      cpu: event.target.value,
+                    }))
+                  }
+                  placeholder="4"
+                />
+              </Field>
+
+              <Field
+                label="内存 (Gi)"
+                hint={jupyterLabMemoryReady ? undefined : "范围 1-2048。"}
+              >
+                <Input
+                  className={dialogControlClassName}
+                  inputMode="numeric"
+                  value={jupyterLabDraft.memoryGi}
+                  onChange={(event) =>
+                    setJupyterLabDraft((current) => ({
+                      ...current,
+                      memoryGi: event.target.value,
+                    }))
+                  }
+                  placeholder="16"
+                />
+              </Field>
+
+              <Field
+                label="GPU 分配方式"
+                hint="选择整卡或 HAMi 显存份额；CPU-only 环境可使用整卡模式并把 GPU 填 0。"
+              >
+                <Select
+                  value={jupyterLabDraft.gpuAllocationMode}
+                  onValueChange={(value) =>
+                    setJupyterLabDraft((current) => ({
+                      ...current,
+                      gpuAllocationMode: value === "memory" ? "memory" : "whole",
+                      gpuCount:
+                        value === "memory" &&
+                        Number.parseInt(current.gpuCount, 10) < 1
+                          ? "1"
+                          : current.gpuCount,
+                      gpuMemoryGi:
+                        value === "memory" ? current.gpuMemoryGi || "8" : "",
+                    }))
+                  }
+                >
+                  <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectValue placeholder="选择分配方式">
+                      {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {gpuAllocationModeValues.map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {gpuAllocationModeLabels[mode]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field
+                label={
+                  jupyterLabDraft.gpuAllocationMode === "memory"
+                    ? "GPU 份额"
+                    : "GPU"
+                }
+                hint={
+                  jupyterLabGpuCountReady
+                    ? undefined
+                    : jupyterLabDraft.gpuAllocationMode === "memory"
+                      ? "显存模式下至少 1 个 GPU 份额。"
+                      : "整卡模式范围 0-16。"
+                }
+              >
+                <Input
+                  className={dialogControlClassName}
+                  inputMode="numeric"
+                  value={jupyterLabDraft.gpuCount}
+                  onChange={(event) =>
+                    setJupyterLabDraft((current) => ({
+                      ...current,
+                      gpuCount: event.target.value,
+                    }))
+                  }
+                  placeholder="0"
+                />
+              </Field>
+
+              <Field
+                label="每份额显存 (Gi)"
+                hint={
+                  jupyterLabDraft.gpuAllocationMode === "memory"
+                    ? jupyterLabGpuMemoryReady
+                      ? "仅显存模式生效。"
+                      : "范围 1-1024。"
+                    : "整卡模式不需要填写。"
+                }
+                className="md:col-span-2"
+              >
+                <Input
+                  className={cn(
+                    dialogControlClassName,
+                    jupyterLabDraft.gpuAllocationMode !== "memory"
+                      ? "bg-slate-100/90 text-slate-400"
+                      : undefined,
+                  )}
+                  inputMode="numeric"
+                  value={jupyterLabDraft.gpuMemoryGi}
+                  onChange={(event) =>
+                    setJupyterLabDraft((current) => ({
+                      ...current,
+                      gpuMemoryGi: event.target.value,
+                    }))
+                  }
+                  placeholder="8"
+                  disabled={jupyterLabDraft.gpuAllocationMode !== "memory"}
+                />
+              </Field>
+            </div>
+
+            <div className="rounded-[var(--radius-shell)] border border-sky-200/70 bg-sky-50/70 px-4 py-3 text-sm leading-6 text-slate-700">
+              当前规格：
+              <span className="mx-1 font-semibold text-slate-950">
+                {formatJupyterLabDraftSpec(jupyterLabDraft)}
+              </span>
+              ，默认镜像由 COLA_JUPYTERLAB_IMAGE 控制。
+            </div>
+
+            {jupyterLabSubmitDisabledReason ? (
+              <div className="rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+                {jupyterLabSubmitDisabledReason}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsJupyterLabCreateOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              disabled={!canCreateJupyterLab || createJupyterLab.isPending}
+              onClick={handleCreateJupyterLab}
+            >
+              {createJupyterLab.isPending ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <NotebookTabsIcon data-icon="inline-start" />
+              )}
+              {createJupyterLab.isPending ? "创建中" : "创建 JupyterLab"}
             </Button>
           </DialogFooter>
         </DialogContent>

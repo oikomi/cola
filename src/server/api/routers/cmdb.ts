@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { cmdbProjects } from "@/server/db/schema";
 import {
+  cancelCmdbRelease,
   cmdbAssetStatusValues,
   cmdbDeployTargetValues,
   createCmdbTopicRelease,
@@ -184,11 +185,22 @@ export const cmdbRouter = createTRPCRouter({
       return deleteCmdbTopicReleaseGroup(ctx.db, input.topic);
     }),
 
+  cancelRelease: publicProcedure
+    .input(z.object({ releaseId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return cancelCmdbRelease(ctx.db, input.releaseId);
+    }),
+
   projectOperation: publicProcedure
     .input(
       z.object({
         projectId: z.number(),
-        action: z.enum(["dockerStatus", "dockerLogs", "sshInfo"]),
+        action: z.enum([
+          "dockerStatus",
+          "dockerLogs",
+          "containerMonitor",
+          "sshInfo",
+        ]),
         targetAssetName: z.string().optional(),
         tail: z.number().int().min(20).max(1000).optional(),
       }),

@@ -30,6 +30,11 @@ import {
   normalizeTrainingJobRecord,
 } from "@/server/training/compat";
 import {
+  createJupyterLabRuntime,
+  deleteJupyterLabRuntime,
+  listJupyterLabRuntimes,
+} from "@/server/training/jupyterlab-service";
+import {
   inspectTrainingJobRuntime,
   stopTrainingJobRun,
   submitTrainingJob,
@@ -77,6 +82,29 @@ const trainingRuntimeDetailInput = z.object({
   jobId: z.string().uuid(),
   podName: z.string().trim().min(1).max(160).optional(),
   tailLines: z.number().int().min(20).max(500).optional(),
+});
+
+const createJupyterLabInput = z
+  .object({
+    name: z.string().trim().min(2).max(48),
+    cpu: z.string().trim().min(1).max(20),
+    memoryGi: z.number().int().positive().max(2048),
+    gpuAllocationMode: z.enum(gpuAllocationModeValues).default("whole"),
+    gpuCount: z.number().int().nonnegative().max(16),
+    gpuMemoryGi: z.number().int().positive().max(MAX_GPU_MEMORY_GI).nullable(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gpuMemoryGi"],
+        message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+      });
+    }
+  });
+
+const jupyterLabActionInput = z.object({
+  name: z.string().trim().min(2).max(48),
 });
 
 type CreateTrainingJobInput = z.infer<typeof createTrainingJobInput>;
@@ -248,6 +276,38 @@ export const trainingRouter = createTRPCRouter({
 
     return syncTrainingJobs(rows);
   }),
+
+  listJupyterLabs: publicProcedure.query(async () => {
+    return listJupyterLabRuntimes();
+  }),
+
+  createJupyterLab: publicProcedure
+    .input(createJupyterLabInput)
+    .mutation(async ({ input }) => {
+      try {
+        return await createJupyterLabRuntime(input);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "创建 JupyterLab 失败。",
+        });
+      }
+    }),
+
+  deleteJupyterLab: publicProcedure
+    .input(jupyterLabActionInput)
+    .mutation(async ({ input }) => {
+      try {
+        return await deleteJupyterLabRuntime(input.name);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "删除 JupyterLab 失败。",
+        });
+      }
+    }),
 
   getRuntimeDetails: publicProcedure
     .input(trainingRuntimeDetailInput)

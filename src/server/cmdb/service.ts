@@ -4,6 +4,11 @@ import { Client } from "ssh2";
 import type { ConnectConfig } from "ssh2";
 
 import { env } from "@/env";
+import {
+  type DockerTargetArchitecture,
+  buildDockerTargetArchitectureVariables,
+  normalizeDockerTargetArchitecture,
+} from "@/server/cmdb/deploy-architecture";
 import type * as DbSchema from "@/server/db/schema";
 import {
   cmdbAssets,
@@ -225,6 +230,12 @@ function normalizeTargetAssetNames(
   return Array.from(new Set(normalized));
 }
 
+function isDockerTargetArchitecture(
+  value: string,
+): value is DockerTargetArchitecture {
+  return value === "amd64" || value === "arm64";
+}
+
 function deployTargetRequiresAsset(
   deployTarget: CmdbProjectRow["deployTarget"],
 ) {
@@ -257,6 +268,35 @@ function assertProjectReleaseReady(project: CmdbProjectRow) {
       `${deployTargetLabel(project.deployTarget)} 发布需要至少选择一台目标资产。`,
     );
   }
+}
+
+function targetArchitecturesFromReleaseVariables(
+  variables: Record<string, string> | null | undefined,
+) {
+  return Array.from(
+    new Set(
+      (variables?.DEPLOY_TARGET_ARCHES ?? variables?.DEPLOY_TARGET_ARCH ?? "")
+        .split(",")
+        .map((arch) => arch.trim())
+        .filter(isDockerTargetArchitecture),
+    ),
+  );
+}
+
+function assertDockerReleaseArchitectureReady(
+  project: CmdbProjectRow,
+  variables: Record<string, string>,
+) {
+  if (project.deployTarget !== "docker") return;
+
+  const targetArchitectures = targetArchitecturesFromReleaseVariables(variables);
+  if (targetArchitectures.length <= 1) return;
+
+  throw new Error(
+    `Docker 发布不能在同一次发布中混合 ${targetArchitectures.join(
+      ", ",
+    )} 架构目标。请按架构分别触发发布，或把流水线改为多架构镜像推送。`,
+  );
 }
 
 function normalizeSshPort(port: number | null | undefined) {
@@ -1140,6 +1180,15 @@ async function executeCmdbDeployment(
     return null;
   }
 
+  if (project.deployTarget === "docker") {
+    const targetArchitectures = targetArchitecturesFromReleaseVariables(
+      release.variables,
+    );
+    if (targetArchitectures.length > 1) {
+      assertDockerReleaseArchitectureReady(project, release.variables ?? {});
+    }
+  }
+
   const assets = await resolveProjectAssets(database, project);
   const startedAt = Date.now();
   const logs: string[] = [];
@@ -1305,7 +1354,7 @@ export async function runCmdbProjectOperation(
   database: Database,
   input: {
     projectId: number;
-    action: "dockerStatus" | "dockerLogs" | "sshInfo";
+    action: "dockerStatus" | "dockerLogs" | "containerMonitor" | "sshInfo";
     targetAssetName?: string;
     tail?: number;
   },
@@ -1357,6 +1406,7 @@ export async function runCmdbProjectOperation(
       sshPort,
       sshCommand: containerLoginCommand,
       containerName,
+      monitorUrl: cleanString(project.config?.monitorUrl) ?? null,
       stdout: containerLoginCommand,
       stderr: "",
       code: 0,
@@ -1365,11 +1415,13 @@ export async function runCmdbProjectOperation(
   }
 
   if (project.deployTarget !== "docker") {
-    throw new Error("当前仅 Docker 部署项目支持查看容器状态和日志。");
+    throw new Error("当前仅 Docker 部署项目支持查看容器状态、日志和监控。");
   }
 
+  const usesDockerInspect =
+    input.action === "dockerStatus" || input.action === "containerMonitor";
   const command =
-    input.action === "dockerStatus"
+    usesDockerInspect
       ? buildDockerStatusCommand(containerName)
       : buildDockerLogsCommand(
           containerName,
@@ -1385,11 +1437,11 @@ export async function runCmdbProjectOperation(
     command,
   );
   const dockerStatus =
-    input.action === "dockerStatus"
+    usesDockerInspect
       ? parseDockerStatusOutput(result.stdout, containerName)
       : null;
   const stdout =
-    input.action === "dockerStatus"
+    usesDockerInspect
       ? dockerStatus
         ? dockerStatusOutputText(dockerStatus)
         : "未能解析容器状态。"
@@ -1405,6 +1457,7 @@ export async function runCmdbProjectOperation(
     sshPort,
     sshCommand: hostSshCommand,
     containerName,
+    monitorUrl: cleanString(project.config?.monitorUrl) ?? null,
     stdout: truncateOutput(stdout),
     stderr: truncateOutput(result.stderr),
     code: result.code,
@@ -1837,6 +1890,71 @@ export async function refreshRunningCmdbReleases(database: Database) {
   }
 }
 
+export async function cancelCmdbRelease(database: Database, releaseId: number) {
+  const [item] = await database
+    .select({
+      release: cmdbReleases,
+      project: cmdbProjects,
+    })
+    .from(cmdbReleases)
+    .innerJoin(cmdbProjects, eq(cmdbReleases.projectId, cmdbProjects.id))
+    .where(eq(cmdbReleases.id, releaseId));
+
+  if (!item) {
+    throw new Error("发布记录不存在，无法停止。");
+  }
+
+  if (item.release.status !== "pending" && item.release.status !== "running") {
+    throw new Error("只有排队中或运行中的发布可以停止。");
+  }
+
+  if (item.release.gitlabStatus === CMDB_DEPLOYING_GITLAB_STATUS) {
+    throw new Error(
+      "GitLab Pipeline 已完成，CMDB 正在执行部署，无法通过 GitLab 停止。",
+    );
+  }
+
+  if (!item.release.gitlabPipelineId) {
+    throw new Error("发布记录缺少 GitLab Pipeline ID，无法停止。");
+  }
+
+  if (!hasGitLabApiAccess()) {
+    throw new Error(
+      "GitLab API 未配置，无法停止 Pipeline。请设置 GITLAB_URL 和 GITLAB_API_TOKEN。",
+    );
+  }
+
+  const projectRef =
+    item.project.gitlabProjectId ?? encodeURIComponent(item.project.gitlabPath);
+  const pipeline = await gitlabApiFetch<GitLabPipeline>(
+    `/projects/${projectRef}/pipelines/${item.release.gitlabPipelineId}/cancel`,
+    { method: "POST" },
+  );
+  const nextStatus = normalizePipelineStatus(pipeline.status);
+  if (nextStatus === "success") {
+    throw new Error("GitLab Pipeline 已完成，无法停止。请等待 CMDB 同步状态。");
+  }
+  const releaseStatus: CmdbReleaseStatus =
+    nextStatus === "failed" ? "failed" : "canceled";
+
+  const [updatedRelease] = await database
+    .update(cmdbReleases)
+    .set({
+      status: releaseStatus,
+      gitlabStatus: pipeline.status ?? releaseStatus,
+      gitlabPipelineUrl: pipeline.web_url ?? item.release.gitlabPipelineUrl,
+      completedAt: new Date(),
+      lastError:
+        releaseStatus === "canceled"
+          ? "已请求停止 GitLab Pipeline。"
+          : item.release.lastError,
+    })
+    .where(eq(cmdbReleases.id, item.release.id))
+    .returning();
+
+  return updatedRelease ?? item.release;
+}
+
 async function completeCmdbReleaseDeployment(
   database: Database,
   project: CmdbProjectRow,
@@ -2076,7 +2194,7 @@ async function buildReleaseVariables(
         sshUser: cleanString(asset.sshUser) ?? "",
         sshPassword: asset.sshPassword ?? "",
         roles: normalizeAssetRoles(asset.roles),
-        arch: cleanString(asset.arch) ?? "",
+        arch: normalizeDockerTargetArchitecture(asset.arch) ?? "",
       }));
 
     if (deployTargets.length > 0) {
@@ -2109,10 +2227,14 @@ async function buildReleaseVariables(
         if (primaryTarget.roles.length > 0) {
           variables.DEPLOY_ASSET_ROLES = primaryTarget.roles.join(",");
         }
-        if (primaryTarget.arch) {
-          variables.DEPLOY_ASSET_ARCH = primaryTarget.arch;
-        }
       }
+      Object.assign(
+        variables,
+        buildDockerTargetArchitectureVariables({
+          targetArchitectures: deployTargets.map((target) => target.arch),
+          primaryArchitecture: primaryTarget?.arch,
+        }),
+      );
     }
   }
   if (project.config?.k8sNamespace) {
@@ -2167,6 +2289,7 @@ export async function createCmdbRelease(
     args.variables,
   );
   assertProjectReleaseReady(args.project);
+  assertDockerReleaseArchitectureReady(args.project, variables);
 
   const [release] = await database
     .insert(cmdbReleases)

@@ -37,43 +37,43 @@ type ProductArea = (typeof PRODUCT_AREAS)[number];
 const areaChrome = {
   office: {
     label: "Agent Hub",
-    tag: "当前战场",
+    tag: "协作",
     signal: "Agent / Task",
     marker: "bg-cyan-300",
     active:
-      "border-cyan-200/24 bg-[linear-gradient(135deg,rgba(14,165,233,0.24),rgba(255,255,255,0.09)_42%,rgba(16,185,129,0.13))] shadow-[inset_3px_0_0_rgba(103,232,249,0.95),0_14px_30px_rgba(8,47,73,0.22)]",
-    icon: "bg-cyan-100/18 text-cyan-50 ring-cyan-100/24",
-    hover: "hover:border-cyan-200/16 hover:bg-cyan-100/[0.07]",
+      "border-cyan-200/22 bg-cyan-300/[0.075] shadow-[inset_2px_0_0_rgba(103,232,249,0.92),0_18px_42px_rgba(8,47,73,0.22)]",
+    icon: "bg-cyan-300/18 text-cyan-50 ring-cyan-100/22 shadow-[0_0_22px_rgba(103,232,249,0.1)]",
+    hover: "hover:border-cyan-200/14 hover:bg-cyan-100/[0.055]",
   },
   workspace: {
     label: "Remote",
-    tag: "入口",
+    tag: "桌面",
     signal: "Desktop / Node",
     marker: "bg-teal-300",
     active:
-      "border-teal-200/24 bg-[linear-gradient(135deg,rgba(20,184,166,0.22),rgba(255,255,255,0.09)_44%,rgba(59,130,246,0.13))] shadow-[inset_3px_0_0_rgba(94,234,212,0.95),0_14px_30px_rgba(13,148,136,0.16)]",
-    icon: "bg-teal-100/18 text-teal-50 ring-teal-100/24",
-    hover: "hover:border-teal-200/16 hover:bg-teal-100/[0.07]",
+      "border-teal-200/22 bg-teal-300/[0.075] shadow-[inset_2px_0_0_rgba(94,234,212,0.92),0_18px_42px_rgba(13,148,136,0.18)]",
+    icon: "bg-teal-300/18 text-teal-50 ring-teal-100/22 shadow-[0_0_22px_rgba(94,234,212,0.1)]",
+    hover: "hover:border-teal-200/14 hover:bg-teal-100/[0.055]",
   },
   training: {
     label: "GPU Queue",
-    tag: "训练",
+    tag: "队列",
     signal: "Job / Dataset",
     marker: "bg-violet-300",
     active:
-      "border-violet-200/24 bg-[linear-gradient(135deg,rgba(139,92,246,0.21),rgba(255,255,255,0.09)_45%,rgba(20,184,166,0.11))] shadow-[inset_3px_0_0_rgba(196,181,253,0.95),0_14px_30px_rgba(76,29,149,0.18)]",
-    icon: "bg-violet-100/18 text-violet-50 ring-violet-100/24",
-    hover: "hover:border-violet-200/16 hover:bg-violet-100/[0.07]",
+      "border-violet-200/22 bg-violet-300/[0.075] shadow-[inset_2px_0_0_rgba(196,181,253,0.92),0_18px_42px_rgba(76,29,149,0.2)]",
+    icon: "bg-violet-300/18 text-violet-50 ring-violet-100/22 shadow-[0_0_22px_rgba(196,181,253,0.1)]",
+    hover: "hover:border-violet-200/14 hover:bg-violet-100/[0.055]",
   },
   deployments: {
     label: "Serving",
-    tag: "模型服务",
+    tag: "服务",
     signal: "Model / Route",
     marker: "bg-amber-300",
     active:
-      "border-amber-200/24 bg-[linear-gradient(135deg,rgba(245,158,11,0.2),rgba(255,255,255,0.09)_44%,rgba(14,165,233,0.11))] shadow-[inset_3px_0_0_rgba(252,211,77,0.95),0_14px_30px_rgba(146,64,14,0.16)]",
-    icon: "bg-amber-100/18 text-amber-50 ring-amber-100/24",
-    hover: "hover:border-amber-200/16 hover:bg-amber-100/[0.07]",
+      "border-amber-200/22 bg-amber-300/[0.075] shadow-[inset_2px_0_0_rgba(252,211,77,0.92),0_18px_42px_rgba(146,64,14,0.18)]",
+    icon: "bg-amber-300/18 text-amber-50 ring-amber-100/22 shadow-[0_0_22px_rgba(252,211,77,0.1)]",
+    hover: "hover:border-amber-200/14 hover:bg-amber-100/[0.055]",
   },
   system: {
     label: "Cluster",
@@ -81,9 +81,9 @@ const areaChrome = {
     signal: "Dashboard / Host",
     marker: "bg-sky-300",
     active:
-      "border-sky-200/24 bg-[linear-gradient(135deg,rgba(59,130,246,0.22),rgba(255,255,255,0.09)_45%,rgba(16,185,129,0.11))] shadow-[inset_3px_0_0_rgba(125,211,252,0.95),0_14px_30px_rgba(30,64,175,0.16)]",
-    icon: "bg-sky-100/18 text-sky-50 ring-sky-100/24",
-    hover: "hover:border-sky-200/16 hover:bg-sky-100/[0.07]",
+      "border-sky-200/22 bg-sky-300/[0.075] shadow-[inset_2px_0_0_rgba(125,211,252,0.92),0_18px_42px_rgba(30,64,175,0.18)]",
+    icon: "bg-sky-300/18 text-sky-50 ring-sky-100/22 shadow-[0_0_22px_rgba(125,211,252,0.1)]",
+    hover: "hover:border-sky-200/14 hover:bg-sky-100/[0.055]",
   },
   cmdb: {
     label: "Assets",
@@ -91,9 +91,9 @@ const areaChrome = {
     signal: "Server / GitLab",
     marker: "bg-emerald-300",
     active:
-      "border-emerald-200/24 bg-[linear-gradient(135deg,rgba(16,185,129,0.21),rgba(255,255,255,0.09)_44%,rgba(245,158,11,0.11))] shadow-[inset_3px_0_0_rgba(110,231,183,0.95),0_14px_30px_rgba(6,95,70,0.16)]",
-    icon: "bg-emerald-100/18 text-emerald-50 ring-emerald-100/24",
-    hover: "hover:border-emerald-200/16 hover:bg-emerald-100/[0.07]",
+      "border-emerald-200/22 bg-emerald-300/[0.075] shadow-[inset_2px_0_0_rgba(110,231,183,0.92),0_18px_42px_rgba(6,95,70,0.2)]",
+    icon: "bg-emerald-300/18 text-emerald-50 ring-emerald-100/22 shadow-[0_0_22px_rgba(110,231,183,0.1)]",
+    hover: "hover:border-emerald-200/14 hover:bg-emerald-100/[0.055]",
   },
 } satisfies Record<
   ProductAreaKey,
@@ -117,42 +117,44 @@ export function AdminChrome({ children }: { children: ReactNode }) {
 
   return (
     <div className="text-foreground bg-background min-h-dvh overflow-x-hidden md:h-dvh md:overflow-hidden">
-      <div className="mx-auto grid min-h-dvh w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:h-full md:min-h-0 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[272px_minmax(0,1fr)] 2xl:gap-3 2xl:px-5 2xl:py-5">
-        <aside className="border-sidebar-border bg-sidebar text-sidebar-foreground relative z-30 min-h-0 min-w-0 overflow-visible rounded-[var(--radius-shell)] border shadow-[0_18px_42px_rgba(15,23,42,0.22)]">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:h-full md:min-h-0 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[304px_minmax(0,1fr)] 2xl:gap-3.5 2xl:px-5 2xl:py-5">
+        <aside className="text-sidebar-foreground relative z-30 min-h-0 min-w-0 overflow-visible rounded-[var(--radius-shell)] border border-white/[0.12] bg-[linear-gradient(180deg,#12202a_0%,#0e1822_48%,#0a1119_100%)] shadow-[0_24px_70px_rgba(15,23,42,0.28),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
-            <div className="absolute inset-0 bg-[linear-gradient(145deg,rgba(56,189,248,0.12),transparent_28%),linear-gradient(235deg,rgba(16,185,129,0.1),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.04),transparent_38%)]" />
-            <div className="control-shell-scan absolute inset-x-0 -top-1/2 h-1/2 bg-[linear-gradient(180deg,transparent,rgba(125,211,252,0.16),transparent)]" />
-            <div className="absolute inset-y-0 left-0 w-px bg-white/20" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(125,211,252,0.13),transparent_28%),radial-gradient(circle_at_90%_18%,rgba(52,211,153,0.09),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_36%)]" />
+            <div className="control-shell-scan absolute inset-x-0 -top-1/2 h-1/2 bg-[linear-gradient(180deg,transparent,rgba(125,211,252,0.09),transparent)]" />
+            <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+            <div className="absolute inset-y-0 left-0 w-px bg-white/18" />
           </div>
 
           <div className="relative flex h-full min-h-0 flex-col">
-            <div className="border-b border-white/8 px-3.5 py-2.5 md:px-2.5 md:py-3 2xl:px-4 2xl:py-4">
-              <div className="flex items-center gap-3 md:justify-center 2xl:justify-start">
+            <div className="border-b border-white/[0.08] px-3.5 py-2.5 md:px-2.5 md:py-3 2xl:px-5 2xl:py-4">
+              <div className="flex items-center gap-3.5 md:justify-center 2xl:justify-start">
                 <div className="relative shrink-0">
+                  <span className="absolute -inset-2 rounded-2xl bg-sky-300/10 blur-xl" />
                   <Image
                     src="/xdream-cloud-mark.svg"
                     alt="XDream Cloud"
-                    width={42}
-                    height={42}
+                    width={48}
+                    height={48}
                     priority
-                    className="relative size-[42px] rounded-[10px] shadow-[0_8px_18px_rgba(15,23,42,0.18)] ring-1 ring-white/12 2xl:size-[44px]"
+                    className="relative size-[42px] rounded-[10px] shadow-[0_10px_24px_rgba(15,23,42,0.3)] ring-1 ring-white/16 2xl:size-12 2xl:rounded-xl"
                   />
                 </div>
                 <div className="min-w-0 md:hidden 2xl:block">
-                  <p className="text-[9px] tracking-[0.28em] text-sky-100/50 uppercase">
-                    XDream
+                  <p className="text-[10px] leading-none font-semibold tracking-[0.32em] text-sky-100/48 uppercase">
+                    XDREAM
                   </p>
-                  <p className="mt-0.5 truncate text-[15px] leading-none font-semibold text-white 2xl:text-[16px]">
+                  <p className="mt-1.5 truncate text-[18px] leading-none font-semibold text-white">
                     Cloud Console
                   </p>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-slate-300/72">
+                  <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-300/70">
                     <span
                       className={cn(
-                        "size-1.5 rounded-full shadow-[0_0_0_4px_rgba(52,211,153,0.1)]",
+                        "size-2 rounded-full shadow-[0_0_0_5px_rgba(52,211,153,0.09)]",
                         activeAreaChrome.marker,
                       )}
                     />
-                    <span>{activeAreaMeta.title}</span>
+                    <span className="truncate">{activeAreaMeta.title}</span>
                   </div>
                 </div>
               </div>
@@ -160,19 +162,19 @@ export function AdminChrome({ children }: { children: ReactNode }) {
 
             <nav
               aria-label="产品区域导航"
-              className="flex min-h-0 flex-1 flex-col px-2.5 py-2 md:min-w-0 md:px-2 md:py-2.5 2xl:px-3 2xl:py-3.5"
+              className="flex min-h-0 flex-1 flex-col px-2.5 py-2 md:min-w-0 md:px-2 md:py-2.5 2xl:px-3.5 2xl:py-3"
             >
               <div className="mb-2.5 hidden items-center justify-between px-2 2xl:flex">
-                <span className="text-[10px] font-medium tracking-[0.28em] text-slate-300/60 uppercase">
+                <span className="text-[10px] font-semibold tracking-[0.28em] text-slate-300/54 uppercase">
                   Operations
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/[0.065] px-2 py-0.5 text-[10px] font-medium text-slate-200/74">
+                <span className="rounded-full border border-white/[0.095] bg-white/[0.045] px-2.5 py-1 text-[10px] leading-none font-medium text-slate-200/72">
                   {PRODUCT_AREAS.length} modules
                 </span>
               </div>
 
-              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1.5 md:overflow-visible md:pb-0 2xl:overflow-y-auto">
-                <span className="pointer-events-none absolute top-5 bottom-5 left-[31px] hidden w-px bg-gradient-to-b from-transparent via-cyan-100/12 to-transparent 2xl:block" />
+              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1.5 md:overflow-visible md:pb-0 2xl:gap-1.5 2xl:overflow-y-auto 2xl:pr-1">
+                <span className="pointer-events-none absolute top-5 bottom-5 left-[35px] hidden w-px bg-gradient-to-b from-transparent via-slate-200/13 to-transparent 2xl:block" />
                 {PRODUCT_AREAS.map((area) => {
                   const active = area.key === activeArea;
 
@@ -223,74 +225,74 @@ function ProductAreaNavItem({
         aria-current={active ? "page" : undefined}
         aria-label={`${area.title}：${area.description}`}
         className={cn(
-          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:justify-start 2xl:px-3 2xl:py-2.5",
+          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:min-h-[78px] 2xl:justify-start 2xl:px-3.5 2xl:py-2.5",
           active
             ? cn("text-white", chrome.active)
             : cn(
-                "border-transparent text-slate-200/72 hover:text-white",
+                "border-transparent text-slate-200/68 hover:text-white",
                 chrome.hover,
               ),
         )}
       >
         {active ? (
-          <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1),transparent_42%)]" />
+          <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(110deg,rgba(255,255,255,0.085),transparent_46%)]" />
         ) : null}
         <span
           className={cn(
-            "pointer-events-none absolute top-2 bottom-2 left-0 hidden w-0.5 rounded-full 2xl:block",
-            active ? chrome.marker : "bg-white/0 group-hover:bg-white/18",
+            "pointer-events-none absolute top-3 bottom-3 left-0 hidden w-0.5 rounded-full 2xl:block",
+            active ? chrome.marker : "bg-white/0 group-hover:bg-white/16",
           )}
         />
 
-        <div className="relative flex w-full items-center gap-2.5 md:justify-center 2xl:justify-start">
+        <div className="relative flex w-full items-center gap-2.5 md:justify-center 2xl:justify-start 2xl:gap-3">
           <span
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200",
+              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200 2xl:size-9",
               active
                 ? chrome.icon
-                : "bg-slate-950/18 text-slate-200/78 ring-white/7 group-hover:bg-white/8 group-hover:text-white",
+                : "bg-slate-950/16 text-slate-200/70 ring-white/[0.07] group-hover:bg-white/[0.065] group-hover:text-white",
             )}
           >
-            <Icon className="size-[15px]" />
+            <Icon className="size-[15px] 2xl:size-4" />
           </span>
 
           <div className="min-w-0 flex-1 md:hidden 2xl:block">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-[13px] font-semibold">
+            <div className="flex min-w-0 items-center gap-2 pr-14">
+              <span className="truncate text-[15px] leading-5 font-semibold text-slate-100">
                 {area.title}
               </span>
               {active ? (
-                <Badge className="hidden border-0 bg-white/14 px-1.5 py-0 text-[10px] leading-4 text-white shadow-none 2xl:inline-flex">
+                <Badge className="hidden border border-white/10 bg-white/[0.115] px-1.5 py-0 text-[10px] leading-4 text-white shadow-none 2xl:inline-flex">
                   当前
                 </Badge>
               ) : null}
             </div>
 
-            <div className="mt-1 flex items-center gap-1.5">
+            <div className="mt-1 flex min-w-0 items-center gap-2">
               <span
                 className={cn("size-1.5 shrink-0 rounded-full", chrome.marker)}
               />
-              <span className="truncate text-[10px] font-medium tracking-[0.12em] text-slate-300/58 uppercase">
+              <span className="truncate text-[10px] font-semibold tracking-[0.16em] text-slate-300/58 uppercase">
                 {chrome.label}
               </span>
-              <span className="text-[10px] text-slate-400/50">/</span>
-              <span className="truncate text-[10.5px] text-slate-300/62">
+              <span className="text-[10px] text-slate-500/60">/</span>
+              <span className="truncate text-[11px] text-slate-300/64">
                 {chrome.signal}
               </span>
             </div>
 
-            <p className="mt-1 [display:-webkit-box] hidden overflow-hidden text-[11px] leading-[1.38] text-slate-300/72 [-webkit-box-orient:vertical] [-webkit-line-clamp:2] 2xl:block">
+            <p className="mt-1.5 [display:-webkit-box] hidden overflow-hidden text-[11.5px] leading-[1.42] text-slate-300/68 [-webkit-box-orient:vertical] [-webkit-line-clamp:2] 2xl:block">
               {area.description}
             </p>
           </div>
 
-          <div className="absolute top-0 right-0 hidden flex-col items-end gap-1 2xl:flex">
+          <div className="absolute top-0 right-0 hidden flex-col items-end gap-1.5 2xl:flex">
             <span
               className={cn(
-                "rounded-full border px-1.5 py-0.5 text-[9.5px] leading-none font-medium",
+                "rounded-full border px-2 py-0.5 text-[10px] leading-none font-medium",
                 active
-                  ? "border-white/14 bg-white/12 text-white"
-                  : "border-white/0 bg-transparent text-slate-400/0 group-hover:border-white/8 group-hover:bg-white/7 group-hover:text-slate-200/70",
+                  ? "border-white/14 bg-white/[0.105] text-white"
+                  : "border-white/0 bg-transparent text-slate-400/0 group-hover:border-white/8 group-hover:bg-white/[0.055] group-hover:text-slate-200/68",
               )}
             >
               {chrome.tag}
