@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Remote Workspace</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #1f2933;
+            color: white;
+            font: 12px Helvetica, Arial, sans-serif;
+        }
+
+        #app {
+            display: flex;
+            min-height: 100%;
+            flex-direction: column;
+        }
+
+        #top_bar {
+            position: relative;
+            display: grid;
+            min-height: 28px;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px outset rgba(255, 255, 255, 0.4);
+            background: #6e84a3;
+            padding: 0 6px;
+            font-weight: 700;
+        }
+
+        #status {
+            min-width: 0;
+            overflow: hidden;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bar_button {
+            min-height: 24px;
+            border: 1px outset rgba(255, 255, 255, 0.6);
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.08);
+            color: white;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .bar_button:active {
+            border-style: inset;
+        }
+
+        #screen {
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        #paste_panel {
+            position: fixed;
+            z-index: 10;
+            top: 36px;
+            left: 8px;
+            display: none;
+            width: min(520px, calc(100vw - 16px));
+            border: 1px solid rgba(148, 163, 184, 0.85);
+            border-radius: 6px;
+            background: rgba(15, 23, 42, 0.96);
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.32);
+            padding: 10px;
+        }
+
+        #paste_panel.open {
+            display: block;
+        }
+
+        #paste_panel label {
+            display: block;
+            margin-bottom: 6px;
+            color: #dbeafe;
+            font-weight: 700;
+        }
+
+        #paste_area {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 116px;
+            resize: vertical;
+            border: 1px solid #94a3b8;
+            border-radius: 4px;
+            background: #0f172a;
+            color: #f8fafc;
+            font: 13px/1.45 monospace;
+            padding: 8px;
+        }
+
+        #paste_actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 8px;
+        }
+    </style>
+    <script type="module" crossorigin="anonymous">
+        import RFB from "./core/rfb.js";
+        import KeyTable from "./core/input/keysym.js";
+
+        const KEYSYM_LOWER_V = 0x0076;
+        const KEYSYM_UPPER_V = 0x0056;
+
+        let rfb;
+        let desktopName = "workspace";
+        let pasteTimer = null;
+
+        function status(text) {
+            document.getElementById("status").textContent = text;
+        }
+
+        function readQueryVariable(name, defaultValue = "") {
+            const params = new URLSearchParams(window.location.search);
+            const value = params.get(name);
+            return value === null ? defaultValue : value;
+        }
+
+        function readBooleanQuery(name, defaultValue = false) {
+            const value = String(readQueryVariable(name, defaultValue ? "1" : "0"))
+                .trim()
+                .toLowerCase();
+            return value === "1" || value === "true" || value === "yes";
+        }
+
+        function readIntegerQuery(name, defaultValue, min, max) {
+            const value = Number.parseInt(readQueryVariable(name, String(defaultValue)), 10);
+            if (!Number.isInteger(value)) return defaultValue;
+            return Math.min(max, Math.max(min, value));
+        }
+
+        function connectedToServer() {
+            status("Connected to " + desktopName);
+            rfb.focus();
+        }
+
+        function disconnectedFromServer(event) {
+            status(event.detail.clean ? "Disconnected" : "Connection closed");
+        }
+
+        function credentialsAreRequired() {
+            const password = window.prompt("Password required:");
+            rfb.sendCredentials({ password });
+        }
+
+        function updateDesktopName(event) {
+            desktopName = event.detail.name || desktopName;
+            document.title = desktopName + " - Remote Workspace";
+        }
+
+        function sendCtrlAltDel() {
+            if (!rfb) return;
+            rfb.sendCtrlAltDel();
+            rfb.focus();
+        }
+
+        function sendRemotePasteShortcut() {
+            if (!rfb) return;
+
+            const shortcut = readQueryVariable("paste_shortcut", "ctrlshiftv")
+                .trim()
+                .toLowerCase();
+            if (shortcut === "none" || shortcut === "off" || shortcut === "0") {
+                rfb.focus();
+                return;
+            }
+
+            const useCtrl = shortcut.includes("ctrl") || shortcut.includes("control");
+            const useShift = shortcut.includes("shift");
+
+            if (useCtrl) rfb.sendKey(KeyTable.XK_Control_L, "ControlLeft", true);
+            if (useShift) rfb.sendKey(KeyTable.XK_Shift_L, "ShiftLeft", true);
+
+            const keysym = useShift ? KEYSYM_UPPER_V : KEYSYM_LOWER_V;
+            rfb.sendKey(keysym, "KeyV", true);
+            rfb.sendKey(keysym, "KeyV", false);
+
+            if (useShift) rfb.sendKey(KeyTable.XK_Shift_L, "ShiftLeft", false);
+            if (useCtrl) rfb.sendKey(KeyTable.XK_Control_L, "ControlLeft", false);
+
+            rfb.focus();
+        }
+
+        function syncClipboardText(text, options = {}) {
+            if (!rfb) return false;
+
+            const normalized = String(text ?? "");
+            if (normalized.length === 0) return false;
+
+            rfb.clipboardPasteFrom(normalized);
+            status("Clipboard sent to " + desktopName);
+
+            if (options.autoPaste !== false && readBooleanQuery("autopaste", true)) {
+                window.clearTimeout(pasteTimer);
+                const delayMs = readIntegerQuery("paste_delay", 120, 0, 2000);
+                pasteTimer = window.setTimeout(sendRemotePasteShortcut, delayMs);
+            } else {
+                rfb.focus();
+            }
+
+            return true;
+        }
+
+        function hidePastePanel() {
+            const panel = document.getElementById("paste_panel");
+            const area = document.getElementById("paste_area");
+            panel.classList.remove("open");
+            area.value = "";
+            rfb?.focus();
+        }
+
+        function showPastePanel() {
+            const panel = document.getElementById("paste_panel");
+            const area = document.getElementById("paste_area");
+            panel.classList.add("open");
+            area.value = "";
+            area.focus();
+        }
+
+        async function readBrowserClipboardText() {
+            if (!navigator.clipboard?.readText) return "";
+
+            return Promise.race([
+                navigator.clipboard.readText(),
+                new Promise((resolve) => window.setTimeout(() => resolve(""), 600)),
+            ]);
+        }
+
+        async function pasteFromBrowserClipboard() {
+            showPastePanel();
+            status("Paste into the clipboard box");
+
+            try {
+                const text = await readBrowserClipboardText();
+                if (syncClipboardText(text)) {
+                    hidePastePanel();
+                }
+            } catch {
+                // Plain HTTP NodePort pages usually cannot use navigator.clipboard.
+            }
+        }
+
+        function handlePaste(event) {
+            const text = event.clipboardData?.getData("text/plain");
+            if (!text) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            syncClipboardText(text);
+            hidePastePanel();
+        }
+
+        function stopBrowserPasteShortcutPropagation(event) {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+                event.stopImmediatePropagation();
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("sendCtrlAltDelButton").addEventListener("click", sendCtrlAltDel);
+            document.getElementById("pasteButton").addEventListener("click", pasteFromBrowserClipboard);
+            document.getElementById("pasteCloseButton").addEventListener("click", hidePastePanel);
+            document.getElementById("pasteSendButton").addEventListener("click", () => {
+                const area = document.getElementById("paste_area");
+                if (syncClipboardText(area.value)) hidePastePanel();
+            });
+            document.getElementById("paste_area").addEventListener("paste", handlePaste);
+            document.addEventListener("paste", handlePaste, true);
+            document.addEventListener("keydown", stopBrowserPasteShortcutPropagation, true);
+
+            const host = readQueryVariable("host", window.location.hostname);
+            const port = readQueryVariable("port", window.location.port);
+            const password = readQueryVariable("password");
+            const path = readQueryVariable("path", "websockify");
+
+            let url = window.location.protocol === "https:" ? "wss" : "ws";
+            url += "://" + host;
+            if (port) url += ":" + port;
+            url += "/" + path;
+
+            status("Connecting");
+
+            rfb = new RFB(document.getElementById("screen"), url, {
+                credentials: { password },
+                shared: readBooleanQuery("shared", true),
+            });
+
+            rfb.addEventListener("connect", connectedToServer);
+            rfb.addEventListener("disconnect", disconnectedFromServer);
+            rfb.addEventListener("credentialsrequired", credentialsAreRequired);
+            rfb.addEventListener("desktopname", updateDesktopName);
+
+            const resizeMode = readQueryVariable("resize", "off").toLowerCase();
+            rfb.viewOnly = readBooleanQuery("view_only", false);
+            rfb.scaleViewport = resizeMode === "scale" || readBooleanQuery("scale", false);
+            rfb.resizeSession = resizeMode === "remote";
+            rfb.qualityLevel = readIntegerQuery("quality", 6, 0, 9);
+            rfb.compressionLevel = readIntegerQuery("compression", 2, 0, 9);
+        });
+    </script>
+</head>
+<body>
+    <div id="app">
+        <div id="top_bar">
+            <button id="pasteButton" class="bar_button" type="button">Paste</button>
+            <div id="status">Loading</div>
+            <button id="sendCtrlAltDelButton" class="bar_button" type="button">CtrlAltDel</button>
+        </div>
+        <div id="paste_panel">
+            <label for="paste_area">Clipboard</label>
+            <textarea id="paste_area" autocomplete="off" spellcheck="false"></textarea>
+            <div id="paste_actions">
+                <button id="pasteCloseButton" class="bar_button" type="button">Close</button>
+                <button id="pasteSendButton" class="bar_button" type="button">Send</button>
+            </div>
+        </div>
+        <div id="screen"></div>
+    </div>
+</body>
+</html>

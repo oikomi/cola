@@ -57,8 +57,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/ /opt/remote-work/
 COPY config/ /opt/remote-work/config/
 COPY assets/ /opt/remote-work/assets/
+COPY novnc/ /opt/remote-work/novnc/
 
-RUN chmod +x /opt/remote-work/*.sh
+RUN cp /opt/remote-work/novnc/vnc_lite.html /opt/novnc/vnc_lite.html \
+  && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
+  && chmod +x /opt/remote-work/*.sh
 
 WORKDIR /home/worker
 

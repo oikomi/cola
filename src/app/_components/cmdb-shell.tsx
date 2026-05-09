@@ -1883,14 +1883,16 @@ function ProjectReleaseHistory(props: {
 function TopicReleaseCountPill(props: {
   label: string;
   value: number;
-  tone: "success" | "running" | "failed";
+  tone: "success" | "running" | "failed" | "neutral";
 }) {
   const toneClass =
     props.tone === "success"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
       : props.tone === "running"
         ? "border-sky-200 bg-sky-50 text-sky-700"
-        : "border-rose-200 bg-rose-50 text-rose-700";
+        : props.tone === "failed"
+          ? "border-rose-200 bg-rose-50 text-rose-700"
+          : "border-slate-200 bg-slate-100 text-slate-700";
 
   return (
     <span
@@ -1902,6 +1904,403 @@ function TopicReleaseCountPill(props: {
       <span>{props.label}</span>
       <span>{props.value}</span>
     </span>
+  );
+}
+
+type TopicReleaseBatch = {
+  key: string;
+  label: string;
+  releases: ReleaseRow[];
+  releaseTotal: number;
+  successTotal: number;
+  runningTotal: number;
+  failedTotal: number;
+  canceledTotal: number;
+  refs: string[];
+  deployEnvs: string[];
+};
+
+function topicReleaseBatchKey(value: ReleaseRow["createdAt"]) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+  ].join("-");
+}
+
+function buildTopicReleaseBatches(releases: ReleaseRow[]) {
+  const grouped = new Map<string, ReleaseRow[]>();
+
+  for (const release of releases) {
+    const key = topicReleaseBatchKey(release.createdAt);
+    const current = grouped.get(key);
+    if (current) {
+      current.push(release);
+    } else {
+      grouped.set(key, [release]);
+    }
+  }
+
+  return Array.from(grouped.entries())
+    .map(([key, batchReleases]): TopicReleaseBatch => {
+      const sortedReleases = [...batchReleases].sort(
+        (first, second) =>
+          new Date(second.createdAt).getTime() -
+          new Date(first.createdAt).getTime(),
+      );
+      const latestRelease = sortedReleases[0]!;
+
+      return {
+        key,
+        label:
+          key === "unknown" ? "未知时间" : formatTime(latestRelease.createdAt),
+        releases: sortedReleases,
+        releaseTotal: sortedReleases.length,
+        successTotal: sortedReleases.filter(
+          (release) => release.status === "success",
+        ).length,
+        runningTotal: sortedReleases.filter(
+          (release) =>
+            release.status === "pending" || release.status === "running",
+        ).length,
+        failedTotal: sortedReleases.filter(
+          (release) => release.status === "failed",
+        ).length,
+        canceledTotal: sortedReleases.filter(
+          (release) => release.status === "canceled",
+        ).length,
+        refs: Array.from(new Set(sortedReleases.map((release) => release.ref))),
+        deployEnvs: Array.from(
+          new Set(sortedReleases.map((release) => release.deployEnv ?? "-")),
+        ),
+      };
+    })
+    .sort((first, second) => {
+      const firstRelease = first.releases[0];
+      const secondRelease = second.releases[0];
+
+      return (
+        new Date(secondRelease?.createdAt ?? 0).getTime() -
+        new Date(firstRelease?.createdAt ?? 0).getTime()
+      );
+    });
+}
+
+function topicReleaseGroupState(group: TopicReleaseGroup) {
+  if (group.failedTotal > 0) return "failed";
+  if (group.runningTotal > 0) return "running";
+  if (group.canceledTotal > 0) return "canceled";
+  if (group.successTotal > 0) return "success";
+
+  return "neutral";
+}
+
+function topicReleaseGroupStateLabel(
+  state: ReturnType<typeof topicReleaseGroupState>,
+) {
+  switch (state) {
+    case "failed":
+      return "有失败";
+    case "running":
+      return "进行中";
+    case "canceled":
+      return "有取消";
+    case "success":
+      return "已完成";
+    default:
+      return "待确认";
+  }
+}
+
+function topicReleaseGroupStateTone(
+  state: ReturnType<typeof topicReleaseGroupState>,
+) {
+  switch (state) {
+    case "failed":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "running":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "canceled":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    default:
+      return "border-slate-200 bg-white text-slate-700";
+  }
+}
+
+function TopicReleaseInfoLine(props: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", props.className)}>
+      <p className="text-[11px] leading-4 font-medium text-slate-500">
+        {props.label}
+      </p>
+      <div className="mt-1 min-w-0 text-sm leading-5 text-slate-900">
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+function TopicReleaseValueChips(props: { values: string[] }) {
+  const visibleValues = props.values.slice(0, 4);
+  const hiddenTotal = props.values.length - visibleValues.length;
+
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1.5">
+      {visibleValues.map((value) => (
+        <span
+          key={value}
+          className="max-w-full truncate rounded-[8px] border border-slate-200 bg-white px-2 py-0.5 text-[12px] leading-5 text-slate-700"
+          title={value}
+        >
+          {value}
+        </span>
+      ))}
+      {hiddenTotal > 0 ? (
+        <span className="rounded-[8px] border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] leading-5 text-slate-500">
+          +{hiddenTotal}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function TopicReleaseActionButtons(props: {
+  triggering: boolean;
+  onTrigger: () => void;
+  onRetry: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] lg:grid-cols-1">
+      <Button
+        size="sm"
+        className="h-8 rounded-[9px] px-2.5 text-[12px]"
+        onClick={props.onTrigger}
+        disabled={props.triggering}
+      >
+        {props.triggering ? (
+          <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+        ) : (
+          <RocketIcon data-icon="inline-start" />
+        )}
+        一键发布
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 rounded-[9px] border-sky-200 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+        onClick={props.onRetry}
+        disabled={props.triggering}
+      >
+        <CheckCircle2Icon data-icon="inline-start" />
+        指定项目
+      </Button>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        className="size-8 rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:w-auto sm:px-2.5 lg:w-full"
+        onClick={props.onDelete}
+        title="删除主题发布记录"
+      >
+        <Trash2Icon />
+        <span className="sr-only sm:not-sr-only lg:not-sr-only">删除</span>
+      </Button>
+    </div>
+  );
+}
+
+function TopicReleaseOperationButtons(props: {
+  release: ReleaseRow;
+  onOpenOperation: (
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) => void;
+}) {
+  return (
+    <div className={CMDB_ACTION_GROUP_CLASS}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={CMDB_ACTION_ICON_CLASS}
+        onClick={() => props.onOpenOperation(props.release, "dockerStatus")}
+        disabled={Boolean(releaseOperationIssue(props.release, "dockerStatus"))}
+        title={
+          releaseOperationIssue(props.release, "dockerStatus") ?? "容器状态"
+        }
+      >
+        <ActivityIcon />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={CMDB_ACTION_ICON_CLASS}
+        onClick={() => props.onOpenOperation(props.release, "dockerLogs")}
+        disabled={Boolean(releaseOperationIssue(props.release, "dockerLogs"))}
+        title={releaseOperationIssue(props.release, "dockerLogs") ?? "运行日志"}
+      >
+        <ScrollTextIcon />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={CMDB_ACTION_ICON_CLASS}
+        onClick={() => props.onOpenOperation(props.release, "sshInfo")}
+        disabled={Boolean(releaseOperationIssue(props.release, "sshInfo"))}
+        title={
+          releaseOperationIssue(props.release, "sshInfo") ??
+          remoteLoginLabel(props.release.project?.deployTarget)
+        }
+      >
+        <TerminalIcon />
+      </Button>
+    </div>
+  );
+}
+
+function TopicReleaseRecordRow(props: {
+  release: ReleaseRow;
+  onOpenOperation: (
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) => void;
+}) {
+  const projectName = props.release.project?.name ?? "未知项目";
+  const gitlabPath = props.release.project?.gitlabPath ?? "-";
+
+  return (
+    <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(180px,1.05fr)_minmax(150px,0.75fr)_minmax(190px,0.85fr)_auto] lg:items-center">
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Badge className={cn("border", releaseTone(props.release.status))}>
+            {releaseLabel(props.release.status)}
+          </Badge>
+          <span className="text-xs leading-5 text-slate-500">
+            {formatTime(props.release.createdAt)}
+          </span>
+        </div>
+        <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+          {projectName}
+        </p>
+        <p className="mt-0.5 truncate text-xs leading-5 text-slate-500">
+          {gitlabPath}
+        </p>
+      </div>
+
+      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1">
+        <TopicReleaseInfoLine label="Ref">
+          <span className="block truncate">{props.release.ref}</span>
+        </TopicReleaseInfoLine>
+        <TopicReleaseInfoLine label="环境">
+          <span className="block truncate">
+            {props.release.deployEnv ?? "-"}
+          </span>
+        </TopicReleaseInfoLine>
+      </div>
+
+      <div className="min-w-0">
+        {props.release.gitlabPipelineUrl ? (
+          <a
+            href={props.release.gitlabPipelineUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "h-8 max-w-full rounded-[9px] bg-white",
+            )}
+          >
+            <span className="truncate">
+              Pipeline #{props.release.gitlabPipelineId ?? props.release.id}
+            </span>
+            <ExternalLinkIcon data-icon="inline-end" />
+          </a>
+        ) : (
+          <p className="text-sm leading-5 text-slate-500">
+            {props.release.lastError ?? "尚未返回流水线链接"}
+          </p>
+        )}
+      </div>
+
+      <div className="flex justify-start lg:justify-end">
+        <TopicReleaseOperationButtons
+          release={props.release}
+          onOpenOperation={props.onOpenOperation}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TopicReleaseBatchSection(props: {
+  batch: TopicReleaseBatch;
+  onOpenOperation: (
+    release: ReleaseRow,
+    action: ProjectOperationAction,
+  ) => void;
+}) {
+  return (
+    <section className="border-b border-slate-200/80 last:border-b-0">
+      <div className="flex flex-col gap-3 bg-slate-50/75 px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-slate-950">
+              {props.batch.label}
+            </p>
+            <span className="text-xs leading-5 text-slate-500">
+              {props.batch.releaseTotal} 条发布
+            </span>
+          </div>
+          <p className="mt-1 truncate text-xs leading-5 text-slate-500">
+            Ref {props.batch.refs.join("、")} · 环境{" "}
+            {props.batch.deployEnvs.join("、")}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          <TopicReleaseCountPill
+            label="成功"
+            value={props.batch.successTotal}
+            tone="success"
+          />
+          <TopicReleaseCountPill
+            label="进行中"
+            value={props.batch.runningTotal}
+            tone="running"
+          />
+          <TopicReleaseCountPill
+            label="失败"
+            value={props.batch.failedTotal}
+            tone="failed"
+          />
+          {props.batch.canceledTotal > 0 ? (
+            <TopicReleaseCountPill
+              label="取消"
+              value={props.batch.canceledTotal}
+              tone="neutral"
+            />
+          ) : null}
+        </div>
+      </div>
+      <div className="divide-y divide-slate-200/75 bg-white">
+        {props.batch.releases.map((release) => (
+          <TopicReleaseRecordRow
+            key={`topic-release-record-${release.id}`}
+            release={release}
+            onOpenOperation={props.onOpenOperation}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1964,27 +2363,27 @@ function TopicReleaseList(props: {
         return (
           <article
             key={`topic-release-plan-${plan.id}`}
-            className="rounded-[12px] border border-amber-200/95 bg-amber-50/40 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+            className="overflow-hidden rounded-[12px] border border-amber-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
+            <div className="grid lg:grid-cols-[290px_minmax(0,1fr)]">
+              <div className="border-b border-amber-200/80 bg-amber-50/55 px-4 py-4 lg:border-r lg:border-b-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h3 className="truncate text-base font-semibold text-slate-950">
-                    {plan.topic}
-                  </h3>
                   <Badge className="border border-amber-200 bg-amber-100 text-amber-800">
                     待发布
                   </Badge>
+                  <span className="text-xs text-slate-500">
+                    {formatTime(plan.createdAt)}
+                  </span>
                 </div>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
-                  {plan.projectIds.length} 个项目 · 新建于{" "}
-                  {formatTime(plan.createdAt)}
+                <h3 className="mt-2 truncate text-base font-semibold text-slate-950">
+                  {plan.topic}
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  {plan.projectIds.length} 个项目等待触发。
                 </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
                 <Button
                   size="sm"
-                  className="rounded-[9px]"
+                  className="mt-4 w-full rounded-[9px]"
                   onClick={() => props.onTriggerPlan(plan)}
                   disabled={isTriggering}
                 >
@@ -2001,7 +2400,7 @@ function TopicReleaseList(props: {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  className="mt-2 w-full rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={() => props.onDeletePlan(plan)}
                   disabled={isTriggering}
                 >
@@ -2009,26 +2408,23 @@ function TopicReleaseList(props: {
                   删除
                 </Button>
               </div>
-            </div>
 
-            <div className="mt-4 grid gap-3 rounded-[10px] border border-amber-200/75 bg-white/85 px-3 py-3 md:grid-cols-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">项目</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {projectLabels.join("、")}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">Ref</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {plan.ref || "各项目默认分支"}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">环境</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {plan.deployEnv || "各项目默认环境"}
-                </p>
+              <div className="px-4 py-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <TopicReleaseInfoLine label="Ref">
+                    <span className="block truncate">
+                      {plan.ref || "各项目默认分支"}
+                    </span>
+                  </TopicReleaseInfoLine>
+                  <TopicReleaseInfoLine label="环境">
+                    <span className="block truncate">
+                      {plan.deployEnv || "各项目默认环境"}
+                    </span>
+                  </TopicReleaseInfoLine>
+                </div>
+                <TopicReleaseInfoLine label="计划项目" className="mt-4">
+                  <TopicReleaseValueChips values={projectLabels} />
+                </TopicReleaseInfoLine>
               </div>
             </div>
           </article>
@@ -2036,102 +2432,34 @@ function TopicReleaseList(props: {
       })}
 
       {props.groups.map((group) => {
-        const hasFailures = group.failedTotal > 0;
-        const hasRunning = group.runningTotal > 0;
-        const statusTone = hasFailures
-          ? "border-rose-200 bg-rose-50 text-rose-700"
-          : hasRunning
-            ? "border-sky-200 bg-sky-50 text-sky-700"
-            : "border-emerald-200 bg-emerald-50 text-emerald-700";
-        const statusLabel = hasFailures
-          ? "有失败"
-          : hasRunning
-            ? "进行中"
-            : "已完成";
+        const state = topicReleaseGroupState(group);
+        const batches = buildTopicReleaseBatches(group.releases);
 
         return (
           <article
             key={`topic-release-group-${group.topic}`}
-            className="rounded-[12px] border border-slate-200/95 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+            className="overflow-hidden rounded-[12px] border border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
+            <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
+              <div className="border-b border-slate-200/85 bg-slate-50/70 px-4 py-4 lg:border-r lg:border-b-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h3 className="truncate text-base font-semibold text-slate-950">
-                    {group.topic}
-                  </h3>
-                  <Badge className={cn("border", statusTone)}>
-                    {statusLabel}
+                  <Badge
+                    className={cn("border", topicReleaseGroupStateTone(state))}
+                  >
+                    {topicReleaseGroupStateLabel(state)}
                   </Badge>
+                  <span className="text-xs leading-5 text-slate-500">
+                    最近 {formatTime(group.latestRelease.createdAt)}
+                  </span>
                 </div>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
-                  {group.projectTotal} 个项目 · {group.releaseTotal} 条发布记录
-                  · 最近 {formatTime(group.latestRelease.createdAt)}
+                <h3 className="mt-2 truncate text-base font-semibold text-slate-950">
+                  {group.topic}
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  {group.projectTotal} 个项目，{group.releaseTotal} 条发布记录。
                 </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                <Button
-                  size="sm"
-                  className="h-8 rounded-[9px] px-2.5 text-[12px]"
-                  onClick={() => props.onTriggerGroup(group)}
-                  disabled={props.triggeringTopicRelease}
-                >
-                  {props.triggeringTopicRelease ? (
-                    <LoaderCircleIcon
-                      className="animate-spin"
-                      data-icon="inline-start"
-                    />
-                  ) : (
-                    <RocketIcon data-icon="inline-start" />
-                  )}
-                  一键发布
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-[9px] border-sky-200 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
-                  onClick={() => props.onRetryGroup(group)}
-                  disabled={props.triggeringTopicRelease}
-                >
-                  <CheckCircle2Icon data-icon="inline-start" />
-                  指定项目
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-[9px] border-rose-200 bg-white px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                  onClick={() => props.onDeleteGroup(group)}
-                >
-                  <Trash2Icon data-icon="inline-start" />
-                  删除
-                </Button>
-              </div>
-            </div>
 
-            <div className="mt-4 grid gap-3 rounded-[10px] border border-slate-200/75 bg-slate-50/80 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(220px,0.78fr)]">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">项目</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {group.projectLabels.join("、")}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">Ref</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {group.refs.join("、")}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">环境</p>
-                <p className="mt-1 truncate text-sm text-slate-900">
-                  {group.deployEnvs.join("、")}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-slate-500">
-                  发布状态
-                </p>
-                <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                <div className="mt-4 grid grid-cols-3 gap-1.5">
                   <TopicReleaseCountPill
                     label="成功"
                     value={group.successTotal}
@@ -2148,15 +2476,59 @@ function TopicReleaseList(props: {
                     tone="failed"
                   />
                 </div>
-              </div>
-            </div>
+                {group.canceledTotal > 0 ? (
+                  <div className="mt-1.5">
+                    <TopicReleaseCountPill
+                      label="取消"
+                      value={group.canceledTotal}
+                      tone="neutral"
+                    />
+                  </div>
+                ) : null}
 
-            <div className="mt-4">
-              <ProjectReleaseHistory
-                releases={group.releases}
-                showProject
-                onOpenOperation={props.onOpenOperation}
-              />
+                <div className="mt-4 grid gap-3">
+                  <TopicReleaseInfoLine label="Ref">
+                    <TopicReleaseValueChips values={group.refs} />
+                  </TopicReleaseInfoLine>
+                  <TopicReleaseInfoLine label="环境">
+                    <TopicReleaseValueChips values={group.deployEnvs} />
+                  </TopicReleaseInfoLine>
+                  <TopicReleaseInfoLine label="项目">
+                    <TopicReleaseValueChips values={group.projectLabels} />
+                  </TopicReleaseInfoLine>
+                </div>
+
+                <div className="mt-4">
+                  <TopicReleaseActionButtons
+                    triggering={props.triggeringTopicRelease}
+                    onTrigger={() => props.onTriggerGroup(group)}
+                    onRetry={() => props.onRetryGroup(group)}
+                    onDelete={() => props.onDeleteGroup(group)}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-col gap-1 border-b border-slate-200/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-950">
+                      发布批次
+                    </p>
+                    <p className="text-xs leading-5 text-slate-500">
+                      按触发时间聚合，最近批次在前。
+                    </p>
+                  </div>
+                  <span className="text-xs leading-5 text-slate-500">
+                    {batches.length} 个批次
+                  </span>
+                </div>
+                {batches.map((batch) => (
+                  <TopicReleaseBatchSection
+                    key={`topic-release-batch-${group.topic}-${batch.key}`}
+                    batch={batch}
+                    onOpenOperation={props.onOpenOperation}
+                  />
+                ))}
+              </div>
             </div>
           </article>
         );

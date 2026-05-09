@@ -369,7 +369,7 @@ http://<部署机IP>:3000/
 如果没有配置 Ingress，访问地址形如：
 
 ```text
-http://<节点IP>:<自动分配端口>/vnc.html?autoconnect=1&resize=remote
+http://<节点IP>:<自动分配端口>/vnc_lite.html?autoconnect=1&resize=remote
 ```
 
 ## 8. 删除工作区
