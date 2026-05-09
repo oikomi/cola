@@ -33,9 +33,6 @@ const areaIcons = {
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
 
 type ProductArea = (typeof PRODUCT_AREAS)[number];
-const visibleProductAreas = PRODUCT_AREAS.filter(
-  (area) => area.key !== "system",
-);
 
 const areaChrome = {
   office: {
@@ -170,13 +167,13 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                   Operations
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/[0.065] px-2 py-0.5 text-[10px] font-medium text-slate-200/74">
-                  {visibleProductAreas.length} modules
+                  {PRODUCT_AREAS.length} modules
                 </span>
               </div>
 
               <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1.5 md:overflow-visible md:pb-0 2xl:overflow-y-auto">
                 <span className="pointer-events-none absolute top-5 bottom-5 left-[31px] hidden w-px bg-gradient-to-b from-transparent via-cyan-100/12 to-transparent 2xl:block" />
-                {visibleProductAreas.map((area) => {
+                {PRODUCT_AREAS.map((area) => {
                   const active = area.key === activeArea;
 
                   return (
