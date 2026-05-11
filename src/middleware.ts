@@ -41,20 +41,37 @@ function isPageRequest(request: NextRequest) {
   return true;
 }
 
+function requestPublicOrigin(request: NextRequest) {
+  const host =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!host) return request.nextUrl.origin;
+
+  const protocol =
+    request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol;
+  return `${protocol.replace(/:$/, "")}://${host}`;
+}
+
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const publicOrigin = authPublicOrigin();
+  const incomingOrigin = requestPublicOrigin(request);
 
   if (
     publicOrigin &&
     isPageRequest(request) &&
-    request.nextUrl.origin !== publicOrigin
+    incomingOrigin !== publicOrigin
   ) {
     const targetUrl = new URL(
       `${request.nextUrl.pathname}${request.nextUrl.search}`,
       publicOrigin,
     );
-    return NextResponse.redirect(targetUrl);
+    const incomingUrl = new URL(
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+      incomingOrigin,
+    );
+    if (targetUrl.toString() !== incomingUrl.toString()) {
+      return NextResponse.redirect(targetUrl);
+    }
   }
 
   if (isProtectedApi(pathname) && !hasSessionCookie(request)) {
