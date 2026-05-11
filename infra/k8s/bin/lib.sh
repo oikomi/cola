@@ -1184,6 +1184,20 @@ run_cluster_helm() {
     "$helm_bin" "$@"
 }
 
+print_node_local_dns_diagnostics() {
+  echo "node-local-dns DaemonSet:"
+  run_cluster_kubectl -n kube-system get daemonset node-local-dns -o wide || true
+  echo
+  echo "node-local-dns Pods:"
+  run_cluster_kubectl -n kube-system get pods -l k8s-app=node-local-dns -o wide || true
+  echo
+  echo "kube-system DNS Pods:"
+  run_cluster_kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide || true
+  echo
+  echo "kube-system 最近事件:"
+  run_cluster_kubectl -n kube-system get events --sort-by=.lastTimestamp | tail -n 80 || true
+}
+
 reconcile_node_local_dns_upstream() {
   local proxy_mode
   local upstream_service_ip
@@ -1237,8 +1251,10 @@ reconcile_node_local_dns_upstream() {
     sudo install -m 0644 "$tmp_manifest" "$current_rendered_manifest"
   fi
   run_cluster_kubectl -n kube-system rollout restart daemonset/node-local-dns >/dev/null
-  run_cluster_kubectl -n kube-system rollout status daemonset/node-local-dns --timeout=180s >/dev/null || \
+  if ! run_cluster_kubectl -n kube-system rollout status daemonset/node-local-dns --timeout=180s >/dev/null; then
+    print_node_local_dns_diagnostics >&2
     die "node-local-dns 在上游校正后未能完成 rollout。"
+  fi
 }
 
 cluster_name() {
@@ -1395,6 +1411,11 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
 
   local -a target_nodes=("$@")
   local -a image_refs=()
+  local calico_ver
+  local dns_node_cache_ver
+  local coredns_ver
+  local coredns_tag
+  local metrics_ver
   local sandbox_source_ref
   local sandbox_runtime_ref
   local image_ref
@@ -1405,6 +1426,14 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
   [[ "${#image_refs[@]}" -gt 0 ]] || return 0
 
   controller_can_cache_image_archives || return 1
+  calico_ver="$(kubeasz_config_value calico_ver || true)"
+  dns_node_cache_ver="$(kubeasz_config_value dnsNodeCacheVer || true)"
+  coredns_ver="$(kubeasz_config_value corednsVer || true)"
+  coredns_tag="$coredns_ver"
+  if [[ -n "$coredns_tag" && "$coredns_tag" != v* ]]; then
+    coredns_tag="v${coredns_tag}"
+  fi
+  metrics_ver="$(kubeasz_config_value metricsVer || true)"
   sandbox_source_ref="$(sandbox_image)"
   sandbox_runtime_ref="$(runtime_sandbox_image)"
 
@@ -1418,6 +1447,43 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
       tag_k8s_image_aliases_on_nodes \
         "$image_ref" \
         "$sandbox_runtime_ref" \
+        "${target_nodes[@]}"
+    fi
+
+    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/cni:${calico_ver}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/cni:${calico_ver}" \
+        "${target_nodes[@]}"
+    fi
+    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/node:${calico_ver}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/node:${calico_ver}" \
+        "${target_nodes[@]}"
+    fi
+    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/kube-controllers:${calico_ver}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/kube-controllers:${calico_ver}" \
+        "${target_nodes[@]}"
+    fi
+    if [[ -n "$dns_node_cache_ver" && "$image_ref" == "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}" \
+        "${target_nodes[@]}"
+    fi
+    if [[ -n "$coredns_ver" && -n "$coredns_tag" && "$image_ref" == "registry.k8s.io/coredns/coredns:${coredns_tag}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/coredns:${coredns_ver}" \
+        "${target_nodes[@]}"
+    fi
+    if [[ -n "$metrics_ver" && "$image_ref" == "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}" ]]; then
+      tag_k8s_image_aliases_on_nodes \
+        "$image_ref" \
+        "easzlab.io.local:5000/easzlab/metrics-server:${metrics_ver}" \
         "${target_nodes[@]}"
     fi
   done
