@@ -25,6 +25,11 @@ export function authPublicBaseUrl() {
   return env.AUTH_PUBLIC_BASE_URL?.replace(/\/+$/, "") ?? null;
 }
 
+export function authPublicOrigin() {
+  const baseUrl = authPublicBaseUrl();
+  return baseUrl ? new URL(baseUrl).origin : null;
+}
+
 export function authUrl(path: string, requestUrl: string | URL) {
   const baseUrl = authPublicBaseUrl() ?? new URL(requestUrl).origin;
   return new URL(path, baseUrl);

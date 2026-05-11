@@ -61,6 +61,10 @@ export async function GET(request: NextRequest) {
     );
     return response;
   } catch (error) {
+    console.error(
+      "[auth] feishu callback failed:",
+      error instanceof Error ? error.message : error,
+    );
     const response = redirectToLogin(
       request,
       error instanceof Error ? error.message : "飞书登录失败。",
