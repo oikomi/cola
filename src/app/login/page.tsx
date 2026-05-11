@@ -1,5 +1,4 @@
 import Image from "next/image";
-import Link from "next/link";
 import { LogInIcon, ShieldCheckIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -88,13 +87,13 @@ export default async function LoginPage({
               </Alert>
             ) : null}
 
-            <Link
+            <a
               href={loginHref}
               className={cn(buttonVariants({ size: "lg" }), "h-11 w-full")}
             >
                 <LogInIcon data-icon="inline-start" />
                 使用飞书登录
-            </Link>
+            </a>
 
             <p className="text-xs leading-5 text-muted-foreground">
               首次登录会自动创建 Cola 用户；管理员可以通过环境变量指定初始 admin。
