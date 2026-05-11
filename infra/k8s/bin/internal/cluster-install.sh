@@ -15,6 +15,10 @@ CLUSTER_NAME="$(cluster_name)"
 if ! kubeasz_ezctl_path >/dev/null 2>&1; then
   die "kubeasz 尚未准备好，请先执行 ./bin/cluster.sh cluster bootstrap"
 fi
+
+render_kubeasz_cluster_config_tokens
+validate_kubeasz_cluster_config_rendered
+
 BOOTSTRAP_HOSTS="$GENERATED_DIR/hosts-bootstrap"
 BOOTSTRAP_SUMMARY="$GENERATED_DIR/cluster-summary-bootstrap.json"
 BOOTSTRAP_NODE_LIST=()

@@ -156,76 +156,30 @@ init_cluster_dir_without_ansible() {
 
   if sudo test -d "$KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"; then
     echo "复用现有 cluster 目录: $KUBEASZ_BASE_DIR/clusters/$CLUSTER_NAME"
-    return 0
   fi
 
-  sudo bash -s -- "$CLUSTER_NAME" "$KUBE_VERSION" <<'REMOTE_SCRIPT'
+  sudo bash -s -- "$CLUSTER_NAME" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 cluster_name="$1"
-kube_version="$2"
 base_dir="/etc/kubeasz"
 
 cd "$base_dir"
 mkdir -p "clusters/$cluster_name"
-cp example/hosts.multi-node "clusters/$cluster_name/hosts"
+
+if [[ ! -f "clusters/$cluster_name/hosts" ]]; then
+  cp example/hosts.multi-node "clusters/$cluster_name/hosts"
+fi
+
 sed -i "s/_cluster_name_/$cluster_name/g" "clusters/$cluster_name/hosts"
-cp example/config.yml "clusters/$cluster_name/config.yml"
 
-eval "$(sed '/V.[rR]=.*\./!d' ezdown)"
-k8s_ver="${kube_version#v}"
-registry_mirror=true
-config_file="clusters/$cluster_name/config.yml"
-
-grep registry-mirrors /etc/docker/daemon.json >/dev/null 2>&1 || registry_mirror=false
-
-replace_config_token() {
-  local token="$1"
-  local value="$2"
-  local required="${3:-required}"
-  local escaped_value
-
-  if ! grep -q "$token" "$config_file"; then
-    return 0
-  fi
-
-  if [[ -z "$value" ]]; then
-    if [[ "$required" == "optional" ]]; then
-      echo "WARN: kubeasz ezdown 未定义 ${token} 对应版本，保留模板默认值。"
-      return 0
-    fi
-
-    echo "ERROR: kubeasz ezdown 未定义 ${token} 对应版本，无法初始化 cluster config。" >&2
-    exit 1
-  fi
-
-  escaped_value="$(printf '%s' "$value" | sed 's/[\/&]/\\&/g')"
-  sed -i "s/${token}/${escaped_value}/g" "$config_file"
-}
-
-replace_config_token "__k8s_ver__" "$k8s_ver"
-replace_config_token "__flannel__" "${flannelVer:-}"
-replace_config_token "__calico__" "${calicoVer:-}"
-replace_config_token "__cilium__" "${ciliumVer:-}"
-replace_config_token "__kube_ovn__" "${kubeOvnVer:-}"
-replace_config_token "__kube_router__" "${kubeRouterVer:-}"
-replace_config_token "__coredns__" "${corednsVer:-}"
-replace_config_token "__pause__" "${pauseVer:-}"
-replace_config_token "__dns_node_cache__" "${dnsNodeCacheVer:-}"
-replace_config_token "__dashboard__" "${dashboardVer:-}"
-replace_config_token "__local_path_provisioner__" "${localpathProvisionerVer:-}"
-replace_config_token "__nfs_provisioner__" "${nfsProvisionerVer:-}"
-replace_config_token "__openebs_ver__" "${openebsVer:-}"
-replace_config_token "__prom_chart__" "${promChartVer:-}"
-replace_config_token "__minio_chart__" "${minioOperatorVer:-}"
-replace_config_token "__kubeapps_chart__" "${kubeappsVer:-}" optional
-replace_config_token "__kubeblocks_ver__" "${kubeblocksVer:-}"
-replace_config_token "__ingress_nginx_ver__" "${ingressNginxVer:-}"
-replace_config_token "__harbor__" "${HARBOR_VER:-}"
-replace_config_token "__metrics__" "${metricsVer:-}"
-
-sed -i "s/^ENABLE_MIRROR_REGISTRY.*$/ENABLE_MIRROR_REGISTRY: ${registry_mirror}/g" "$config_file"
+if [[ ! -f "clusters/$cluster_name/config.yml" ]]; then
+  cp example/config.yml "clusters/$cluster_name/config.yml"
+fi
 REMOTE_SCRIPT
+
+  render_kubeasz_cluster_config_tokens "$KUBE_VERSION"
+  validate_kubeasz_cluster_config_rendered
 }
 
 print_step "准备 kubeasz 目录"
