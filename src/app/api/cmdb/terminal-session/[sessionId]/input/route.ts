@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { requireRouteRole } from "@/server/auth/http";
 import { writeCmdbTerminalSessionInput } from "@/server/cmdb/terminal-session";
 
 export const runtime = "nodejs";
@@ -16,6 +17,9 @@ const terminalInputSchema = z.object({
 });
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const auth = await requireRouteRole(request, "operator");
+  if (auth.response) return auth.response;
+
   try {
     const { sessionId } = await context.params;
     const json: unknown = await request.json();

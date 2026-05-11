@@ -7,9 +7,14 @@
  * need to use are documented accordingly near the end.
  */
 import { initTRPC } from "@trpc/server";
+import { TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { AUTH_SESSION_COOKIE } from "@/server/auth/config";
+import { hasRoleAtLeast } from "@/server/auth/permissions";
+import type { AuthRole } from "@/server/auth/permissions";
+import { getSessionUserFromToken } from "@/server/auth/session";
 import { db } from "@/server/db";
 
 /**
@@ -25,8 +30,20 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+  const cookieHeader = opts.headers.get("cookie") ?? "";
+  const sessionToken = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${AUTH_SESSION_COOKIE}=`))
+    ?.slice(AUTH_SESSION_COOKIE.length + 1);
+  const user = await getSessionUserFromToken(
+    db,
+    sessionToken ? decodeURIComponent(sessionToken) : undefined,
+  );
+
   return {
     db,
+    user,
     ...opts,
   };
 };
@@ -104,3 +121,36 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
  * are logged in.
  */
 export const publicProcedure = t.procedure.use(timingMiddleware);
+
+export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (!ctx.user) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "请先登录。",
+    });
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      user: ctx.user,
+    },
+  });
+});
+
+function roleProcedure(role: AuthRole) {
+  return protectedProcedure.use(({ ctx, next }) => {
+    if (!hasRoleAtLeast(ctx.user, role)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "权限不足。",
+      });
+    }
+
+    return next();
+  });
+}
+
+export const viewerProcedure = roleProcedure("viewer");
+export const operatorProcedure = roleProcedure("operator");
+export const adminProcedure = roleProcedure("admin");

@@ -1,3 +1,4 @@
+import { requireRouteRole } from "@/server/auth/http";
 import { getCmdbTerminalSession } from "@/server/cmdb/terminal-session";
 import type { CmdbTerminalSessionEvent } from "@/server/cmdb/terminal-session";
 
@@ -11,6 +12,9 @@ type RouteContext = {
 };
 
 export async function GET(request: Request, context: RouteContext) {
+  const auth = await requireRouteRole(request, "operator");
+  if (auth.response) return auth.response;
+
   const { sessionId } = await context.params;
   const session = getCmdbTerminalSession(sessionId);
 

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  operatorProcedure,
+  viewerProcedure,
+} from "@/server/api/trpc";
 import {
   agentRoleValues,
   approvalTypeValues,
@@ -66,9 +70,9 @@ const resolveApprovalInput = z.object({
 });
 
 export const officeRouter = createTRPCRouter({
-  getSnapshot: publicProcedure.query(({ ctx }) => getOfficeSnapshot(ctx.db)),
+  getSnapshot: viewerProcedure.query(({ ctx }) => getOfficeSnapshot(ctx.db)),
 
-  getAgentById: publicProcedure
+  getAgentById: viewerProcedure
     .input(z.object({ agentId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const snapshot = await getOfficeSnapshot(ctx.db);
@@ -77,45 +81,45 @@ export const officeRouter = createTRPCRouter({
       );
     }),
 
-  getTaskById: publicProcedure
+  getTaskById: viewerProcedure
     .input(z.object({ taskId: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const snapshot = await getOfficeSnapshot(ctx.db);
       return snapshot.tasks.find((task) => task.id === input.taskId) ?? null;
     }),
 
-  getNativeDashboardUrl: publicProcedure
+  getNativeDashboardUrl: operatorProcedure
     .input(z.object({ agentId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const url = await resolveFreshDashboardUrl(ctx.db, input.agentId);
       return { url };
     }),
 
-  createAgent: publicProcedure
+  createAgent: operatorProcedure
     .input(createAgentInput)
     .mutation(({ ctx, input }) => createOfficeAgent(ctx.db, input)),
 
-  deleteAgent: publicProcedure
+  deleteAgent: operatorProcedure
     .input(deleteAgentInput)
     .mutation(({ ctx, input }) => deleteOfficeAgent(ctx.db, input)),
 
-  addWorkstation: publicProcedure
+  addWorkstation: operatorProcedure
     .input(addWorkstationInput)
     .mutation(({ ctx, input }) => addOfficeWorkstation(ctx.db, input)),
 
-  createTask: publicProcedure
+  createTask: operatorProcedure
     .input(createTaskInput)
     .mutation(({ ctx, input }) => createOfficeTask(ctx.db, input)),
 
-  updateTaskStatus: publicProcedure
+  updateTaskStatus: operatorProcedure
     .input(updateTaskStatusInput)
     .mutation(({ ctx, input }) => updateOfficeTaskStatus(ctx.db, input)),
 
-  requestApproval: publicProcedure
+  requestApproval: operatorProcedure
     .input(requestApprovalInput)
     .mutation(({ ctx, input }) => requestOfficeApproval(ctx.db, input)),
 
-  resolveApproval: publicProcedure
+  resolveApproval: operatorProcedure
     .input(resolveApprovalInput)
     .mutation(({ ctx, input }) => resolveOfficeApproval(ctx.db, input)),
 });

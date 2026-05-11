@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { requireRouteRole } from "@/server/auth/http";
 import { closeCmdbTerminalSession } from "@/server/cmdb/terminal-session";
 
 export const runtime = "nodejs";
@@ -10,7 +11,10 @@ type RouteContext = {
   }>;
 };
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  const auth = await requireRouteRole(request, "operator");
+  if (auth.response) return auth.response;
+
   const { sessionId } = await context.params;
   closeCmdbTerminalSession(sessionId);
   return NextResponse.json({ success: true });

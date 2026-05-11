@@ -92,6 +92,13 @@
       "when": 1777277163997,
       "tag": "0012_cmdb_default_docker_deploy",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778486400000,
+      "tag": "0013_feishu_auth",
+      "breakpoints": true
     }
   ]
 }

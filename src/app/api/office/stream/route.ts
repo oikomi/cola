@@ -1,4 +1,5 @@
 import { db } from "@/server/db";
+import { requireRouteUser } from "@/server/auth/http";
 import { getOfficeRealtimeVersion } from "@/server/office/snapshot";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,9 @@ function encodeSse(event: string, data: unknown) {
 }
 
 export async function GET(request: Request) {
+  const auth = await requireRouteUser(request);
+  if (auth.response) return auth.response;
+
   let interval: ReturnType<typeof setInterval> | undefined;
   let closed = false;
 

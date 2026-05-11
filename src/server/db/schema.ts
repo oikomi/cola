@@ -71,6 +71,15 @@ export const cmdbAssetStatusEnum = pgEnum("cola_cmdb_asset_status", [
   "planned",
   "unknown",
 ]);
+export const userRoleEnum = pgEnum("cola_user_role", [
+  "admin",
+  "operator",
+  "viewer",
+]);
+export const userStatusEnum = pgEnum("cola_user_status", [
+  "active",
+  "disabled",
+]);
 export const deviceTypeEnum = pgEnum("cola_device_type", deviceTypeValues);
 export const deviceStatusEnum = pgEnum(
   "cola_device_status",
@@ -337,6 +346,56 @@ export const cmdbReleases = createTable(
     index("cmdb_release_project_idx").on(t.projectId),
     index("cmdb_release_status_idx").on(t.status),
     index("cmdb_release_created_idx").on(t.createdAt),
+  ],
+);
+
+export const users = createTable(
+  "user",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    feishuOpenId: d.varchar({ length: 128 }).notNull().unique(),
+    feishuUnionId: d.varchar({ length: 128 }),
+    tenantKey: d.varchar({ length: 128 }).notNull(),
+    name: d.varchar({ length: 160 }),
+    email: d.varchar({ length: 256 }),
+    avatarUrl: d.text(),
+    role: userRoleEnum().notNull().default("viewer"),
+    status: userStatusEnum().notNull().default("active"),
+    lastLoginAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("user_feishu_open_idx").on(t.feishuOpenId),
+    index("user_tenant_idx").on(t.tenantKey),
+    index("user_role_idx").on(t.role),
+    index("user_status_idx").on(t.status),
+  ],
+);
+
+export const authSessions = createTable(
+  "auth_session",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    userId: d
+      .uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionTokenHash: d.varchar({ length: 128 }).notNull().unique(),
+    expiresAt: d.timestamp({ withTimezone: true }).notNull(),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    revokedAt: d.timestamp({ withTimezone: true }),
+  }),
+  (t) => [
+    index("auth_session_user_idx").on(t.userId),
+    index("auth_session_token_idx").on(t.sessionTokenHash),
+    index("auth_session_expires_idx").on(t.expiresAt),
   ],
 );
 

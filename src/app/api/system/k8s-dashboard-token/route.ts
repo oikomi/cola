@@ -4,6 +4,8 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { requireRouteRole } from "@/server/auth/http";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,6 @@ const execFileAsync = promisify(execFile);
 const TOKEN_COMMAND_TIMEOUT_MS = 90_000;
 const CLUSTER_DIR = path.join(process.cwd(), "infra", "k8s", "cluster");
 const DASHBOARD_NAMESPACE = "kubernetes-dashboard";
-const DASHBOARD_SERVICE_ACCOUNT = "admin-user";
 const DASHBOARD_SECRET_NAME = "admin-user-token";
 const REMOTE_TOKEN_SCRIPT = `
 set -eu
@@ -264,7 +265,10 @@ exit 1
   return Buffer.from(tokenBase64, "base64").toString("utf8").trim();
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  const auth = await requireRouteRole(request, "operator");
+  if (auth.response) return auth.response;
+
   try {
     let token = "";
 

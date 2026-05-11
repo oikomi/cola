@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { requireRouteRole } from "@/server/auth/http";
 import { resolveCmdbProjectTerminalTarget } from "@/server/cmdb/service";
 import { createCmdbTerminalSession } from "@/server/cmdb/terminal-session";
 import { db } from "@/server/db";
@@ -13,6 +14,9 @@ const startTerminalSessionSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const auth = await requireRouteRole(request, "operator");
+  if (auth.response) return auth.response;
+
   try {
     const json: unknown = await request.json();
     const input = startTerminalSessionSchema.parse(json);

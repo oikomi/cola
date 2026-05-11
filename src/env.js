@@ -8,6 +8,16 @@ export const env = createEnv({
    */
   server: {
     DATABASE_URL: z.string().url(),
+    AUTH_ADMIN_FEISHU_OPEN_IDS: z.string().optional(),
+    AUTH_ALLOWED_TENANT_KEYS: z.string().optional(),
+    AUTH_COOKIE_SECURE: z
+      .enum(["true", "false"])
+      .optional()
+      .default(process.env.NODE_ENV === "production" ? "true" : "false"),
+    AUTH_SESSION_SECRET: z.string().min(32).optional(),
+    FEISHU_APP_ID: z.string().optional(),
+    FEISHU_APP_SECRET: z.string().optional(),
+    FEISHU_REDIRECT_URI: z.string().url().optional(),
     GITLAB_URL: z.string().url().optional(),
     GITLAB_API_TOKEN: z.string().optional(),
     NODE_ENV: z
@@ -34,6 +44,13 @@ export const env = createEnv({
    */
   runtimeEnv: {
     DATABASE_URL: process.env.DATABASE_URL,
+    AUTH_ADMIN_FEISHU_OPEN_IDS: process.env.AUTH_ADMIN_FEISHU_OPEN_IDS,
+    AUTH_ALLOWED_TENANT_KEYS: process.env.AUTH_ALLOWED_TENANT_KEYS,
+    AUTH_COOKIE_SECURE: process.env.AUTH_COOKIE_SECURE,
+    AUTH_SESSION_SECRET: process.env.AUTH_SESSION_SECRET,
+    FEISHU_APP_ID: process.env.FEISHU_APP_ID,
+    FEISHU_APP_SECRET: process.env.FEISHU_APP_SECRET,
+    FEISHU_REDIRECT_URI: process.env.FEISHU_REDIRECT_URI,
     GITLAB_URL: process.env.GITLAB_URL,
     GITLAB_API_TOKEN: process.env.GITLAB_API_TOKEN,
     NODE_ENV: process.env.NODE_ENV,

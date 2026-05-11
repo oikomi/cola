@@ -22,6 +22,7 @@ import {
   productAreaForPath,
   type ProductAreaKey,
 } from "@/lib/product-areas";
+import { CurrentUserBadge } from "./current-user-badge";
 
 const areaIcons = {
   office: Building2Icon,
@@ -188,6 +189,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                 })}
               </div>
             </nav>
+
+            <CurrentUserBadge />
           </div>
         </aside>
 

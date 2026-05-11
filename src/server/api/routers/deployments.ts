@@ -5,7 +5,11 @@ import {
   gpuAllocationModeValues,
   MAX_GPU_MEMORY_GI,
 } from "@/lib/gpu-allocation";
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  operatorProcedure,
+  viewerProcedure,
+} from "@/server/api/trpc";
 import {
   canCreateInferenceDeploymentWithEngine,
   type InferenceDeploymentEngine,
@@ -88,11 +92,11 @@ function runtimeLabel(engine: InferenceDeploymentEngine) {
 }
 
 export const deploymentsRouter = createTRPCRouter({
-  list: publicProcedure.query(async () => {
+  list: viewerProcedure.query(async () => {
     return listInferenceDeployments();
   }),
 
-  create: publicProcedure
+  create: operatorProcedure
     .input(createInferenceDeploymentInput)
     .mutation(async ({ input }) => {
       try {
@@ -110,7 +114,7 @@ export const deploymentsRouter = createTRPCRouter({
       }
     }),
 
-  start: publicProcedure
+  start: operatorProcedure
     .input(inferenceDeploymentActionInput)
     .mutation(async ({ input }) => {
       try {
@@ -124,7 +128,7 @@ export const deploymentsRouter = createTRPCRouter({
       }
     }),
 
-  stop: publicProcedure
+  stop: operatorProcedure
     .input(inferenceDeploymentActionInput)
     .mutation(async ({ input }) => {
       try {
@@ -138,7 +142,7 @@ export const deploymentsRouter = createTRPCRouter({
       }
     }),
 
-  delete: publicProcedure
+  delete: operatorProcedure
     .input(inferenceDeploymentActionInput)
     .mutation(async ({ input }) => {
       try {

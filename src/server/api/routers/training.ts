@@ -2,7 +2,11 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  operatorProcedure,
+  viewerProcedure,
+} from "@/server/api/trpc";
 import type { db } from "@/server/db";
 import { events, trainingJobs } from "@/server/db/schema";
 import {
@@ -274,13 +278,13 @@ async function getTrainingJobByIdWithCompat(
 }
 
 export const trainingRouter = createTRPCRouter({
-  listJobs: publicProcedure.query(async ({ ctx }) => {
+  listJobs: viewerProcedure.query(async ({ ctx }) => {
     const { rows } = await listTrainingJobsWithCompat(ctx.db);
 
     return syncTrainingJobs(rows);
   }),
 
-  listJupyterLabs: publicProcedure.query(async () => {
+  listJupyterLabs: viewerProcedure.query(async () => {
     const result = await listJupyterLabRuntimes();
     return {
       ...result,
@@ -288,7 +292,7 @@ export const trainingRouter = createTRPCRouter({
     };
   }),
 
-  createJupyterLab: publicProcedure
+  createJupyterLab: operatorProcedure
     .input(createJupyterLabInput)
     .mutation(async ({ input }) => {
       try {
@@ -302,7 +306,7 @@ export const trainingRouter = createTRPCRouter({
       }
     }),
 
-  deleteJupyterLab: publicProcedure
+  deleteJupyterLab: operatorProcedure
     .input(jupyterLabActionInput)
     .mutation(async ({ input }) => {
       try {
@@ -316,7 +320,7 @@ export const trainingRouter = createTRPCRouter({
       }
     }),
 
-  getRuntimeDetails: publicProcedure
+  getRuntimeDetails: viewerProcedure
     .input(trainingRuntimeDetailInput)
     .query(async ({ ctx, input }) => {
       const { job } = await getTrainingJobByIdWithCompat(ctx.db, input.jobId);
@@ -346,7 +350,7 @@ export const trainingRouter = createTRPCRouter({
       }
     }),
 
-  createJob: publicProcedure
+  createJob: operatorProcedure
     .input(createTrainingJobInput)
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -451,7 +455,7 @@ export const trainingRouter = createTRPCRouter({
       });
     }),
 
-  startJob: publicProcedure
+  startJob: operatorProcedure
     .input(trainingJobActionInput)
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -567,7 +571,7 @@ export const trainingRouter = createTRPCRouter({
       }
     }),
 
-  stopJob: publicProcedure
+  stopJob: operatorProcedure
     .input(trainingJobActionInput)
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
@@ -629,7 +633,7 @@ export const trainingRouter = createTRPCRouter({
       });
     }),
 
-  deleteJob: publicProcedure
+  deleteJob: operatorProcedure
     .input(trainingJobActionInput)
     .mutation(async ({ ctx, input }) => {
       const now = new Date();

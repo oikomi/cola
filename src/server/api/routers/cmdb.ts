@@ -1,7 +1,11 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  operatorProcedure,
+  viewerProcedure,
+} from "@/server/api/trpc";
 import { cmdbProjects } from "@/server/db/schema";
 import {
   cancelCmdbRelease,
@@ -49,17 +53,17 @@ const projectConfigSchema = z.object({
 });
 
 export const cmdbRouter = createTRPCRouter({
-  dashboard: publicProcedure.query(async ({ ctx }) => {
+  dashboard: viewerProcedure.query(async ({ ctx }) => {
     return getCmdbDashboard(ctx.db);
   }),
 
-  saveAsset: publicProcedure
+  saveAsset: operatorProcedure
     .input(assetSchema)
     .mutation(async ({ ctx, input }) => {
       return upsertCmdbAsset(ctx.db, input);
     }),
 
-  testAssetConnectivity: publicProcedure
+  testAssetConnectivity: operatorProcedure
     .input(
       z.object({
         ip: z.string().min(1).max(128),
@@ -72,13 +76,13 @@ export const cmdbRouter = createTRPCRouter({
       return testCmdbAssetConnectivity(input);
     }),
 
-  deleteAsset: publicProcedure
+  deleteAsset: operatorProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       return deleteCmdbAsset(ctx.db, input.id);
     }),
 
-  gitlabCatalog: publicProcedure
+  gitlabCatalog: viewerProcedure
     .input(
       z
         .object({
@@ -90,7 +94,7 @@ export const cmdbRouter = createTRPCRouter({
       return listGitLabCatalog(input?.query);
     }),
 
-  gitlabBranches: publicProcedure
+  gitlabBranches: viewerProcedure
     .input(
       z.object({
         projectPath: z.string().min(1).max(512),
@@ -100,7 +104,7 @@ export const cmdbRouter = createTRPCRouter({
       return listGitLabBranches(input.projectPath);
     }),
 
-  saveProject: publicProcedure
+  saveProject: operatorProcedure
     .input(
       z.object({
         id: z.number().optional(),
@@ -118,13 +122,13 @@ export const cmdbRouter = createTRPCRouter({
       return upsertCmdbProject(ctx.db, input);
     }),
 
-  deleteProject: publicProcedure
+  deleteProject: operatorProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       return deleteCmdbProject(ctx.db, input.id);
     }),
 
-  triggerRelease: publicProcedure
+  triggerRelease: operatorProcedure
     .input(
       z.object({
         projectId: z.number(),
@@ -157,7 +161,7 @@ export const cmdbRouter = createTRPCRouter({
       });
     }),
 
-  triggerTopicRelease: publicProcedure
+  triggerTopicRelease: operatorProcedure
     .input(
       z.object({
         topic: z.string().optional(),
@@ -179,19 +183,19 @@ export const cmdbRouter = createTRPCRouter({
       });
     }),
 
-  deleteTopicReleaseGroup: publicProcedure
+  deleteTopicReleaseGroup: operatorProcedure
     .input(z.object({ topic: z.string().min(1).max(256) }))
     .mutation(async ({ ctx, input }) => {
       return deleteCmdbTopicReleaseGroup(ctx.db, input.topic);
     }),
 
-  cancelRelease: publicProcedure
+  cancelRelease: operatorProcedure
     .input(z.object({ releaseId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       return cancelCmdbRelease(ctx.db, input.releaseId);
     }),
 
-  projectOperation: publicProcedure
+  projectOperation: operatorProcedure
     .input(
       z.object({
         projectId: z.number(),

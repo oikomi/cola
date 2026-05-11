@@ -5,7 +5,11 @@ import {
   gpuAllocationModeValues,
   MAX_GPU_MEMORY_GI,
 } from "@/lib/gpu-allocation";
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  operatorProcedure,
+  viewerProcedure,
+} from "@/server/api/trpc";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -35,11 +39,11 @@ const deleteWorkspaceInput = z.object({
 });
 
 export const workspaceRouter = createTRPCRouter({
-  list: publicProcedure.query(async () => {
+  list: viewerProcedure.query(async () => {
     return listWorkspaces();
   }),
 
-  create: publicProcedure
+  create: operatorProcedure
     .input(createWorkspaceInput)
     .mutation(async ({ input }) => {
       try {
@@ -53,7 +57,7 @@ export const workspaceRouter = createTRPCRouter({
       }
     }),
 
-  delete: publicProcedure
+  delete: operatorProcedure
     .input(deleteWorkspaceInput)
     .mutation(async ({ input }) => {
       try {
