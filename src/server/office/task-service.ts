@@ -26,6 +26,7 @@ type Database = typeof db;
 
 export type AddWorkstationInput = {
   zoneId: ZoneId;
+  ownerUserId: string;
 };
 
 export type CreateOfficeTaskInput = {
@@ -35,6 +36,7 @@ export type CreateOfficeTaskInput = {
   taskType: TaskType;
   priority: Priority;
   riskLevel: RiskLevel;
+  ownerUserId: string;
 };
 
 export type UpdateOfficeTaskStatusInput = {
@@ -47,11 +49,13 @@ export type RequestOfficeApprovalInput = {
   approvalType: ApprovalType;
   title: string;
   summary: string;
+  ownerUserId: string;
 };
 
 export type ResolveOfficeApprovalInput = {
   approvalId: string;
   decision: "approved" | "rejected";
+  ownerUserId: string;
 };
 
 function nextAgentStatusForTaskStatus(status: TaskStatus) {
@@ -117,12 +121,14 @@ export async function addOfficeWorkstation(
         .update(zoneSettings)
         .set({
           workstationCapacity: nextCapacity,
+          ownerUserId: currentSetting.ownerUserId ?? input.ownerUserId,
           updatedAt: now,
         })
         .where(eq(zoneSettings.zoneId, input.zoneId));
     } else {
       await tx.insert(zoneSettings).values({
         zoneId: input.zoneId,
+        ownerUserId: input.ownerUserId,
         workstationCapacity: nextCapacity,
         createdAt: now,
       });
@@ -132,6 +138,7 @@ export async function addOfficeWorkstation(
       eventType: "zone.workstation_added",
       entityType: "zone",
       entityId: input.zoneId,
+      ownerUserId: input.ownerUserId,
       severity: "info",
       title: `${zoneLabels[input.zoneId]} 已新增工位`,
       description: `当前已启用 ${nextCapacity} / ${maxCapacity} 个预设工位。`,
@@ -172,6 +179,7 @@ export async function createOfficeTask(
       .insert(tasks)
       .values({
         title: input.title,
+        ownerUserId: input.ownerUserId,
         summary: input.summary,
         taskType: input.taskType,
         priority: input.priority,
@@ -205,6 +213,7 @@ export async function createOfficeTask(
       eventType: "task.created",
       entityType: "task",
       entityId: createdTask.id,
+      ownerUserId: input.ownerUserId,
       severity: "info",
       title: `新任务已进入 ${owner.name} 的待办`,
       description: `${input.title} 已创建，并分派给 ${owner.name}。`,
@@ -276,6 +285,7 @@ export async function updateOfficeTaskStatus(
       eventType: "task.status.changed",
       entityType: "task",
       entityId: task.id,
+      ownerUserId: task.ownerUserId,
       severity:
         input.status === "failed"
           ? "critical"
@@ -344,6 +354,7 @@ export async function requestOfficeApproval(
       .insert(approvals)
       .values({
         taskId: task.id,
+        ownerUserId: task.ownerUserId ?? input.ownerUserId,
         approvalType: input.approvalType,
         status: "pending",
         requestedByAgentId: task.currentAgentId,
@@ -376,6 +387,7 @@ export async function requestOfficeApproval(
       eventType: "approval.requested",
       entityType: "approval",
       entityId: approval?.id ?? task.id,
+      ownerUserId: task.ownerUserId ?? input.ownerUserId,
       severity: "warning",
       title: `已发起审批：${input.title}`,
       description: input.summary,
@@ -417,7 +429,7 @@ export async function resolveOfficeApproval(
       .update(approvals)
       .set({
         status: input.decision,
-        approvedByUserId: "local-operator",
+        approvedByUserId: input.ownerUserId,
         resolvedAt: now,
         updatedAt: now,
       })
@@ -454,6 +466,7 @@ export async function resolveOfficeApproval(
       eventType: "approval.resolved",
       entityType: "approval",
       entityId: approval.id,
+      ownerUserId: approval.ownerUserId ?? input.ownerUserId,
       severity: input.decision === "approved" ? "info" : "critical",
       title:
         input.decision === "approved"

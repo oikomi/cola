@@ -175,6 +175,9 @@ webui_helm_args=(
   --timeout "$HELM_TIMEOUT"
   --set "externalPrometheus.enabled=true"
   --set "externalPrometheus.address=${PROM_ADDRESS}"
+  --set "serviceMonitor.additionalLabels.release=${PROM_RELEASE}"
+  --set "hamiServiceMonitor.additionalLabels.release=${PROM_RELEASE}"
+  --set "dcgm-exporter.serviceMonitor.additionalLabels.release=${PROM_RELEASE}"
 )
 
 if [[ -n "$WEBUI_CHART_VERSION" ]]; then

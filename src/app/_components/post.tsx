@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { notifyError } from "@/components/ui/toast";
 import { api } from "@/trpc/react";
 
 export function LatestPost() {
@@ -13,6 +14,9 @@ export function LatestPost() {
     onSuccess: async () => {
       await utils.post.invalidate();
       setName("");
+    },
+    onError: (error) => {
+      notifyError(error.message);
     },
   });
 

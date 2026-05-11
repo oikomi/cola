@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
   agentRoleValues,
   agentStatusLabels,
@@ -59,11 +60,6 @@ import { api } from "@/trpc/react";
 
 type Props = {
   snapshot: OfficeSnapshot;
-};
-
-type FeedbackState = {
-  message: string;
-  tone: "success" | "error";
 };
 
 const taskTypeLabels: Record<(typeof taskTypeValues)[number], string> = {
@@ -259,7 +255,6 @@ export function OfficeShell({ snapshot }: Props) {
   const [streamState, setStreamState] = useState<"live" | "reconnecting">(
     "reconnecting",
   );
-  const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const deferredSearch = useDeferredValue(searchValue);
   const [highlightedAgentId, setHighlightedAgentId] = useState<string | null>(
@@ -312,19 +307,6 @@ export function OfficeShell({ snapshot }: Props) {
   }, [highlightedAgentId, liveSnapshot.agents]);
 
   useEffect(() => {
-    if (!feedback) return;
-
-    const timeout = window.setTimeout(
-      () => {
-        setFeedback(null);
-      },
-      feedback.tone === "error" ? 5200 : 3200,
-    );
-
-    return () => window.clearTimeout(timeout);
-  }, [feedback]);
-
-  useEffect(() => {
     if (typeof window === "undefined") return;
 
     const eventSource = new EventSource("/api/office/stream");
@@ -363,9 +345,14 @@ export function OfficeShell({ snapshot }: Props) {
 
   const pushFeedback = (
     message: string,
-    tone: FeedbackState["tone"] = "success",
+    tone: "success" | "error" = "success",
   ) => {
-    setFeedback({ message, tone });
+    if (tone === "error") {
+      notifyError(message);
+      return;
+    }
+
+    notifySuccess(message);
   };
 
   const createAgent = api.office.createAgent.useMutation({
@@ -662,19 +649,6 @@ export function OfficeShell({ snapshot }: Props) {
             </div>
           </div>
         </section>
-
-        {feedback ? (
-          <div
-            className={cn(
-              "shrink-0 rounded-[var(--radius-shell)] border px-4 py-3 text-sm",
-              feedback.tone === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                : "border-rose-200 bg-rose-50 text-rose-900",
-            )}
-          >
-            {feedback.message}
-          </div>
-        ) : null}
 
         {isReadOnlyFallback && liveSnapshot.readOnlyReason ? (
           <div className="shrink-0 rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">

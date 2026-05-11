@@ -6,7 +6,9 @@ import {
   NetworkIcon,
   ServerIcon,
   ShieldCheckIcon,
+  UserCogIcon,
 } from "lucide-react";
+import Link from "next/link";
 
 import { K8sDashboardTokenButton } from "@/app/_components/k8s-dashboard-token-button";
 import clusterConfig from "../../../infra/k8s/cluster/config.json";
@@ -87,6 +89,16 @@ export default function SystemPage() {
               <GaugeIcon data-icon="inline-start" />
               打开 HAMi-WebUI
             </a>
+            <Link
+              href="/system/permissions"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "lg" }),
+                "rounded-[12px] border-sky-200 bg-white text-sky-700 hover:bg-sky-50 hover:text-sky-800",
+              )}
+            >
+              <UserCogIcon data-icon="inline-start" />
+              权限管理
+            </Link>
           </div>
         }
         size="compact"
@@ -175,17 +187,43 @@ export default function SystemPage() {
             </div>
           </div>
 
-          <div className="rounded-[16px] border border-slate-200/90 bg-white px-5 py-5">
-            <div className="flex items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
-                <ActivityIcon className="size-4" />
+          <div className="grid gap-3">
+            <div className="rounded-[16px] border border-slate-200/90 bg-white px-5 py-5">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                  <ActivityIcon className="size-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-950">体验修正</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Dashboard Token
+                    不会预渲染到页面里，只在点击入口时读取并写入剪贴板。
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-semibold text-slate-950">体验修正</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Dashboard Token
-                  不会预渲染到页面里，只在点击入口时读取并写入剪贴板。
-                </p>
+            </div>
+
+            <div className="rounded-[16px] border border-sky-200/80 bg-sky-50/60 px-5 py-5">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-white text-sky-700 ring-1 ring-sky-100">
+                  <UserCogIcon className="size-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-950">访问控制</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    单独管理飞书用户角色、启用状态和管理员初始化。
+                  </p>
+                  <Link
+                    href="/system/permissions"
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                      "mt-4 rounded-[12px] border-sky-200 bg-white text-sky-700 hover:bg-sky-50 hover:text-sky-800",
+                    )}
+                  >
+                    <UserCogIcon data-icon="inline-start" />
+                    打开权限管理
+                  </Link>
+                </div>
               </div>
             </div>
           </div>

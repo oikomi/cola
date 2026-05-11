@@ -102,253 +102,6 @@ export const eventSeverityEnum = pgEnum(
   eventSeverityValues,
 );
 
-export const agents = createTable(
-  "agent",
-  (d) => ({
-    id: d.uuid().defaultRandom().primaryKey(),
-    name: d.varchar({ length: 120 }).notNull(),
-    roleType: agentRoleEnum().notNull(),
-    status: agentStatusEnum().notNull(),
-    zoneId: zoneEnum().notNull(),
-    focus: d.text(),
-    capabilities: d.jsonb(),
-    riskScope: d.jsonb(),
-    isEnabled: d.boolean().notNull().default(true),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("agent_role_idx").on(t.roleType),
-    index("agent_status_idx").on(t.status),
-    index("agent_zone_idx").on(t.zoneId),
-  ],
-);
-
-export const zoneSettings = createTable("zone_setting", (d) => ({
-  zoneId: zoneEnum().primaryKey(),
-  workstationCapacity: d.integer().notNull().default(0),
-  createdAt: d
-    .timestamp({ withTimezone: true })
-    .$defaultFn(() => new Date())
-    .notNull(),
-  updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-}));
-
-export const tasks = createTable(
-  "task",
-  (d) => ({
-    id: d.uuid().defaultRandom().primaryKey(),
-    title: d.varchar({ length: 160 }).notNull(),
-    taskType: taskTypeEnum().notNull(),
-    status: taskStatusEnum().notNull(),
-    priority: priorityEnum().notNull().default("medium"),
-    riskLevel: riskLevelEnum().notNull().default("low"),
-    zoneId: zoneEnum().notNull(),
-    currentAgentId: d.uuid().references(() => agents.id, {
-      onDelete: "set null",
-    }),
-    parentTaskId: d.uuid(),
-    inputPayload: d.jsonb(),
-    outputPayload: d.jsonb(),
-    summary: d.text(),
-    dueAt: d.timestamp({ withTimezone: true }),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("task_status_idx").on(t.status),
-    index("task_agent_idx").on(t.currentAgentId),
-    index("task_zone_idx").on(t.zoneId),
-    index("task_risk_idx").on(t.riskLevel),
-  ],
-);
-
-export const trainingJobs = createTable(
-  "training_job",
-  (d) => ({
-    id: d.uuid().defaultRandom().primaryKey(),
-    title: d.varchar({ length: 160 }).notNull(),
-    jobType: trainingJobTypeEnum().notNull(),
-    status: trainingJobStatusEnum().notNull().default("draft"),
-    priority: priorityEnum().notNull().default("medium"),
-    baseModel: d.varchar({ length: 120 }).notNull(),
-    datasetName: d.varchar({ length: 120 }).notNull(),
-    datasetSplit: d.varchar({ length: 32 }).notNull().default("train"),
-    datasetTextField: d.varchar({ length: 64 }).notNull().default("text"),
-    objective: d.text().notNull(),
-    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
-    gpuCount: d.integer().notNull().default(1),
-    gpuMemoryGi: d.integer(),
-    nodeCount: d.integer().notNull().default(1),
-    gpusPerNode: d.integer().notNull().default(1),
-    configSource: d.varchar({ length: 32 }).notNull().default("manual"),
-    launcherType: d.varchar({ length: 32 }).notNull().default("python"),
-    distributedBackend: d.varchar({ length: 32 }).notNull().default("none"),
-    deepspeedStage: d.integer(),
-    precision: d.varchar({ length: 16 }),
-    loadIn4bit: d.boolean().notNull().default(true),
-    studioConfigSnapshot: d.jsonb(),
-    trainingConfigSnapshot: d.jsonb(),
-    runtimeNamespace: d.varchar({ length: 120 }),
-    runtimeKind: d.varchar({ length: 32 }),
-    runtimeJobName: d.varchar({ length: 120 }),
-    runtimeServiceName: d.varchar({ length: 120 }),
-    runtimeLeaderPodName: d.varchar({ length: 120 }),
-    runtimeImage: d.varchar({ length: 255 }),
-    artifactPath: d.text(),
-    lastError: d.text(),
-    startedAt: d.timestamp({ withTimezone: true }),
-    finishedAt: d.timestamp({ withTimezone: true }),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("training_job_status_idx").on(t.status),
-    index("training_job_priority_idx").on(t.priority),
-    index("training_job_created_idx").on(t.createdAt),
-  ],
-);
-
-export const inferenceDeployments = createTable(
-  "inference_deployment",
-  (d) => ({
-    id: d.uuid().defaultRandom().primaryKey(),
-    name: d.varchar({ length: 120 }).notNull(),
-    status: inferenceDeploymentStatusEnum().notNull().default("draft"),
-    modelName: d.varchar({ length: 160 }).notNull(),
-    imageTag: d.varchar({ length: 160 }).notNull(),
-    endpoint: d.varchar({ length: 255 }).notNull(),
-    objective: d.text().notNull(),
-    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
-    gpuCount: d.integer().notNull().default(1),
-    gpuMemoryGi: d.integer(),
-    replicaCount: d.integer().notNull().default(1),
-    startedAt: d.timestamp({ withTimezone: true }),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("inference_deployment_status_idx").on(t.status),
-    index("inference_deployment_name_idx").on(t.name),
-    index("inference_deployment_created_idx").on(t.createdAt),
-  ],
-);
-
-export type CmdbProjectConfig = {
-  triggerToken?: string;
-  customVariables?: Record<string, string>;
-  targetAssetName?: string;
-  targetAssetNames?: string[];
-  deployEnv?: string;
-  healthUrl?: string;
-  monitorUrl?: string;
-  k8sNamespace?: string;
-  k8sDeployment?: string;
-  dockerImage?: string;
-  sshPath?: string;
-  sshDeployCommand?: string;
-};
-
-export const cmdbAssets = createTable(
-  "cmdb_asset",
-  (d) => ({
-    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    name: d.varchar({ length: 128 }).notNull().unique(),
-    ip: d.varchar({ length: 128 }).notNull(),
-    sshUser: d.varchar({ length: 128 }),
-    sshPassword: d.text(),
-    sshPort: d.integer().notNull().default(22),
-    roles: d.jsonb().$type<string[]>(),
-    arch: d.varchar({ length: 64 }),
-    status: cmdbAssetStatusEnum().notNull().default("connected"),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("cmdb_asset_name_idx").on(t.name),
-    index("cmdb_asset_status_idx").on(t.status),
-    index("cmdb_asset_ip_idx").on(t.ip),
-  ],
-);
-
-export const cmdbProjects = createTable(
-  "cmdb_project",
-  (d) => ({
-    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    name: d.varchar({ length: 256 }).notNull(),
-    gitlabProjectId: d.integer(),
-    gitlabPath: d.varchar({ length: 512 }).notNull().unique(),
-    gitlabWebUrl: d.text(),
-    description: d.text(),
-    defaultBranch: d.varchar({ length: 128 }).notNull().default("main"),
-    enabled: d.boolean().notNull().default(true),
-    deployTarget: cmdbDeployTargetEnum().notNull().default("docker"),
-    config: d.jsonb().$type<CmdbProjectConfig>(),
-    lastSyncedAt: d.timestamp({ withTimezone: true }),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("cmdb_project_name_idx").on(t.name),
-    index("cmdb_project_path_idx").on(t.gitlabPath),
-    index("cmdb_project_enabled_idx").on(t.enabled),
-    index("cmdb_project_target_idx").on(t.deployTarget),
-  ],
-);
-
-export const cmdbReleases = createTable(
-  "cmdb_release",
-  (d) => ({
-    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
-    projectId: d
-      .integer()
-      .notNull()
-      .references(() => cmdbProjects.id, { onDelete: "cascade" }),
-    ref: d.varchar({ length: 128 }).notNull(),
-    deployEnv: d.varchar({ length: 64 }),
-    gitlabPipelineId: d.integer(),
-    gitlabPipelineUrl: d.text(),
-    gitlabStatus: d.varchar({ length: 64 }),
-    status: cmdbReleaseStatusEnum().notNull().default("pending"),
-    variables: d.jsonb().$type<Record<string, string>>(),
-    triggeredBy: d.varchar({ length: 256 }),
-    lastError: d.text(),
-    startedAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    completedAt: d.timestamp({ withTimezone: true }),
-    createdAt: d
-      .timestamp({ withTimezone: true })
-      .$defaultFn(() => new Date())
-      .notNull(),
-    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
-  }),
-  (t) => [
-    index("cmdb_release_project_idx").on(t.projectId),
-    index("cmdb_release_status_idx").on(t.status),
-    index("cmdb_release_created_idx").on(t.createdAt),
-  ],
-);
-
 export const users = createTable(
   "user",
   (d) => ({
@@ -399,10 +152,295 @@ export const authSessions = createTable(
   ],
 );
 
+export const agents = createTable(
+  "agent",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: d.varchar({ length: 120 }).notNull(),
+    roleType: agentRoleEnum().notNull(),
+    status: agentStatusEnum().notNull(),
+    zoneId: zoneEnum().notNull(),
+    focus: d.text(),
+    capabilities: d.jsonb(),
+    riskScope: d.jsonb(),
+    isEnabled: d.boolean().notNull().default(true),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("agent_role_idx").on(t.roleType),
+    index("agent_status_idx").on(t.status),
+    index("agent_zone_idx").on(t.zoneId),
+    index("agent_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export const zoneSettings = createTable(
+  "zone_setting",
+  (d) => ({
+    zoneId: zoneEnum().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    workstationCapacity: d.integer().notNull().default(0),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [index("zone_setting_owner_idx").on(t.ownerUserId)],
+);
+
+export const tasks = createTable(
+  "task",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    title: d.varchar({ length: 160 }).notNull(),
+    taskType: taskTypeEnum().notNull(),
+    status: taskStatusEnum().notNull(),
+    priority: priorityEnum().notNull().default("medium"),
+    riskLevel: riskLevelEnum().notNull().default("low"),
+    zoneId: zoneEnum().notNull(),
+    currentAgentId: d.uuid().references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    parentTaskId: d.uuid(),
+    inputPayload: d.jsonb(),
+    outputPayload: d.jsonb(),
+    summary: d.text(),
+    dueAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("task_status_idx").on(t.status),
+    index("task_agent_idx").on(t.currentAgentId),
+    index("task_zone_idx").on(t.zoneId),
+    index("task_risk_idx").on(t.riskLevel),
+    index("task_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export const trainingJobs = createTable(
+  "training_job",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    title: d.varchar({ length: 160 }).notNull(),
+    jobType: trainingJobTypeEnum().notNull(),
+    status: trainingJobStatusEnum().notNull().default("draft"),
+    priority: priorityEnum().notNull().default("medium"),
+    baseModel: d.varchar({ length: 120 }).notNull(),
+    datasetName: d.varchar({ length: 120 }).notNull(),
+    datasetSplit: d.varchar({ length: 32 }).notNull().default("train"),
+    datasetTextField: d.varchar({ length: 64 }).notNull().default("text"),
+    objective: d.text().notNull(),
+    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
+    gpuCount: d.integer().notNull().default(1),
+    gpuMemoryGi: d.integer(),
+    nodeCount: d.integer().notNull().default(1),
+    gpusPerNode: d.integer().notNull().default(1),
+    configSource: d.varchar({ length: 32 }).notNull().default("manual"),
+    launcherType: d.varchar({ length: 32 }).notNull().default("python"),
+    distributedBackend: d.varchar({ length: 32 }).notNull().default("none"),
+    deepspeedStage: d.integer(),
+    precision: d.varchar({ length: 16 }),
+    loadIn4bit: d.boolean().notNull().default(true),
+    studioConfigSnapshot: d.jsonb(),
+    trainingConfigSnapshot: d.jsonb(),
+    runtimeNamespace: d.varchar({ length: 120 }),
+    runtimeKind: d.varchar({ length: 32 }),
+    runtimeJobName: d.varchar({ length: 120 }),
+    runtimeServiceName: d.varchar({ length: 120 }),
+    runtimeLeaderPodName: d.varchar({ length: 120 }),
+    runtimeImage: d.varchar({ length: 255 }),
+    artifactPath: d.text(),
+    lastError: d.text(),
+    startedAt: d.timestamp({ withTimezone: true }),
+    finishedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("training_job_status_idx").on(t.status),
+    index("training_job_priority_idx").on(t.priority),
+    index("training_job_created_idx").on(t.createdAt),
+    index("training_job_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export const inferenceDeployments = createTable(
+  "inference_deployment",
+  (d) => ({
+    id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: d.varchar({ length: 120 }).notNull(),
+    status: inferenceDeploymentStatusEnum().notNull().default("draft"),
+    modelName: d.varchar({ length: 160 }).notNull(),
+    imageTag: d.varchar({ length: 160 }).notNull(),
+    endpoint: d.varchar({ length: 255 }).notNull(),
+    objective: d.text().notNull(),
+    gpuAllocationMode: gpuAllocationModeEnum().notNull().default("whole"),
+    gpuCount: d.integer().notNull().default(1),
+    gpuMemoryGi: d.integer(),
+    replicaCount: d.integer().notNull().default(1),
+    startedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("inference_deployment_status_idx").on(t.status),
+    index("inference_deployment_name_idx").on(t.name),
+    index("inference_deployment_created_idx").on(t.createdAt),
+    index("inference_deployment_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export type CmdbProjectConfig = {
+  triggerToken?: string;
+  customVariables?: Record<string, string>;
+  targetAssetName?: string;
+  targetAssetNames?: string[];
+  deployEnv?: string;
+  healthUrl?: string;
+  monitorUrl?: string;
+  k8sNamespace?: string;
+  k8sDeployment?: string;
+  dockerImage?: string;
+  sshPath?: string;
+  sshDeployCommand?: string;
+};
+
+export const cmdbAssets = createTable(
+  "cmdb_asset",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: d.varchar({ length: 128 }).notNull().unique(),
+    ip: d.varchar({ length: 128 }).notNull(),
+    sshUser: d.varchar({ length: 128 }),
+    sshPassword: d.text(),
+    sshPort: d.integer().notNull().default(22),
+    roles: d.jsonb().$type<string[]>(),
+    arch: d.varchar({ length: 64 }),
+    status: cmdbAssetStatusEnum().notNull().default("connected"),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_asset_name_idx").on(t.name),
+    index("cmdb_asset_status_idx").on(t.status),
+    index("cmdb_asset_ip_idx").on(t.ip),
+    index("cmdb_asset_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export const cmdbProjects = createTable(
+  "cmdb_project",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: d.varchar({ length: 256 }).notNull(),
+    gitlabProjectId: d.integer(),
+    gitlabPath: d.varchar({ length: 512 }).notNull().unique(),
+    gitlabWebUrl: d.text(),
+    description: d.text(),
+    defaultBranch: d.varchar({ length: 128 }).notNull().default("main"),
+    enabled: d.boolean().notNull().default(true),
+    deployTarget: cmdbDeployTargetEnum().notNull().default("docker"),
+    config: d.jsonb().$type<CmdbProjectConfig>(),
+    lastSyncedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_project_name_idx").on(t.name),
+    index("cmdb_project_path_idx").on(t.gitlabPath),
+    index("cmdb_project_enabled_idx").on(t.enabled),
+    index("cmdb_project_target_idx").on(t.deployTarget),
+    index("cmdb_project_owner_idx").on(t.ownerUserId),
+  ],
+);
+
+export const cmdbReleases = createTable(
+  "cmdb_release",
+  (d) => ({
+    id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
+    projectId: d
+      .integer()
+      .notNull()
+      .references(() => cmdbProjects.id, { onDelete: "cascade" }),
+    ref: d.varchar({ length: 128 }).notNull(),
+    deployEnv: d.varchar({ length: 64 }),
+    gitlabPipelineId: d.integer(),
+    gitlabPipelineUrl: d.text(),
+    gitlabStatus: d.varchar({ length: 64 }),
+    status: cmdbReleaseStatusEnum().notNull().default("pending"),
+    variables: d.jsonb().$type<Record<string, string>>(),
+    triggeredBy: d.varchar({ length: 256 }),
+    lastError: d.text(),
+    startedAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    completedAt: d.timestamp({ withTimezone: true }),
+    createdAt: d
+      .timestamp({ withTimezone: true })
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
+  }),
+  (t) => [
+    index("cmdb_release_project_idx").on(t.projectId),
+    index("cmdb_release_status_idx").on(t.status),
+    index("cmdb_release_created_idx").on(t.createdAt),
+    index("cmdb_release_owner_idx").on(t.ownerUserId),
+  ],
+);
+
 export const devices = createTable(
   "device",
   (d) => ({
     id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
     name: d.varchar({ length: 120 }).notNull(),
     deviceType: deviceTypeEnum().notNull(),
     status: deviceStatusEnum().notNull(),
@@ -419,6 +457,7 @@ export const devices = createTable(
   (t) => [
     index("device_status_idx").on(t.status),
     index("device_pool_idx").on(t.resourcePool),
+    index("device_owner_idx").on(t.ownerUserId),
   ],
 );
 
@@ -426,6 +465,9 @@ export const executionSessions = createTable(
   "execution_session",
   (d) => ({
     id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
     taskId: d.uuid().references(() => tasks.id, {
       onDelete: "cascade",
     }),
@@ -450,6 +492,7 @@ export const executionSessions = createTable(
     index("execution_session_task_idx").on(t.taskId),
     index("execution_session_device_idx").on(t.deviceId),
     index("execution_session_status_idx").on(t.status),
+    index("execution_session_owner_idx").on(t.ownerUserId),
   ],
 );
 
@@ -457,6 +500,9 @@ export const approvals = createTable(
   "approval",
   (d) => ({
     id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
     taskId: d.uuid().references(() => tasks.id, {
       onDelete: "cascade",
     }),
@@ -478,6 +524,7 @@ export const approvals = createTable(
   (t) => [
     index("approval_status_idx").on(t.status),
     index("approval_task_idx").on(t.taskId),
+    index("approval_owner_idx").on(t.ownerUserId),
   ],
 );
 
@@ -485,6 +532,9 @@ export const events = createTable(
   "event",
   (d) => ({
     id: d.uuid().defaultRandom().primaryKey(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
     eventType: d.varchar({ length: 120 }).notNull(),
     entityType: d.varchar({ length: 80 }).notNull(),
     entityId: d.varchar({ length: 120 }).notNull(),
@@ -504,6 +554,7 @@ export const events = createTable(
   (t) => [
     index("event_entity_idx").on(t.entityType, t.entityId),
     index("event_occurred_idx").on(t.occurredAt),
+    index("event_owner_idx").on(t.ownerUserId),
   ],
 );
 
@@ -511,6 +562,9 @@ export const posts = createTable(
   "post",
   (d) => ({
     id: d.integer().primaryKey().generatedByDefaultAsIdentity(),
+    ownerUserId: d.uuid().references(() => users.id, {
+      onDelete: "set null",
+    }),
     name: d.varchar({ length: 256 }),
     createdAt: d
       .timestamp({ withTimezone: true })
@@ -518,5 +572,5 @@ export const posts = createTable(
       .notNull(),
     updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
   }),
-  (t) => [index("name_idx").on(t.name)],
+  (t) => [index("name_idx").on(t.name), index("post_owner_idx").on(t.ownerUserId)],
 );

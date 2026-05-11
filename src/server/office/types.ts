@@ -37,6 +37,7 @@ export type OfficeZone = {
 
 export type OfficeAgent = {
   id: string;
+  ownerUserId?: string | null;
   name: string;
   role: AgentRole;
   engine: DockerRunnerEngine | null;
@@ -52,6 +53,7 @@ export type OfficeAgent = {
 
 export type OfficeTask = {
   id: string;
+  ownerUserId?: string | null;
   title: string;
   type: TaskType;
   status: TaskStatus;
@@ -64,6 +66,7 @@ export type OfficeTask = {
 
 export type OfficeDevice = {
   id: string;
+  ownerUserId?: string | null;
   name: string;
   type: DeviceType;
   engine: DockerRunnerEngine | null;
@@ -77,6 +80,7 @@ export type OfficeDevice = {
 
 export type OfficeApproval = {
   id: string;
+  ownerUserId?: string | null;
   type: ApprovalType;
   status: ApprovalStatus;
   taskId: string;
@@ -87,6 +91,7 @@ export type OfficeApproval = {
 
 export type OfficeEvent = {
   id: string;
+  ownerUserId?: string | null;
   severity: EventSeverity;
   title: string;
   description: string;
@@ -95,6 +100,7 @@ export type OfficeEvent = {
 
 export type OfficeExecutionReport = {
   sessionId: string;
+  ownerUserId?: string | null;
   taskId: string;
   agentId: string | null;
   deviceId: string | null;

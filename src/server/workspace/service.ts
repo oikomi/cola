@@ -36,6 +36,11 @@ const WORKSPACE_NODE_PORT_END = 32760;
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.WORKSPACE_K8S_API_CONNECT_TIMEOUT_MS ?? 2500,
 );
+const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
+
+function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
+  return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
+}
 
 type ClusterConfig = {
   clusterName: string;
@@ -74,6 +79,7 @@ export type WorkspaceItem = {
   nodeIp: string | null;
   endpoint: string | null;
   loginUrl: string | null;
+  ownerUserId: string | null;
   updatedAt: string | null;
 };
 
@@ -91,6 +97,7 @@ export type CreateWorkspaceInput = {
   gpuCount: number;
   gpuMemoryGi: number | null;
   resolution: string;
+  ownerUserId?: string;
 };
 
 function readJsonFile<T>(filePath: string): T {
@@ -536,6 +543,7 @@ function buildWorkspaceDeployment(input: {
   gpuCount: number;
   gpuMemoryGi: number | null;
   resolution: string;
+  ownerUserId?: string;
 }) {
   const workspaceRoot =
     process.env.REMOTE_WORKSPACE_ROOT ?? "/var/lib/remote-work/workspaces";
@@ -546,6 +554,8 @@ function buildWorkspaceDeployment(input: {
   } satisfies GpuAllocationSpec;
   const gpuResources = buildHamiGpuResources(gpuSpec);
 
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+
   return {
     apiVersion: "apps/v1",
     kind: "Deployment",
@@ -554,6 +564,10 @@ function buildWorkspaceDeployment(input: {
       labels: {
         "app.kubernetes.io/name": "remote-workspace",
         "remote-work/name": input.name,
+        ...ownerLabels,
+      },
+      annotations: {
+        ...ownerLabels,
       },
     },
     spec: {
@@ -568,6 +582,10 @@ function buildWorkspaceDeployment(input: {
           labels: {
             "app.kubernetes.io/name": "remote-workspace",
             "remote-work/name": input.name,
+            ...ownerLabels,
+          },
+          annotations: {
+            ...ownerLabels,
           },
         },
         spec: {
@@ -649,7 +667,13 @@ function buildWorkspaceDeployment(input: {
   } satisfies V1Deployment;
 }
 
-function buildWorkspaceService(input: { name: string; nodePort: number }) {
+function buildWorkspaceService(input: {
+  name: string;
+  nodePort: number;
+  ownerUserId?: string;
+}) {
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+
   return {
     apiVersion: "v1",
     kind: "Service",
@@ -658,6 +682,10 @@ function buildWorkspaceService(input: { name: string; nodePort: number }) {
       labels: {
         "app.kubernetes.io/name": "remote-workspace",
         "remote-work/name": input.name,
+        ...ownerLabels,
+      },
+      annotations: {
+        ...ownerLabels,
       },
     },
     spec: {
@@ -807,6 +835,10 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
           service,
           nodeIp,
         }),
+        ownerUserId:
+          deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
+          deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
+          null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies WorkspaceItem;
     })
@@ -870,6 +902,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
       gpuCount: gpuSpec.gpuCount,
       gpuMemoryGi: gpuSpec.gpuMemoryGi,
       resolution,
+      ownerUserId: input.ownerUserId,
     }),
   });
 
@@ -879,6 +912,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
       body: buildWorkspaceService({
         name: input.name,
         nodePort,
+        ownerUserId: input.ownerUserId,
       }),
     });
   } catch (error) {
@@ -895,7 +929,11 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     name: input.name,
     loginUrl: buildLoginUrl({
       nodeIp,
-      service: buildWorkspaceService({ name: input.name, nodePort }),
+      service: buildWorkspaceService({
+        name: input.name,
+        nodePort,
+        ownerUserId: input.ownerUserId,
+      }),
     }),
     nodeName: selectedNode.node.name,
     nodePort,

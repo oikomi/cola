@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
@@ -1842,7 +1843,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
     "reconnecting",
   );
   const [canvasSize, setCanvasSize] = useState({ width: 1280, height: 760 });
-  const [feedback, setFeedback] = useState<string | null>(null);
   const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
   const [isAddWorkstationOpen, setIsAddWorkstationOpen] = useState(false);
   const [agentDraft, setAgentDraft] = useState<{
@@ -1879,7 +1879,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const getNativeDashboardUrl = api.office.getNativeDashboardUrl.useMutation();
   const createAgent = api.office.createAgent.useMutation({
     onSuccess: (result) => {
-      setFeedback(result.message);
+      notifySuccess(result.message);
       setIsCreateAgentOpen(false);
       setAgentDraft({
         name: "",
@@ -1893,22 +1893,22 @@ export function OfficeBetaShell({ snapshot }: Props) {
       void utils.office.getSnapshot.invalidate();
     },
     onError: (error) => {
-      setFeedback(error.message);
+      notifyError(error.message);
     },
   });
   const addWorkstation = api.office.addWorkstation.useMutation({
     onSuccess: (result) => {
-      setFeedback(result.message);
+      notifySuccess(result.message);
       setIsAddWorkstationOpen(false);
       void utils.office.getSnapshot.invalidate();
     },
     onError: (error) => {
-      setFeedback(error.message);
+      notifyError(error.message);
     },
   });
   const deleteAgent = api.office.deleteAgent.useMutation({
     onSuccess: (result) => {
-      setFeedback(result.message);
+      notifySuccess(result.message);
       startTransition(() => {
         if (selectedAgentIdRef.current === result.agentId) {
           setSelectedAgentId(null);
@@ -1917,7 +1917,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
       void utils.office.getSnapshot.invalidate();
     },
     onError: (error) => {
-      setFeedback(error.message);
+      notifyError(error.message);
     },
   });
   const liveSnapshot = snapshotQuery.data ?? snapshot;
@@ -1957,13 +1957,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
     setSelectedAgentId(null);
   }, [liveSnapshot.agents, selectedAgentId, setSelectedAgentId]);
-
-  useEffect(() => {
-    if (!feedback) return;
-
-    const timeout = window.setTimeout(() => setFeedback(null), 3200);
-    return () => window.clearTimeout(timeout);
-  }, [feedback]);
 
   useEffect(() => {
     if (liveSnapshot.zones.some((zone) => zone.id === workstationZoneId)) {
@@ -2233,12 +2226,12 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
   const handleCreateAgent = async () => {
     if (liveSnapshot.readOnlyReason) {
-      setFeedback(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      notifyError(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
       return;
     }
 
     if (trimmedAgentName.length < 2) {
-      setFeedback("人物名称至少需要 2 个字符。");
+      notifyError("人物名称至少需要 2 个字符。");
       return;
     }
 
@@ -2251,7 +2244,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
   const handleAddWorkstation = async () => {
     if (liveSnapshot.readOnlyReason) {
-      setFeedback(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      notifyError(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
       return;
     }
 
@@ -2264,7 +2257,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     if (!selectedAgent) return;
 
     if (liveSnapshot.readOnlyReason) {
-      setFeedback(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      notifyError(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
       return;
     }
 
@@ -2285,7 +2278,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
     const openedWindow = window.open("about:blank", "_blank");
     if (!openedWindow) {
-      setFeedback("浏览器阻止了新窗口，请允许弹窗后重试。");
+      notifyError("浏览器阻止了新窗口，请允许弹窗后重试。");
       return;
     }
     openedWindow.opener = null;
@@ -2312,7 +2305,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     }
 
     if (!nativeUrl) {
-      setFeedback("当前人物的原生页面地址未配置，已打开本地工作区。");
+      notifySuccess("当前人物的原生页面地址未配置，已打开本地工作区。");
       return;
     }
 
@@ -2707,12 +2700,6 @@ export function OfficeBetaShell({ snapshot }: Props) {
               </div>
             )}
           </div>
-
-          {feedback ? (
-            <div className="mt-3 rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              {feedback}
-            </div>
-          ) : null}
 
           {liveSnapshot.readOnlyReason ? (
             <div className="mt-3 rounded-[var(--radius-shell)] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">

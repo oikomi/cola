@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUTH_SESSION_COOKIE, authUrl } from "@/server/auth/config";
+import {
+  AUTH_SESSION_COOKIE,
+  authPublicOrigin,
+  authUrl,
+} from "@/server/auth/config";
 
 const PUBLIC_PATH_PREFIXES = [
   "/api/auth",
@@ -39,6 +43,19 @@ function isPageRequest(request: NextRequest) {
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const publicOrigin = authPublicOrigin();
+
+  if (
+    publicOrigin &&
+    isPageRequest(request) &&
+    request.nextUrl.origin !== publicOrigin
+  ) {
+    const targetUrl = new URL(
+      `${request.nextUrl.pathname}${request.nextUrl.search}`,
+      publicOrigin,
+    );
+    return NextResponse.redirect(targetUrl);
+  }
 
   if (isProtectedApi(pathname) && !hasSessionCookie(request)) {
     return NextResponse.json({ error: "未登录。" }, { status: 401 });

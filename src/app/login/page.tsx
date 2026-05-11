@@ -1,10 +1,10 @@
 import Image from "next/image";
 import { LogInIcon, ShieldCheckIcon } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { normalizeNextPath } from "@/server/auth/config";
+import { LoginErrorToast } from "./login-error-toast";
 
 export default async function LoginPage({
   searchParams,
@@ -57,6 +57,8 @@ export default async function LoginPage({
           </div>
 
           <div className="flex min-h-[520px] flex-col justify-center gap-6 px-6 py-8 sm:px-10">
+            <LoginErrorToast message={params.error ?? null} />
+
             <div className="md:hidden">
               <Image
                 src="/xdream-cloud-mark.svg"
@@ -79,13 +81,6 @@ export default async function LoginPage({
                 登录成功后会返回刚才访问的页面。未被允许的飞书租户或被禁用账号不能进入系统。
               </p>
             </div>
-
-            {params.error ? (
-              <Alert variant="destructive">
-                <AlertTitle>登录失败</AlertTitle>
-                <AlertDescription>{params.error}</AlertDescription>
-              </Alert>
-            ) : null}
 
             <a
               href={loginHref}

@@ -67,7 +67,12 @@ const INFERENCE_METADATA = {
   gpuAllocationMode: `${METADATA_PREFIX}/inference-gpu-allocation-mode`,
   gpuMemoryGi: `${METADATA_PREFIX}/inference-gpu-memory-gi`,
   lastStartedAt: `${METADATA_PREFIX}/inference-last-started-at`,
+  ownerUserId: `${METADATA_PREFIX}/owner-user-id`,
 } as const;
+
+function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
+  return ownerUserId ? { [INFERENCE_METADATA.ownerUserId]: ownerUserId } : {};
+}
 
 type ClusterConfig = {
   clusterName: string;
@@ -112,6 +117,7 @@ export type InferenceDeploymentItem = {
   nodeNames: string[];
   endpoint: string | null;
   nodePort: number | null;
+  ownerUserId: string | null;
   updatedAt: string | null;
 };
 
@@ -132,6 +138,7 @@ export type CreateInferenceDeploymentInput = {
   gpuCount: number;
   gpuMemoryGi: number | null;
   replicaCount: number;
+  ownerUserId?: string;
 };
 
 function readJsonFile<T>(filePath: string): T {
@@ -479,6 +486,7 @@ function deploymentAnnotations(input: {
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuMemoryGi: number | null;
   lastStartedAt?: string;
+  ownerUserId?: string;
 }) {
   return {
     [INFERENCE_METADATA.engine]: input.engine,
@@ -490,6 +498,9 @@ function deploymentAnnotations(input: {
       : {}),
     ...(input.lastStartedAt
       ? { [INFERENCE_METADATA.lastStartedAt]: input.lastStartedAt }
+      : {}),
+    ...(input.ownerUserId
+      ? { [INFERENCE_METADATA.ownerUserId]: input.ownerUserId }
       : {}),
   };
 }
@@ -624,6 +635,7 @@ function buildInferenceDeployment(input: {
   gpuMemoryGi: number | null;
   replicaCount: number;
   eligibleNodeNames: string[];
+  ownerUserId?: string;
 }) {
   const gpuSpec = {
     gpuAllocationMode: input.gpuAllocationMode,
@@ -641,19 +653,24 @@ function buildInferenceDeployment(input: {
     engine: input.engine,
     modelRef: input.modelRef,
   });
+  const ownerLabels = ownerMetadata(input.ownerUserId);
 
   return {
     apiVersion: "apps/v1",
     kind: "Deployment",
     metadata: {
       name: inferenceDeploymentName(input.name),
-      labels: deploymentLabels(input.name, input.engine),
+      labels: {
+        ...deploymentLabels(input.name, input.engine),
+        ...ownerLabels,
+      },
       annotations: deploymentAnnotations({
         engine: input.engine,
         modelRef: input.modelRef,
         desiredReplicas: input.replicaCount,
         gpuAllocationMode: input.gpuAllocationMode,
         gpuMemoryGi: input.gpuMemoryGi,
+        ownerUserId: input.ownerUserId,
       }),
     },
     spec: {
@@ -672,7 +689,13 @@ function buildInferenceDeployment(input: {
       },
       template: {
         metadata: {
-          labels: deploymentLabels(input.name, input.engine),
+          labels: {
+            ...deploymentLabels(input.name, input.engine),
+            ...ownerLabels,
+          },
+          annotations: {
+            ...ownerLabels,
+          },
         },
         spec: {
           ...(usesGpuAcceleration(gpuSpec)
@@ -798,7 +821,13 @@ function buildInferenceDeployment(input: {
   } satisfies V1Deployment;
 }
 
-function buildInferenceService(input: { name: string; nodePort: number }) {
+function buildInferenceService(input: {
+  name: string;
+  nodePort: number;
+  ownerUserId?: string;
+}) {
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+
   return {
     apiVersion: "v1",
     kind: "Service",
@@ -808,6 +837,10 @@ function buildInferenceService(input: { name: string; nodePort: number }) {
         "app.kubernetes.io/name": "cola-inference",
         "app.kubernetes.io/component": "runtime",
         "cola.dev/inference-name": input.name,
+        ...ownerLabels,
+      },
+      annotations: {
+        ...ownerLabels,
       },
     },
     spec: {
@@ -1094,6 +1127,10 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
           service?.spec?.ports?.find(
             (port) => port.name === "http" || port.port === 8000,
           )?.nodePort ?? null,
+        ownerUserId:
+          deployment.metadata?.annotations?.[INFERENCE_METADATA.ownerUserId] ??
+          deployment.metadata?.labels?.[INFERENCE_METADATA.ownerUserId] ??
+          null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies InferenceDeploymentItem;
     })
@@ -1160,6 +1197,7 @@ export async function createInferenceDeployment(
       gpuMemoryGi: gpuSpec.gpuMemoryGi,
       replicaCount,
       eligibleNodeNames,
+      ownerUserId: input.ownerUserId,
     }),
   });
 
@@ -1169,6 +1207,7 @@ export async function createInferenceDeployment(
       body: buildInferenceService({
         name: input.name,
         nodePort,
+        ownerUserId: input.ownerUserId,
       }),
     });
   } catch (error) {
@@ -1189,7 +1228,11 @@ export async function createInferenceDeployment(
     name: input.name,
     endpoint: buildEndpoint({
       controllerAccessHost,
-      service: buildInferenceService({ name: input.name, nodePort }),
+      service: buildInferenceService({
+        name: input.name,
+        nodePort,
+        ownerUserId: input.ownerUserId,
+      }),
     }),
     eligibleNodeNames,
     nodePort,
@@ -1263,6 +1306,9 @@ function buildReplacementDeployment(input: {
             metadata?.annotations?.[INFERENCE_METADATA.gpuMemoryGi] ?? "",
             10,
           ) || gpuSpec.gpuMemoryGi,
+        ownerUserId:
+          metadata?.annotations?.[INFERENCE_METADATA.ownerUserId] ??
+          metadata?.labels?.[INFERENCE_METADATA.ownerUserId],
         ...(refreshedAt
           ? { lastStartedAt: refreshedAt }
           : metadata?.annotations?.[INFERENCE_METADATA.lastStartedAt]

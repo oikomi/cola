@@ -18,7 +18,7 @@ HAMI_NAMESPACE="kube-system"
 HAMI_REPO_NAME="hami-charts"
 HAMI_REPO_URL="https://project-hami.github.io/HAMi/"
 HAMI_CHART_REF="${HAMI_REPO_NAME}/hami"
-HAMI_CHART_VERSION=""
+HAMI_CHART_VERSION="2.8.3"
 
 print_gpu_diagnostics() {
   echo

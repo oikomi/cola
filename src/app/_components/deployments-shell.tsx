@@ -9,7 +9,7 @@ import {
   RefreshCwIcon,
   Trash2Icon,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import {
   ModuleEmptyState,
@@ -17,7 +17,6 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -39,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
   formatGpuAllocationLabel,
   gpuAllocationModeLabels,
@@ -655,10 +655,6 @@ export function DeploymentsShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "error";
-    message: string;
-  } | null>(null);
   const [draft, setDraft] = useState<DraftState>(defaultDraft);
 
   const deploymentsQuery = api.deployments.list.useQuery(undefined, {
@@ -668,32 +664,32 @@ export function DeploymentsShell() {
   const createDeployment = api.deployments.create.useMutation({
     onSuccess: async (result) => {
       await utils.deployments.list.invalidate();
-      setFeedback({ tone: "success", message: result.message });
+      notifySuccess(result.message);
       setDraft(defaultDraft);
       setIsCreateOpen(false);
     },
     onError: (error) => {
-      setFeedback({ tone: "error", message: error.message });
+      notifyError(error.message);
     },
   });
 
   const startDeployment = api.deployments.start.useMutation({
     onSuccess: async (result) => {
       await utils.deployments.list.invalidate();
-      setFeedback({ tone: "success", message: result.message });
+      notifySuccess(result.message);
     },
     onError: (error) => {
-      setFeedback({ tone: "error", message: error.message });
+      notifyError(error.message);
     },
   });
 
   const deleteDeployment = api.deployments.delete.useMutation({
     onSuccess: async () => {
       await utils.deployments.list.invalidate();
-      setFeedback({ tone: "success", message: "推理部署已删除。" });
+      notifySuccess("推理部署已删除。");
     },
     onError: (error) => {
-      setFeedback({ tone: "error", message: error.message });
+      notifyError(error.message);
     },
   });
 
@@ -763,6 +759,14 @@ export function DeploymentsShell() {
     Number.isInteger(parsedReplicaCount) &&
     parsedReplicaCount >= 1 &&
     parsedReplicaCount <= 16;
+
+  useEffect(() => {
+    if (!capabilityReason) return;
+    notifyError({
+      title: "Kubernetes 访问异常",
+      message: capabilityReason,
+    });
+  }, [capabilityReason]);
 
   const handleCreate = () => {
     createDeployment.mutate({
@@ -896,24 +900,6 @@ export function DeploymentsShell() {
           </div>
         }
       />
-
-      {capabilityReason ? (
-        <Alert variant="destructive">
-          <AlertTitle>Kubernetes 访问异常</AlertTitle>
-          <AlertDescription>{capabilityReason}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {feedback ? (
-        <Alert
-          variant={feedback.tone === "success" ? "default" : "destructive"}
-        >
-          <AlertTitle>
-            {feedback.tone === "success" ? "操作完成" : "操作失败"}
-          </AlertTitle>
-          <AlertDescription>{feedback.message}</AlertDescription>
-        </Alert>
-      ) : null}
 
       <ModuleSection
         density="compact"

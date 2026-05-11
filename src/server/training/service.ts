@@ -39,6 +39,11 @@ const TRAINING_CONFIG_MOUNT_PATH = "/etc/cola-training";
 const TRAINING_SCRIPT_NAME = "train.py";
 const DEEPSPEED_CONFIG_NAME = "deepspeed.json";
 const MASTER_PORT = Number(process.env.COLA_TRAINING_MASTER_PORT ?? "29500");
+const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
+
+function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
+  return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
+}
 
 function resolveTrainingRuntimeClassName() {
   const runtimeClassName = process.env.COLA_TRAINING_RUNTIME_CLASS_NAME?.trim();
@@ -607,6 +612,7 @@ function buildTrainingShellCommand() {
 function buildTrainingConfigMap(
   runtimeConfigMapName: string,
   labels: Record<string, string>,
+  annotations: Record<string, string>,
   config: ResolvedTrainingConfig,
 ) {
   const data: Record<string, string> = {
@@ -623,6 +629,7 @@ function buildTrainingConfigMap(
     metadata: {
       name: runtimeConfigMapName,
       labels,
+      annotations,
     },
     data,
   } satisfies V1ConfigMap;
@@ -631,6 +638,7 @@ function buildTrainingConfigMap(
 function buildHeadlessService(
   runtimeServiceName: string,
   labels: Record<string, string>,
+  annotations: Record<string, string>,
   masterPort: number,
 ) {
   return {
@@ -639,6 +647,7 @@ function buildHeadlessService(
     metadata: {
       name: runtimeServiceName,
       labels,
+      annotations,
     },
     spec: {
       clusterIP: "None",
@@ -676,7 +685,9 @@ function buildTrainingRuntime(
     "cola.training/job-id": job.id,
     "cola.training/type": job.jobType,
     "cola.training/runtime-name": runtimeJobName,
+    ...ownerMetadata(job.ownerUserId),
   };
+  const annotations = ownerMetadata(job.ownerUserId);
   const masterAddress = `${leaderPodName}.${runtimeServiceName}.${ctx.namespace}.svc.cluster.local`;
   const hfHome =
     process.env.COLA_TRAINING_HF_HOME ?? path.posix.join(mountPath, ".hf");
@@ -793,11 +804,13 @@ function buildTrainingRuntime(
   const serviceSpec = buildHeadlessService(
     runtimeServiceName,
     labels,
+    annotations,
     MASTER_PORT,
   );
   const configMapSpec = buildTrainingConfigMap(
     runtimeConfigMapName,
     labels,
+    annotations,
     config,
   );
   const jobSpec = {
@@ -808,6 +821,7 @@ function buildTrainingRuntime(
       namespace: ctx.namespace,
       labels,
       annotations: {
+        ...annotations,
         "cola.training/title": job.title,
       },
     },
@@ -822,6 +836,7 @@ function buildTrainingRuntime(
       template: {
         metadata: {
           labels,
+          annotations,
         },
         spec: {
           restartPolicy: "Never",

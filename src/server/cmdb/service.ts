@@ -2273,6 +2273,7 @@ export async function createCmdbRelease(
   database: Database,
   args: {
     project: CmdbProjectRow;
+    ownerUserId?: string;
     ref?: string;
     deployEnv?: string;
     variables?: Record<string, string>;
@@ -2295,6 +2296,7 @@ export async function createCmdbRelease(
     .insert(cmdbReleases)
     .values({
       projectId: args.project.id,
+      ownerUserId: args.ownerUserId,
       ref,
       deployEnv,
       status: "pending",
@@ -2370,6 +2372,7 @@ export async function createCmdbTopicRelease(
     deployEnv?: string;
     variables?: Record<string, string>;
     triggeredBy?: string;
+    ownerUserId?: string;
   },
 ) {
   const projectIds = Array.from(new Set(args.projectIds));
@@ -2429,6 +2432,7 @@ export async function createCmdbTopicRelease(
         ref: args.ref,
         deployEnv: args.deployEnv,
         variables: topicVariables,
+        ownerUserId: args.ownerUserId,
         triggeredBy:
           cleanString(args.triggeredBy) ??
           (topic ? `主题发布：${topic}` : "主题发布"),
@@ -2583,6 +2587,7 @@ export async function upsertCmdbAsset(
     roles?: string[];
     arch?: string;
     status: CmdbAssetStatus;
+    ownerUserId?: string;
   },
 ) {
   const name = cleanString(input.name);
@@ -2660,7 +2665,10 @@ export async function upsertCmdbAsset(
 
   const [createdAsset] = await database
     .insert(cmdbAssets)
-    .values(values)
+    .values({
+      ...values,
+      ownerUserId: input.ownerUserId,
+    })
     .returning();
 
   if (!createdAsset) {
@@ -2711,6 +2719,7 @@ export async function upsertCmdbProject(
     deployTarget: (typeof cmdbDeployTargetValues)[number];
     config?: Partial<CmdbProjectConfig>;
     syncWithGitLab: boolean;
+    ownerUserId?: string;
   },
 ) {
   const gitlabPath = cleanString(input.gitlabPath);
@@ -2786,7 +2795,10 @@ export async function upsertCmdbProject(
 
   const [createdProject] = await database
     .insert(cmdbProjects)
-    .values(values)
+    .values({
+      ...values,
+      ownerUserId: input.ownerUserId,
+    })
     .returning();
 
   if (!createdProject) {

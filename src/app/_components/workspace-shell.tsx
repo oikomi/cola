@@ -14,7 +14,6 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -44,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { notifyError } from "@/components/ui/toast";
 import {
   formatGpuAllocationLabel,
   gpuAllocationModeLabels,
@@ -75,8 +75,6 @@ const PRIMARY_ACTION_CLASS =
   "rounded-[var(--radius-card)] border border-primary/90 bg-primary text-primary-foreground shadow-[0_1px_0_rgba(15,23,42,0.06)] hover:bg-primary/90";
 const SECONDARY_ACTION_CLASS =
   "rounded-[var(--radius-card)] border border-slate-200/90 bg-white text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.04)] hover:bg-slate-50 hover:text-slate-950";
-const ALERT_SURFACE_CLASS =
-  "rounded-[var(--radius-shell)] border px-4 py-3 shadow-[0_18px_32px_rgba(15,23,42,0.05)]";
 
 const METRIC_TONE_STYLES = {
   sky: {
@@ -112,9 +110,7 @@ function WorkspaceMetric({
   const styles = METRIC_TONE_STYLES[tone];
 
   return (
-    <div
-      className="relative overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]"
-    >
+    <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <div
         className={cn(
           "absolute inset-y-3 left-0 w-1 rounded-r-full",
@@ -261,7 +257,6 @@ export function WorkspaceShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingDeletedWorkspaceNames, setPendingDeletedWorkspaceNames] =
     useState<string[]>([]);
   const [draft, setDraft] = useState<WorkspaceDraft>({
@@ -284,7 +279,6 @@ export function WorkspaceShell() {
   const createWorkspace = api.workspace.create.useMutation({
     onSuccess: async () => {
       await utils.workspace.list.invalidate();
-      setErrorMessage(null);
       setIsCreateOpen(false);
       setDraft({
         name: "",
@@ -297,12 +291,11 @@ export function WorkspaceShell() {
         resolutionPreset: "1600x900x24",
       });
     },
-    onError: (error) => setErrorMessage(error.message),
+    onError: (error) => notifyError(error.message),
   });
 
   const deleteWorkspace = api.workspace.delete.useMutation({
     onMutate: ({ name }) => {
-      setErrorMessage(null);
       setPendingDeletedWorkspaceNames((current) =>
         current.includes(name) ? current : [...current, name],
       );
@@ -314,7 +307,7 @@ export function WorkspaceShell() {
       setPendingDeletedWorkspaceNames((current) =>
         current.filter((name) => name !== variables.name),
       );
-      setErrorMessage(error.message);
+      notifyError(error.message);
     },
   });
 
@@ -323,11 +316,12 @@ export function WorkspaceShell() {
   );
   const capabilityReason =
     workspaceQuery.data?.reason ?? workspaceQuery.error?.message ?? null;
-  const clusterStatus = workspaceQuery.isLoading && !workspaceQuery.error
-    ? "checking"
-    : workspaceQuery.data?.available === true
-      ? "connected"
-      : "error";
+  const clusterStatus =
+    workspaceQuery.isLoading && !workspaceQuery.error
+      ? "checking"
+      : workspaceQuery.data?.available === true
+        ? "connected"
+        : "error";
   const available = clusterStatus === "connected";
   const runningCount = rows.filter(
     (workspace) => workspace.status === "running",
@@ -370,6 +364,14 @@ export function WorkspaceShell() {
           : !gpuMemoryValid
             ? "显存必须是正整数"
             : null;
+
+  useEffect(() => {
+    if (!capabilityReason) return;
+    notifyError({
+      title: "Kubernetes 访问异常",
+      message: capabilityReason,
+    });
+  }, [capabilityReason]);
 
   useEffect(() => {
     const liveNames = new Set(
@@ -485,7 +487,9 @@ export function WorkspaceShell() {
           <Button
             className={PRIMARY_ACTION_CLASS}
             disabled={!available}
-            title={!available ? (capabilityReason ?? "K8s 当前不可用") : undefined}
+            title={
+              !available ? (capabilityReason ?? "K8s 当前不可用") : undefined
+            }
             onClick={() => setIsCreateOpen(true)}
           >
             <PlusIcon data-icon="inline-start" />
@@ -514,32 +518,6 @@ export function WorkspaceShell() {
           />
         </div>
       </ModuleHero>
-
-      {capabilityReason ? (
-        <Alert
-          variant="destructive"
-          className={cn(
-            ALERT_SURFACE_CLASS,
-            "border-rose-200/80 bg-[linear-gradient(180deg,rgba(255,247,247,0.94),rgba(255,255,255,0.9))]",
-          )}
-        >
-          <AlertTitle>Kubernetes 访问异常</AlertTitle>
-          <AlertDescription>{capabilityReason}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {errorMessage ? (
-        <Alert
-          variant="destructive"
-          className={cn(
-            ALERT_SURFACE_CLASS,
-            "border-rose-200/80 bg-[linear-gradient(180deg,rgba(255,247,247,0.94),rgba(255,255,255,0.9))]",
-          )}
-        >
-          <AlertTitle>操作失败</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      ) : null}
 
       <ModuleSection
         title="Workspace 列表"

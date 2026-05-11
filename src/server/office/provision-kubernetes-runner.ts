@@ -38,6 +38,7 @@ const HERMES_DASHBOARD_PORT = 9119;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
+const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
 const OPENCLAW_DASHBOARD_COMMAND =
   "OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw dashboard --no-open";
 const OPENCLAW_DASHBOARD_TOKEN_COMMAND = `${OPENCLAW_DASHBOARD_COMMAND}; if command -v node >/dev/null 2>&1; then node -e 'try { const fs = require("fs"); const configPath = process.env.OPENCLAW_CONFIG_PATH || "/tmp/openclaw.generated.json"; const config = JSON.parse(fs.readFileSync(configPath, "utf8")); const token = config && config.gateway && config.gateway.auth && config.gateway.auth.token; if (typeof token === "string" && token.length > 0) console.log("${DASHBOARD_TOKEN_PREFIX}" + token); } catch (_) {}'; fi`;
@@ -601,6 +602,8 @@ function buildCodexSecret(
       metadata: {
         name: `${workloadName}-codex`,
         namespace: runnerNamespace(),
+        labels: ownerMetadata(input.ownerUserId),
+        annotations: ownerMetadata(input.ownerUserId),
       },
       type: "Opaque",
       stringData: {
@@ -668,13 +671,18 @@ function buildHermesCommand() {
   return `((if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/hermes-bootstrap.log 2>&1 &) && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
 }
 
-function buildBootstrapConfigMap(workloadName: string): V1ConfigMap {
+function buildBootstrapConfigMap(
+  workloadName: string,
+  ownerUserId?: string | null,
+): V1ConfigMap {
   return {
     apiVersion: "v1",
     kind: "ConfigMap",
     metadata: {
       name: `${workloadName}-scripts`,
       namespace: runnerNamespace(),
+      labels: ownerMetadata(ownerUserId),
+      annotations: ownerMetadata(ownerUserId),
     },
     data: {
       "openclaw-bootstrap.mjs": readFileSync(
@@ -687,6 +695,10 @@ function buildBootstrapConfigMap(workloadName: string): V1ConfigMap {
       ),
     },
   };
+}
+
+function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
+  return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
 }
 
 export function buildNativeDashboardUrl(
@@ -777,6 +789,10 @@ function buildRunnerResources(
         "app.kubernetes.io/part-of": "cola",
         "cola/engine": input.engine,
         "cola/agent-id": input.agentId,
+        ...ownerMetadata(input.ownerUserId),
+      },
+      annotations: {
+        ...ownerMetadata(input.ownerUserId),
       },
     },
     spec: {
@@ -794,6 +810,10 @@ function buildRunnerResources(
             "cola/runner": deploymentName,
             "cola/engine": input.engine,
             "cola/agent-id": input.agentId,
+            ...ownerMetadata(input.ownerUserId),
+          },
+          annotations: {
+            ...ownerMetadata(input.ownerUserId),
           },
         },
         spec: {
@@ -946,6 +966,8 @@ function buildRunnerResources(
     metadata: {
       name: serviceName,
       namespace: runnerNamespace(),
+      labels: ownerMetadata(input.ownerUserId),
+      annotations: ownerMetadata(input.ownerUserId),
     },
     spec: {
       type: "NodePort",
@@ -967,7 +989,10 @@ function buildRunnerResources(
     codexSecretName,
     codexSecretManaged: Boolean(codexSecretManifest),
     codexSecretManifest,
-    bootstrapConfigMap: buildBootstrapConfigMap(deploymentName),
+    bootstrapConfigMap: buildBootstrapConfigMap(
+      deploymentName,
+      input.ownerUserId,
+    ),
     deployment,
     service,
   };

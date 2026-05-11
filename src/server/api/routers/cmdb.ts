@@ -25,6 +25,14 @@ import {
   upsertCmdbProject,
 } from "@/server/cmdb/service";
 
+function authUserDisplayName(user: {
+  name?: string | null;
+  email?: string | null;
+  feishuOpenId: string;
+}) {
+  return user.name ?? user.email ?? user.feishuOpenId;
+}
+
 const assetSchema = z.object({
   id: z.number().optional(),
   name: z.string().min(1).max(128),
@@ -60,7 +68,10 @@ export const cmdbRouter = createTRPCRouter({
   saveAsset: operatorProcedure
     .input(assetSchema)
     .mutation(async ({ ctx, input }) => {
-      return upsertCmdbAsset(ctx.db, input);
+      return upsertCmdbAsset(ctx.db, {
+        ...input,
+        ownerUserId: ctx.user.id,
+      });
     }),
 
   testAssetConnectivity: operatorProcedure
@@ -119,7 +130,10 @@ export const cmdbRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return upsertCmdbProject(ctx.db, input);
+      return upsertCmdbProject(ctx.db, {
+        ...input,
+        ownerUserId: ctx.user.id,
+      });
     }),
 
   deleteProject: operatorProcedure
@@ -157,7 +171,8 @@ export const cmdbRouter = createTRPCRouter({
         ref: input.ref,
         deployEnv: input.deployEnv,
         variables: input.variables,
-        triggeredBy: input.triggeredBy,
+        triggeredBy: authUserDisplayName(ctx.user),
+        ownerUserId: ctx.user.id,
       });
     }),
 
@@ -179,7 +194,8 @@ export const cmdbRouter = createTRPCRouter({
         ref: input.ref,
         deployEnv: input.deployEnv,
         variables: input.variables,
-        triggeredBy: input.triggeredBy,
+        triggeredBy: authUserDisplayName(ctx.user),
+        ownerUserId: ctx.user.id,
       });
     }),
 

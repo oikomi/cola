@@ -41,6 +41,11 @@ const JUPYTERLAB_WORKDIR =
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_JUPYTERLAB_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
+const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
+
+function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
+  return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
+}
 
 type ClusterConfig = {
   clusterName: string;
@@ -87,6 +92,7 @@ export type JupyterLabRuntimeItem = {
   nodeIp: string | null;
   endpoint: string | null;
   labUrl: string | null;
+  ownerUserId: string | null;
   updatedAt: string | null;
 };
 
@@ -104,6 +110,7 @@ export type CreateJupyterLabInput = {
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
   gpuMemoryGi: number | null;
+  ownerUserId?: string;
 };
 
 function readJsonFile<T>(filePath: string): T {
@@ -640,8 +647,10 @@ function buildJupyterLabDeployment(input: {
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
   gpuMemoryGi: number | null;
+  ownerUserId?: string;
 }) {
   const labels = jupyterLabSelector(input.name);
+  const ownerLabels = ownerMetadata(input.ownerUserId);
   const gpuSpec = {
     gpuAllocationMode: input.gpuAllocationMode,
     gpuCount: input.gpuCount,
@@ -656,8 +665,9 @@ function buildJupyterLabDeployment(input: {
     kind: "Deployment",
     metadata: {
       name: deploymentName(input.name),
-      labels,
+      labels: { ...labels, ...ownerLabels },
       annotations: {
+        ...ownerLabels,
         "cola.training/title": input.name,
       },
     },
@@ -670,7 +680,10 @@ function buildJupyterLabDeployment(input: {
       },
       template: {
         metadata: {
-          labels,
+          labels: { ...labels, ...ownerLabels },
+          annotations: {
+            ...ownerLabels,
+          },
         },
         spec: {
           ...(usesGpuAcceleration(gpuSpec) && runtimeClassName
@@ -736,13 +749,22 @@ function buildJupyterLabDeployment(input: {
   } satisfies V1Deployment;
 }
 
-function buildJupyterLabService(input: { name: string; nodePort: number }) {
+function buildJupyterLabService(input: {
+  name: string;
+  nodePort: number;
+  ownerUserId?: string;
+}) {
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+
   return {
     apiVersion: "v1",
     kind: "Service",
     metadata: {
       name: serviceName(input.name),
-      labels: jupyterLabSelector(input.name),
+      labels: { ...jupyterLabSelector(input.name), ...ownerLabels },
+      annotations: {
+        ...ownerLabels,
+      },
     },
     spec: {
       type: "NodePort",
@@ -859,6 +881,10 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
         nodeIp,
         endpoint: buildEndpoint({ service, nodeIp }),
         labUrl: buildLabUrl({ service, nodeIp, token }),
+        ownerUserId:
+          deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
+          deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
+          null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies JupyterLabRuntimeItem;
     })
@@ -915,8 +941,13 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
     gpuAllocationMode: gpuSpec.gpuAllocationMode,
     gpuCount: gpuSpec.gpuCount,
     gpuMemoryGi: gpuSpec.gpuMemoryGi,
+    ownerUserId: input.ownerUserId,
   });
-  const service = buildJupyterLabService({ name, nodePort });
+  const service = buildJupyterLabService({
+    name,
+    nodePort,
+    ownerUserId: input.ownerUserId,
+  });
 
   await ctx.appsApi.createNamespacedDeployment({
     namespace: ctx.namespace,

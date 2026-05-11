@@ -2,6 +2,7 @@ import { db } from "@/server/db";
 import type { trainingJobs } from "@/server/db/schema";
 
 type OptionalRuntimeColumn =
+  | "ownerUserId"
   | "datasetSplit"
   | "datasetTextField"
   | "gpuAllocationMode"
@@ -33,6 +34,7 @@ type PartialTrainingJobRecord = Omit<
   Partial<Pick<typeof trainingJobs.$inferSelect, OptionalRuntimeColumn>>;
 
 const DEFAULT_COLUMN_SUPPORT: TrainingRuntimeColumnSupport = {
+  ownerUserId: true,
   datasetSplit: true,
   datasetTextField: true,
   gpuAllocationMode: true,
@@ -76,6 +78,7 @@ export async function getTrainingRuntimeColumnSupport() {
       where table_schema = current_schema()
         and table_name = 'cola_training_job'
         and column_name in (
+          'ownerUserId',
           'datasetSplit',
           'datasetTextField',
           'gpuAllocationMode',
@@ -102,6 +105,7 @@ export async function getTrainingRuntimeColumnSupport() {
 
     const availableColumns = new Set(rows.map((row) => row.column_name));
     const value: TrainingRuntimeColumnSupport = {
+      ownerUserId: availableColumns.has("ownerUserId"),
       datasetSplit: availableColumns.has("datasetSplit"),
       datasetTextField: availableColumns.has("datasetTextField"),
       gpuAllocationMode: availableColumns.has("gpuAllocationMode"),
@@ -140,6 +144,7 @@ export async function getTrainingRuntimeColumnSupport() {
 export function normalizeTrainingJobRecord(row: PartialTrainingJobRecord) {
   return {
     ...row,
+    ownerUserId: row.ownerUserId ?? null,
     datasetSplit: row.datasetSplit ?? "train",
     datasetTextField: row.datasetTextField ?? "text",
     gpuAllocationMode: row.gpuAllocationMode ?? "whole",

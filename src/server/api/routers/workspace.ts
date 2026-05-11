@@ -45,9 +45,9 @@ export const workspaceRouter = createTRPCRouter({
 
   create: operatorProcedure
     .input(createWorkspaceInput)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
-        return await createWorkspace(input);
+        return await createWorkspace({ ...input, ownerUserId: ctx.user.id });
       } catch (error) {
         throw new TRPCError({
           code: "BAD_REQUEST",

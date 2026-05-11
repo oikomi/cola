@@ -77,6 +77,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { api, type RouterOutputs } from "@/trpc/react";
 
@@ -978,8 +979,8 @@ function mergeCanceledRelease(
     ...summary,
     latestRelease:
       summary.latestRelease.id === updatedRelease.id
-        ? releases.find((release) => release.id === updatedRelease.id) ??
-          summary.latestRelease
+        ? (releases.find((release) => release.id === updatedRelease.id) ??
+          summary.latestRelease)
         : summary.latestRelease,
     releases,
     successTotal: Math.max(0, summary.successTotal + countDelta("success")),
@@ -1831,7 +1832,10 @@ function ContainerMonitorPanel({
                 : "未发现已绑定宿主端口"
             }
           />
-          <DockerStatusMetric label="查询耗时" value={`${result.durationMs}ms`} />
+          <DockerStatusMetric
+            label="查询耗时"
+            value={`${result.durationMs}ms`}
+          />
         </div>
       </section>
 
@@ -1878,7 +1882,7 @@ function ContainerMonitorPanel({
                       {link.source === "configured" ? "配置" : "端口"}
                     </Badge>
                   </span>
-                  <span className="mt-1 block break-all font-mono text-xs leading-5 text-slate-600">
+                  <span className="mt-1 block font-mono text-xs leading-5 break-all text-slate-600">
                     {link.url}
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-slate-500">
@@ -2430,15 +2434,12 @@ function TopicReleaseOperationButtons(props: {
         variant="ghost"
         size="icon-sm"
         className={CMDB_ACTION_ICON_CLASS}
-        onClick={() =>
-          props.onOpenOperation(props.release, "containerMonitor")
-        }
+        onClick={() => props.onOpenOperation(props.release, "containerMonitor")}
         disabled={Boolean(
           releaseOperationIssue(props.release, "containerMonitor"),
         )}
         title={
-          releaseOperationIssue(props.release, "containerMonitor") ??
-          "容器监控"
+          releaseOperationIssue(props.release, "containerMonitor") ?? "容器监控"
         }
       >
         <MonitorCogIcon />
@@ -3113,8 +3114,6 @@ function LoadingBlock() {
 export function CmdbShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [assetDialogOpen, setAssetDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
@@ -3257,6 +3256,14 @@ export function CmdbShell() {
     },
   );
 
+  function showError(message: string) {
+    notifyError(message);
+  }
+
+  function showSuccess(message: string) {
+    notifySuccess(message);
+  }
+
   const saveProject = api.cmdb.saveProject.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -3268,10 +3275,9 @@ export function CmdbShell() {
       setProjectDraft(emptyProjectDraft());
       setProjectDraftPanel("basic");
       setProjectBranchMode("catalog");
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3282,10 +3288,9 @@ export function CmdbShell() {
       setAssetDraft(emptyAssetDraft());
       setAssetRoleInput("");
       setAssetConnectionResult(null);
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3296,20 +3301,18 @@ export function CmdbShell() {
         ...current,
         status: result.status,
       }));
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
   const deleteAsset = api.cmdb.deleteAsset.useMutation({
     onSuccess: async () => {
       await utils.cmdb.dashboard.invalidate();
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3317,16 +3320,14 @@ export function CmdbShell() {
     onSuccess: async (result) => {
       await utils.cmdb.dashboard.invalidate();
       const cleanedCount = result.cleanedContainers.length;
-      setSuccessMessage(
+      showSuccess(
         cleanedCount > 0
           ? `已清理 ${cleanedCount} 个远程 Docker 容器，并删除 CMDB 项目。`
           : "已删除 CMDB 项目。",
       );
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setSuccessMessage(null);
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3335,10 +3336,9 @@ export function CmdbShell() {
       await utils.cmdb.dashboard.invalidate();
       setReleaseDialogOpen(false);
       setReleaseDraft(emptyReleaseDraft());
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3348,16 +3348,12 @@ export function CmdbShell() {
       setTopicReleaseHistory((current) =>
         current ? mergeCanceledRelease(current, release) : current,
       );
-      setSuccessMessage(
-        release.status === "canceled"
-          ? "已请求停止发布。"
-          : "发布状态已更新。",
+      showSuccess(
+        release.status === "canceled" ? "已请求停止发布。" : "发布状态已更新。",
       );
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setSuccessMessage(null);
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3365,26 +3361,23 @@ export function CmdbShell() {
     onSuccess: async (result) => {
       await utils.cmdb.dashboard.invalidate();
       setTopicReleaseResult(result);
-      setSuccessMessage(
+      showSuccess(
         result.topic
           ? `已触发主题 ${result.topic}，成功创建 ${result.successTotal} / ${result.total} 条发布。`
           : `已触发主题发布，成功创建 ${result.successTotal} / ${result.total} 条发布。`,
       );
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setSuccessMessage(null);
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
   const deleteTopicReleaseGroup = api.cmdb.deleteTopicReleaseGroup.useMutation({
     onSuccess: async () => {
       await utils.cmdb.dashboard.invalidate();
-      setErrorMessage(null);
     },
     onError: (error) => {
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3392,11 +3385,10 @@ export function CmdbShell() {
     onSuccess: (result) => {
       setOperationResult(result);
       setOperationCopied(false);
-      setErrorMessage(null);
     },
     onError: (error) => {
       setOperationResult(null);
-      setErrorMessage(error.message);
+      showError(error.message);
     },
   });
 
@@ -3794,6 +3786,15 @@ export function CmdbShell() {
   const dashboardErrorMessage =
     dashboardQuery.error?.message?.trim() ??
     "无法读取 CMDB 数据，请检查 DATABASE_URL、数据库服务和 Drizzle 迁移状态。";
+
+  useEffect(() => {
+    if (!dashboardQuery.error) return;
+    notifyError({
+      title: "CMDB 数据暂不可用",
+      message: dashboardErrorMessage,
+    });
+  }, [dashboardQuery.error, dashboardErrorMessage]);
+
   const overviewCards = [
     {
       label: "服务器资产",
@@ -3927,7 +3928,7 @@ export function CmdbShell() {
   function openReleaseModal(project: ProjectRow) {
     const releaseIssue = projectReleaseIssue(project, canTriggerPipelines);
     if (releaseIssue) {
-      setErrorMessage(releaseIssue);
+      showError(releaseIssue);
       return;
     }
 
@@ -4285,7 +4286,7 @@ export function CmdbShell() {
   ) {
     const issue = projectOperationIssue(project, action);
     if (issue) {
-      setErrorMessage(issue);
+      showError(issue);
       return;
     }
 
@@ -4322,13 +4323,13 @@ export function CmdbShell() {
   ) {
     const issue = releaseOperationIssue(release, action);
     if (issue) {
-      setErrorMessage(issue);
+      showError(issue);
       return;
     }
 
     const project = projects.find((item) => item.id === release.project?.id);
     if (!project) {
-      setErrorMessage("项目数据尚未加载，无法执行运维操作。");
+      showError("项目数据尚未加载，无法执行运维操作。");
       return;
     }
 
@@ -4340,10 +4341,12 @@ export function CmdbShell() {
   }
 
   async function cancelReleaseAction(release: ReleaseRow) {
-    const issue = releaseCancelIssue(release, Boolean(data?.gitlab.hasApiToken));
+    const issue = releaseCancelIssue(
+      release,
+      Boolean(data?.gitlab.hasApiToken),
+    );
     if (issue) {
-      setSuccessMessage(null);
-      setErrorMessage(issue);
+      showError(issue);
       return;
     }
 
@@ -4393,7 +4396,7 @@ export function CmdbShell() {
       projects.some((project) => project.id === projectId),
     );
     if (groupProjectIds.length === 0) {
-      setErrorMessage("这个主题没有可重新发布的项目。");
+      showError("这个主题没有可重新发布的项目。");
       return;
     }
 
@@ -4416,7 +4419,7 @@ export function CmdbShell() {
       projects.some((project) => project.id === projectId),
     );
     if (groupProjectIds.length === 0) {
-      setErrorMessage("这个主题没有可重新发布的项目。");
+      showError("这个主题没有可重新发布的项目。");
       return;
     }
 
@@ -4428,7 +4431,7 @@ export function CmdbShell() {
       .find((issue): issue is string => Boolean(issue));
 
     if (releaseIssue) {
-      setErrorMessage(releaseIssue);
+      showError(releaseIssue);
       return;
     }
 
@@ -4583,7 +4586,7 @@ export function CmdbShell() {
     const parsedSshPort = parseSshPort(assetDraft.sshPort);
 
     if (parsedSshPort === null) {
-      setErrorMessage("SSH 端口必须是 1-65535 的整数。");
+      showError("SSH 端口必须是 1-65535 的整数。");
       return;
     }
 
@@ -4599,7 +4602,7 @@ export function CmdbShell() {
     const parsedSshPort = parseSshPort(assetDraft.sshPort);
 
     if (parsedSshPort === null) {
-      setErrorMessage("SSH 端口必须是 1-65535 的整数。");
+      showError("SSH 端口必须是 1-65535 的整数。");
       return;
     }
 
@@ -4621,7 +4624,7 @@ export function CmdbShell() {
   function saveProjectDraft() {
     if (projectPathMissing) {
       setProjectDraftPanel("basic");
-      setErrorMessage("请填写 GitLab 项目路径。");
+      showError("请填写 GitLab 项目路径。");
       return;
     }
 
@@ -4656,7 +4659,7 @@ export function CmdbShell() {
 
   function triggerReleaseDraftAction() {
     if (!releaseDraft.projectId) {
-      setErrorMessage("请选择要发布的项目。");
+      showError("请选择要发布的项目。");
       return;
     }
 
@@ -4672,7 +4675,7 @@ export function CmdbShell() {
 
   function createTopicReleasePlanAction() {
     if (topicReleaseDraft.projectIds.length === 0) {
-      setErrorMessage("请选择至少一个要发布的项目。");
+      showError("请选择至少一个要发布的项目。");
       return;
     }
 
@@ -4684,7 +4687,7 @@ export function CmdbShell() {
       .find((issue): issue is string => Boolean(issue));
 
     if (releaseIssue) {
-      setErrorMessage(releaseIssue);
+      showError(releaseIssue);
       return;
     }
 
@@ -4701,14 +4704,13 @@ export function CmdbShell() {
     setTopicReleasePlans((current) => [plan, ...current]);
     setTopicReleaseDraft(emptyTopicReleaseDraft());
     setTopicReleaseResult(null);
-    setErrorMessage(null);
     setTopicReleaseDialogOpen(false);
     setActiveArea("topicReleases");
   }
 
   function triggerTopicReleaseDraftAction() {
     if (topicReleaseDraft.projectIds.length === 0) {
-      setErrorMessage("请选择至少一个要发布的项目。");
+      showError("请选择至少一个要发布的项目。");
       return;
     }
 
@@ -4720,7 +4722,7 @@ export function CmdbShell() {
       .find((issue): issue is string => Boolean(issue));
 
     if (releaseIssue) {
-      setErrorMessage(releaseIssue);
+      showError(releaseIssue);
       return;
     }
 
@@ -4751,7 +4753,7 @@ export function CmdbShell() {
       .find((issue): issue is string => Boolean(issue));
 
     if (releaseIssue) {
-      setErrorMessage(releaseIssue);
+      showError(releaseIssue);
       return;
     }
 
@@ -4950,21 +4952,6 @@ export function CmdbShell() {
           </div>
         </div>
       </section>
-
-      {errorMessage ? (
-        <Alert className="border-rose-200 bg-rose-50 text-rose-900">
-          <AlertTriangleIcon className="size-4" />
-          <AlertTitle>操作失败</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {successMessage ? (
-        <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
-          <AlertTitle>操作完成</AlertTitle>
-          <AlertDescription>{successMessage}</AlertDescription>
-        </Alert>
-      ) : null}
 
       {dashboardQuery.error ? (
         <CmdbErrorPanel
@@ -5925,9 +5912,7 @@ export function CmdbShell() {
                       release={release}
                       canCancelReleases={canCancelReleases}
                       cancelingReleaseId={cancelingReleaseId}
-                      onCancelRelease={(item) =>
-                        void cancelReleaseAction(item)
-                      }
+                      onCancelRelease={(item) => void cancelReleaseAction(item)}
                       onOpenOperation={openReleaseOperation}
                     />
                   ))}

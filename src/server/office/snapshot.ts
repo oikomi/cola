@@ -366,6 +366,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
       return {
         id: agent.id,
+        ownerUserId: agent.ownerUserId ?? null,
         name: agent.name,
         role: agent.roleType,
         engine: inferEngineFromDevice(activeDevice),
@@ -382,6 +383,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     const snapshotTasks = taskRows.map((task) => ({
       id: task.id,
+      ownerUserId: task.ownerUserId ?? null,
       title: task.title,
       type: task.taskType,
       status: task.status,
@@ -422,6 +424,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
       return {
         id: device.id,
+        ownerUserId: device.ownerUserId ?? null,
         name: device.name,
         type: device.deviceType,
         engine: inferEngineFromDevice(device),
@@ -436,6 +439,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     const snapshotApprovals = approvalRows.map((approval) => ({
       id: approval.id,
+      ownerUserId: approval.ownerUserId ?? null,
       type: approval.approvalType,
       status: approval.status,
       taskId: approval.taskId ?? "",
@@ -464,6 +468,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       .slice(0, 8)
       .map((event) => ({
         id: event.id,
+        ownerUserId: event.ownerUserId ?? null,
         severity: event.severity,
         title: event.title,
         description: event.description ?? "无附加描述",
@@ -479,6 +484,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
       return {
         sessionId: session.id,
+        ownerUserId: session.ownerUserId ?? null,
         taskId: session.taskId ?? "",
         agentId: session.agentId ?? null,
         deviceId: session.deviceId ?? null,

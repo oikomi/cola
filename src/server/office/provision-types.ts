@@ -10,6 +10,7 @@ export type ProvisionRunnerInput = {
   roleLabel: string;
   resourcePool: string;
   engine: DockerRunnerEngine;
+  ownerUserId?: string | null;
 };
 
 export type ProvisionRunnerResult = {

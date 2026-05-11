@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type DashboardTokenResponse =
@@ -93,6 +94,10 @@ export function K8sDashboardTokenButton({
     setFailureReason(reason);
     setManualToken(token);
     setState("failed");
+    notifyError({
+      title: token ? "Dashboard Token 未能自动复制" : "Token 读取失败",
+      message: reason,
+    });
   }
 
   async function copyTokenAndOpenDashboard() {
@@ -130,6 +135,7 @@ export function K8sDashboardTokenButton({
 
       openDashboard(openedWindow);
       setState("copied");
+      notifySuccess("Dashboard Token 已复制。");
       window.setTimeout(() => setState("idle"), 3200);
     } catch (error) {
       openedWindow?.close();
@@ -149,13 +155,15 @@ export function K8sDashboardTokenButton({
       setState("copied");
       setManualToken("");
       setFailureReason("");
+      notifySuccess("Dashboard Token 已复制。");
       window.setTimeout(() => setState("idle"), 3200);
     } catch (error) {
-      setFailureReason(
+      const message =
         error instanceof Error
           ? error.message
-          : "当前浏览器没有允许自动复制 Token，请手动选中复制。",
-      );
+          : "当前浏览器没有允许自动复制 Token，请手动选中复制。";
+      setFailureReason(message);
+      notifyError(message);
     }
   }
 

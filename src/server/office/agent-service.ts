@@ -31,6 +31,7 @@ type BackgroundProvisionInput = {
   agentName: string;
   deviceId: string;
   deviceName: string;
+  ownerUserId: string | null;
   roleLabel: string;
   resourcePool: string;
   engine: DockerRunnerEngine;
@@ -40,6 +41,7 @@ export type CreateOfficeAgentInput = {
   name: string;
   role: AgentRole;
   engine: DockerRunnerEngine;
+  ownerUserId: string;
 };
 
 export type DeleteOfficeAgentInput = {
@@ -125,6 +127,7 @@ async function markProvisionFailed(
     eventType: "device.provision.failed",
     entityType: "device",
     entityId: input.deviceId,
+    ownerUserId: input.ownerUserId,
     severity: "critical",
     title: `${runtimeLabel} ${engineLabel} runner 启动失败：${input.agentName}`,
     description: errorMessage,
@@ -145,6 +148,7 @@ async function provisionRunnerInBackground(input: BackgroundProvisionInput) {
       roleLabel: input.roleLabel,
       resourcePool: input.resourcePool,
       engine: input.engine,
+      ownerUserId: input.ownerUserId,
     });
 
     if (!provision.success) {
@@ -207,6 +211,7 @@ async function provisionRunnerInBackground(input: BackgroundProvisionInput) {
       eventType: "device.provisioned",
       entityType: "device",
       entityId: input.deviceId,
+      ownerUserId: input.ownerUserId,
       severity: "info",
       title: `${runnerRuntimeLabel(provision.runtime)} ${engineLabel} runner 已启动：${input.agentName}`,
       description: `${input.roleLabel} runner 已在 ${runnerRuntimeLabel(provision.runtime)} 中启动，等待 ${engineLabel} 自注册。`,
@@ -271,6 +276,7 @@ export async function createOfficeAgent(
         .insert(agents)
         .values({
           name: input.name,
+          ownerUserId: input.ownerUserId,
           roleType: input.role,
           status: "waiting_device",
           zoneId,
@@ -290,6 +296,7 @@ export async function createOfficeAgent(
         .insert(devices)
         .values({
           name: runnerName,
+          ownerUserId: input.ownerUserId,
           deviceType: dockerRunnerDeviceTypeByEngine[input.engine],
           status: "maintenance",
           resourcePool,
@@ -315,6 +322,7 @@ export async function createOfficeAgent(
         eventType: "agent.created",
         entityType: "agent",
         entityId: createdAgent.id,
+        ownerUserId: input.ownerUserId,
         severity: "info",
         title: `新增角色：${input.name}`,
         description: `${roleText}角色已创建，开始拉起 ${runtimeLabel} ${engineLabel} runner。`,
@@ -331,6 +339,7 @@ export async function createOfficeAgent(
       agentName: input.name,
       deviceId: createdDevice.id,
       deviceName: createdDevice.name,
+      ownerUserId: input.ownerUserId,
       roleLabel: roleText,
       resourcePool,
       engine: input.engine,
@@ -415,6 +424,7 @@ export async function deleteOfficeAgent(
       eventType: "agent.deleted",
       entityType: "agent",
       entityId: agent.id,
+      ownerUserId: agent.ownerUserId,
       severity: "warning",
       title: `人物已删除：${agent.name}`,
       description: linkedDevice

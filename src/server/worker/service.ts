@@ -34,6 +34,22 @@ function linkedAgentMetadata(metadata: unknown) {
   return { agentId, agentName };
 }
 
+async function findOwnerUserIdForLinkedAgent(
+  database: Database,
+  metadata: unknown,
+) {
+  const { agentId } = parseRunnerMetadata(metadata);
+  if (!agentId) return null;
+
+  const [agent] = await database
+    .select({ ownerUserId: agents.ownerUserId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+
+  return agent?.ownerUserId ?? null;
+}
+
 async function syncLinkedAgentReadiness(
   database: Database,
   metadata: unknown,
@@ -128,9 +144,13 @@ export async function registerDockerRunner(
 
   if (existing) {
     const mergedMetadata = mergeMetadata(existing.metadata, metadataPatch);
+    const ownerUserId =
+      existing.ownerUserId ??
+      (await findOwnerUserIdForLinkedAgent(database, existing.metadata));
     const [updated] = await database
       .update(devices)
       .set({
+        ownerUserId,
         deviceType: dockerRunnerDeviceTypeByEngine[engine],
         status,
         host: input.host ?? existing.host,
@@ -155,6 +175,7 @@ export async function registerDockerRunner(
       eventType: "device.registered",
       entityType: "device",
       entityId: existing.id,
+      ownerUserId,
       severity:
         status === "unhealthy" || status === "offline"
           ? "critical"
@@ -173,6 +194,7 @@ export async function registerDockerRunner(
     .insert(devices)
     .values({
       name: input.name,
+      ownerUserId: await findOwnerUserIdForLinkedAgent(database, metadataPatch),
       deviceType: dockerRunnerDeviceTypeByEngine[engine],
       status,
       resourcePool: input.resourcePool,
@@ -194,6 +216,7 @@ export async function registerDockerRunner(
     eventType: "device.registered",
     entityType: "device",
     entityId: created.id,
+    ownerUserId: created.ownerUserId,
     severity:
       status === "unhealthy" || status === "offline"
         ? "critical"
@@ -227,15 +250,16 @@ export async function heartbeatRunner(
   if (!device) {
     if (input.name && input.resourcePool) {
       const registration = await registerDockerRunner(database, {
-        name: input.name,
-        resourcePool: input.resourcePool,
-        status: input.status,
-        engine: input.engine,
-        host: input.host,
-        healthSummary: input.healthSummary,
-        containerName: input.containerName,
-        image: input.image,
-      });
+            name: input.name,
+            resourcePool: input.resourcePool,
+            status: input.status,
+            engine: input.engine,
+            host: input.host,
+            healthSummary: input.healthSummary,
+            containerName: input.containerName,
+            image: input.image,
+            runtime: input.runtime,
+          });
 
       device = await findDeviceById(registration.deviceId);
     }
@@ -297,6 +321,7 @@ export async function heartbeatRunner(
       eventType: "device.status.changed",
       entityType: "device",
       entityId: device.id,
+      ownerUserId: device.ownerUserId,
       severity:
         input.status === "unhealthy" || input.status === "offline"
           ? "critical"
@@ -375,6 +400,7 @@ export async function reportRunnerSession(
               .update(executionSessions)
               .set({
                 taskId: input.taskId,
+                ownerUserId: existingSession.ownerUserId ?? task.ownerUserId,
                 agentId: input.agentId ?? existingSession.agentId,
                 deviceId: input.deviceId,
                 status: input.status,
@@ -395,6 +421,7 @@ export async function reportRunnerSession(
               .insert(executionSessions)
               .values({
                 taskId: input.taskId,
+                ownerUserId: task.ownerUserId,
                 agentId: input.agentId,
                 deviceId: input.deviceId,
                 status: input.status,
@@ -470,6 +497,7 @@ export async function reportRunnerSession(
       eventType: "execution_session.reported",
       entityType: "execution_session",
       entityId: session.id,
+      ownerUserId: session.ownerUserId ?? task.ownerUserId,
       severity: input.status === "failed" ? "critical" : "info",
       title: `Runner 已回报执行会话：${device.name}`,
       description: `任务「${task.title}」当前会话状态为 ${input.status}。`,
@@ -562,6 +590,7 @@ export async function pullNextTaskForRunner(
     eventType: "task.claimed",
     entityType: "task",
     entityId: nextTask.id,
+    ownerUserId: nextTask.ownerUserId,
     severity: "info",
     title: `任务已被 runner 认领：${nextTask.title}`,
     description: `${device.name} 已开始执行 ${nextTask.title}。`,

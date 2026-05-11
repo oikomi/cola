@@ -97,7 +97,9 @@ export const officeRouter = createTRPCRouter({
 
   createAgent: operatorProcedure
     .input(createAgentInput)
-    .mutation(({ ctx, input }) => createOfficeAgent(ctx.db, input)),
+    .mutation(({ ctx, input }) =>
+      createOfficeAgent(ctx.db, { ...input, ownerUserId: ctx.user.id }),
+    ),
 
   deleteAgent: operatorProcedure
     .input(deleteAgentInput)
@@ -105,11 +107,15 @@ export const officeRouter = createTRPCRouter({
 
   addWorkstation: operatorProcedure
     .input(addWorkstationInput)
-    .mutation(({ ctx, input }) => addOfficeWorkstation(ctx.db, input)),
+    .mutation(({ ctx, input }) =>
+      addOfficeWorkstation(ctx.db, { ...input, ownerUserId: ctx.user.id }),
+    ),
 
   createTask: operatorProcedure
     .input(createTaskInput)
-    .mutation(({ ctx, input }) => createOfficeTask(ctx.db, input)),
+    .mutation(({ ctx, input }) =>
+      createOfficeTask(ctx.db, { ...input, ownerUserId: ctx.user.id }),
+    ),
 
   updateTaskStatus: operatorProcedure
     .input(updateTaskStatusInput)
@@ -117,9 +123,13 @@ export const officeRouter = createTRPCRouter({
 
   requestApproval: operatorProcedure
     .input(requestApprovalInput)
-    .mutation(({ ctx, input }) => requestOfficeApproval(ctx.db, input)),
+    .mutation(({ ctx, input }) =>
+      requestOfficeApproval(ctx.db, { ...input, ownerUserId: ctx.user.id }),
+    ),
 
   resolveApproval: operatorProcedure
     .input(resolveApprovalInput)
-    .mutation(({ ctx, input }) => resolveOfficeApproval(ctx.db, input)),
+    .mutation(({ ctx, input }) =>
+      resolveOfficeApproval(ctx.db, { ...input, ownerUserId: ctx.user.id }),
+    ),
 });

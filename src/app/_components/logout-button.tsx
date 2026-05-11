@@ -5,6 +5,7 @@ import { LogOutIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { notifyError } from "@/components/ui/toast";
 
 export function LogoutButton({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
@@ -14,10 +15,15 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
     setPending(true);
 
     try {
-      await fetch("/api/auth/logout", {
+      const response = await fetch("/api/auth/logout", {
         method: "POST",
         cache: "no-store",
       });
+      if (!response.ok) {
+        notifyError("退出登录请求失败，仍将返回登录页。");
+      }
+    } catch {
+      notifyError("退出登录请求失败，仍将返回登录页。");
     } finally {
       router.push("/login");
       router.refresh();

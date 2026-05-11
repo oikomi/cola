@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { notifyError } from "@/components/ui/toast";
 import { LogoutButton } from "./logout-button";
 
 type CurrentUser = {
@@ -38,6 +39,10 @@ export function CurrentUserBadge() {
       })
       .catch(() => {
         if (!canceled) setUser(null);
+        notifyError({
+          title: "用户信息读取失败",
+          message: "无法读取当前登录用户信息。",
+        });
       });
 
     return () => {

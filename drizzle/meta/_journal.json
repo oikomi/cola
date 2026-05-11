@@ -99,6 +99,13 @@
       "when": 1778486400000,
       "tag": "0013_feishu_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1778486401000,
+      "tag": "0014_resource_owners",
+      "breakpoints": true
     }
   ]
 }

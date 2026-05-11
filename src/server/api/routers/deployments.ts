@@ -98,9 +98,12 @@ export const deploymentsRouter = createTRPCRouter({
 
   create: operatorProcedure
     .input(createInferenceDeploymentInput)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       try {
-        const result = await createInferenceDeployment(input);
+        const result = await createInferenceDeployment({
+          ...input,
+          ownerUserId: ctx.user.id,
+        });
         return {
           ...result,
           message: `${runtimeLabel(input.engine)} 部署已创建，默认先处于草稿状态。`,
