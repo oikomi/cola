@@ -21,6 +21,15 @@ export function authCookieSecure() {
   return env.AUTH_COOKIE_SECURE === "true";
 }
 
+export function authPublicBaseUrl() {
+  return env.AUTH_PUBLIC_BASE_URL?.replace(/\/+$/, "") ?? null;
+}
+
+export function authUrl(path: string, requestUrl: string | URL) {
+  const baseUrl = authPublicBaseUrl() ?? new URL(requestUrl).origin;
+  return new URL(path, baseUrl);
+}
+
 export function adminFeishuOpenIds() {
   return parseCsvSet(env.AUTH_ADMIN_FEISHU_OPEN_IDS);
 }

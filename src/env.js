@@ -14,6 +14,7 @@ export const env = createEnv({
       .enum(["true", "false"])
       .optional()
       .default(process.env.NODE_ENV === "production" ? "true" : "false"),
+    AUTH_PUBLIC_BASE_URL: z.string().url().optional(),
     AUTH_SESSION_SECRET: z.string().min(32).optional(),
     FEISHU_APP_ID: z.string().optional(),
     FEISHU_APP_SECRET: z.string().optional(),
@@ -47,6 +48,7 @@ export const env = createEnv({
     AUTH_ADMIN_FEISHU_OPEN_IDS: process.env.AUTH_ADMIN_FEISHU_OPEN_IDS,
     AUTH_ALLOWED_TENANT_KEYS: process.env.AUTH_ALLOWED_TENANT_KEYS,
     AUTH_COOKIE_SECURE: process.env.AUTH_COOKIE_SECURE,
+    AUTH_PUBLIC_BASE_URL: process.env.AUTH_PUBLIC_BASE_URL,
     AUTH_SESSION_SECRET: process.env.AUTH_SESSION_SECRET,
     FEISHU_APP_ID: process.env.FEISHU_APP_ID,
     FEISHU_APP_SECRET: process.env.FEISHU_APP_SECRET,

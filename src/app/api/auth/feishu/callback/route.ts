@@ -6,6 +6,7 @@ import {
   AUTH_SESSION_COOKIE,
   AUTH_STATE_COOKIE,
   authCookieSecure,
+  authUrl,
   normalizeNextPath,
 } from "@/server/auth/config";
 import { getFeishuIdentityFromCode } from "@/server/auth/feishu";
@@ -21,7 +22,7 @@ import { db } from "@/server/db";
 export const runtime = "nodejs";
 
 function redirectToLogin(request: NextRequest, message: string) {
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = authUrl("/login", request.url);
   loginUrl.searchParams.set("error", message);
   return NextResponse.redirect(loginUrl);
 }
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     const identity = await getFeishuIdentityFromCode(code);
     const user = await upsertUserFromFeishuIdentity(db, identity);
     const session = await createAuthSession(db, user.id);
-    const response = NextResponse.redirect(new URL(next, request.url));
+    const response = NextResponse.redirect(authUrl(next, request.url));
     response.cookies.set(
       AUTH_SESSION_COOKIE,
       session.token,
@@ -82,4 +83,3 @@ export async function GET(request: NextRequest) {
     return response;
   }
 }
-

@@ -5,6 +5,7 @@ import {
   AUTH_NEXT_COOKIE,
   AUTH_STATE_COOKIE,
   AUTH_STATE_MAX_AGE_SECONDS,
+  authUrl,
   authCookieSecure,
   normalizeNextPath,
 } from "@/server/auth/config";
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(buildFeishuAuthorizeUrl(state));
   } catch (error) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = authUrl("/login", request.url);
     loginUrl.searchParams.set(
       "error",
       error instanceof Error ? error.message : "飞书登录初始化失败。",
@@ -39,4 +40,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 }
-

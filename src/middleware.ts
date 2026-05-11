@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUTH_SESSION_COOKIE } from "@/server/auth/config";
+import { AUTH_SESSION_COOKIE, authUrl } from "@/server/auth/config";
 
 const PUBLIC_PATH_PREFIXES = [
   "/api/auth",
@@ -53,7 +53,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (isPageRequest(request) && !hasSessionCookie(request)) {
-    const loginUrl = new URL("/login", request.url);
+    const loginUrl = authUrl("/login", request.url);
     loginUrl.searchParams.set(
       "next",
       `${request.nextUrl.pathname}${request.nextUrl.search}`,
