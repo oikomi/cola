@@ -2,8 +2,8 @@
   {
     "name": "master-01",
     "ip": "172.16.60.198",
-    "sshUser": "charles",
-    "sshPassword": "123",
+    "sshUser": "user",
+    "sshPassword": "123456",
     "sshPort": 22,
     "roles": ["master", "etcd", "worker", "gpu"],
     "arch": "amd64"
