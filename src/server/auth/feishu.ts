@@ -1,4 +1,8 @@
-import { adminFeishuOpenIds, allowedTenantKeys, requireFeishuConfig } from "./config";
+import {
+  adminFeishuOpenIds,
+  allowedTenantKeys,
+  requireFeishuConfig,
+} from "./config";
 import type { AuthRole } from "./permissions";
 
 const FEISHU_AUTH_BASE_URL = "https://open.feishu.cn/open-apis";
@@ -7,7 +11,7 @@ type FeishuApiResponse<T> = {
   code?: number;
   msg?: string;
   data?: T;
-};
+} & Partial<T>;
 
 type AppAccessTokenData = {
   app_access_token?: string;
@@ -62,11 +66,11 @@ async function postFeishu<T>(
 
   const payload = (await response.json()) as FeishuApiResponse<T>;
 
-  if (!response.ok || payload.code !== 0 || !payload.data) {
+  if (!response.ok || payload.code !== 0) {
     throw feishuAuthError(payload.msg ?? "飞书认证接口请求失败。", payload.code);
   }
 
-  return payload.data;
+  return (payload.data ?? payload) as T;
 }
 
 async function getFeishu<T>(path: string, headers: HeadersInit = {}) {
@@ -164,4 +168,3 @@ export async function getFeishuIdentityFromCode(code: string) {
     unionId: info.union_id ?? null,
   } satisfies FeishuIdentity;
 }
-
