@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AgentWorkspace } from "@/app/_components/agent-workspace";
+import { requirePageSession } from "@/server/auth/require-page-session";
 import { api } from "@/trpc/server";
 
 export default async function HermesAgentPage({
@@ -9,6 +10,8 @@ export default async function HermesAgentPage({
   params: Promise<{ agentId: string }>;
 }) {
   const { agentId } = await params;
+  await requirePageSession(`/hermes/${agentId}`);
+
   const snapshot = await api.office.getSnapshot();
   const agent = snapshot.agents.find((item) => item.id === agentId);
 
