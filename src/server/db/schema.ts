@@ -334,6 +334,14 @@ export type CmdbProjectConfig = {
   sshDeployCommand?: string;
 };
 
+export type CmdbReleaseOperationLog = {
+  at: string;
+  step: string;
+  status: "pending" | "running" | "success" | "failed" | "canceled" | "info";
+  title: string;
+  detail?: string;
+};
+
 export const cmdbAssets = createTable(
   "cmdb_asset",
   (d) => ({
@@ -415,6 +423,7 @@ export const cmdbReleases = createTable(
     variables: d.jsonb().$type<Record<string, string>>(),
     triggeredBy: d.varchar({ length: 256 }),
     lastError: d.text(),
+    operationLogs: d.jsonb().$type<CmdbReleaseOperationLog[]>(),
     startedAt: d
       .timestamp({ withTimezone: true })
       .$defaultFn(() => new Date())
@@ -572,5 +581,8 @@ export const posts = createTable(
       .notNull(),
     updatedAt: d.timestamp({ withTimezone: true }).$onUpdate(() => new Date()),
   }),
-  (t) => [index("name_idx").on(t.name), index("post_owner_idx").on(t.ownerUserId)],
+  (t) => [
+    index("name_idx").on(t.name),
+    index("post_owner_idx").on(t.ownerUserId),
+  ],
 );

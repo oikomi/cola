@@ -7,7 +7,6 @@ import path from "node:path";
 import {
   AppsV1Api,
   CoreV1Api,
-  KubeConfig,
   NetworkingV1Api,
   type V1Deployment,
   type V1Ingress,
@@ -24,6 +23,10 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import {
+  createKubeConfig,
+  resolveKubeconfigPath as resolveSharedKubeconfigPath,
+} from "@/server/kubernetes/kubeconfig";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
@@ -111,11 +114,10 @@ function readClusterConfig() {
 }
 
 function resolveKubeconfigPath(clusterName: string) {
-  return (
-    process.env.REMOTE_WORK_KUBECONFIG_PATH ??
-    process.env.WORKSPACE_KUBECONFIG ??
-    path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
-  );
+  return resolveSharedKubeconfigPath({
+    clusterName,
+    envVarNames: ["REMOTE_WORK_KUBECONFIG_PATH", "WORKSPACE_KUBECONFIG"],
+  });
 }
 
 function resolveWorkspaceImage() {
@@ -460,18 +462,18 @@ function workspaceStatus(deployment: V1Deployment) {
 
 async function createKubeContext(): Promise<KubeContext> {
   const { config, nodes } = readClusterConfig();
-  const kubeconfigPath = resolveKubeconfigPath(config.clusterName);
-
-  fs.accessSync(kubeconfigPath, fs.constants.R_OK);
-
-  const kubeConfig = new KubeConfig();
-  kubeConfig.loadFromFile(kubeconfigPath);
+  const { kubeConfig, kubeconfigPath } = createKubeConfig({
+    clusterName: config.clusterName,
+    envVarNames: ["REMOTE_WORK_KUBECONFIG_PATH", "WORKSPACE_KUBECONFIG"],
+    preferInCluster: false,
+    warnPrefix: "[workspace]",
+  });
   const apiServer = kubeConfig.getCurrentCluster()?.server ?? null;
 
   return {
     config,
     nodes,
-    kubeconfigPath,
+    kubeconfigPath: kubeconfigPath!,
     apiServer,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),

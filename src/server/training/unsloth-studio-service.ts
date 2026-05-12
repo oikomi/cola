@@ -8,7 +8,6 @@ import path from "node:path";
 import {
   AppsV1Api,
   CoreV1Api,
-  KubeConfig,
   type V1Deployment,
   type V1Node,
   type V1Service,
@@ -23,6 +22,10 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import {
+  createKubeConfig as createSharedKubeConfig,
+  resolveKubeconfigPath as resolveSharedKubeconfigPath,
+} from "@/server/kubernetes/kubeconfig";
 import { resolveUnslothStudioImage } from "@/server/training/unsloth-studio-images";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -134,13 +137,15 @@ function resolveStudioNamespace(config: ClusterConfig) {
 }
 
 function resolveKubeconfigPath(clusterName: string) {
-  return (
-    process.env.COLA_UNSLOTH_STUDIO_KUBECONFIG_PATH?.trim() ??
-    process.env.COLA_TRAINING_KUBECONFIG_PATH?.trim() ??
-    process.env.REMOTE_WORK_KUBECONFIG_PATH ??
-    process.env.WORKSPACE_KUBECONFIG ??
-    path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
-  );
+  return resolveSharedKubeconfigPath({
+    clusterName,
+    envVarNames: [
+      "COLA_UNSLOTH_STUDIO_KUBECONFIG_PATH",
+      "COLA_TRAINING_KUBECONFIG_PATH",
+      "REMOTE_WORK_KUBECONFIG_PATH",
+      "WORKSPACE_KUBECONFIG",
+    ],
+  });
 }
 
 function resolveRuntimeClassName() {
@@ -151,27 +156,16 @@ function resolveRuntimeClassName() {
 }
 
 function createKubeConfig(clusterName: string) {
-  const kubeConfig = new KubeConfig();
-
-  if (
-    process.env.KUBERNETES_SERVICE_HOST &&
-    process.env.KUBERNETES_SERVICE_PORT
-  ) {
-    try {
-      kubeConfig.loadFromCluster();
-      return { kubeConfig, kubeconfigPath: null };
-    } catch (error) {
-      console.warn(
-        "[unsloth-studio] failed to load in-cluster kubeconfig, falling back to file",
-        error,
-      );
-    }
-  }
-
-  const kubeconfigPath = resolveKubeconfigPath(clusterName);
-  fs.accessSync(kubeconfigPath, fs.constants.R_OK);
-  kubeConfig.loadFromFile(kubeconfigPath);
-  return { kubeConfig, kubeconfigPath };
+  return createSharedKubeConfig({
+    clusterName,
+    envVarNames: [
+      "COLA_UNSLOTH_STUDIO_KUBECONFIG_PATH",
+      "COLA_TRAINING_KUBECONFIG_PATH",
+      "REMOTE_WORK_KUBECONFIG_PATH",
+      "WORKSPACE_KUBECONFIG",
+    ],
+    warnPrefix: "[unsloth-studio]",
+  });
 }
 
 async function createKubeContext(): Promise<UnslothStudioKubeContext> {

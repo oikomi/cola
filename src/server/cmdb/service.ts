@@ -14,6 +14,7 @@ import {
   cmdbAssets,
   cmdbProjects,
   cmdbReleases,
+  type CmdbReleaseOperationLog,
   type CmdbProjectConfig,
 } from "@/server/db/schema";
 
@@ -118,6 +119,7 @@ const CMDB_DEPLOYING_GITLAB_STATUS = "cmdb_deploying";
 const DOCKER_DEFAULT_RESTART_POLICY = "unless-stopped";
 const SHELL_ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const CMDB_ASSET_SSH_CHECK_INTERVAL_MS = 60_000;
+const MAX_RELEASE_OPERATION_LOGS = 80;
 const CMDB_ASSET_SSH_CHECK_CONCURRENCY = 3;
 
 const cmdbAssetSshMonitor = (() => {
@@ -289,7 +291,8 @@ function assertDockerReleaseArchitectureReady(
 ) {
   if (project.deployTarget !== "docker") return;
 
-  const targetArchitectures = targetArchitecturesFromReleaseVariables(variables);
+  const targetArchitectures =
+    targetArchitecturesFromReleaseVariables(variables);
   if (targetArchitectures.length <= 1) return;
 
   throw new Error(
@@ -597,6 +600,90 @@ function shellEnvPrefix(variables: Record<string, string>) {
 function truncateOutput(value: string, maxLength = 20000) {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength)}\n... output truncated ...`;
+}
+
+function normalizeReleaseOperationLogs(
+  value: unknown,
+): CmdbReleaseOperationLog[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item): CmdbReleaseOperationLog[] => {
+    if (!isRecord(item)) return [];
+
+    const at = typeof item.at === "string" ? item.at : null;
+    const step = typeof item.step === "string" ? item.step : null;
+    const status = typeof item.status === "string" ? item.status : null;
+    const title = typeof item.title === "string" ? item.title : null;
+    const detail = typeof item.detail === "string" ? item.detail : undefined;
+
+    if (!at || !step || !title) return [];
+    if (
+      status !== "pending" &&
+      status !== "running" &&
+      status !== "success" &&
+      status !== "failed" &&
+      status !== "canceled" &&
+      status !== "info"
+    ) {
+      return [];
+    }
+
+    return [{ at, step, status, title, detail }];
+  });
+}
+
+function releaseOperationLog(
+  step: string,
+  status: CmdbReleaseOperationLog["status"],
+  title: string,
+  detail?: string | null,
+): CmdbReleaseOperationLog {
+  return {
+    at: new Date().toISOString(),
+    step,
+    status,
+    title,
+    ...(detail ? { detail: truncateOutput(detail, 4000) } : {}),
+  };
+}
+
+function appendReleaseOperationLogValue(
+  current: unknown,
+  log: CmdbReleaseOperationLog,
+) {
+  return [...normalizeReleaseOperationLogs(current), log].slice(
+    -MAX_RELEASE_OPERATION_LOGS,
+  );
+}
+
+async function currentReleaseOperationLogs(
+  database: Database,
+  release: Pick<CmdbReleaseRow, "id" | "operationLogs">,
+) {
+  const [currentRelease] = await database
+    .select({ operationLogs: cmdbReleases.operationLogs })
+    .from(cmdbReleases)
+    .where(eq(cmdbReleases.id, release.id));
+
+  return currentRelease?.operationLogs ?? release.operationLogs;
+}
+
+async function appendReleaseOperationLog(
+  database: Database,
+  release: Pick<CmdbReleaseRow, "id" | "operationLogs">,
+  log: CmdbReleaseOperationLog,
+) {
+  const nextLogs = appendReleaseOperationLogValue(
+    await currentReleaseOperationLogs(database, release),
+    log,
+  );
+
+  await database
+    .update(cmdbReleases)
+    .set({ operationLogs: nextLogs })
+    .where(eq(cmdbReleases.id, release.id));
+
+  return nextLogs;
 }
 
 function compactPreview(
@@ -1173,10 +1260,30 @@ async function executeCmdbDeployment(
   release: CmdbReleaseRow,
 ): Promise<CmdbDeploymentResult | null> {
   if (project.deployTarget === "none") {
+    await appendReleaseOperationLog(
+      database,
+      release,
+      releaseOperationLog(
+        "cmdb-deploy",
+        "success",
+        "无需 CMDB 部署",
+        "项目部署目标为未指定，GitLab Pipeline 完成后发布即结束。",
+      ),
+    );
     return null;
   }
 
   if (project.deployTarget === "k8s") {
+    await appendReleaseOperationLog(
+      database,
+      release,
+      releaseOperationLog(
+        "cmdb-deploy",
+        "success",
+        "Kubernetes 部署由流水线处理",
+        "CMDB 不执行额外部署命令。",
+      ),
+    );
     return null;
   }
 
@@ -1202,6 +1309,19 @@ async function executeCmdbDeployment(
       })
     : null;
 
+  await appendReleaseOperationLog(
+    database,
+    release,
+    releaseOperationLog(
+      "cmdb-deploy",
+      "running",
+      `开始 ${deployTargetLabel(project.deployTarget)} 部署`,
+      `目标资产: ${assets.map((asset) => asset.name).join(", ") || "-"}${
+        imageArchive ? `；已读取镜像产物 ${imageArtifactPath}` : ""
+      }`,
+    ),
+  );
+
   for (const asset of assets) {
     const remoteImageArchivePath =
       imageArchive && imageArtifactPath
@@ -1212,11 +1332,31 @@ async function executeCmdbDeployment(
         : null;
 
     if (imageArchive && remoteImageArchivePath) {
+      await appendReleaseOperationLog(
+        database,
+        release,
+        releaseOperationLog(
+          "artifact-upload",
+          "running",
+          `上传镜像产物到 ${asset.name}`,
+          remoteImageArchivePath,
+        ),
+      );
       await sshUploadBufferOrThrow(
         asset,
         remoteImageArchivePath,
         imageArchive,
         `上传 Docker 镜像产物到 ${asset.name}`,
+      );
+      await appendReleaseOperationLog(
+        database,
+        release,
+        releaseOperationLog(
+          "artifact-upload",
+          "success",
+          `镜像产物已上传到 ${asset.name}`,
+          remoteImageArchivePath,
+        ),
       );
     }
 
@@ -1229,10 +1369,32 @@ async function executeCmdbDeployment(
             imageArchivePath: remoteImageArchivePath,
           })
         : buildSshDeployCommand({ project, release, asset });
+    await appendReleaseOperationLog(
+      database,
+      release,
+      releaseOperationLog(
+        "remote-command",
+        "running",
+        `${deployTargetLabel(project.deployTarget)} 部署到 ${asset.name}`,
+        `目标地址: ${asset.ip}`,
+      ),
+    );
     const result = await sshExecOrThrow(
       asset,
       command,
       `${deployTargetLabel(project.deployTarget)} 部署到 ${asset.name}`,
+    );
+    await appendReleaseOperationLog(
+      database,
+      release,
+      releaseOperationLog(
+        "remote-command",
+        "success",
+        `${deployTargetLabel(project.deployTarget)} 部署到 ${asset.name} 完成`,
+        [result.stdout.trim(), result.stderr.trim()]
+          .filter(Boolean)
+          .join("\n\n"),
+      ),
     );
     const output = [
       `# ${asset.name} (${asset.ip})`,
@@ -1420,13 +1582,12 @@ export async function runCmdbProjectOperation(
 
   const usesDockerInspect =
     input.action === "dockerStatus" || input.action === "containerMonitor";
-  const command =
-    usesDockerInspect
-      ? buildDockerStatusCommand(containerName)
-      : buildDockerLogsCommand(
-          containerName,
-          Math.min(Math.max(input.tail ?? 200, 20), 1000),
-        );
+  const command = usesDockerInspect
+    ? buildDockerStatusCommand(containerName)
+    : buildDockerLogsCommand(
+        containerName,
+        Math.min(Math.max(input.tail ?? 200, 20), 1000),
+      );
   const result = await sshExec(
     {
       ip: asset.ip,
@@ -1436,16 +1597,14 @@ export async function runCmdbProjectOperation(
     },
     command,
   );
-  const dockerStatus =
-    usesDockerInspect
-      ? parseDockerStatusOutput(result.stdout, containerName)
-      : null;
-  const stdout =
-    usesDockerInspect
-      ? dockerStatus
-        ? dockerStatusOutputText(dockerStatus)
-        : "未能解析容器状态。"
-      : result.stdout;
+  const dockerStatus = usesDockerInspect
+    ? parseDockerStatusOutput(result.stdout, containerName)
+    : null;
+  const stdout = usesDockerInspect
+    ? dockerStatus
+      ? dockerStatusOutputText(dockerStatus)
+      : "未能解析容器状态。"
+    : result.stdout;
 
   return {
     action: input.action,
@@ -1858,6 +2017,16 @@ export async function refreshRunningCmdbReleases(database: Database) {
 
       const nextStatus = normalizePipelineStatus(pipeline.status);
       if (nextStatus === "success") {
+        await appendReleaseOperationLog(
+          database,
+          item.release,
+          releaseOperationLog(
+            "gitlab-pipeline",
+            "success",
+            "GitLab Pipeline 已成功",
+            `GitLab 状态: ${pipeline.status}`,
+          ),
+        );
         await completeCmdbReleaseDeployment(database, item.project, {
           ...item.release,
           gitlabStatus: pipeline.status,
@@ -1875,12 +2044,33 @@ export async function refreshRunningCmdbReleases(database: Database) {
         pipeline.status !== item.release.gitlabStatus ||
         (completedAt && !item.release.completedAt)
       ) {
+        const statusChanged = nextStatus !== item.release.status;
+        const gitlabStatusChanged =
+          pipeline.status !== item.release.gitlabStatus;
+        const nextLogs =
+          statusChanged || gitlabStatusChanged || completedAt
+            ? appendReleaseOperationLogValue(
+                item.release.operationLogs,
+                releaseOperationLog(
+                  "gitlab-pipeline",
+                  nextStatus === "failed"
+                    ? "failed"
+                    : nextStatus === "canceled"
+                      ? "canceled"
+                      : "running",
+                  "GitLab Pipeline 状态更新",
+                  `GitLab 状态: ${pipeline.status}`,
+                ),
+              )
+            : item.release.operationLogs;
+
         await database
           .update(cmdbReleases)
           .set({
             status: nextStatus,
             gitlabStatus: pipeline.status,
             completedAt,
+            operationLogs: nextLogs,
           })
           .where(eq(cmdbReleases.id, item.release.id));
       }
@@ -1948,6 +2138,17 @@ export async function cancelCmdbRelease(database: Database, releaseId: number) {
         releaseStatus === "canceled"
           ? "已请求停止 GitLab Pipeline。"
           : item.release.lastError,
+      operationLogs: appendReleaseOperationLogValue(
+        item.release.operationLogs,
+        releaseOperationLog(
+          "gitlab-cancel",
+          releaseStatus === "canceled" ? "canceled" : "failed",
+          releaseStatus === "canceled"
+            ? "已请求停止 GitLab Pipeline"
+            : "GitLab Pipeline 停止失败",
+          `GitLab 状态: ${pipeline.status ?? releaseStatus}`,
+        ),
+      ),
     })
     .where(eq(cmdbReleases.id, item.release.id))
     .returning();
@@ -1966,6 +2167,15 @@ async function completeCmdbReleaseDeployment(
       status: "running",
       gitlabStatus: CMDB_DEPLOYING_GITLAB_STATUS,
       lastError: null,
+      operationLogs: appendReleaseOperationLogValue(
+        await currentReleaseOperationLogs(database, release),
+        releaseOperationLog(
+          "cmdb-deploy",
+          "running",
+          "进入 CMDB 部署阶段",
+          `${deployTargetLabel(project.deployTarget)} · ${project.name}`,
+        ),
+      ),
     })
     .where(
       and(
@@ -1999,7 +2209,6 @@ async function completeCmdbReleaseDeployment(
       : project.deployTarget === "k8s"
         ? "GitLab Pipeline 成功。Kubernetes 部署未由 CMDB 执行。"
         : "GitLab Pipeline 成功，无需 CMDB 执行部署。";
-
     await database
       .update(cmdbReleases)
       .set({
@@ -2007,6 +2216,15 @@ async function completeCmdbReleaseDeployment(
         gitlabStatus: release.gitlabStatus ?? "success",
         lastError: truncateOutput(deploymentSummary),
         completedAt: new Date(),
+        operationLogs: appendReleaseOperationLogValue(
+          await currentReleaseOperationLogs(database, hydratedRelease),
+          releaseOperationLog(
+            "release-complete",
+            "success",
+            "发布完成",
+            deploymentSummary,
+          ),
+        ),
       })
       .where(eq(cmdbReleases.id, lockedRelease.id));
   } catch (error) {
@@ -2018,6 +2236,15 @@ async function completeCmdbReleaseDeployment(
         lastError:
           error instanceof Error ? truncateOutput(error.message) : "部署失败",
         completedAt: new Date(),
+        operationLogs: appendReleaseOperationLogValue(
+          await currentReleaseOperationLogs(database, lockedRelease),
+          releaseOperationLog(
+            "release-complete",
+            "failed",
+            "发布失败",
+            error instanceof Error ? error.message : "部署失败",
+          ),
+        ),
       })
       .where(eq(cmdbReleases.id, lockedRelease.id));
   }
@@ -2302,6 +2529,14 @@ export async function createCmdbRelease(
       status: "pending",
       variables,
       triggeredBy: cleanString(args.triggeredBy),
+      operationLogs: [
+        releaseOperationLog(
+          "release-created",
+          "pending",
+          "已创建发布记录",
+          `${args.project.name} · ${ref}${deployEnv ? ` -> ${deployEnv}` : ""}`,
+        ),
+      ],
     })
     .returning();
 
@@ -2310,6 +2545,16 @@ export async function createCmdbRelease(
   }
 
   try {
+    const triggerStartedLogs = await appendReleaseOperationLog(
+      database,
+      release,
+      releaseOperationLog(
+        "gitlab-trigger",
+        "running",
+        "正在触发 GitLab Pipeline",
+        args.project.gitlabPath,
+      ),
+    );
     const result = await triggerGitLabPipeline({
       gitlabProjectId: args.project.gitlabProjectId,
       gitlabPath: args.project.gitlabPath,
@@ -2325,6 +2570,19 @@ export async function createCmdbRelease(
         gitlabPipelineUrl: result.pipelineUrl,
         gitlabStatus: result.gitlabStatus,
         status: result.status === "success" ? "running" : result.status,
+        operationLogs: appendReleaseOperationLogValue(
+          triggerStartedLogs,
+          releaseOperationLog(
+            "gitlab-trigger",
+            result.status === "failed"
+              ? "failed"
+              : result.status === "canceled"
+                ? "canceled"
+                : "success",
+            "GitLab Pipeline 已创建",
+            `Pipeline #${result.pipelineId} · ${result.gitlabStatus}`,
+          ),
+        ),
       })
       .where(eq(cmdbReleases.id, release.id))
       .returning();
@@ -2351,6 +2609,15 @@ export async function createCmdbRelease(
         status: "failed",
         lastError: error instanceof Error ? error.message : "发布失败",
         completedAt: new Date(),
+        operationLogs: appendReleaseOperationLogValue(
+          await currentReleaseOperationLogs(database, release),
+          releaseOperationLog(
+            "gitlab-trigger",
+            "failed",
+            "触发 GitLab Pipeline 失败",
+            error instanceof Error ? error.message : "发布失败",
+          ),
+        ),
       })
       .where(eq(cmdbReleases.id, release.id))
       .returning();

@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -8,7 +7,7 @@ import {
   AppsV1Api,
   CoreV1Api,
   Exec,
-  KubeConfig,
+  type KubeConfig,
   type V1ConfigMap,
   type V1Deployment,
   type V1Namespace,
@@ -27,6 +26,9 @@ import type {
   ProvisionRunnerInput,
   ProvisionRunnerResult,
 } from "@/server/office/provision-types";
+import {
+  createKubeConfig,
+} from "@/server/kubernetes/kubeconfig";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -102,39 +104,24 @@ function runnerNamespace() {
   return process.env.COLA_K8S_RUNNER_NAMESPACE ?? "cola-runners";
 }
 
-function kubeconfigPath() {
-  const configured =
-    process.env.COLA_K8S_KUBECONFIG?.trim() ??
-    process.env.REMOTE_WORK_KUBECONFIG_PATH?.trim() ??
-    process.env.WORKSPACE_KUBECONFIG?.trim();
-  if (configured) return configured;
-
-  const clusterName = readClusterConfig()?.clusterName?.trim();
-  const candidates = [
-    clusterName
-      ? path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
-      : null,
-    clusterName ? path.join(homedir(), ".kube", `${clusterName}.config`) : null,
-    path.join(homedir(), ".kube", "config"),
-  ];
-
-  return (
-    candidates.find(
-      (candidate): candidate is string =>
-        candidate !== null && existsSync(candidate),
-    ) ?? null
-  );
-}
-
 function createKubeClients(): KubeClients {
-  const kubeConfig = new KubeConfig();
-  const configuredPath = kubeconfigPath();
+  const clusterName = readClusterConfig()?.clusterName?.trim();
+  let kubeConfig: KubeConfig;
 
-  if (configuredPath) {
-    fs.accessSync(configuredPath, fs.constants.R_OK);
-    kubeConfig.loadFromFile(configuredPath);
-  } else if (process.env.KUBERNETES_SERVICE_HOST) {
-    kubeConfig.loadFromCluster();
+  if (clusterName) {
+    kubeConfig = createKubeConfig({
+      clusterName,
+      envVarNames: [
+        "COLA_K8S_KUBECONFIG",
+        "REMOTE_WORK_KUBECONFIG_PATH",
+        "WORKSPACE_KUBECONFIG",
+      ],
+      fallbackPaths: [
+        path.join(homedir(), ".kube", `${clusterName}.config`),
+        path.join(homedir(), ".kube", "config"),
+      ],
+      warnPrefix: "[office-runner]",
+    }).kubeConfig;
   } else {
     throw new Error(
       "无法创建 Kubernetes 客户端。请设置 COLA_K8S_KUBECONFIG / REMOTE_WORK_KUBECONFIG_PATH / WORKSPACE_KUBECONFIG，或在集群内运行控制面。",

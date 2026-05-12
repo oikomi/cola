@@ -89,6 +89,12 @@ type GitLabCatalogRow = RouterOutputs["cmdb"]["gitlabCatalog"][number];
 type TopicReleaseResult = RouterOutputs["cmdb"]["triggerTopicRelease"];
 type ProjectOperationResult = RouterOutputs["cmdb"]["projectOperation"];
 type CancelReleaseResult = RouterOutputs["cmdb"]["cancelRelease"];
+type ReleaseOperationLog = Omit<
+  NonNullable<ReleaseRow["operationLogs"]>[number],
+  "at"
+> & {
+  at: Date | string;
+};
 type ProjectOperationAction =
   | "dockerStatus"
   | "dockerLogs"
@@ -706,6 +712,146 @@ function releaseLabel(status: ReleaseRow["status"]) {
   }
 }
 
+function operationLogStatusTone(status: ReleaseOperationLog["status"]) {
+  switch (status) {
+    case "success":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "running":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "pending":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "failed":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "canceled":
+      return "border-slate-200 bg-slate-100 text-slate-700";
+    default:
+      return "border-slate-200 bg-white text-slate-600";
+  }
+}
+
+function operationLogStatusLabel(status: ReleaseOperationLog["status"]) {
+  switch (status) {
+    case "success":
+      return "完成";
+    case "running":
+      return "进行中";
+    case "pending":
+      return "等待";
+    case "failed":
+      return "失败";
+    case "canceled":
+      return "已取消";
+    default:
+      return "记录";
+  }
+}
+
+function releaseOperationLogs(release: ReleaseRow) {
+  return release.operationLogs ?? [];
+}
+
+function fallbackReleaseOperationLogs(release: ReleaseRow) {
+  const logs: ReleaseOperationLog[] = [
+    {
+      at: release.createdAt,
+      step: "release-created",
+      status: "pending",
+      title: "已创建发布记录",
+      detail: `${release.ref}${release.deployEnv ? ` -> ${release.deployEnv}` : ""}`,
+    },
+  ];
+
+  if (release.gitlabPipelineId) {
+    logs.push({
+      at: release.startedAt ?? release.createdAt,
+      step: "gitlab-trigger",
+      status: release.gitlabStatus === "failed" ? "failed" : "success",
+      title: "GitLab Pipeline 已创建",
+      detail: `Pipeline #${release.gitlabPipelineId}${
+        release.gitlabStatus ? ` · ${release.gitlabStatus}` : ""
+      }`,
+    });
+  }
+
+  if (release.status === "pending" || release.status === "running") {
+    logs.push({
+      at: release.updatedAt ?? release.startedAt ?? release.createdAt,
+      step: "release-running",
+      status: release.status,
+      title:
+        release.gitlabStatus === "cmdb_deploying"
+          ? "CMDB 正在执行部署"
+          : "等待 GitLab Pipeline 更新",
+      detail: release.gitlabStatus
+        ? `GitLab 状态: ${release.gitlabStatus}`
+        : "",
+    });
+  }
+
+  if (release.completedAt || release.status === "failed") {
+    logs.push({
+      at: release.completedAt ?? release.updatedAt ?? release.createdAt,
+      step: "release-complete",
+      status:
+        release.status === "canceled"
+          ? "canceled"
+          : release.status === "success"
+            ? "success"
+            : "failed",
+      title:
+        release.status === "success"
+          ? "发布完成"
+          : release.status === "canceled"
+            ? "发布已取消"
+            : "发布失败",
+      detail: release.lastError ?? "",
+    });
+  }
+
+  return logs;
+}
+
+function releaseTimelineLogs(release: ReleaseRow) {
+  const logs = releaseOperationLogs(release);
+  return logs.length > 0 ? logs : fallbackReleaseOperationLogs(release);
+}
+
+function latestReleaseOperationLog(release: ReleaseRow) {
+  const logs = releaseTimelineLogs(release);
+  return logs.length > 0 ? logs[logs.length - 1] : null;
+}
+
+function releaseProgressSummary(release: ReleaseRow) {
+  const latestLog = latestReleaseOperationLog(release);
+  if (latestLog) return latestLog;
+
+  if (release.lastError) {
+    return {
+      at: release.completedAt ?? release.updatedAt ?? release.createdAt,
+      step: "legacy",
+      status: release.status === "failed" ? "failed" : "info",
+      title: release.status === "failed" ? "发布失败" : "发布输出",
+      detail: release.lastError,
+    } satisfies ReleaseOperationLog;
+  }
+
+  return {
+    at: release.createdAt,
+    step: "release",
+    status: release.status === "pending" ? "pending" : "running",
+    title:
+      release.status === "pending" ? "等待 GitLab Pipeline" : "发布正在执行",
+    detail: release.gitlabStatus ? `GitLab 状态: ${release.gitlabStatus}` : "",
+  } satisfies ReleaseOperationLog;
+}
+
+function releaseProgressLabel(release: ReleaseRow) {
+  const summary = releaseProgressSummary(release);
+  const detail = summary.detail?.replace(/\s+/g, " ").trim();
+  const label = detail ? `${summary.title} · ${detail}` : summary.title;
+  return label.length > 160 ? `${label.slice(0, 160)}...` : label;
+}
+
 function releaseTopic(release: Pick<ReleaseRow, "variables">) {
   const topic = release.variables?.CMDB_RELEASE_TOPIC?.trim();
   return topic && topic.length > 0 ? topic : null;
@@ -961,6 +1107,7 @@ function mergeCanceledRelease(
       gitlabPipelineUrl: updatedRelease.gitlabPipelineUrl,
       completedAt: updatedRelease.completedAt,
       lastError: updatedRelease.lastError,
+      operationLogs: updatedRelease.operationLogs,
     };
   });
 
@@ -979,8 +1126,11 @@ function mergeCanceledRelease(
     ...summary,
     latestRelease:
       summary.latestRelease.id === updatedRelease.id
-        ? (releases.find((release) => release.id === updatedRelease.id) ??
-          summary.latestRelease)
+        ? ({
+            ...(releases.find((release) => release.id === updatedRelease.id) ??
+              summary.latestRelease),
+            project: summary.latestRelease.project,
+          } as ReleaseRow)
         : summary.latestRelease,
     releases,
     successTotal: Math.max(0, summary.successTotal + countDelta("success")),
@@ -2016,6 +2166,8 @@ function ProjectReleaseHistory(props: {
       <div className="grid gap-3 xl:hidden">
         {props.releases.map((release) => {
           const topic = releaseTopic(release);
+          const progress = releaseProgressSummary(release);
+          const logs = releaseTimelineLogs(release);
 
           return (
             <article
@@ -2061,6 +2213,8 @@ function ProjectReleaseHistory(props: {
                 />
               </div>
 
+              <ReleaseProgressSummary release={release} className="mt-3" />
+
               <div className="mt-3">
                 {release.gitlabPipelineUrl ? (
                   <a
@@ -2081,6 +2235,10 @@ function ProjectReleaseHistory(props: {
                   </p>
                 )}
               </div>
+              <ReleaseOperationTimeline
+                logs={logs.length > 0 ? logs : [progress]}
+                className="mt-3"
+              />
             </article>
           );
         })}
@@ -2104,77 +2262,185 @@ function ProjectReleaseHistory(props: {
           </TableHeader>
           <TableBody>
             {props.releases.map((release) => (
-              <TableRow
-                key={`project-release-row-${release.id}`}
-                className="group"
-              >
-                <TableCell className="text-sm text-slate-600">
-                  {formatTime(release.createdAt)}
-                </TableCell>
-                {props.showProject ? (
+              <Fragment key={`project-release-fragment-${release.id}`}>
+                <TableRow className="group">
+                  <TableCell className="text-sm text-slate-600">
+                    {formatTime(release.createdAt)}
+                  </TableCell>
+                  {props.showProject ? (
+                    <TableCell>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {release.project?.name ?? "未知项目"}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          {release.project?.gitlabPath ?? "-"}
+                        </p>
+                      </div>
+                    </TableCell>
+                  ) : null}
                   <TableCell>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-slate-900">
-                        {release.project?.name ?? "未知项目"}
-                      </p>
-                      <p className="truncate text-xs text-slate-500">
-                        {release.project?.gitlabPath ?? "-"}
-                      </p>
+                    {releaseTopic(release) ? (
+                      <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                        {releaseTopic(release)}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-slate-400">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {release.ref}
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {release.deployEnv ?? "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      className={cn("border", releaseTone(release.status))}
+                    >
+                      {releaseLabel(release.status)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {release.gitlabPipelineUrl ? (
+                      <a
+                        href={release.gitlabPipelineUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
+                      >
+                        Pipeline #{release.gitlabPipelineId ?? release.id}
+                        <ExternalLinkIcon className="size-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-sm text-slate-500">
+                        {release.lastError ?? "尚未返回流水线链接"}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className={STICKY_ACTION_CELL_CLASS}>
+                    <div className="flex justify-end gap-2">
+                      <TopicReleaseOperationButtons
+                        release={release}
+                        canCancelReleases={props.canCancelReleases}
+                        cancelingReleaseId={props.cancelingReleaseId}
+                        onCancelRelease={props.onCancelRelease}
+                        onOpenOperation={props.onOpenOperation}
+                      />
                     </div>
                   </TableCell>
-                ) : null}
-                <TableCell>
-                  {releaseTopic(release) ? (
-                    <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-                      {releaseTopic(release)}
-                    </Badge>
-                  ) : (
-                    <span className="text-sm text-slate-400">-</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-sm text-slate-600">
-                  {release.ref}
-                </TableCell>
-                <TableCell className="text-sm text-slate-600">
-                  {release.deployEnv ?? "-"}
-                </TableCell>
-                <TableCell>
-                  <Badge className={cn("border", releaseTone(release.status))}>
-                    {releaseLabel(release.status)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  {release.gitlabPipelineUrl ? (
-                    <a
-                      href={release.gitlabPipelineUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
-                    >
-                      Pipeline #{release.gitlabPipelineId ?? release.id}
-                      <ExternalLinkIcon className="size-3.5" />
-                    </a>
-                  ) : (
-                    <span className="text-sm text-slate-500">
-                      {release.lastError ?? "尚未返回流水线链接"}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className={STICKY_ACTION_CELL_CLASS}>
-                  <div className="flex justify-end gap-2">
-                    <TopicReleaseOperationButtons
-                      release={release}
-                      canCancelReleases={props.canCancelReleases}
-                      cancelingReleaseId={props.cancelingReleaseId}
-                      onCancelRelease={props.onCancelRelease}
-                      onOpenOperation={props.onOpenOperation}
+                </TableRow>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell
+                    colSpan={props.showProject ? 8 : 7}
+                    className="border-t-0 bg-slate-50/70 px-4 py-3"
+                  >
+                    <ReleaseProgressSummary release={release} />
+                    <ReleaseOperationTimeline
+                      logs={releaseTimelineLogs(release)}
+                      className="mt-3"
                     />
-                  </div>
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                </TableRow>
+              </Fragment>
             ))}
           </TableBody>
         </Table>
+      </div>
+    </div>
+  );
+}
+
+function ReleaseProgressSummary(props: {
+  release: ReleaseRow;
+  className?: string;
+}) {
+  const progress = releaseProgressSummary(props.release);
+
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-[9px] border border-slate-200 bg-white px-3 py-2",
+        props.className,
+      )}
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Badge
+          className={cn(
+            "shrink-0 border",
+            operationLogStatusTone(progress.status),
+          )}
+        >
+          当前步骤
+        </Badge>
+        <span className="min-w-0 truncate text-sm font-medium text-slate-900">
+          {progress.title}
+        </span>
+        <span className="shrink-0 text-xs text-slate-500">
+          {formatTime(progress.at)}
+        </span>
+      </div>
+      {progress.detail ? (
+        <p
+          className="mt-1 max-h-10 overflow-hidden text-xs leading-5 break-all text-slate-600"
+          title={progress.detail}
+        >
+          {progress.detail}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ReleaseOperationTimeline(props: {
+  logs: ReleaseOperationLog[];
+  className?: string;
+}) {
+  if (props.logs.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-[9px] border border-slate-200 bg-white",
+        props.className,
+      )}
+    >
+      <div className="border-b border-slate-200/80 px-3 py-2">
+        <p className="text-xs font-semibold text-slate-700">操作步骤日志</p>
+      </div>
+      <div className="max-h-64 overflow-y-auto px-3 py-2">
+        <div className="grid gap-2">
+          {props.logs.map((log, index) => (
+            <div
+              key={`${log.step}-${String(log.at)}-${index}`}
+              className="grid gap-2 sm:grid-cols-[104px_minmax(0,1fr)]"
+            >
+              <div className="text-xs leading-5 text-slate-500">
+                {formatTime(log.at)}
+              </div>
+              <div className="min-w-0 border-l border-slate-200 pl-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge
+                    className={cn(
+                      "shrink-0 border",
+                      operationLogStatusTone(log.status),
+                    )}
+                  >
+                    {operationLogStatusLabel(log.status)}
+                  </Badge>
+                  <span className="min-w-0 truncate text-sm font-medium text-slate-900">
+                    {log.title}
+                  </span>
+                </div>
+                {log.detail ? (
+                  <p className="mt-1 font-mono text-[12px] leading-5 break-all whitespace-pre-wrap text-slate-600">
+                    {log.detail}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -2197,7 +2463,7 @@ function TopicReleaseCountPill(props: {
   return (
     <span
       className={cn(
-        "inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-[9px] border px-2 text-[12px] leading-none font-semibold whitespace-nowrap",
+        "inline-flex h-6 min-w-0 items-center justify-center gap-1 rounded-[8px] border px-1.5 text-[12px] leading-none font-semibold whitespace-nowrap",
         toneClass,
       )}
     >
@@ -2321,10 +2587,10 @@ function TopicReleaseInfoLine(props: {
 }) {
   return (
     <div className={cn("min-w-0", props.className)}>
-      <p className="text-[11px] leading-4 font-medium text-slate-500">
+      <p className="text-[10.5px] leading-3 font-medium text-slate-500">
         {props.label}
       </p>
-      <div className="mt-1 min-w-0 text-sm leading-5 text-slate-900">
+      <div className="mt-0.5 min-w-0 text-[13px] leading-4 text-slate-900">
         {props.children}
       </div>
     </div>
@@ -2336,18 +2602,18 @@ function TopicReleaseValueChips(props: { values: string[] }) {
   const hiddenTotal = props.values.length - visibleValues.length;
 
   return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
+    <div className="flex min-w-0 flex-wrap gap-1">
       {visibleValues.map((value) => (
         <span
           key={value}
-          className="max-w-full truncate rounded-[8px] border border-slate-200 bg-white px-2 py-0.5 text-[12px] leading-5 text-slate-700"
+          className="max-w-full truncate rounded-[7px] border border-slate-200 bg-white px-1.5 py-0 text-[12px] leading-[18px] text-slate-700"
           title={value}
         >
           {value}
         </span>
       ))}
       {hiddenTotal > 0 ? (
-        <span className="rounded-[8px] border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] leading-5 text-slate-500">
+        <span className="rounded-[7px] border border-slate-200 bg-slate-50 px-1.5 py-0 text-[12px] leading-[18px] text-slate-500">
           +{hiddenTotal}
         </span>
       ) : null}
@@ -2362,10 +2628,10 @@ function TopicReleaseActionButtons(props: {
   onDelete: () => void;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] lg:grid-cols-1">
+    <div className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto] lg:grid-cols-1">
       <Button
         size="sm"
-        className="h-8 rounded-[9px] px-2.5 text-[12px]"
+        className="h-7 rounded-[8px] px-2 text-[12px]"
         onClick={props.onTrigger}
         disabled={props.triggering}
       >
@@ -2379,7 +2645,7 @@ function TopicReleaseActionButtons(props: {
       <Button
         variant="outline"
         size="sm"
-        className="h-8 rounded-[9px] border-sky-200 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+        className="h-7 rounded-[8px] border-sky-200 bg-white px-2 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
         onClick={props.onRetry}
         disabled={props.triggering}
       >
@@ -2389,7 +2655,7 @@ function TopicReleaseActionButtons(props: {
       <Button
         variant="outline"
         size="icon-sm"
-        className="size-8 rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:w-auto sm:px-2.5 lg:w-full"
+        className="h-7 rounded-[8px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700 sm:w-auto sm:px-2 lg:w-full"
         onClick={props.onDelete}
         title="删除主题发布记录"
       >
@@ -2417,11 +2683,11 @@ function TopicReleaseOperationButtons(props: {
   const isCanceling = props.cancelingReleaseId === props.release.id;
 
   return (
-    <div className={CMDB_ACTION_GROUP_CLASS}>
+    <div className={cn(CMDB_ACTION_GROUP_CLASS, "rounded-[8px]")}>
       <Button
         variant="ghost"
         size="icon-sm"
-        className={CMDB_ACTION_ICON_CLASS}
+        className={cn(CMDB_ACTION_ICON_CLASS, "size-7")}
         onClick={() => props.onOpenOperation(props.release, "dockerStatus")}
         disabled={Boolean(releaseOperationIssue(props.release, "dockerStatus"))}
         title={
@@ -2433,7 +2699,7 @@ function TopicReleaseOperationButtons(props: {
       <Button
         variant="ghost"
         size="icon-sm"
-        className={CMDB_ACTION_ICON_CLASS}
+        className={cn(CMDB_ACTION_ICON_CLASS, "size-7")}
         onClick={() => props.onOpenOperation(props.release, "containerMonitor")}
         disabled={Boolean(
           releaseOperationIssue(props.release, "containerMonitor"),
@@ -2447,7 +2713,7 @@ function TopicReleaseOperationButtons(props: {
       <Button
         variant="ghost"
         size="icon-sm"
-        className={CMDB_ACTION_ICON_CLASS}
+        className={cn(CMDB_ACTION_ICON_CLASS, "size-7")}
         onClick={() => props.onOpenOperation(props.release, "dockerLogs")}
         disabled={Boolean(releaseOperationIssue(props.release, "dockerLogs"))}
         title={releaseOperationIssue(props.release, "dockerLogs") ?? "运行日志"}
@@ -2457,7 +2723,7 @@ function TopicReleaseOperationButtons(props: {
       <Button
         variant="ghost"
         size="icon-sm"
-        className={CMDB_ACTION_ICON_CLASS}
+        className={cn(CMDB_ACTION_ICON_CLASS, "size-7")}
         onClick={() => props.onOpenOperation(props.release, "sshInfo")}
         disabled={Boolean(releaseOperationIssue(props.release, "sshInfo"))}
         title={
@@ -2472,6 +2738,7 @@ function TopicReleaseOperationButtons(props: {
         size="icon-sm"
         className={cn(
           CMDB_ACTION_ICON_CLASS,
+          "size-7",
           "text-rose-600 hover:text-rose-700 disabled:text-slate-300",
         )}
         onClick={() => props.onCancelRelease(props.release)}
@@ -2500,69 +2767,77 @@ function TopicReleaseReleaseRow(props: {
 }) {
   const projectName = props.release.project?.name ?? "未知项目";
   const gitlabPath = props.release.project?.gitlabPath ?? "-";
+  const logs = releaseTimelineLogs(props.release);
 
   return (
-    <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(180px,1.05fr)_minmax(150px,0.75fr)_minmax(190px,0.85fr)_auto] lg:items-center">
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Badge className={cn("border", releaseTone(props.release.status))}>
-            {releaseLabel(props.release.status)}
-          </Badge>
-          <span className="text-xs leading-5 text-slate-500">
-            {formatTime(props.release.createdAt)}
-          </span>
-        </div>
-        <p className="mt-1 truncate text-sm font-semibold text-slate-950">
-          {projectName}
-        </p>
-        <p className="mt-0.5 truncate text-xs leading-5 text-slate-500">
-          {gitlabPath}
-        </p>
-      </div>
-
-      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1">
-        <TopicReleaseInfoLine label="Ref">
-          <span className="block truncate">{props.release.ref}</span>
-        </TopicReleaseInfoLine>
-        <TopicReleaseInfoLine label="环境">
-          <span className="block truncate">
-            {props.release.deployEnv ?? "-"}
-          </span>
-        </TopicReleaseInfoLine>
-      </div>
-
-      <div className="min-w-0">
-        {props.release.gitlabPipelineUrl ? (
-          <a
-            href={props.release.gitlabPipelineUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(
-              buttonVariants({ variant: "outline", size: "sm" }),
-              "h-8 max-w-full rounded-[9px] bg-white",
-            )}
-          >
-            <span className="truncate">
-              Pipeline #{props.release.gitlabPipelineId ?? props.release.id}
+    <div className="grid gap-2 px-3 py-2">
+      <div className="grid gap-2 lg:grid-cols-[minmax(170px,1fr)_minmax(150px,0.72fr)_minmax(170px,0.8fr)_auto] lg:items-center">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <Badge className={cn("border", releaseTone(props.release.status))}>
+              {releaseLabel(props.release.status)}
+            </Badge>
+            <span className="text-xs leading-5 text-slate-500">
+              {formatTime(props.release.createdAt)}
             </span>
-            <ExternalLinkIcon data-icon="inline-end" />
-          </a>
-        ) : (
-          <p className="text-sm leading-5 text-slate-500">
-            {props.release.lastError ?? "尚未返回流水线链接"}
+          </div>
+          <p className="mt-0.5 truncate text-sm font-semibold text-slate-950">
+            {projectName}
           </p>
-        )}
+          <p className="truncate text-xs leading-4 text-slate-500">
+            {gitlabPath}
+          </p>
+        </div>
+
+        <div className="grid min-w-0 grid-cols-2 gap-1.5 lg:grid-cols-1">
+          <TopicReleaseInfoLine label="Ref">
+            <span className="block truncate">{props.release.ref}</span>
+          </TopicReleaseInfoLine>
+          <TopicReleaseInfoLine label="环境">
+            <span className="block truncate">
+              {props.release.deployEnv ?? "-"}
+            </span>
+          </TopicReleaseInfoLine>
+        </div>
+
+        <div className="min-w-0">
+          {props.release.gitlabPipelineUrl ? (
+            <a
+              href={props.release.gitlabPipelineUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "h-7 max-w-full rounded-[8px] bg-white",
+              )}
+            >
+              <span className="truncate">
+                Pipeline #{props.release.gitlabPipelineId ?? props.release.id}
+              </span>
+              <ExternalLinkIcon data-icon="inline-end" />
+            </a>
+          ) : (
+            <p className="text-sm leading-5 text-slate-500">
+              {props.release.lastError ?? "尚未返回流水线链接"}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-start lg:justify-end">
+          <TopicReleaseOperationButtons
+            release={props.release}
+            canCancelReleases={props.canCancelReleases}
+            cancelingReleaseId={props.cancelingReleaseId}
+            onCancelRelease={props.onCancelRelease}
+            onOpenOperation={props.onOpenOperation}
+          />
+        </div>
       </div>
 
-      <div className="flex justify-start lg:justify-end">
-        <TopicReleaseOperationButtons
-          release={props.release}
-          canCancelReleases={props.canCancelReleases}
-          cancelingReleaseId={props.cancelingReleaseId}
-          onCancelRelease={props.onCancelRelease}
-          onOpenOperation={props.onOpenOperation}
-        />
-      </div>
+      <ReleaseProgressSummary release={props.release} />
+      <ReleaseOperationTimeline
+        logs={logs.length > 0 ? logs : [releaseProgressSummary(props.release)]}
+      />
     </div>
   );
 }
@@ -2579,11 +2854,12 @@ function TopicReleaseProjectRow(props: {
   onOpenHistory: (summary: TopicReleaseProjectSummary) => void;
 }) {
   const latestRelease = props.summary.latestRelease;
+  const latestProgress = releaseProgressSummary(latestRelease);
 
   return (
-    <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(200px,1.05fr)_minmax(180px,0.76fr)_minmax(180px,0.8fr)_auto] lg:items-center">
+    <div className="grid gap-2 px-3 py-2 lg:grid-cols-[minmax(170px,0.9fr)_minmax(190px,0.86fr)_minmax(160px,0.72fr)_auto] lg:items-center">
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Badge className={cn("border", releaseTone(latestRelease.status))}>
             {releaseLabel(latestRelease.status)}
           </Badge>
@@ -2591,15 +2867,21 @@ function TopicReleaseProjectRow(props: {
             最近 {formatTime(latestRelease.createdAt)}
           </span>
         </div>
-        <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+        <p
+          className="mt-0.5 truncate text-xs leading-4 text-slate-600"
+          title={releaseProgressLabel(latestRelease)}
+        >
+          当前：{latestProgress.title}
+        </p>
+        <p className="mt-0.5 truncate text-sm font-semibold text-slate-950">
           {props.summary.projectName}
         </p>
-        <p className="mt-0.5 truncate text-xs leading-5 text-slate-500">
+        <p className="truncate text-xs leading-4 text-slate-500">
           {props.summary.gitlabPath}
         </p>
       </div>
 
-      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-1">
+      <div className="grid min-w-0 grid-cols-2 gap-1.5 lg:grid-cols-1">
         <TopicReleaseInfoLine label="Ref">
           <TopicReleaseValueChips values={props.summary.refs} />
         </TopicReleaseInfoLine>
@@ -2609,7 +2891,7 @@ function TopicReleaseProjectRow(props: {
       </div>
 
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap gap-1.5">
+        <div className="flex min-w-0 flex-wrap gap-1">
           <TopicReleaseCountPill
             label="成功"
             value={props.summary.successTotal}
@@ -2633,16 +2915,16 @@ function TopicReleaseProjectRow(props: {
             />
           ) : null}
         </div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">
+        <p className="mt-1 text-xs leading-4 text-slate-500">
           共 {props.summary.releaseTotal} 条部署记录
         </p>
       </div>
 
-      <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+      <div className="flex flex-wrap justify-start gap-1.5 lg:justify-end">
         <Button
           variant="outline"
           size="sm"
-          className="h-8 rounded-[9px] bg-white px-2.5 text-[12px]"
+          className="h-7 rounded-[8px] bg-white px-2 text-[12px]"
           onClick={() => props.onOpenHistory(props.summary)}
         >
           <HistoryIcon data-icon="inline-start" />
@@ -2707,7 +2989,7 @@ function TopicReleaseList(props: {
   );
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       {props.plans.map((plan) => {
         const selectedProjects = plan.projectIds.map((projectId) =>
           projectById.get(projectId),
@@ -2723,11 +3005,11 @@ function TopicReleaseList(props: {
         return (
           <article
             key={`topic-release-plan-${plan.id}`}
-            className="overflow-hidden rounded-[12px] border border-amber-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+            className="overflow-hidden rounded-[10px] border border-amber-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
-            <div className="grid lg:grid-cols-[290px_minmax(0,1fr)]">
-              <div className="border-b border-amber-200/80 bg-amber-50/55 px-4 py-4 lg:border-r lg:border-b-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="grid lg:grid-cols-[250px_minmax(0,1fr)]">
+              <div className="border-b border-amber-200/80 bg-amber-50/55 px-3 py-3 lg:border-r lg:border-b-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <Badge className="border border-amber-200 bg-amber-100 text-amber-800">
                     待发布
                   </Badge>
@@ -2735,15 +3017,15 @@ function TopicReleaseList(props: {
                     {formatTime(plan.createdAt)}
                   </span>
                 </div>
-                <h3 className="mt-2 truncate text-base font-semibold text-slate-950">
+                <h3 className="mt-1.5 truncate text-[15px] font-semibold text-slate-950">
                   {plan.topic}
                 </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
+                <p className="mt-0.5 text-[13px] leading-5 text-slate-600">
                   {plan.projectIds.length} 个项目等待触发。
                 </p>
                 <Button
                   size="sm"
-                  className="mt-4 w-full rounded-[9px]"
+                  className="mt-3 h-7 w-full rounded-[8px] text-[12px]"
                   onClick={() => props.onTriggerPlan(plan)}
                   disabled={isTriggering}
                 >
@@ -2760,7 +3042,7 @@ function TopicReleaseList(props: {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mt-2 w-full rounded-[9px] border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  className="mt-1.5 h-7 w-full rounded-[8px] border-rose-200 bg-white text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                   onClick={() => props.onDeletePlan(plan)}
                   disabled={isTriggering}
                 >
@@ -2769,8 +3051,8 @@ function TopicReleaseList(props: {
                 </Button>
               </div>
 
-              <div className="px-4 py-4">
-                <div className="grid gap-3 md:grid-cols-2">
+              <div className="px-3 py-3">
+                <div className="grid gap-2 md:grid-cols-2">
                   <TopicReleaseInfoLine label="Ref">
                     <span className="block truncate">
                       {plan.ref || "各项目默认分支"}
@@ -2782,7 +3064,7 @@ function TopicReleaseList(props: {
                     </span>
                   </TopicReleaseInfoLine>
                 </div>
-                <TopicReleaseInfoLine label="计划项目" className="mt-4">
+                <TopicReleaseInfoLine label="计划项目" className="mt-3">
                   <TopicReleaseValueChips values={projectLabels} />
                 </TopicReleaseInfoLine>
               </div>
@@ -2800,11 +3082,11 @@ function TopicReleaseList(props: {
         return (
           <article
             key={`topic-release-group-${group.topic}`}
-            className="overflow-hidden rounded-[12px] border border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+            className="overflow-hidden rounded-[10px] border border-slate-200/95 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
-            <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
-              <div className="border-b border-slate-200/85 bg-slate-50/70 px-4 py-4 lg:border-r lg:border-b-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="grid lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]">
+              <div className="border-b border-slate-200/85 bg-slate-50/70 px-3 py-3 lg:border-r lg:border-b-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <Badge
                     className={cn("border", topicReleaseGroupStateTone(state))}
                   >
@@ -2814,14 +3096,14 @@ function TopicReleaseList(props: {
                     最近 {formatTime(group.latestRelease.createdAt)}
                   </span>
                 </div>
-                <h3 className="mt-2 truncate text-base font-semibold text-slate-950">
+                <h3 className="mt-1.5 truncate text-[15px] font-semibold text-slate-950">
                   {group.topic}
                 </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
+                <p className="mt-0.5 text-[13px] leading-5 text-slate-600">
                   {group.projectTotal} 个项目，{group.releaseTotal} 条发布记录。
                 </p>
 
-                <div className="mt-4 grid grid-cols-3 gap-1.5">
+                <div className="mt-3 grid grid-cols-3 gap-1">
                   <TopicReleaseCountPill
                     label="成功"
                     value={group.successTotal}
@@ -2839,7 +3121,7 @@ function TopicReleaseList(props: {
                   />
                 </div>
                 {group.canceledTotal > 0 ? (
-                  <div className="mt-1.5">
+                  <div className="mt-1">
                     <TopicReleaseCountPill
                       label="取消"
                       value={group.canceledTotal}
@@ -2848,7 +3130,7 @@ function TopicReleaseList(props: {
                   </div>
                 ) : null}
 
-                <div className="mt-4 grid gap-3">
+                <div className="mt-3 grid gap-2">
                   <TopicReleaseInfoLine label="Ref">
                     <TopicReleaseValueChips values={group.refs} />
                   </TopicReleaseInfoLine>
@@ -2860,7 +3142,7 @@ function TopicReleaseList(props: {
                   </TopicReleaseInfoLine>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-3">
                   <TopicReleaseActionButtons
                     triggering={props.triggeringTopicRelease}
                     onTrigger={() => props.onTriggerGroup(group)}
@@ -2870,16 +3152,16 @@ function TopicReleaseList(props: {
                 </div>
               </div>
               <div className="min-w-0">
-                <div className="flex flex-col gap-1 border-b border-slate-200/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-col gap-0.5 border-b border-slate-200/80 px-3 py-2 md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-950">
+                    <p className="text-[13px] leading-5 font-semibold text-slate-950">
                       发布项目
                     </p>
-                    <p className="text-xs leading-5 text-slate-500">
+                    <p className="text-xs leading-4 text-slate-500">
                       每个项目显示最近状态，部署记录点击弹窗查看。
                     </p>
                   </div>
-                  <span className="text-xs leading-5 text-slate-500">
+                  <span className="text-xs leading-4 text-slate-500">
                     {projectSummaries.length} 个项目
                   </span>
                 </div>
@@ -2927,6 +3209,9 @@ function AssetServiceList(props: {
       {props.services.map(({ project, latestRelease, targetAssetName }) => {
         const releaseTopicLabel = latestRelease
           ? releaseTopic(latestRelease)
+          : null;
+        const releaseProgress = latestRelease
+          ? releaseProgressSummary(latestRelease)
           : null;
 
         return (
@@ -2980,6 +3265,14 @@ function AssetServiceList(props: {
                       : ""}
                     {releaseTopicLabel ? ` · ${releaseTopicLabel}` : ""}
                   </p>
+                  {releaseProgress ? (
+                    <p
+                      className="mt-1 truncate text-xs leading-5 text-slate-500"
+                      title={releaseProgressLabel(latestRelease)}
+                    >
+                      当前：{releaseProgressLabel(latestRelease)}
+                    </p>
+                  ) : null}
                 </>
               ) : (
                 <p className="mt-1 text-sm text-slate-500">暂无发布</p>
@@ -5456,6 +5749,9 @@ export function CmdbShell() {
                   const releaseTopicLabel = release
                     ? releaseTopic(release)
                     : null;
+                  const releaseProgress = release
+                    ? releaseProgressSummary(release)
+                    : null;
                   const operationIssue = projectReleaseIssue(
                     project,
                     data.gitlab.canTriggerPipelines,
@@ -5562,6 +5858,28 @@ export function CmdbShell() {
                                   ? ` · ${releaseTopicLabel}`
                                   : ""}
                               </p>
+                              {releaseProgress ? (
+                                <div className="mt-1.5 min-w-0 rounded-[8px] border border-slate-200/80 bg-white px-2 py-1">
+                                  <div className="flex min-w-0 items-center gap-1.5">
+                                    <Badge
+                                      className={cn(
+                                        "shrink-0 border px-1.5 py-0 text-[11px] leading-[18px]",
+                                        operationLogStatusTone(
+                                          releaseProgress.status,
+                                        ),
+                                      )}
+                                    >
+                                      当前
+                                    </Badge>
+                                    <span
+                                      className="min-w-0 truncate text-xs leading-5 text-slate-700"
+                                      title={releaseProgressLabel(release)}
+                                    >
+                                      {releaseProgressLabel(release)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
                             </>
                           ) : (
                             <p className="mt-1 text-sm leading-5 text-slate-500">

@@ -7,7 +7,6 @@ import {
   BatchV1Api,
   type CoreV1Event,
   CoreV1Api,
-  KubeConfig,
   type V1ConfigMap,
   type V1Job,
   type V1JobCondition,
@@ -26,6 +25,9 @@ import {
   buildHamiGpuResources,
   normalizeGpuAllocation,
 } from "@/server/gpu/hami";
+import {
+  createKubeConfig as createSharedKubeConfig,
+} from "@/server/kubernetes/kubeconfig";
 import {
   type TrainingDistributedBackend,
   type TrainingJobStatus,
@@ -171,15 +173,6 @@ function readClusterConfig() {
   ) as ClusterConfig;
 }
 
-function resolveKubeconfigPath(clusterName: string) {
-  return (
-    process.env.COLA_TRAINING_KUBECONFIG_PATH?.trim() ??
-    process.env.REMOTE_WORK_KUBECONFIG_PATH ??
-    process.env.WORKSPACE_KUBECONFIG ??
-    path.join("/etc/kubeasz", "clusters", clusterName, "kubectl.kubeconfig")
-  );
-}
-
 function resolveTrainingNamespace(config: ClusterConfig) {
   return (
     process.env.COLA_TRAINING_K8S_NAMESPACE?.trim() ??
@@ -195,27 +188,15 @@ function resolveTrainingImage() {
 }
 
 function createKubeConfig(clusterName: string) {
-  const kubeConfig = new KubeConfig();
-
-  if (
-    process.env.KUBERNETES_SERVICE_HOST &&
-    process.env.KUBERNETES_SERVICE_PORT
-  ) {
-    try {
-      kubeConfig.loadFromCluster();
-      return kubeConfig;
-    } catch (error) {
-      console.warn(
-        "[training] failed to load in-cluster kubeconfig, falling back to file",
-        error,
-      );
-    }
-  }
-
-  const kubeconfigPath = resolveKubeconfigPath(clusterName);
-  fs.accessSync(kubeconfigPath, fs.constants.R_OK);
-  kubeConfig.loadFromFile(kubeconfigPath);
-  return kubeConfig;
+  return createSharedKubeConfig({
+    clusterName,
+    envVarNames: [
+      "COLA_TRAINING_KUBECONFIG_PATH",
+      "REMOTE_WORK_KUBECONFIG_PATH",
+      "WORKSPACE_KUBECONFIG",
+    ],
+    warnPrefix: "[training]",
+  }).kubeConfig;
 }
 
 async function createKubeContext(): Promise<TrainingKubeContext> {
