@@ -45,6 +45,7 @@ import {
 } from "react";
 
 import { ModulePageShell, ModuleSection } from "@/app/_components/module-shell";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -2190,6 +2191,11 @@ function ProjectReleaseHistory(props: {
                     {release.ref}
                     {release.deployEnv ? ` -> ${release.deployEnv}` : ""}
                   </p>
+                  <ResourceOwnerBadge
+                    value={release}
+                    compact
+                    className="mt-1.5 max-w-full"
+                  />
                   {props.showProject ? (
                     <p className="mt-1 truncate text-xs text-slate-500">
                       {release.project?.name ?? "未知项目"}
@@ -2255,6 +2261,7 @@ function ProjectReleaseHistory(props: {
               <TableHead>主题</TableHead>
               <TableHead>Ref</TableHead>
               <TableHead>环境</TableHead>
+              <TableHead>创建人</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>流水线</TableHead>
               <TableHead className={STICKY_ACTION_HEAD_CLASS}>操作</TableHead>
@@ -2295,6 +2302,9 @@ function ProjectReleaseHistory(props: {
                     {release.deployEnv ?? "-"}
                   </TableCell>
                   <TableCell>
+                    <ResourceOwnerBadge value={release} compact />
+                  </TableCell>
+                  <TableCell>
                     <Badge
                       className={cn("border", releaseTone(release.status))}
                     >
@@ -2332,7 +2342,7 @@ function ProjectReleaseHistory(props: {
                 </TableRow>
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={props.showProject ? 8 : 7}
+                    colSpan={props.showProject ? 9 : 8}
                     className="border-t-0 bg-slate-50/70 px-4 py-3"
                   >
                     <ReleaseProgressSummary release={release} />
@@ -2780,6 +2790,11 @@ function TopicReleaseReleaseRow(props: {
             <span className="text-xs leading-5 text-slate-500">
               {formatTime(props.release.createdAt)}
             </span>
+            <ResourceOwnerBadge
+              value={props.release}
+              compact
+              className="max-w-[180px]"
+            />
           </div>
           <p className="mt-0.5 truncate text-sm font-semibold text-slate-950">
             {projectName}
@@ -2866,6 +2881,11 @@ function TopicReleaseProjectRow(props: {
           <span className="text-xs leading-5 text-slate-500">
             最近 {formatTime(latestRelease.createdAt)}
           </span>
+          <ResourceOwnerBadge
+            value={latestRelease}
+            compact
+            className="max-w-[180px]"
+          />
         </div>
         <p
           className="mt-0.5 truncate text-xs leading-4 text-slate-600"
@@ -5391,6 +5411,11 @@ export function CmdbShell() {
                         <p className="mt-1 truncate text-[13px] text-slate-500">
                           {asset.ip} · {asset.sshUser ?? "root"}:{asset.sshPort}
                         </p>
+                        <ResourceOwnerBadge
+                          value={asset}
+                          compact
+                          className="mt-1 max-w-full"
+                        />
                       </button>
 
                       <div className="flex items-center justify-between gap-3 rounded-[10px] bg-slate-50/80 px-3 py-2 text-[13px] text-slate-600 md:block md:bg-transparent md:px-0 md:py-0">
@@ -5501,6 +5526,7 @@ export function CmdbShell() {
                       <TableHead>角色</TableHead>
                       <TableHead>架构</TableHead>
                       <TableHead>SSH 状态</TableHead>
+                      <TableHead>创建人</TableHead>
                       <TableHead className="text-right">挂载服务</TableHead>
                       <TableHead className={STICKY_ACTION_HEAD_CLASS}>
                         操作
@@ -5580,6 +5606,9 @@ export function CmdbShell() {
                                 {assetStatusLabel(asset.status)}
                               </Badge>
                             </TableCell>
+                            <TableCell>
+                              <ResourceOwnerBadge value={asset} compact />
+                            </TableCell>
                             <TableCell className="text-right text-sm font-medium text-slate-700">
                               {asset.attachedProjectCount}
                             </TableCell>
@@ -5630,7 +5659,7 @@ export function CmdbShell() {
                               className="hover:bg-transparent"
                             >
                               <TableCell
-                                colSpan={7}
+                                colSpan={8}
                                 className="bg-slate-50/60 p-3"
                               >
                                 <div
@@ -5776,6 +5805,11 @@ export function CmdbShell() {
                         <p className="mt-0.5 truncate text-[13px] leading-5 text-slate-500">
                           {project.gitlabPath}
                         </p>
+                        <ResourceOwnerBadge
+                          value={project}
+                          compact
+                          className="mt-1.5 max-w-full"
+                        />
                         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                           <Badge className="border border-slate-200 bg-white text-slate-700">
                             {deployTargetLabel(project.deployTarget)}

@@ -21,6 +21,7 @@ import { gsap } from "gsap";
 import { startTransition, useEffect, useRef, useState } from "react";
 
 import { AdminChrome } from "@/app/_components/admin-chrome";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -2654,6 +2655,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 <p className="mt-4 text-sm leading-6 text-[#6d5544]">
                   {selectedAgent.focus}
                 </p>
+                <ResourceOwnerBadge
+                  value={selectedAgent}
+                  className="mt-3 max-w-full border-[#ead8c1] bg-white/68 text-[#6d5544]"
+                />
 
                 <div className="mt-4 flex gap-2">
                   <Button
@@ -2755,6 +2760,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       当前已启用 {selectedWorkstationZone.workstationCapacity} /{" "}
                       {selectedWorkstationZone.workstationMax} 个工位。
                     </p>
+                    <ResourceOwnerBadge
+                      value={selectedWorkstationZone}
+                      compact
+                      className="mt-3 border-[#ead8c1] bg-white/70 text-[#6d5544]"
+                    />
                     <p className="mt-2 text-xs leading-5 text-[#8b735f]">
                       {selectedWorkstationZone.workstationCapacity >=
                       selectedWorkstationZone.workstationMax

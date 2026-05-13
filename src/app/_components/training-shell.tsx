@@ -3,25 +3,22 @@
 import {
   ArrowUpRightIcon,
   BrainCircuitIcon,
-  CpuIcon,
   LoaderCircleIcon,
   NotebookTabsIcon,
   PlayIcon,
   PlusIcon,
   RefreshCwIcon,
-  ServerIcon,
   SquareIcon,
   Trash2Icon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
-  ModuleEmptyState,
   ModuleHero,
-  ModuleMetricCard,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -133,7 +130,10 @@ const defaultStudioRunDraft: StudioRunDraft = {
 };
 
 const dialogControlClassName =
-  "h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 text-[14px] shadow-none";
+  "h-9 rounded-[10px] border-slate-200/90 bg-white/92 px-2.5 text-[13px] shadow-none";
+const compactSelectContentClassName = "max-h-64 rounded-[10px]";
+const imageSelectContentClassName = "max-h-72 rounded-[10px]";
+const compactSelectItemClassName = "py-1 pr-7 pl-1.5 text-[13px]";
 
 const statusLabels = {
   draft: "草稿",
@@ -253,7 +253,7 @@ function draftRuntimeSpecLabel(draft: RuntimeDraft) {
 
 function studioImageLabel(option?: StudioImageOption | JupyterLabImageOption) {
   if (!option) return "选择镜像";
-  return `${option.label} · ${option.image}`;
+  return option.label;
 }
 
 function parsePositiveInt(value: string) {
@@ -273,13 +273,13 @@ function Field(props: {
   className?: string;
 }) {
   return (
-    <label className={cn("grid gap-2", props.className)}>
-      <span className="text-[13px] font-medium text-slate-700">
+    <label className={cn("grid gap-1.5", props.className)}>
+      <span className="text-[12px] leading-4 font-medium text-slate-700">
         {props.label}
       </span>
       {props.children}
       {props.hint ? (
-        <span className="text-xs leading-5 text-slate-500">{props.hint}</span>
+        <span className="text-xs leading-4 text-slate-500">{props.hint}</span>
       ) : null}
     </label>
   );
@@ -295,26 +295,97 @@ function SurfaceLabel(props: { children: ReactNode }) {
 
 function LoadingCards() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={index}
-          className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-white/90 p-4"
+          className="rounded-[10px] border border-slate-200/85 bg-white/90 p-3"
         >
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-10 rounded-[11px]" />
-            <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2.5">
+            <Skeleton className="size-8 rounded-[9px]" />
+            <div className="min-w-0 flex-1 space-y-1.5">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-3 w-24" />
             </div>
           </div>
-          <div className="mt-5 space-y-3">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-10 w-full" />
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-7 w-full" />
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function TrainingStatusStrip(props: {
+  studios: { status: RuntimeStatus }[];
+  runs: StudioRun[];
+  labs: { status: RuntimeStatus; gpuCount: number }[];
+}) {
+  const runningStudioCount = props.studios.filter(
+    (studio) => studio.status === "running",
+  ).length;
+  const runningRunCount = props.runs.filter(
+    (run) => run.status === "running",
+  ).length;
+  const totalRunGpu = props.runs.reduce(
+    (total, run) => total + run.nodeCount * run.gpusPerNode,
+    0,
+  );
+  const runningLabCount = props.labs.filter(
+    (lab) => lab.status === "running",
+  ).length;
+  const gpuLabCount = props.labs.filter((lab) => lab.gpuCount > 0).length;
+
+  return (
+    <div className="grid gap-2 md:grid-cols-5">
+      <TrainingStatusItem
+        label="Studio"
+        value={`${runningStudioCount}/${props.studios.length}`}
+      />
+      <TrainingStatusItem
+        label="训练运行"
+        value={`${runningRunCount}/${props.runs.length}`}
+      />
+      <TrainingStatusItem label="GPU 申请" value={String(totalRunGpu)} />
+      <TrainingStatusItem
+        label="Lab"
+        value={`${runningLabCount}/${props.labs.length}`}
+      />
+      <TrainingStatusItem label="GPU Lab" value={String(gpuLabCount)} />
+    </div>
+  );
+}
+
+function TrainingStatusItem(props: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-[9px] border border-slate-200/90 bg-white/88 px-3 py-2">
+      <span className="truncate text-[11px] leading-4 font-medium text-slate-500">
+        {props.label}
+      </span>
+      <span className="shrink-0 text-[15px] leading-none font-semibold text-slate-950">
+        {props.value}
+      </span>
+    </div>
+  );
+}
+
+function TrainingCompactEmptyState(props: {
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 md:flex-row md:items-center md:justify-between">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-950">{props.title}</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+          {props.description}
+        </p>
+      </div>
+      {props.action ? <div className="shrink-0">{props.action}</div> : null}
     </div>
   );
 }
@@ -329,31 +400,46 @@ function RuntimeCard(props: {
   endpoint: string | null;
   image: string;
   openUrl: string | null;
+  owner: {
+    ownerUserId?: string | null;
+    ownerUser?: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      avatarUrl: string | null;
+      displayName: string;
+    } | null;
+  };
   isDeleting: boolean;
   onDelete: () => void;
 }) {
   const Icon = props.kind === "studio" ? BrainCircuitIcon : NotebookTabsIcon;
 
   return (
-    <article className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.9))] p-4 shadow-[0_14px_32px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-[11px] border border-slate-200/85 bg-white text-slate-700 shadow-[0_10px_18px_rgba(15,23,42,0.035)]">
-            <Icon className="size-4" />
+    <article className="rounded-[10px] border border-slate-200/85 bg-white/94 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] border border-slate-200/85 bg-slate-50 text-slate-700">
+            <Icon className="size-3.5" />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-[15px] leading-6 font-semibold tracking-normal text-slate-950">
+            <h3 className="truncate text-sm leading-5 font-semibold tracking-normal text-slate-950">
               {props.title}
             </h3>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
+            <p className="text-xs leading-4 text-slate-500">
               更新于 {formatTime(props.updatedAt)}
             </p>
+            <ResourceOwnerBadge
+              value={props.owner}
+              compact
+              className="mt-1 max-w-full"
+            />
           </div>
         </div>
         <Badge
           variant="outline"
           className={cn(
-            "shrink-0 rounded-full px-3 py-1 text-xs",
+            "shrink-0 rounded-[8px] px-2 py-0.5 text-xs",
             runtimeStatusTone(props.status),
           )}
         >
@@ -361,26 +447,31 @@ function RuntimeCard(props: {
         </Badge>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-[var(--radius-shell)] border border-slate-200/75 bg-slate-50/80 px-3.5 py-3 text-sm leading-6 text-slate-600">
-        <div>
+      <div className="mt-3 grid gap-2 border-t border-slate-200/80 pt-3 text-sm leading-5 text-slate-600">
+        <div className="min-w-0">
           <SurfaceLabel>资源规格</SurfaceLabel>
-          <p className="mt-1 font-medium text-slate-950">{props.spec}</p>
+          <p className="mt-0.5 truncate font-medium text-slate-950">
+            {props.spec}
+          </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <SurfaceLabel>节点 / 入口</SurfaceLabel>
-          <p className="mt-1 font-mono text-[12px] break-all text-slate-700">
+          <p className="mt-0.5 truncate font-mono text-[12px] text-slate-700">
             {props.nodeName ?? "未分配节点"} · {props.endpoint ?? "入口待分配"}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <SurfaceLabel>镜像</SurfaceLabel>
-          <p className="mt-1 font-mono text-[12px] break-all text-slate-700">
+          <p
+            className="mt-0.5 truncate font-mono text-[12px] text-slate-700"
+            title={props.image}
+          >
             {props.image}
           </p>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
         {props.openUrl ? (
           <a
             href={props.openUrl}
@@ -388,7 +479,7 @@ function RuntimeCard(props: {
             rel="noreferrer"
             className={cn(
               buttonVariants({ size: "sm" }),
-              "h-8 rounded-full px-3 text-[13px]",
+              "h-7 rounded-[8px] px-2.5 text-[12px]",
             )}
           >
             <ArrowUpRightIcon data-icon="inline-start" />
@@ -398,7 +489,7 @@ function RuntimeCard(props: {
           <Button
             size="sm"
             variant="outline"
-            className="h-8 rounded-full px-3 text-[13px] text-slate-500"
+            className="h-7 rounded-[8px] px-2.5 text-[12px] text-slate-500"
             disabled
           >
             {props.kind === "studio" ? "打开 Studio" : "打开 Lab"}
@@ -407,7 +498,7 @@ function RuntimeCard(props: {
         <Button
           size="sm"
           variant="outline"
-          className="h-8 rounded-full border-rose-200/80 bg-white px-3 text-[13px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+          className="h-7 rounded-[8px] border-rose-200/80 bg-white px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
           disabled={props.isDeleting}
           onClick={props.onDelete}
         >
@@ -443,19 +534,22 @@ function StudioRunCard(props: {
   const canStop = run.status === "running";
 
   return (
-    <article className="rounded-[var(--radius-shell)] border border-slate-200/85 bg-white/92 p-4 shadow-[0_12px_28px_rgba(15,23,42,0.035)]">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <article className="rounded-[10px] border border-slate-200/85 bg-white/94 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge
               variant="outline"
-              className={cn("rounded-full", runStatusTone(run.status))}
+              className={cn(
+                "rounded-[8px] px-2 py-0.5 text-xs",
+                runStatusTone(run.status),
+              )}
             >
               {statusLabels[run.status] ?? run.status}
             </Badge>
             <Badge
               variant="outline"
-              className="rounded-full border-slate-200 bg-slate-50 text-slate-700"
+              className="rounded-[8px] border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
             >
               {run.configSource === "unsloth_studio"
                 ? "Unsloth Studio"
@@ -463,27 +557,28 @@ function StudioRunCard(props: {
             </Badge>
             <Badge
               variant="outline"
-              className="rounded-full border-slate-200 bg-white text-slate-700"
+              className="rounded-[8px] border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700"
             >
               {run.distributedBackend === "deepspeed"
                 ? `DeepSpeed ZeRO-${run.deepspeedStage ?? 2}`
                 : "DDP"}
             </Badge>
           </div>
-          <h3 className="mt-2 truncate text-[15px] leading-6 font-semibold text-slate-950">
+          <h3 className="mt-1.5 truncate text-sm leading-5 font-semibold text-slate-950">
             {run.title}
           </h3>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
+          <p className="text-xs leading-4 text-slate-500">
             创建于 {formatTime(run.createdAt)} · {run.jobType.toUpperCase()} ·{" "}
             {run.precision ?? "bf16"}
           </p>
+          <ResourceOwnerBadge value={run} compact className="mt-1 max-w-full" />
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-1.5">
           {canStart ? (
             <Button
               size="sm"
-              className="h-8 rounded-full px-3 text-[13px]"
+              className="h-7 rounded-[8px] px-2.5 text-[12px]"
               disabled={props.isStarting}
               onClick={props.onStart}
             >
@@ -502,7 +597,7 @@ function StudioRunCard(props: {
             <Button
               size="sm"
               variant="outline"
-              className="h-8 rounded-full border-amber-200 bg-white px-3 text-[13px] text-amber-700 hover:bg-amber-50"
+              className="h-7 rounded-[8px] border-amber-200 bg-white px-2.5 text-[12px] text-amber-700 hover:bg-amber-50"
               disabled={props.isStopping}
               onClick={props.onStop}
             >
@@ -520,33 +615,35 @@ function StudioRunCard(props: {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 rounded-[var(--radius-shell)] border border-slate-200/75 bg-slate-50/75 px-3.5 py-3 text-sm leading-6 text-slate-600 md:grid-cols-2">
-        <div>
+      <div className="mt-3 grid gap-2 border-t border-slate-200/80 pt-3 text-sm leading-5 text-slate-600 md:grid-cols-[0.85fr_1.2fr_1fr_1.1fr]">
+        <div className="min-w-0">
           <SurfaceLabel>多机多卡</SurfaceLabel>
-          <p className="mt-1 font-medium text-slate-950">{runtimeSpec}</p>
+          <p className="mt-0.5 truncate font-medium text-slate-950">
+            {runtimeSpec}
+          </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <SurfaceLabel>模型 / 数据</SurfaceLabel>
-          <p className="mt-1 truncate font-mono text-[12px] text-slate-700">
+          <p className="mt-0.5 truncate font-mono text-[12px] text-slate-700">
             {run.baseModel}
           </p>
           <p className="truncate font-mono text-[12px] text-slate-500">
             {run.datasetName}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <SurfaceLabel>运行态</SurfaceLabel>
-          <p className="mt-1 font-mono text-[12px] break-all text-slate-700">
+          <p className="mt-0.5 truncate font-mono text-[12px] text-slate-700">
             {run.runtimeNamespace && run.runtimeJobName
               ? `${run.runtimeNamespace}/${run.runtimeJobName}`
               : "尚未提交"}
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <SurfaceLabel>摘要</SurfaceLabel>
           <p
             className={cn(
-              "mt-1 line-clamp-2 text-[12px]",
+              "mt-0.5 line-clamp-2 text-[12px] leading-4",
               run.runtimeSummaryTone === "error"
                 ? "text-rose-700"
                 : run.runtimeSummaryTone === "warning"
@@ -584,13 +681,16 @@ function RuntimeDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="border-slate-200/85 bg-white shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-2xl">
-        <DialogHeader>
-          <div className="mb-2 flex items-center gap-2">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-slate-200/85 bg-white shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-2xl">
+        <DialogHeader className="gap-1.5">
+          <div className="mb-1 flex items-center gap-1.5">
             <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
               {props.badge}
             </Badge>
-            <Badge variant="outline" className="border-slate-200/90 bg-white/90">
+            <Badge
+              variant="outline"
+              className="border-slate-200/90 bg-white/90"
+            >
               Kubernetes Deployment
             </Badge>
           </div>
@@ -598,7 +698,7 @@ function RuntimeDialog(props: {
           <DialogDescription>{props.description}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           <Field label="环境名称">
             <Input
               className={dialogControlClassName}
@@ -631,13 +731,19 @@ function RuntimeDialog(props: {
                   {studioImageLabel(props.selectedImage ?? undefined)}
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={imageSelectContentClassName}>
                 <SelectGroup>
                   {props.imageOptions.map((option) => (
-                    <SelectItem key={option.image} value={option.image}>
+                    <SelectItem
+                      key={option.image}
+                      value={option.image}
+                      className={compactSelectItemClassName}
+                    >
                       <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="font-medium">{option.label}</span>
-                        <span className="text-muted-foreground max-w-[520px] truncate text-xs">
+                        <span className="truncate font-medium">
+                          {option.label}
+                        </span>
+                        <span className="text-muted-foreground max-w-[520px] truncate text-[11px] leading-4">
                           {option.image}
                         </span>
                       </span>
@@ -648,7 +754,7 @@ function RuntimeDialog(props: {
             </Select>
           </Field>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <Field label="CPU">
               <Input
                 className={dialogControlClassName}
@@ -694,7 +800,8 @@ function RuntimeDialog(props: {
                       Number.parseInt(current.gpuCount, 10) < 1
                         ? "1"
                         : current.gpuCount,
-                    gpuMemoryGi: value === "memory" ? current.gpuMemoryGi || "8" : "",
+                    gpuMemoryGi:
+                      value === "memory" ? current.gpuMemoryGi || "8" : "",
                   }))
                 }
               >
@@ -703,10 +810,14 @@ function RuntimeDialog(props: {
                     {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={compactSelectContentClassName}>
                   <SelectGroup>
                     {gpuAllocationModeValues.map((mode) => (
-                      <SelectItem key={mode} value={mode}>
+                      <SelectItem
+                        key={mode}
+                        value={mode}
+                        className={compactSelectItemClassName}
+                      >
                         {gpuAllocationModeLabels[mode]}
                       </SelectItem>
                     ))}
@@ -716,7 +827,9 @@ function RuntimeDialog(props: {
             </Field>
 
             <Field
-              label={props.draft.gpuAllocationMode === "memory" ? "GPU 份额" : "GPU"}
+              label={
+                props.draft.gpuAllocationMode === "memory" ? "GPU 份额" : "GPU"
+              }
             >
               <Input
                 className={dialogControlClassName}
@@ -762,7 +875,7 @@ function RuntimeDialog(props: {
             </Field>
           </div>
 
-          <div className="rounded-[var(--radius-shell)] border border-sky-200/70 bg-sky-50/70 px-4 py-3 text-sm leading-6 text-slate-700">
+          <div className="rounded-[10px] border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-[13px] leading-5 text-slate-700">
             当前规格：
             <span className="mx-1 font-semibold text-slate-950">
               {draftRuntimeSpecLabel(props.draft)}
@@ -774,7 +887,7 @@ function RuntimeDialog(props: {
           </div>
 
           {props.submitDisabledReason ? (
-            <div className="rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+            <div className="rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] leading-5 text-amber-800">
               {props.submitDisabledReason}
             </div>
           ) : null}
@@ -820,9 +933,9 @@ function StudioRunDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="grid max-h-[calc(100dvh-2rem)] max-w-[min(980px,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-slate-200/85 bg-white p-0 shadow-[0_28px_68px_rgba(15,23,42,0.14)]">
-        <DialogHeader className="border-b border-slate-200/80 px-5 py-4">
-          <div className="flex flex-wrap items-center gap-2">
+      <DialogContent className="grid max-h-[calc(100dvh-2rem)] max-w-[min(920px,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-slate-200/85 bg-white p-0 shadow-[0_28px_68px_rgba(15,23,42,0.14)]">
+        <DialogHeader className="border-b border-slate-200/80 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge className="border border-violet-200 bg-violet-50 text-violet-700">
               Unsloth Studio
             </Badge>
@@ -830,7 +943,7 @@ function StudioRunDialog(props: {
               Indexed Job + torchrun
             </Badge>
           </div>
-          <DialogTitle className="mt-2 text-[1.35rem] tracking-normal">
+          <DialogTitle className="mt-1.5 text-[1.18rem] tracking-normal">
             提交多机多卡训练
           </DialogTitle>
           <DialogDescription>
@@ -839,10 +952,10 @@ function StudioRunDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 overflow-y-auto px-5 py-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="grid gap-4">
-              <div className="grid gap-4 md:grid-cols-2">
+        <div className="min-h-0 overflow-y-auto px-4 py-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="grid content-start gap-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 <Field label="运行名称">
                   <Input
                     className={dialogControlClassName}
@@ -870,15 +983,21 @@ function StudioRunDialog(props: {
                       }))
                     }
                   >
-                    <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectTrigger
+                      className={cn("w-full", dialogControlClassName)}
+                    >
                       <SelectValue placeholder="选择训练类型">
                         {optionLabel(jobTypeLabels, "选择训练类型")}
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={compactSelectContentClassName}>
                       <SelectGroup>
                         {Object.entries(jobTypeLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
+                          <SelectItem
+                            key={value}
+                            value={value}
+                            className={compactSelectItemClassName}
+                          >
                             {label}
                           </SelectItem>
                         ))}
@@ -902,7 +1021,7 @@ function StudioRunDialog(props: {
                 />
               </Field>
 
-              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_130px_130px]">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_120px]">
                 <Field label="数据集">
                   <Input
                     className={dialogControlClassName}
@@ -946,7 +1065,7 @@ function StudioRunDialog(props: {
 
               <Field label="训练目标">
                 <Textarea
-                  className="min-h-24 rounded-2xl border-slate-200/90 bg-white/92 px-3 py-2 text-sm shadow-none"
+                  className="min-h-20 rounded-[10px] border-slate-200/90 bg-white/92 px-2.5 py-2 text-[13px] shadow-none"
                   value={props.draft.objective}
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
@@ -959,7 +1078,7 @@ function StudioRunDialog(props: {
               </Field>
             </div>
 
-            <div className="grid content-start gap-4 rounded-[var(--radius-shell)] border border-slate-200/80 bg-slate-50/70 p-4">
+            <div className="grid content-start gap-3 rounded-[10px] border border-slate-200/80 bg-slate-50/70 p-3">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                 <Field label="节点数">
                   <Input
@@ -997,20 +1116,28 @@ function StudioRunDialog(props: {
                   onValueChange={(value) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      gpuAllocationMode: value === "memory" ? "memory" : "whole",
-                      gpuMemoryGi: value === "memory" ? current.gpuMemoryGi || "24" : "",
+                      gpuAllocationMode:
+                        value === "memory" ? "memory" : "whole",
+                      gpuMemoryGi:
+                        value === "memory" ? current.gpuMemoryGi || "24" : "",
                     }))
                   }
                 >
-                  <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                  <SelectTrigger
+                    className={cn("w-full", dialogControlClassName)}
+                  >
                     <SelectValue placeholder="选择分配方式">
                       {optionLabel(gpuAllocationModeLabels, "选择分配方式")}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={compactSelectContentClassName}>
                     <SelectGroup>
                       {gpuAllocationModeValues.map((mode) => (
-                        <SelectItem key={mode} value={mode}>
+                        <SelectItem
+                          key={mode}
+                          value={mode}
+                          className={compactSelectItemClassName}
+                        >
                           {gpuAllocationModeLabels[mode]}
                         </SelectItem>
                       ))}
@@ -1052,13 +1179,25 @@ function StudioRunDialog(props: {
                       }))
                     }
                   >
-                    <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectTrigger
+                      className={cn("w-full", dialogControlClassName)}
+                    >
                       <SelectValue placeholder="选择后端" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={compactSelectContentClassName}>
                       <SelectGroup>
-                        <SelectItem value="deepspeed">DeepSpeed</SelectItem>
-                        <SelectItem value="none">DDP</SelectItem>
+                        <SelectItem
+                          value="deepspeed"
+                          className={compactSelectItemClassName}
+                        >
+                          DeepSpeed
+                        </SelectItem>
+                        <SelectItem
+                          value="none"
+                          className={compactSelectItemClassName}
+                        >
+                          DDP
+                        </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -1075,13 +1214,25 @@ function StudioRunDialog(props: {
                     }
                     disabled={props.draft.distributedBackend !== "deepspeed"}
                   >
-                    <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectTrigger
+                      className={cn("w-full", dialogControlClassName)}
+                    >
                       <SelectValue placeholder="选择 ZeRO" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={compactSelectContentClassName}>
                       <SelectGroup>
-                        <SelectItem value="2">ZeRO-2</SelectItem>
-                        <SelectItem value="3">ZeRO-3</SelectItem>
+                        <SelectItem
+                          value="2"
+                          className={compactSelectItemClassName}
+                        >
+                          ZeRO-2
+                        </SelectItem>
+                        <SelectItem
+                          value="3"
+                          className={compactSelectItemClassName}
+                        >
+                          ZeRO-3
+                        </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -1100,14 +1251,31 @@ function StudioRunDialog(props: {
                       }))
                     }
                   >
-                    <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectTrigger
+                      className={cn("w-full", dialogControlClassName)}
+                    >
                       <SelectValue placeholder="选择精度" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={compactSelectContentClassName}>
                       <SelectGroup>
-                        <SelectItem value="bf16">BF16</SelectItem>
-                        <SelectItem value="fp16">FP16</SelectItem>
-                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem
+                          value="bf16"
+                          className={compactSelectItemClassName}
+                        >
+                          BF16
+                        </SelectItem>
+                        <SelectItem
+                          value="fp16"
+                          className={compactSelectItemClassName}
+                        >
+                          FP16
+                        </SelectItem>
+                        <SelectItem
+                          value="auto"
+                          className={compactSelectItemClassName}
+                        >
+                          Auto
+                        </SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -1128,25 +1296,33 @@ function StudioRunDialog(props: {
                       }))
                     }
                   >
-                    <SelectTrigger className={cn("w-full", dialogControlClassName)}>
+                    <SelectTrigger
+                      className={cn("w-full", dialogControlClassName)}
+                    >
                       <SelectValue placeholder="选择优先级">
                         {optionLabel(priorityLabels, "选择优先级")}
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={compactSelectContentClassName}>
                       <SelectGroup>
-                        {Object.entries(priorityLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
+                        {Object.entries(priorityLabels).map(
+                          ([value, label]) => (
+                            <SelectItem
+                              key={value}
+                              value={value}
+                              className={compactSelectItemClassName}
+                            >
+                              {label}
+                            </SelectItem>
+                          ),
+                        )}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
                 </Field>
               </div>
 
-              <label className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2.5 rounded-[10px] border border-slate-200/80 bg-white px-3 py-2 text-[13px] text-slate-700">
                 <input
                   type="checkbox"
                   className="size-4 rounded border-slate-300"
@@ -1161,7 +1337,7 @@ function StudioRunDialog(props: {
                 4-bit 加载
               </label>
 
-              <label className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2.5 rounded-[10px] border border-slate-200/80 bg-white px-3 py-2 text-[13px] text-slate-700">
                 <input
                   type="checkbox"
                   className="size-4 rounded border-slate-300"
@@ -1176,7 +1352,7 @@ function StudioRunDialog(props: {
                 创建后立即提交
               </label>
 
-              <div className="rounded-2xl border border-sky-200/70 bg-sky-50/70 px-3 py-3 text-sm leading-6 text-slate-700">
+              <div className="rounded-[10px] border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-[13px] leading-5 text-slate-700">
                 规格：
                 <span className="font-semibold text-slate-950">
                   {formatDistributedGpuAllocationLabel(
@@ -1197,7 +1373,7 @@ function StudioRunDialog(props: {
           </div>
 
           {props.disabledReason ? (
-            <div className="mt-4 rounded-[var(--radius-shell)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+            <div className="mt-3 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] leading-5 text-amber-800">
               {props.disabledReason}
             </div>
           ) : null}
@@ -1205,18 +1381,28 @@ function StudioRunDialog(props: {
 
         <DialogFooter
           bleed={false}
-          className="border-t border-slate-200/80 bg-white px-5 py-3"
+          className="border-t border-slate-200/80 bg-white px-4 py-3"
         >
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             取消
           </Button>
-          <Button disabled={!props.canSubmit || props.isPending} onClick={props.onSubmit}>
+          <Button
+            disabled={!props.canSubmit || props.isPending}
+            onClick={props.onSubmit}
+          >
             {props.isPending ? (
-              <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+              <LoaderCircleIcon
+                className="animate-spin"
+                data-icon="inline-start"
+              />
             ) : (
               <PlayIcon data-icon="inline-start" />
             )}
-            {props.isPending ? "提交中" : props.draft.autoStart ? "提交训练" : "保存运行记录"}
+            {props.isPending
+              ? "提交中"
+              : props.draft.autoStart
+                ? "提交训练"
+                : "保存运行记录"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1244,8 +1430,12 @@ export function TrainingShell() {
   const [studioDraft, setStudioDraft] = useState(defaultStudioDraft);
   const [runDraft, setRunDraft] = useState(defaultStudioRunDraft);
   const [labDraft, setLabDraft] = useState(defaultJupyterLabDraft);
-  const [pendingDeletedStudioNames, setPendingDeletedStudioNames] = useState<string[]>([]);
-  const [pendingDeletedLabNames, setPendingDeletedLabNames] = useState<string[]>([]);
+  const [pendingDeletedStudioNames, setPendingDeletedStudioNames] = useState<
+    string[]
+  >([]);
+  const [pendingDeletedLabNames, setPendingDeletedLabNames] = useState<
+    string[]
+  >([]);
 
   const studios = (studiosQuery.data?.items ?? []).filter(
     (studio) => !pendingDeletedStudioNames.includes(studio.name),
@@ -1280,18 +1470,6 @@ export function TrainingShell() {
   const selectedStudioImageValue = selectedStudioImage?.image ?? "";
   const selectedLabImageValue = selectedLabImage?.image ?? "";
 
-  const runningStudioCount = studios.filter(
-    (studio) => studio.status === "running",
-  ).length;
-  const runningRunCount = studioRuns.filter(
-    (run) => run.status === "running",
-  ).length;
-  const totalRunGpu = studioRuns.reduce(
-    (total, run) => total + run.nodeCount * run.gpusPerNode,
-    0,
-  );
-  const runningLabCount = jupyterLabs.filter((lab) => lab.status === "running").length;
-
   function runtimeValidation(
     draft: RuntimeDraft,
     available: boolean,
@@ -1307,7 +1485,9 @@ export function TrainingShell() {
     const parsedGpuMemoryGi = Number(draft.gpuMemoryGi);
     const nameReady = draft.name.trim().length >= 2;
     const memoryReady =
-      Number.isInteger(parsedMemoryGi) && parsedMemoryGi >= 1 && parsedMemoryGi <= 2048;
+      Number.isInteger(parsedMemoryGi) &&
+      parsedMemoryGi >= 1 &&
+      parsedMemoryGi <= 2048;
     const gpuCountReady =
       Number.isInteger(parsedGpuCount) &&
       parsedGpuCount >= (draft.gpuAllocationMode === "whole" ? 0 : 1) &&
@@ -1318,7 +1498,12 @@ export function TrainingShell() {
         parsedGpuMemoryGi >= 1 &&
         parsedGpuMemoryGi <= 1024);
     const canCreate =
-      available && nameReady && imageReady && memoryReady && gpuCountReady && gpuMemoryReady;
+      available &&
+      nameReady &&
+      imageReady &&
+      memoryReady &&
+      gpuCountReady &&
+      gpuMemoryReady;
     const reason = !available
       ? (capabilityReason ?? "Kubernetes 当前不可用")
       : !nameReady
@@ -1367,7 +1552,9 @@ export function TrainingShell() {
   const datasetReady = runDraft.datasetName.trim().length >= 1;
   const baseModelReady = runDraft.baseModel.trim().length >= 2;
   const nodeCountReady =
-    Number.isInteger(parsedNodeCount) && parsedNodeCount >= 1 && parsedNodeCount <= 32;
+    Number.isInteger(parsedNodeCount) &&
+    parsedNodeCount >= 1 &&
+    parsedNodeCount <= 32;
   const gpusPerNodeReady =
     Number.isInteger(parsedGpusPerNode) &&
     parsedGpusPerNode >= 1 &&
@@ -1671,7 +1858,9 @@ export function TrainingShell() {
         density="dense"
         badges={
           <Badge className="border border-slate-200/90 bg-white/86 text-slate-700">
-            {studioAvailable || labAvailable ? "Kubernetes 可用" : "Kubernetes 不可用"}
+            {studioAvailable || labAvailable
+              ? "Kubernetes 可用"
+              : "Kubernetes 不可用"}
           </Badge>
         }
         actions={
@@ -1701,40 +1890,28 @@ export function TrainingShell() {
               />
               刷新
             </Button>
-            <Button disabled={!studioAvailable} onClick={() => setIsRunCreateOpen(true)}>
+            <Button
+              disabled={!studioAvailable}
+              onClick={() => setIsRunCreateOpen(true)}
+            >
               <PlayIcon data-icon="inline-start" />
               提交训练
             </Button>
-            <Button disabled={!studioAvailable} onClick={() => setIsStudioCreateOpen(true)}>
+            <Button
+              disabled={!studioAvailable}
+              onClick={() => setIsStudioCreateOpen(true)}
+            >
               <PlusIcon data-icon="inline-start" />
               新建 Studio
             </Button>
           </>
         }
       >
-        <div className="grid gap-3 md:grid-cols-3">
-          <ModuleMetricCard
-            size="compact"
-            label="Studio"
-            value={`${runningStudioCount}/${studios.length}`}
-            description="运行中 / 全部"
-            icon={BrainCircuitIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="训练运行"
-            value={`${runningRunCount}/${studioRuns.length}`}
-            description="运行中 / 全部"
-            icon={ServerIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="GPU 申请"
-            value={String(totalRunGpu)}
-            description="运行记录中的总 GPU"
-            icon={CpuIcon}
-          />
-        </div>
+        <TrainingStatusStrip
+          studios={studios}
+          runs={studioRuns}
+          labs={jupyterLabs}
+        />
       </ModuleHero>
 
       <ModuleSection
@@ -1743,7 +1920,10 @@ export function TrainingShell() {
         description="创建 Studio 工作区，并从这里提交多机多卡训练运行。运行记录是 Studio 提交后的后端执行对象，不作为第三个入口。"
         action={
           <div className="flex flex-wrap gap-2">
-            <Button disabled={!studioAvailable} onClick={() => setIsRunCreateOpen(true)}>
+            <Button
+              disabled={!studioAvailable}
+              onClick={() => setIsRunCreateOpen(true)}
+            >
               <PlayIcon data-icon="inline-start" />
               提交训练
             </Button>
@@ -1761,11 +1941,15 @@ export function TrainingShell() {
         {studiosQuery.isLoading ? <LoadingCards /> : null}
 
         {!studiosQuery.isLoading && studios.length === 0 ? (
-          <ModuleEmptyState
+          <TrainingCompactEmptyState
             title="还没有 Unsloth Studio"
             description="创建一个 Studio 后，可以进入原生界面配置模型、数据集和训练参数。"
             action={
-              <Button disabled={!studioAvailable} onClick={() => setIsStudioCreateOpen(true)}>
+              <Button
+                size="sm"
+                disabled={!studioAvailable}
+                onClick={() => setIsStudioCreateOpen(true)}
+              >
                 <PlusIcon data-icon="inline-start" />
                 新建 Studio
               </Button>
@@ -1774,7 +1958,7 @@ export function TrainingShell() {
         ) : null}
 
         {!studiosQuery.isLoading && studios.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {studios.map((studio) => (
               <RuntimeCard
                 key={studio.id}
@@ -1787,6 +1971,7 @@ export function TrainingShell() {
                 endpoint={studio.endpoint}
                 image={studio.image}
                 openUrl={studio.studioUrl}
+                owner={studio}
                 isDeleting={
                   deleteStudio.isPending &&
                   deleteStudio.variables?.name === studio.name
@@ -1797,14 +1982,15 @@ export function TrainingShell() {
           </div>
         ) : null}
 
-        <div className="mt-5 border-t border-slate-200/80 pt-5">
+        <div className="mt-4 border-t border-slate-200/80 pt-4">
           <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-[15px] font-semibold text-slate-950">
                 多机多卡运行记录
               </h3>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                这些记录由 Studio 配置后提交，实际运行在 Kubernetes Indexed Job。
+              <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+                这些记录由 Studio 配置后提交，实际运行在 Kubernetes Indexed
+                Job。
               </p>
             </div>
             <Button
@@ -1815,7 +2001,9 @@ export function TrainingShell() {
             >
               <RefreshCwIcon
                 data-icon="inline-start"
-                className={cn(studioRunsQuery.isFetching ? "animate-spin" : undefined)}
+                className={cn(
+                  studioRunsQuery.isFetching ? "animate-spin" : undefined,
+                )}
               />
               刷新运行
             </Button>
@@ -1824,11 +2012,15 @@ export function TrainingShell() {
           {studioRunsQuery.isLoading ? <LoadingCards /> : null}
 
           {!studioRunsQuery.isLoading && studioRuns.length === 0 ? (
-            <ModuleEmptyState
+            <TrainingCompactEmptyState
               title="还没有训练运行"
               description="从 Studio 区域提交一次多机多卡训练后，运行状态会显示在这里。"
               action={
-                <Button disabled={!studioAvailable} onClick={() => setIsRunCreateOpen(true)}>
+                <Button
+                  size="sm"
+                  disabled={!studioAvailable}
+                  onClick={() => setIsRunCreateOpen(true)}
+                >
                   <PlayIcon data-icon="inline-start" />
                   提交训练
                 </Button>
@@ -1862,37 +2054,27 @@ export function TrainingShell() {
         title="JupyterLab"
         description="用于数据检查、notebook 实验和单节点调试；正式多机多卡训练从 Unsloth Studio 区域提交。"
         action={
-          <Button disabled={!labAvailable} onClick={() => setIsLabCreateOpen(true)}>
+          <Button
+            disabled={!labAvailable}
+            onClick={() => setIsLabCreateOpen(true)}
+          >
             <PlusIcon data-icon="inline-start" />
             新建 JupyterLab
           </Button>
         }
       >
-        <div className="mb-4 grid gap-3 md:grid-cols-2">
-          <ModuleMetricCard
-            size="compact"
-            label="Lab"
-            value={`${runningLabCount}/${jupyterLabs.length}`}
-            description="运行中 / 全部"
-            icon={NotebookTabsIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="GPU Lab"
-            value={String(jupyterLabs.filter((lab) => lab.gpuCount > 0).length)}
-            description="已申请 GPU 的调试环境"
-            icon={CpuIcon}
-          />
-        </div>
-
         {jupyterLabsQuery.isLoading ? <LoadingCards /> : null}
 
         {!jupyterLabsQuery.isLoading && jupyterLabs.length === 0 ? (
-          <ModuleEmptyState
+          <TrainingCompactEmptyState
             title="还没有 JupyterLab"
             description="创建一个环境后，可以从这里直接进入 JupyterLab。"
             action={
-              <Button disabled={!labAvailable} onClick={() => setIsLabCreateOpen(true)}>
+              <Button
+                size="sm"
+                disabled={!labAvailable}
+                onClick={() => setIsLabCreateOpen(true)}
+              >
                 <PlusIcon data-icon="inline-start" />
                 新建 JupyterLab
               </Button>
@@ -1901,7 +2083,7 @@ export function TrainingShell() {
         ) : null}
 
         {!jupyterLabsQuery.isLoading && jupyterLabs.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {jupyterLabs.map((lab) => (
               <RuntimeCard
                 key={lab.id}
@@ -1914,6 +2096,7 @@ export function TrainingShell() {
                 endpoint={lab.endpoint}
                 image={lab.image}
                 openUrl={lab.labUrl}
+                owner={lab}
                 isDeleting={
                   deleteJupyterLab.isPending &&
                   deleteJupyterLab.variables?.name === lab.name

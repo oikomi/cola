@@ -22,10 +22,16 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import { db } from "@/server/db";
 import {
   createKubeConfig as createSharedKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+  type ResourceOwner,
+} from "@/server/resource-owners";
 import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 
@@ -96,6 +102,7 @@ export type JupyterLabRuntimeItem = {
   endpoint: string | null;
   labUrl: string | null;
   ownerUserId: string | null;
+  ownerUser: ResourceOwner | null;
   updatedAt: string | null;
 };
 
@@ -829,8 +836,8 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
       .filter((entry): entry is readonly [string, V1Node] => Boolean(entry[0])),
   );
 
-  const items = resources.deployments
-    .map((deployment) => {
+  const itemsWithoutOwners: JupyterLabRuntimeItem[] = resources.deployments
+    .map<JupyterLabRuntimeItem | null>((deployment) => {
       const name = jupyterLabLabel(deployment.metadata);
       if (!name) return null;
 
@@ -879,11 +886,20 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
           deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
           null,
+        ownerUser: null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies JupyterLabRuntimeItem;
     })
     .filter((item): item is JupyterLabRuntimeItem => Boolean(item))
     .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  const ownerMap = await loadResourceOwnerMap(
+    db,
+    itemsWithoutOwners.map((item) => item.ownerUserId),
+  );
+  const items = itemsWithoutOwners.map((item) => ({
+    ...item,
+    ownerUser: ownerForUserId(ownerMap, item.ownerUserId),
+  }));
 
   return {
     available: true,

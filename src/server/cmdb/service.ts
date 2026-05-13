@@ -17,6 +17,10 @@ import {
   type CmdbReleaseOperationLog,
   type CmdbProjectConfig,
 } from "@/server/db/schema";
+import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+} from "@/server/resource-owners";
 
 export const cmdbDeployTargetValues = ["k8s", "ssh", "docker", "none"] as const;
 export const cmdbAssetStatusValues = [
@@ -3087,6 +3091,11 @@ export async function getCmdbDashboard(database: Database) {
       .orderBy(desc(cmdbProjects.enabled), cmdbProjects.name),
     database.select().from(cmdbReleases).orderBy(desc(cmdbReleases.createdAt)),
   ]);
+  const ownerMap = await loadResourceOwnerMap(database, [
+    ...assetRows.map((asset) => asset.ownerUserId),
+    ...projectRows.map((project) => project.ownerUserId),
+    ...releaseRows.map((release) => release.ownerUserId),
+  ]);
 
   const projectSummaryById = new Map(
     projectRows.map((project) => [
@@ -3106,6 +3115,7 @@ export async function getCmdbDashboard(database: Database) {
   const releaseRowsByProject = new Map<number, CmdbReleaseRow[]>();
   const releaseWithProject = (release: CmdbReleaseRow) => ({
     ...release,
+    ownerUser: ownerForUserId(ownerMap, release.ownerUserId),
     project: projectSummaryById.get(release.projectId) ?? null,
   });
 
@@ -3160,6 +3170,8 @@ export async function getCmdbDashboard(database: Database) {
         isController: roles.includes("master"),
         attachedProjectCount: attachedProjectCountByAsset.get(asset.name) ?? 0,
         status: asset.status,
+        ownerUserId: asset.ownerUserId,
+        ownerUser: ownerForUserId(ownerMap, asset.ownerUserId),
       };
     })
     .sort((left, right) => {
@@ -3172,6 +3184,7 @@ export async function getCmdbDashboard(database: Database) {
   const projects = await Promise.all(
     projectRows.map(async (project) => ({
       ...project,
+      ownerUser: ownerForUserId(ownerMap, project.ownerUserId),
       gitlabWebUrl: buildGitLabProjectUrl(
         project.gitlabPath,
         project.gitlabWebUrl,

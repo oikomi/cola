@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { AdminChrome } from "@/app/_components/admin-chrome";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
@@ -1119,6 +1120,10 @@ export function OfficeShell({ snapshot }: Props) {
                               <p className="max-w-3xl text-sm leading-6 text-[#66584b]">
                                 {agent.focus}
                               </p>
+                              <ResourceOwnerBadge
+                                value={agent}
+                                className="max-w-full border-[#ead8c1] bg-white/70 text-[#6f5f52]"
+                              />
                             </div>
                           </div>
 
@@ -1242,6 +1247,10 @@ export function OfficeShell({ snapshot }: Props) {
                                 {highlightedDevice?.name ?? "Runner 初始化中"}
                               </Badge>
                             </div>
+                            <ResourceOwnerBadge
+                              value={highlightedAgent}
+                              className="max-w-full border-white/15 bg-white/10 text-white/78 [&_span:last-child]:text-white"
+                            />
                           </div>
                         </div>
 
@@ -1335,6 +1344,11 @@ export function OfficeShell({ snapshot }: Props) {
                                     <p className="mt-1 text-sm leading-6 text-[#6f5f52]">
                                       {approval.summary}
                                     </p>
+                                    <ResourceOwnerBadge
+                                      value={approval}
+                                      compact
+                                      className="mt-2 border-[#ead8c1] bg-white/70"
+                                    />
                                   </div>
                                 ))}
                             </div>
@@ -1383,6 +1397,11 @@ export function OfficeShell({ snapshot }: Props) {
                                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
                                     {task.summary}
                                   </p>
+                                  <ResourceOwnerBadge
+                                    value={task}
+                                    compact
+                                    className="mt-3 border-[#ead8c1] bg-white/70"
+                                  />
                                 </div>
                               ))
                             )}
@@ -1426,6 +1445,11 @@ export function OfficeShell({ snapshot }: Props) {
                                   <p className="mt-2 text-sm leading-6 text-[#6f5f52]">
                                     {report.summary}
                                   </p>
+                                  <ResourceOwnerBadge
+                                    value={report}
+                                    compact
+                                    className="mt-3 border-[#ead8c1] bg-white/70"
+                                  />
                                   {report.outputText ? (
                                     <pre className="mt-4 overflow-x-auto rounded-[var(--radius-card)] bg-[#17120d] px-4 py-4 text-sm leading-6 whitespace-pre-wrap text-[#f8efe3]">
                                       {report.outputText}
@@ -1494,6 +1518,11 @@ export function OfficeShell({ snapshot }: Props) {
                         <p className="mt-3 text-sm text-[#6f5f52]">
                           负责人：{owner?.name ?? "未分配"}
                         </p>
+                        <ResourceOwnerBadge
+                          value={task}
+                          compact
+                          className="mt-3 border-[#ead8c1] bg-white/70"
+                        />
                       </div>
                     );
                   })
@@ -1534,6 +1563,11 @@ export function OfficeShell({ snapshot }: Props) {
                         <p className="mt-3 text-sm text-[#6f5f52]">
                           {owner?.name ?? "未绑定人物"} · {report.status}
                         </p>
+                        <ResourceOwnerBadge
+                          value={report}
+                          compact
+                          className="mt-3 border-[#ead8c1] bg-white/70"
+                        />
                       </div>
                     );
                   })}
@@ -1569,6 +1603,11 @@ export function OfficeShell({ snapshot }: Props) {
                         <p className="mt-2 text-xs tracking-[0.18em] text-[#8b735d] uppercase">
                           {event.at}
                         </p>
+                        <ResourceOwnerBadge
+                          value={event}
+                          compact
+                          className="mt-2 border-[#ead8c1] bg-white/70"
+                        />
                       </div>
                     </div>
                   ))}

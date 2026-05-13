@@ -21,6 +21,11 @@ import {
   type ZoneId,
 } from "@/server/office/catalog";
 import { officeHeadline, agentPresentation, zonePresentation } from "@/server/office/presentation";
+import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+} from "@/server/resource-owners";
+import type { ResourceOwner } from "@/server/resource-owners";
 import type { OfficeSnapshot } from "@/server/office/types";
 
 type Database = typeof db;
@@ -97,6 +102,7 @@ function tryReadExecutionResult(inputPath: string | null | undefined) {
 function buildSnapshotZones(
   agentsByZone: Map<ZoneId, Array<typeof agents.$inferSelect>>,
   zoneSettingByZoneId: Map<ZoneId, typeof zoneSettings.$inferSelect>,
+  ownerMap = new Map<string, ResourceOwner>(),
 ) {
   return (Object.entries(zonePresentation) as Array<
     [ZoneId, (typeof zonePresentation)[ZoneId]]
@@ -109,6 +115,11 @@ function buildSnapshotZones(
 
     return {
       id: zoneId,
+      ownerUserId: zoneSettingByZoneId.get(zoneId)?.ownerUserId ?? null,
+      ownerUser: ownerForUserId(
+        ownerMap,
+        zoneSettingByZoneId.get(zoneId)?.ownerUserId,
+      ),
       label: zone.label,
       summary: zone.summary,
       headcount: agentsInZone.length,
@@ -250,6 +261,15 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       .from(executionSessions)
       .orderBy(desc(executionSessions.createdAt))
       .limit(sessionLimit);
+    const ownerMap = await loadResourceOwnerMap(database, [
+      ...agentRows.map((agent) => agent.ownerUserId),
+      ...taskRows.map((task) => task.ownerUserId),
+      ...deviceRows.map((device) => device.ownerUserId),
+      ...approvalRows.map((approval) => approval.ownerUserId),
+      ...eventRows.map((event) => event.ownerUserId),
+      ...zoneSettingRows.map((setting) => setting.ownerUserId),
+      ...sessionRows.map((session) => session.ownerUserId),
+    ]);
     const sessionIds = new Set(sessionRows.map((session) => session.id));
     const deviceById = new Map(deviceRows.map((device) => [device.id, device]));
     const currentTaskByAgentId = new Map<string, string>();
@@ -343,7 +363,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const relevantDeviceIds = new Set(relevantDeviceRows.map((device) => device.id));
     const relevantApprovalIds = new Set(approvalRows.map((approval) => approval.id));
 
-    const zones = buildSnapshotZones(agentsByZone, zoneSettingByZoneId);
+    const zones = buildSnapshotZones(agentsByZone, zoneSettingByZoneId, ownerMap);
 
     const zoneAgentIndices = new Map<string, number>();
 
@@ -367,6 +387,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       return {
         id: agent.id,
         ownerUserId: agent.ownerUserId ?? null,
+        ownerUser: ownerForUserId(ownerMap, agent.ownerUserId),
         name: agent.name,
         role: agent.roleType,
         engine: inferEngineFromDevice(activeDevice),
@@ -384,6 +405,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const snapshotTasks = taskRows.map((task) => ({
       id: task.id,
       ownerUserId: task.ownerUserId ?? null,
+      ownerUser: ownerForUserId(ownerMap, task.ownerUserId),
       title: task.title,
       type: task.taskType,
       status: task.status,
@@ -425,6 +447,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       return {
         id: device.id,
         ownerUserId: device.ownerUserId ?? null,
+        ownerUser: ownerForUserId(ownerMap, device.ownerUserId),
         name: device.name,
         type: device.deviceType,
         engine: inferEngineFromDevice(device),
@@ -440,6 +463,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const snapshotApprovals = approvalRows.map((approval) => ({
       id: approval.id,
       ownerUserId: approval.ownerUserId ?? null,
+      ownerUser: ownerForUserId(ownerMap, approval.ownerUserId),
       type: approval.approvalType,
       status: approval.status,
       taskId: approval.taskId ?? "",
@@ -469,6 +493,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       .map((event) => ({
         id: event.id,
         ownerUserId: event.ownerUserId ?? null,
+        ownerUser: ownerForUserId(ownerMap, event.ownerUserId),
         severity: event.severity,
         title: event.title,
         description: event.description ?? "无附加描述",
@@ -485,6 +510,7 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       return {
         sessionId: session.id,
         ownerUserId: session.ownerUserId ?? null,
+        ownerUser: ownerForUserId(ownerMap, session.ownerUserId),
         taskId: session.taskId ?? "",
         agentId: session.agentId ?? null,
         deviceId: session.deviceId ?? null,

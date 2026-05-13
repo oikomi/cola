@@ -23,10 +23,16 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import { db } from "@/server/db";
 import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+  type ResourceOwner,
+} from "@/server/resource-owners";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
@@ -83,6 +89,7 @@ export type WorkspaceItem = {
   endpoint: string | null;
   loginUrl: string | null;
   ownerUserId: string | null;
+  ownerUser: ResourceOwner | null;
   updatedAt: string | null;
 };
 
@@ -780,8 +787,8 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
       .filter((entry): entry is readonly [string, V1Node] => Boolean(entry[0])),
   );
 
-  const items = deployments
-    .map((deployment) => {
+  const itemsWithoutOwners: WorkspaceItem[] = deployments
+    .map<WorkspaceItem | null>((deployment) => {
       const name = workspaceNameFromDeployment(deployment.metadata?.name);
       if (!name) return null;
 
@@ -841,11 +848,20 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
           deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
           null,
+        ownerUser: null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies WorkspaceItem;
     })
     .filter((item): item is WorkspaceItem => Boolean(item))
     .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  const ownerMap = await loadResourceOwnerMap(
+    db,
+    itemsWithoutOwners.map((item) => item.ownerUserId),
+  );
+  const items = itemsWithoutOwners.map((item) => ({
+    ...item,
+    ownerUser: ownerForUserId(ownerMap, item.ownerUserId),
+  }));
 
   return {
     available: true,

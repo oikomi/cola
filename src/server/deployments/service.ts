@@ -43,10 +43,16 @@ import {
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
+import { db } from "@/server/db";
 import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+  type ResourceOwner,
+} from "@/server/resource-owners";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -121,6 +127,7 @@ export type InferenceDeploymentItem = {
   endpoint: string | null;
   nodePort: number | null;
   ownerUserId: string | null;
+  ownerUser: ResourceOwner | null;
   updatedAt: string | null;
 };
 
@@ -1054,8 +1061,8 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
     }
   }
 
-  const items = deployments
-    .map((deployment) => {
+  const itemsWithoutOwners: InferenceDeploymentItem[] = deployments
+    .map<InferenceDeploymentItem | null>((deployment) => {
       const name = inferenceNameFromResource(deployment.metadata?.name);
       if (!name) return null;
 
@@ -1133,11 +1140,20 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
           deployment.metadata?.annotations?.[INFERENCE_METADATA.ownerUserId] ??
           deployment.metadata?.labels?.[INFERENCE_METADATA.ownerUserId] ??
           null,
+        ownerUser: null,
         updatedAt: formatTimestamp(updatedSource),
       } satisfies InferenceDeploymentItem;
     })
     .filter((item): item is InferenceDeploymentItem => Boolean(item))
     .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  const ownerMap = await loadResourceOwnerMap(
+    db,
+    itemsWithoutOwners.map((item) => item.ownerUserId),
+  );
+  const items = itemsWithoutOwners.map((item) => ({
+    ...item,
+    ownerUser: ownerForUserId(ownerMap, item.ownerUserId),
+  }));
 
   return {
     available: true,

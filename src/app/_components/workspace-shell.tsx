@@ -14,6 +14,7 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -571,6 +572,11 @@ export function WorkspaceShell() {
                         <p className="mt-1 text-[12px] leading-5 text-slate-500">
                           Workspace ID: {workspace.id}
                         </p>
+                        <ResourceOwnerBadge
+                          value={workspace}
+                          compact
+                          className="mt-1.5 max-w-full bg-white/80"
+                        />
                       </div>
                     </div>
                     <Badge
@@ -708,6 +714,11 @@ export function WorkspaceShell() {
                             <p className="mt-1 text-[12px] leading-5 text-slate-500">
                               Workspace ID: {workspace.id}
                             </p>
+                            <ResourceOwnerBadge
+                              value={workspace}
+                              compact
+                              className="mt-1.5 max-w-full"
+                            />
                           </div>
                         </div>
                       </TableCell>

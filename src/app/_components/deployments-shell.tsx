@@ -17,6 +17,7 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -469,6 +470,10 @@ function DeploymentCard(props: {
           <p className="mt-1 text-sm text-slate-600">
             {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
           </p>
+          <ResourceOwnerBadge
+            value={props.row}
+            className="mt-2 max-w-full bg-white/80"
+          />
         </div>
         <Badge
           variant="outline"
@@ -559,6 +564,11 @@ function DeploymentDesktopRow(props: {
           <p className="mt-1 text-[12px] leading-5 text-slate-500">
             {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
           </p>
+          <ResourceOwnerBadge
+            value={props.row}
+            compact
+            className="mt-1.5 max-w-full"
+          />
         </div>
       </div>
 

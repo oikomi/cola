@@ -13,6 +13,10 @@ import {
   MAX_GPU_MEMORY_GI,
 } from "@/lib/gpu-allocation";
 import {
+  loadResourceOwnerMap,
+  ownerForUserId,
+} from "@/server/resource-owners";
+import {
   createJupyterLabRuntime,
   deleteJupyterLabRuntime,
   listJupyterLabRuntimes,
@@ -146,7 +150,16 @@ export const trainingRouter = createTRPCRouter({
       .limit(80);
 
     const jobs = rows.map(normalizeTrainingJobRecord);
-    return syncTrainingJobs(jobs);
+    const syncedJobs = await syncTrainingJobs(jobs);
+    const ownerMap = await loadResourceOwnerMap(
+      ctx.db,
+      syncedJobs.map((job) => job.ownerUserId),
+    );
+
+    return syncedJobs.map((job) => ({
+      ...job,
+      ownerUser: ownerForUserId(ownerMap, job.ownerUserId),
+    }));
   }),
 
   createStudioRun: operatorProcedure

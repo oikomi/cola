@@ -14,6 +14,7 @@ import type {
   TaskType,
   ZoneId,
 } from "@/server/office/catalog";
+import type { ResourceOwner } from "@/server/resource-owners";
 
 export type OfficeMetric = {
   label: string;
@@ -23,6 +24,8 @@ export type OfficeMetric = {
 
 export type OfficeZone = {
   id: ZoneId;
+  ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   label: string;
   summary: string;
   headcount: number;
@@ -38,6 +41,7 @@ export type OfficeZone = {
 export type OfficeAgent = {
   id: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   name: string;
   role: AgentRole;
   engine: DockerRunnerEngine | null;
@@ -54,6 +58,7 @@ export type OfficeAgent = {
 export type OfficeTask = {
   id: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   title: string;
   type: TaskType;
   status: TaskStatus;
@@ -67,6 +72,7 @@ export type OfficeTask = {
 export type OfficeDevice = {
   id: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   name: string;
   type: DeviceType;
   engine: DockerRunnerEngine | null;
@@ -81,6 +87,7 @@ export type OfficeDevice = {
 export type OfficeApproval = {
   id: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   type: ApprovalType;
   status: ApprovalStatus;
   taskId: string;
@@ -92,6 +99,7 @@ export type OfficeApproval = {
 export type OfficeEvent = {
   id: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   severity: EventSeverity;
   title: string;
   description: string;
@@ -101,6 +109,7 @@ export type OfficeEvent = {
 export type OfficeExecutionReport = {
   sessionId: string;
   ownerUserId?: string | null;
+  ownerUser?: ResourceOwner | null;
   taskId: string;
   agentId: string | null;
   deviceId: string | null;
