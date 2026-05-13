@@ -113,6 +113,7 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - `./reset-database.sh --seed-office`：清空数据库、重新迁移并重建示例办公室数据
 - `./cleanup-containers.sh --all`：清理本地数据库和 runner 容器
 - `npm run db:setup:office`：执行 migration 并注入示例办公室数据
+- `./scripts/vision-inference-image.sh build-and-load`：基于 NVIDIA TensorRT 构建并分发视觉检测推理镜像，供 `/deployments` 的 `视觉检测` 运行时使用
 
 ## 文档索引
 
@@ -126,3 +127,4 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - [AI-Native 公司环境指标体系](./docs/ai-native-metrics.md)
 - [AI-Native 公司环境工作流模板](./docs/ai-native-workflow-templates.md)
 - [训练平台 Unsloth on Kubernetes 说明](./docs/training-unsloth-k8s.md)
+- [视觉推理运行时说明](./docs/vision-inference-runtime.md)

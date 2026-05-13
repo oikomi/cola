@@ -10,6 +10,7 @@ import {
   isLlamaCppRemoteModelUrl,
   isValidInferenceModelRef,
   llamaCppModelRefExample,
+  visionDetectionModelRefExample,
 } from "./catalog.ts";
 
 void test("create flow exposes all supported runtimes", () => {
@@ -17,10 +18,15 @@ void test("create flow exposes all supported runtimes", () => {
     "vllm",
     "llama.cpp",
     "sglang",
+    "vision-detection",
   ]);
   assert.equal(canCreateInferenceDeploymentWithEngine("vllm"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("llama.cpp"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("sglang"), true);
+  assert.equal(
+    canCreateInferenceDeploymentWithEngine("vision-detection"),
+    true,
+  );
 });
 
 void test("Hugging Face model refs reject local paths", () => {
@@ -88,6 +94,17 @@ void test("model ref validation follows runtime selection", () => {
   );
   assert.equal(
     isValidInferenceModelRef("llama.cpp", "Qwen/Qwen3-8B-Instruct"),
+    false,
+  );
+  assert.equal(
+    isValidInferenceModelRef(
+      "vision-detection",
+      visionDetectionModelRefExample,
+    ),
+    true,
+  );
+  assert.equal(
+    isValidInferenceModelRef("vision-detection", "/models/a.pt"),
     false,
   );
 });

@@ -37,7 +37,7 @@ export const PRODUCT_AREAS: Array<{
     key: "storage",
     href: "/storage",
     title: "存储管理",
-    description: "管理 JuiceFS、PVC、数据集目录和训练产物共享空间。",
+    description: "管理 SeaweedFS S3、数据集对象和训练产物归档。",
   },
   {
     key: "deployments",

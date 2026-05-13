@@ -2,12 +2,14 @@ export const inferenceDeploymentEngineValues = [
   "vllm",
   "llama.cpp",
   "sglang",
+  "vision-detection",
 ] as const;
 
 export const creatableInferenceDeploymentEngineValues = [
   "vllm",
   "llama.cpp",
   "sglang",
+  "vision-detection",
 ] as const;
 
 export const inferenceDeploymentStatusValues = [
@@ -31,6 +33,7 @@ export const llamaCppModelRefExample =
 export const llamaCppRemoteModelRefExample =
   "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
+export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
 const huggingFaceModelRefPattern =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const llamaCppPathSegmentPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -125,6 +128,7 @@ export function isValidInferenceModelRef(
       return isLlamaCppModelRef(modelRef);
     case "vllm":
     case "sglang":
+    case "vision-detection":
       return isHuggingFaceModelRef(modelRef);
     default:
       return false;
@@ -138,6 +142,7 @@ export const inferenceDeploymentEngineLabels: Record<
   vllm: "vLLM",
   "llama.cpp": "llama.cpp",
   sglang: "SGLang",
+  "vision-detection": "视觉检测",
 };
 
 export const inferenceDeploymentStatusLabels: Record<
@@ -164,6 +169,8 @@ export function defaultInferenceImage(
         : "ghcr.io/ggml-org/llama.cpp:server";
     case "sglang":
       return "lmsysorg/sglang:latest";
+    case "vision-detection":
+      return "cola-vision-tensorrt:local";
     default:
       return "vllm/vllm-openai:latest";
   }

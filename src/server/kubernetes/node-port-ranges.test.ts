@@ -21,6 +21,7 @@ void test("default NodePort ranges are isolated by product area", () => {
     formatNodePortRange(NODE_PORT_RANGES.unslothStudio),
     "32080-32179",
   );
+  assert.equal(formatNodePortRange(NODE_PORT_RANGES.storage), "32200-32299");
   assert.equal(formatNodePortRange(NODE_PORT_RANGES.inference), "32300-32760");
 
   assert.doesNotThrow(() => assertNodePortRangesIsolated(NODE_PORT_RANGES));

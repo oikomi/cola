@@ -17,6 +17,9 @@ DEFAULT_LOCAL_BACKEND_MINIO_NAME="juicefs-minio"
 DEFAULT_LOCAL_BACKEND_BUCKET="$DEFAULT_JUICEFS_NAME"
 DEFAULT_LOCAL_BACKEND_ACCESS_KEY="minioadmin"
 DEFAULT_LOCAL_BACKEND_SECRET_KEY="minioadmin"
+DEFAULT_METADATA_REDIS_NAMESPACE="storage"
+DEFAULT_METADATA_REDIS_NAME="juicefs-redis"
+DEFAULT_METADATA_REDIS_ROOT="/var/lib/cola/juicefs"
 
 ACTION="install"
 ENV_FILE=""
@@ -44,6 +47,7 @@ Options:
 Environment:
   JUICEFS_CREATE_STORAGECLASS=0 skips Secret and StorageClass creation.
   JUICEFS_LOCAL_BACKEND=0 skips the cluster-local Redis and MinIO backend.
+  JUICEFS_METADATA_REDIS=1 deploys only Redis for JuiceFS metadata.
 
 By default this script deploys Redis and MinIO inside Kubernetes and stores
 their data on a selected node via hostPath under /var/lib/cola/juicefs.
@@ -278,7 +282,17 @@ set_defaults() {
   JUICEFS_LOCAL_BACKEND_ACCESS_KEY="${JUICEFS_LOCAL_BACKEND_ACCESS_KEY:-$DEFAULT_LOCAL_BACKEND_ACCESS_KEY}"
   JUICEFS_LOCAL_BACKEND_SECRET_KEY="${JUICEFS_LOCAL_BACKEND_SECRET_KEY:-$DEFAULT_LOCAL_BACKEND_SECRET_KEY}"
 
+  JUICEFS_METADATA_REDIS="${JUICEFS_METADATA_REDIS:-0}"
+  JUICEFS_METADATA_REDIS_NAMESPACE="${JUICEFS_METADATA_REDIS_NAMESPACE:-$DEFAULT_METADATA_REDIS_NAMESPACE}"
+  JUICEFS_METADATA_REDIS_NAME="${JUICEFS_METADATA_REDIS_NAME:-$DEFAULT_METADATA_REDIS_NAME}"
+  JUICEFS_METADATA_REDIS_NODE_NAME="${JUICEFS_METADATA_REDIS_NODE_NAME:-$default_backend_node}"
+  JUICEFS_METADATA_REDIS_ROOT="${JUICEFS_METADATA_REDIS_ROOT:-$DEFAULT_METADATA_REDIS_ROOT}"
+  JUICEFS_METADATA_REDIS_IMAGE="${JUICEFS_METADATA_REDIS_IMAGE:-redis:7-alpine}"
+
   JUICEFS_NAME="${JUICEFS_NAME:-$DEFAULT_JUICEFS_NAME}"
+  if is_true "$JUICEFS_METADATA_REDIS"; then
+    JUICEFS_METAURL="${JUICEFS_METAURL:-redis://${JUICEFS_METADATA_REDIS_NAME}.${JUICEFS_METADATA_REDIS_NAMESPACE}.svc.cluster.local:6379/1}"
+  fi
   if is_true "$JUICEFS_LOCAL_BACKEND"; then
     JUICEFS_METAURL="${JUICEFS_METAURL:-redis://${JUICEFS_LOCAL_BACKEND_REDIS_NAME}.${JUICEFS_LOCAL_BACKEND_NAMESPACE}.svc.cluster.local:6379/1}"
     JUICEFS_STORAGE="${JUICEFS_STORAGE:-minio}"
@@ -380,6 +394,18 @@ validate_local_backend_inputs() {
   [[ -n "$JUICEFS_LOCAL_BACKEND_BUCKET" ]] || die "JUICEFS_LOCAL_BACKEND_BUCKET 不能为空"
   [[ -n "$JUICEFS_LOCAL_BACKEND_ACCESS_KEY" ]] || die "JUICEFS_LOCAL_BACKEND_ACCESS_KEY 不能为空"
   [[ -n "$JUICEFS_LOCAL_BACKEND_SECRET_KEY" ]] || die "JUICEFS_LOCAL_BACKEND_SECRET_KEY 不能为空"
+}
+
+validate_metadata_redis_inputs() {
+  if ! is_true "$JUICEFS_METADATA_REDIS"; then
+    return 0
+  fi
+
+  [[ -n "$JUICEFS_METADATA_REDIS_NAMESPACE" ]] || die "JUICEFS_METADATA_REDIS_NAMESPACE 不能为空"
+  [[ -n "$JUICEFS_METADATA_REDIS_NAME" ]] || die "JUICEFS_METADATA_REDIS_NAME 不能为空"
+  [[ -n "$JUICEFS_METADATA_REDIS_NODE_NAME" ]] || die "JUICEFS_METADATA_REDIS_NODE_NAME 不能为空。请检查 $CLUSTER_NODES 或手动设置。"
+  [[ -n "$JUICEFS_METADATA_REDIS_ROOT" ]] || die "JUICEFS_METADATA_REDIS_ROOT 不能为空"
+  [[ -n "$JUICEFS_METADATA_REDIS_IMAGE" ]] || die "JUICEFS_METADATA_REDIS_IMAGE 不能为空"
 }
 
 render_local_backend() {
@@ -584,6 +610,86 @@ apply_local_backend() {
   kubectl_cmd -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" wait --for=condition=complete "job/${JUICEFS_LOCAL_BACKEND_MINIO_NAME}-bucket" --timeout="$JUICEFS_WAIT_TIMEOUT"
 }
 
+render_metadata_redis() {
+  local redis_dir="${JUICEFS_METADATA_REDIS_ROOT%/}/redis"
+
+  cat <<YAML
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${JUICEFS_METADATA_REDIS_NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${JUICEFS_METADATA_REDIS_NAME}
+  namespace: ${JUICEFS_METADATA_REDIS_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${JUICEFS_METADATA_REDIS_NAME}
+    app.kubernetes.io/part-of: juicefs-metadata
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${JUICEFS_METADATA_REDIS_NAME}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${JUICEFS_METADATA_REDIS_NAME}
+        app.kubernetes.io/part-of: juicefs-metadata
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${JUICEFS_METADATA_REDIS_NODE_NAME}
+      containers:
+        - name: redis
+          image: ${JUICEFS_METADATA_REDIS_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          hostPath:
+            path: ${redis_dir}
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${JUICEFS_METADATA_REDIS_NAME}
+  namespace: ${JUICEFS_METADATA_REDIS_NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: ${JUICEFS_METADATA_REDIS_NAME}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+YAML
+}
+
+apply_metadata_redis() {
+  if ! is_true "$JUICEFS_METADATA_REDIS"; then
+    return 0
+  fi
+
+  validate_metadata_redis_inputs
+  log "创建或更新 JuiceFS metadata Redis: namespace=${JUICEFS_METADATA_REDIS_NAMESPACE}, node=${JUICEFS_METADATA_REDIS_NODE_NAME}, root=${JUICEFS_METADATA_REDIS_ROOT}"
+  render_metadata_redis | apply_yaml "JuiceFS metadata Redis"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    return 0
+  fi
+
+  kubectl_cmd -n "$JUICEFS_METADATA_REDIS_NAMESPACE" rollout status "deployment/${JUICEFS_METADATA_REDIS_NAME}" --timeout="$JUICEFS_WAIT_TIMEOUT"
+}
+
 install_driver() {
   local helm_args
 
@@ -730,6 +836,12 @@ print_status() {
     echo
   fi
 
+  if is_true "$JUICEFS_METADATA_REDIS"; then
+    log "JuiceFS metadata Redis"
+    kubectl_cmd -n "$JUICEFS_METADATA_REDIS_NAMESPACE" get deployment,svc,pods -l "app.kubernetes.io/part-of=juicefs-metadata" -o wide || true
+    echo
+  fi
+
   log "Helm release"
   helm_cmd status "$JUICEFS_RELEASE" --namespace "$JUICEFS_CSI_NAMESPACE" || true
 
@@ -779,6 +891,7 @@ main() {
     install)
       connectivity_check
       apply_local_backend
+      apply_metadata_redis
       install_driver
       if is_true "$JUICEFS_CREATE_STORAGECLASS"; then
         validate_storageclass_inputs

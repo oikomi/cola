@@ -17,6 +17,7 @@ import {
   isValidInferenceModelRef,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
+  visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
 import {
   createInferenceDeployment,
@@ -33,6 +34,8 @@ function modelRefValidationMessage(engine: InferenceDeploymentEngine) {
     case "vllm":
     case "sglang":
       return "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
+    case "vision-detection":
+      return `视觉检测模型引用目前只支持 Hugging Face 模型 ID，例如 ${visionDetectionModelRefExample}。`;
     default:
       return "模型引用格式不正确。";
   }
@@ -86,6 +89,8 @@ function runtimeLabel(engine: InferenceDeploymentEngine) {
       return "llama.cpp";
     case "sglang":
       return "SGLang";
+    case "vision-detection":
+      return "视觉检测";
     default:
       return engine;
   }

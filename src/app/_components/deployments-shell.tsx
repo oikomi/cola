@@ -55,6 +55,7 @@ import {
   llamaCppModelRefExample,
   llamaCppModelRoot,
   llamaCppRemoteModelRefExample,
+  visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
 import { api, type RouterOutputs } from "@/trpc/react";
 
@@ -89,6 +90,8 @@ function modelRefHint(engine: DraftState["engine"]) {
   switch (engine) {
     case "llama.cpp":
       return `支持 ${llamaCppModelRoot} 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
+    case "vision-detection":
+      return `支持 Hugging Face 视觉检测模型 ID，例如 RT-DETR v2-L：${visionDetectionModelRefExample}。容器会暴露 GET /health 和 POST /predict。`;
     case "vllm":
     case "sglang":
       return "仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
@@ -101,6 +104,8 @@ function modelRefPlaceholder(engine: DraftState["engine"]) {
   switch (engine) {
     case "llama.cpp":
       return llamaCppRemoteModelRefExample;
+    case "vision-detection":
+      return visionDetectionModelRefExample;
     case "vllm":
     case "sglang":
       return "Qwen/Qwen3-8B-Instruct";
@@ -115,6 +120,8 @@ function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
   switch (engine) {
     case "llama.cpp":
       return "请输入合法的本地 GGUF 路径、hf:// 文件引用或 https:// GGUF 地址";
+    case "vision-detection":
+      return "请输入合法的 Hugging Face 视觉检测模型 ID";
     case "vllm":
     case "sglang":
       return "请输入合法的 Hugging Face 模型 ID";
@@ -127,6 +134,8 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
   switch (engine) {
     case "llama.cpp":
       return `llama.cpp 既支持 ${llamaCppModelRoot} 下的本地 GGUF，也支持启动前自动下载远端 GGUF。创建后会先保存为草稿，点击上线时再拉起 Pod。`;
+    case "vision-detection":
+      return "视觉检测运行时用于 RT-DETR、DETR 等目标检测模型，服务上线后通过 NodePort 暴露 /health 和 /predict 远程 API。";
     case "vllm":
     case "sglang":
       return "当前运行时使用 Hugging Face 模型引用。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
@@ -154,7 +163,48 @@ function gpuRequirementCopy(
     return "llama.cpp 支持 CPU-only 或 GPU 模式。GPU 填 0 表示只用 CPU，填大于 0 时会切换到 CUDA 镜像并申请对应 GPU。";
   }
 
+  if (engine === "vision-detection") {
+    return "视觉检测运行时默认使用 1 张 GPU；也可以用 HAMi 显存模式按份额调度。远程调用使用服务入口下的 POST /predict。";
+  }
+
   return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
+}
+
+function apiPathHint(row: DeploymentRow) {
+  switch (row.engine) {
+    case "vision-detection":
+      return {
+        label: "POST /predict",
+        value: row.endpoint ? `${row.endpoint}/predict` : null,
+      };
+    case "vllm":
+    case "sglang":
+      return {
+        label: "OpenAI API",
+        value: row.endpoint ? `${row.endpoint}/v1/chat/completions` : null,
+      };
+    case "llama.cpp":
+      return {
+        label: "llama.cpp API",
+        value: row.endpoint ? `${row.endpoint}/completion` : null,
+      };
+    default:
+      return {
+        label: "API",
+        value: row.endpoint,
+      };
+  }
+}
+
+function apiOpenUrl(row: DeploymentRow) {
+  if (!row.endpoint) return null;
+
+  switch (row.engine) {
+    case "vision-detection":
+      return `${row.endpoint}/docs`;
+    default:
+      return row.endpoint;
+  }
 }
 
 function statusTone(status: DeploymentRow["status"]) {
@@ -358,6 +408,7 @@ function DeploymentActionButtons(props: {
   onDelete: () => void;
 }) {
   const isCompact = props.density === "compact";
+  const openUrl = apiOpenUrl(props.row);
 
   return (
     <div
@@ -369,7 +420,7 @@ function DeploymentActionButtons(props: {
     >
       {props.canOpenApi ? (
         <a
-          href={props.row.endpoint!}
+          href={openUrl ?? props.row.endpoint!}
           target="_blank"
           rel="noreferrer"
           className={cn(
@@ -381,6 +432,11 @@ function DeploymentActionButtons(props: {
               ? "h-8 rounded-[9px] border-slate-200/90 bg-white px-2.5 text-[12px]"
               : "rounded-full",
           )}
+          title={
+            props.row.engine === "vision-detection"
+              ? "打开视觉推理 Swagger API 文档"
+              : "打开推理服务入口"
+          }
         >
           <GlobeIcon data-icon="inline-start" />
           API
@@ -460,6 +516,8 @@ function DeploymentCard(props: {
   onStart: () => void;
   onDelete: () => void;
 }) {
+  const endpointHint = apiPathHint(props.row);
+
   return (
     <article className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-slate-50/80 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
       <div className="flex items-start justify-between gap-3">
@@ -518,6 +576,11 @@ function DeploymentCard(props: {
           <p className="mt-1 text-sm leading-6 break-all text-slate-600">
             {props.row.endpoint ?? "-"}
           </p>
+          {endpointHint.value ? (
+            <p className="mt-1 text-xs leading-5 break-all text-slate-500">
+              {endpointHint.label}：{endpointHint.value}
+            </p>
+          ) : null}
           <p className="mt-2 text-xs leading-5 text-slate-500">
             最近更新时间 {props.row.updatedAt ?? "-"}
           </p>
@@ -548,6 +611,8 @@ function DeploymentDesktopRow(props: {
   onStart: () => void;
   onDelete: () => void;
 }) {
+  const endpointHint = apiPathHint(props.row);
+
   return (
     <article className="group grid gap-4 border-b border-slate-200/80 bg-white/92 px-4 py-4 transition-colors last:border-b-0 hover:bg-sky-50/50 2xl:grid-cols-[minmax(230px,0.88fr)_minmax(330px,1.2fr)_minmax(210px,0.72fr)_minmax(260px,0.85fr)_minmax(190px,auto)] 2xl:items-center">
       <div className="flex min-w-0 items-center gap-3">
@@ -603,6 +668,11 @@ function DeploymentDesktopRow(props: {
         <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-500">
           {props.row.endpoint ?? "入口地址待分配"}
         </p>
+        {endpointHint.value ? (
+          <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
+            {endpointHint.label} {endpointHint.value}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex justify-start 2xl:justify-end">
@@ -814,7 +884,7 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Inference Ops"
         title="推理部署"
-        description="管理基于 Hugging Face 模型 ID 的 vLLM / SGLang，以及支持本地或直链 GGUF 的 llama.cpp 运行时，集中查看入口、资源和服务状态。"
+        description="管理 LLM 与视觉检测推理服务：vLLM、SGLang、llama.cpp 和 RT-DETR 等目标检测运行时，集中查看入口、资源和远程 API 状态。"
         icon={BlocksIcon}
         size="compact"
         density="dense"
@@ -1076,6 +1146,15 @@ export function DeploymentsShell() {
                           Number.parseInt(current.gpuCount, 10) ||
                             gpuMinimum(value, current.gpuAllocationMode),
                         ),
+                        cpu:
+                          value === "vision-detection" && current.cpu === "8"
+                            ? "4"
+                            : current.cpu,
+                        memoryGi:
+                          value === "vision-detection" &&
+                          current.memoryGi === "32"
+                            ? "16"
+                            : current.memoryGi,
                       }));
                     }}
                   >
@@ -1333,7 +1412,8 @@ export function DeploymentsShell() {
                       服务入口
                     </p>
                     <p className="mt-1">
-                      外部服务统一通过 master NodePort 暴露。
+                      外部服务统一通过 master NodePort 暴露；视觉检测服务使用
+                      POST /predict 上传图片远程调用。
                     </p>
                   </div>
 

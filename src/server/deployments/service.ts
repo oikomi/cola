@@ -547,6 +547,17 @@ function buildRuntimeCommand(input: {
           String(Math.max(input.gpuSpec.gpuCount, 1)),
         ],
       };
+    case "vision-detection":
+      return {
+        args: [
+          "--model",
+          input.modelRef,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+        ],
+      };
     default:
       return {
         args: [],
@@ -1005,7 +1016,21 @@ export async function listInferenceDeployments(): Promise<InferenceDeploymentLis
     };
   }
 
-  const { deployments, services, pods } = await listInferenceResources(ctx);
+  let resources: Awaited<ReturnType<typeof listInferenceResources>>;
+  try {
+    resources = await listInferenceResources(ctx);
+  } catch (error) {
+    return {
+      available: false,
+      reason:
+        error instanceof Error
+          ? `${buildInferenceCapabilityError(ctx.kubeconfigPath)}。${error.message}`
+          : buildInferenceCapabilityError(ctx.kubeconfigPath),
+      items: [],
+    };
+  }
+
+  const { deployments, services, pods } = resources;
   const controllerAccessHost = resolveControllerAccessHost(
     ctx.config,
     ctx.nodes,

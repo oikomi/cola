@@ -1,8 +1,10 @@
 import {
+  ArchiveIcon,
   CheckCircle2Icon,
   DatabaseIcon,
-  FolderSyncIcon,
+  ExternalLinkIcon,
   HardDriveIcon,
+  KeyRoundIcon,
   PackageIcon,
   RouteIcon,
   Settings2Icon,
@@ -16,11 +18,18 @@ import {
   ModuleSection,
 } from "@/app/_components/module-shell";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-const DEFAULT_STORAGE_CLASS = "juicefs-sc";
-const DEFAULT_TRAINING_PVC = "cola-training-workspace";
-const DEFAULT_MOUNT_PATH = "/workspace";
-const DEFAULT_OUTPUT_ROOT = "/workspace/cola-training";
+const STORAGE_NAMESPACE = "storage";
+const SEAWEEDFS_SERVICE = "seaweedfs-s3";
+const SEAWEEDFS_PORT = "8333";
+const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
+const DEFAULT_BUCKET = "cola-training";
+const INTERNAL_ENDPOINT = `http://${SEAWEEDFS_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_PORT}`;
+const DEFAULT_DATASET_PREFIX = `s3://${DEFAULT_BUCKET}/datasets/`;
+const DEFAULT_CHECKPOINT_PREFIX = `s3://${DEFAULT_BUCKET}/checkpoints/`;
+const DEFAULT_MODEL_PREFIX = `s3://${DEFAULT_BUCKET}/models/`;
 
 export default function StoragePage() {
   const namespace =
@@ -28,25 +37,40 @@ export default function StoragePage() {
     clusterConfig.workspaceNamespace.trim().length > 0
       ? clusterConfig.workspaceNamespace.trim()
       : "remote-work";
+  const controllerIp =
+    typeof clusterConfig.controllerIp === "string" &&
+    clusterConfig.controllerIp.trim().length > 0
+      ? clusterConfig.controllerIp.trim()
+      : "172.16.60.198";
+  const adminUiUrl = `http://${controllerIp}:${SEAWEEDFS_ADMIN_NODE_PORT}`;
 
   return (
     <ModulePageShell>
       <ModuleHero
         eyebrow="Storage Ops"
         title="存储管理"
-        description="集中管理训练平台需要的 JuiceFS StorageClass、PVC 工作空间、数据集目录和训练产物路径。"
+        description="集中管理训练平台使用的 SeaweedFS S3 对象存储、数据集路径、checkpoint 和模型产物归档。"
         icon={DatabaseIcon}
         badges={
           <>
-            <Badge className="border border-lime-200 bg-lime-50 text-lime-700">
-              JuiceFS
+            <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+              SeaweedFS
             </Badge>
             <Badge className="border border-slate-200 bg-white text-slate-700">
-              {namespace}
+              {STORAGE_NAMESPACE}
             </Badge>
             <Badge className="border border-slate-200 bg-white text-slate-700">
-              {DEFAULT_STORAGE_CLASS}
+              S3 API
             </Badge>
+            <a
+              href={adminUiUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ size: "sm" }), "h-7 gap-1.5")}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              打开 Admin UI
+            </a>
           </>
         }
         size="compact"
@@ -54,118 +78,123 @@ export default function StoragePage() {
         <div className="grid gap-3 md:grid-cols-4">
           <ModuleMetricCard
             size="compact"
-            label="StorageClass"
-            value={DEFAULT_STORAGE_CLASS}
-            description="JuiceFS CSI 部署后，PVC 默认从这个 StorageClass 动态创建。"
-            icon={DatabaseIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="Namespace"
-            value={namespace}
-            description="训练平台、JupyterLab 和 Unsloth Studio 默认工作 namespace。"
+            label="Admin UI"
+            value={`:${SEAWEEDFS_ADMIN_NODE_PORT}`}
+            description="SeaweedFS 官方 Web 管理入口，点击按钮新窗口打开。"
             icon={RouteIcon}
           />
           <ModuleMetricCard
             size="compact"
-            label="Workspace PVC"
-            value={DEFAULT_TRAINING_PVC}
-            description="可作为训练任务和交互式工具共享的数据与产物卷。"
-            icon={HardDriveIcon}
+            label="Namespace"
+            value={STORAGE_NAMESPACE}
+            description="SeaweedFS master、volume、filer 和 S3 gateway 所在命名空间。"
+            icon={DatabaseIcon}
           />
           <ModuleMetricCard
             size="compact"
-            label="Mount Path"
-            value={DEFAULT_MOUNT_PATH}
-            description="容器内统一挂载路径，便于数据集和 checkpoint 复用。"
-            icon={FolderSyncIcon}
+            label="Bucket"
+            value={DEFAULT_BUCKET}
+            description="默认训练数据、checkpoint 和模型产物 bucket。"
+            icon={ArchiveIcon}
+          />
+          <ModuleMetricCard
+            size="compact"
+            label="Workloads"
+            value={namespace}
+            description="训练任务、JupyterLab 和 Unsloth Studio 默认工作 namespace。"
+            icon={HardDriveIcon}
           />
         </div>
       </ModuleHero>
 
       <ModuleSection
-        title="训练平台存储"
-        description="这里先作为 JuiceFS 部署后的前端入口；下一步可以接入 PVC 列表、创建、扩容和绑定到 JupyterLab / Unsloth Studio。"
+        title="SeaweedFS S3 接入"
+        description="当前方案只部署对象存储，不创建 JuiceFS StorageClass 或 500Gi PVC；训练代码和交互式工具通过 S3 API 读写数据。"
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="grid gap-3 md:grid-cols-2">
             <StorageBindingCard
               title="训练任务"
-              status="已支持 PVC 挂载"
+              status="通过 S3 读取数据集"
               icon={CheckCircle2Icon}
               rows={[
-                ["环境变量", "COLA_TRAINING_PVC_NAME"],
-                ["默认 PVC", DEFAULT_TRAINING_PVC],
-                ["挂载路径", DEFAULT_MOUNT_PATH],
-                ["产物根目录", DEFAULT_OUTPUT_ROOT],
+                ["Endpoint", "AWS_ENDPOINT_URL"],
+                ["Bucket", "COLA_TRAINING_S3_BUCKET"],
+                ["数据集前缀", DEFAULT_DATASET_PREFIX],
+                ["产物前缀", DEFAULT_CHECKPOINT_PREFIX],
               ]}
             />
             <StorageBindingCard
               title="JupyterLab"
-              status="可独立指定 PVC"
+              status="用 awscli / SDK 管理对象"
               icon={PackageIcon}
               rows={[
-                ["环境变量", "COLA_JUPYTERLAB_PVC_NAME"],
-                ["建议 PVC", DEFAULT_TRAINING_PVC],
-                ["建议挂载", DEFAULT_MOUNT_PATH],
-                ["用途", "准备数据集与调试脚本"],
+                ["Endpoint", INTERNAL_ENDPOINT],
+                ["Bucket", DEFAULT_BUCKET],
+                ["用途", "上传数据集与调试脚本"],
+                ["认证", "AWS_ACCESS_KEY_ID"],
               ]}
             />
             <StorageBindingCard
               title="Unsloth Studio"
-              status="可复用训练 PVC"
+              status="保存模型和导出产物"
               icon={Settings2Icon}
               rows={[
-                ["优先变量", "COLA_UNSLOTH_STUDIO_PVC_NAME"],
-                ["回退变量", "COLA_TRAINING_PVC_NAME"],
-                ["建议挂载", DEFAULT_MOUNT_PATH],
-                ["用途", "共享配置、数据集和输出目录"],
+                ["Endpoint", INTERNAL_ENDPOINT],
+                ["模型前缀", DEFAULT_MODEL_PREFIX],
+                ["checkpoint", DEFAULT_CHECKPOINT_PREFIX],
+                ["认证", "AWS_SECRET_ACCESS_KEY"],
               ]}
             />
             <StorageBindingCard
-              title="动态申请"
-              status="待接入"
+              title="容量说明"
+              status="由 volume 节点实际磁盘决定"
               icon={HardDriveIcon}
               rows={[
-                ["表单字段", "存储大小，例如 500Gi"],
-                ["StorageClass", DEFAULT_STORAGE_CLASS],
-                ["访问模式", "ReadWriteMany"],
-                ["绑定范围", "Studio / JupyterLab / 训练任务"],
+                ["默认数据根", "/var/lib/cola/seaweedfs"],
+                ["当前节点", "master-01 / node-01"],
+                ["副本策略", "SEAWEEDFS_REPLICATION"],
+                ["PVC", "当前方案不创建"],
               ]}
             />
           </div>
 
-          <div className="rounded-[var(--radius-card)] border border-lime-200/80 bg-lime-50/50 px-5 py-5">
+          <div className="rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
             <div className="flex items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-white text-lime-700 ring-1 ring-lime-100">
-                <DatabaseIcon className="size-4" />
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-white text-emerald-700 ring-1 ring-emerald-100">
+                <KeyRoundIcon className="size-4" />
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-slate-950">JuiceFS 接入目标</p>
+                <p className="font-semibold text-slate-950">集群内访问参数</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  用 JuiceFS 提供 ReadWriteMany 工作空间，让 JupyterLab
-                  写入的数据、Unsloth Studio 配置和训练任务产物在同一个 PVC
-                  内流转。
+                  把这些变量注入到训练容器或 Notebook 后，即可通过标准 S3
+                  工具访问 SeaweedFS。
                 </p>
               </div>
             </div>
             <div className="mt-5 rounded-[12px] border border-white/80 bg-white/82 p-4">
               <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                PVC Template
+                Environment
               </p>
               <dl className="mt-3 grid gap-2 text-sm">
                 <StorageFact
-                  label="metadata.name"
-                  value={DEFAULT_TRAINING_PVC}
+                  label="AWS_ENDPOINT_URL"
+                  value={INTERNAL_ENDPOINT}
                 />
-                <StorageFact label="metadata.namespace" value={namespace} />
+                <StorageFact label="AWS_DEFAULT_REGION" value="us-east-1" />
                 <StorageFact
-                  label="storageClassName"
-                  value={DEFAULT_STORAGE_CLASS}
+                  label="AWS_ACCESS_KEY_ID"
+                  value="来自 infra/seaweedfs/seaweedfs.env"
                 />
-                <StorageFact label="accessModes" value="ReadWriteMany" />
-                <StorageFact label="requests.storage" value="500Gi" />
+                <StorageFact
+                  label="AWS_SECRET_ACCESS_KEY"
+                  value="来自 infra/seaweedfs/seaweedfs.env"
+                />
+                <StorageFact
+                  label="COLA_TRAINING_S3_BUCKET"
+                  value={DEFAULT_BUCKET}
+                />
               </dl>
             </div>
           </div>
@@ -208,7 +237,7 @@ function StorageBindingCard({
 
 function StorageFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-1 rounded-[10px] bg-slate-50/80 px-3 py-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
+    <div className="grid gap-1 rounded-[10px] bg-slate-50/80 px-3 py-2 sm:grid-cols-[126px_minmax(0,1fr)] sm:items-center">
       <dt className="text-[12px] font-medium text-slate-500">{label}</dt>
       <dd className="min-w-0 font-mono text-[12px] break-all text-slate-800">
         {value}

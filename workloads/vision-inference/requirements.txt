@@ -1,0 +1,9 @@
+accelerate>=0.33,<1
+fastapi>=0.115,<1
+pillow>=10,<12
+python-multipart>=0.0.9,<1
+requests>=2.32,<3
+torch>=2.4,<3
+torchvision>=0.19,<1
+transformers>=4.51,<5
+uvicorn[standard]>=0.30,<1

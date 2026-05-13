@@ -1,0 +1,15 @@
+# Rook-Ceph Operator Helm values.
+# Keep this file small; environment-specific cluster settings live in
+# rook-ceph.env and are rendered into the cluster values by deploy.sh.
+
+crds:
+  enabled: true
+
+enableDiscoveryDaemon: true
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

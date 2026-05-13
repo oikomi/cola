@@ -121,6 +121,13 @@ export const NODE_PORT_RANGES = {
     start: 32080,
     end: 32179,
   }),
+  storage: createNodePortRange({
+    label: "存储管理",
+    startEnv: ["COLA_STORAGE_NODE_PORT_START"],
+    endEnv: ["COLA_STORAGE_NODE_PORT_END"],
+    start: 32200,
+    end: 32299,
+  }),
   inference: createNodePortRange({
     label: "推理部署",
     startEnv: ["COLA_INFERENCE_NODE_PORT_START", "INFERENCE_NODE_PORT_START"],

@@ -2,7 +2,7 @@
 
 这个目录用于把 JuiceFS CSI Driver 部署到当前项目的 Kubernetes 集群，并创建 JuiceFS Secret 和 StorageClass。
 
-默认不依赖外部云存储：脚本会先在集群内创建 Redis 和 MinIO，并用 `hostPath` 把它们的数据落到某个 Kubernetes 节点的本地硬盘目录 `/var/lib/cola/juicefs`。默认节点会从 `../k8s/cluster/nodes.json` 里选择第一个非 master worker；当前配置会优先选 `node-01`。
+当前推荐把 JuiceFS 后端接到 `../seaweedfs` 部署出来的 SeaweedFS S3，而不是继续使用单节点 MinIO。旧的内置 Redis + MinIO 本地 backend 仍保留用于临时测试，但它是单节点 `hostPath`，不是真正的分布式存储。
 
 集群信息只读取 `../k8s/cluster/config.json`，脚本会使用其中的 `clusterName` 解析 kubeconfig：
 
@@ -12,23 +12,28 @@
 
 ## 使用
 
+推荐先部署 SeaweedFS：
+
 ```bash
-cd infra/juicefs
-./deploy.sh
+cd infra/seaweedfs
+cp seaweedfs.env.example seaweedfs.env
+vim seaweedfs.env
+./deploy.sh install --env-file seaweedfs.env
+./deploy.sh render-juicefs-env --env-file seaweedfs.env
 ```
 
-默认动作等价于：
+把 `render-juicefs-env` 输出写入 `infra/juicefs/juicefs.env` 后，再部署 JuiceFS：
 
 ```bash
+cd infra/juicefs
 ./deploy.sh install --env-file juicefs.env
 ```
 
-如果没有 `juicefs.env`，脚本会使用内置默认值一键部署。
+如果没有 `juicefs.env`，脚本会使用内置 Redis + MinIO 单节点 backend。这只适合临时测试。
 
 脚本会执行：
 
-- 在 `storage` namespace 部署 Redis 和 MinIO，数据写入选中节点的 `/var/lib/cola/juicefs`
-- 创建 MinIO bucket `cola-juicefs`
+- 可选：在 `storage` namespace 部署旧的 Redis 和 MinIO 本地 backend
 - 添加并更新 JuiceFS 官方 Helm 仓库
 - 安装或升级 `juicefs/juicefs-csi-driver`
 - 创建 Kubernetes Secret
@@ -51,7 +56,23 @@ JUICEFS_CREATE_STORAGECLASS=0 ./deploy.sh install
 
 ## 配置说明
 
-不配置 `juicefs.env` 时会使用这些默认值：
+推荐 SeaweedFS 后端配置类似：
+
+```bash
+JUICEFS_LOCAL_BACKEND=0
+JUICEFS_METADATA_REDIS=1
+JUICEFS_METADATA_REDIS_NAMESPACE=storage
+JUICEFS_METADATA_REDIS_NAME=juicefs-redis
+JUICEFS_NAME=cola-juicefs
+JUICEFS_METAURL=redis://juicefs-redis.storage.svc.cluster.local:6379/1
+JUICEFS_STORAGE=s3
+JUICEFS_BUCKET=http://seaweedfs-s3.storage.svc.cluster.local:8333/cola-juicefs
+JUICEFS_ACCESS_KEY=...
+JUICEFS_SECRET_KEY=...
+JUICEFS_STORAGECLASS_NAME=juicefs-sc
+```
+
+不配置 `juicefs.env` 时会使用旧的内置 backend 默认值：
 
 - `JUICEFS_LOCAL_BACKEND=1`
 - `JUICEFS_LOCAL_BACKEND_NAMESPACE=storage`
