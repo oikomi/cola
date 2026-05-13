@@ -541,8 +541,10 @@ function StudioRunCard(props: {
   run: StudioRun;
   isStarting: boolean;
   isStopping: boolean;
+  isDeleting: boolean;
   onStart: () => void;
   onStop: () => void;
+  onDelete: () => void;
 }) {
   const { run } = props;
   const runtimeSpec = formatDistributedGpuAllocationLabel(run.nodeCount, {
@@ -599,7 +601,7 @@ function StudioRunCard(props: {
             <Button
               size="sm"
               className="h-7 rounded-[8px] px-2.5 text-[12px]"
-              disabled={props.isStarting}
+              disabled={props.isStarting || props.isDeleting}
               onClick={props.onStart}
             >
               {props.isStarting ? (
@@ -618,7 +620,7 @@ function StudioRunCard(props: {
               size="sm"
               variant="outline"
               className="h-7 rounded-[8px] border-amber-200 bg-white px-2.5 text-[12px] text-amber-700 hover:bg-amber-50"
-              disabled={props.isStopping}
+              disabled={props.isStopping || props.isDeleting}
               onClick={props.onStop}
             >
               {props.isStopping ? (
@@ -632,6 +634,23 @@ function StudioRunCard(props: {
               {props.isStopping ? "停止中" : "停止"}
             </Button>
           ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 rounded-[8px] border-rose-200/80 bg-white px-2.5 text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            disabled={props.isDeleting || props.isStarting || props.isStopping}
+            onClick={props.onDelete}
+          >
+            {props.isDeleting ? (
+              <LoaderCircleIcon
+                className="animate-spin"
+                data-icon="inline-start"
+              />
+            ) : (
+              <Trash2Icon data-icon="inline-start" />
+            )}
+            {props.isDeleting ? "删除中" : "删除"}
+          </Button>
         </div>
       </div>
 
@@ -1743,6 +1762,14 @@ export function TrainingShell() {
     onError: (error) => notifyError(error.message),
   });
 
+  const deleteRun = api.training.deleteStudioRun.useMutation({
+    onSuccess: (result) => {
+      notifySuccess(result.message);
+      void utils.training.listStudioRuns.invalidate();
+    },
+    onError: (error) => notifyError(error.message),
+  });
+
   const createJupyterLab = api.training.createJupyterLab.useMutation({
     onSuccess: (result) => {
       notifySuccess(result.message);
@@ -1862,7 +1889,7 @@ export function TrainingShell() {
   async function handleStopRun(run: StudioRun) {
     const confirmed = await confirm({
       title: `确认停止训练运行「${run.title}」？`,
-      description: "系统会删除对应的 Kubernetes Job、Service 和 ConfigMap。",
+      description: "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap。",
       confirmLabel: "停止训练",
       cancelLabel: "取消",
       confirmVariant: "destructive",
@@ -1870,6 +1897,19 @@ export function TrainingShell() {
     if (!confirmed) return;
 
     stopRun.mutate({ id: run.id });
+  }
+
+  async function handleDeleteRun(run: StudioRun) {
+    const confirmed = await confirm({
+      title: `确认删除训练运行「${run.title}」？`,
+      description: "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap，并移除运行记录。",
+      confirmLabel: "删除运行",
+      cancelLabel: "取消",
+      confirmVariant: "destructive",
+    });
+    if (!confirmed) return;
+
+    deleteRun.mutate({ id: run.id });
   }
 
   async function handleDeleteJupyterLab(name: string) {
@@ -2147,8 +2187,12 @@ export function TrainingShell() {
                       isStopping={
                         stopRun.isPending && stopRun.variables?.id === run.id
                       }
+                      isDeleting={
+                        deleteRun.isPending && deleteRun.variables?.id === run.id
+                      }
                       onStart={() => startRun.mutate({ id: run.id })}
                       onStop={() => void handleStopRun(run)}
+                      onDelete={() => void handleDeleteRun(run)}
                     />
                   ))}
                 </div>

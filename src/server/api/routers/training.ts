@@ -32,6 +32,7 @@ import {
 } from "@/server/training/catalog";
 import { normalizeTrainingJobRecord } from "@/server/training/compat";
 import {
+  deleteTrainingJobRun,
   inspectTrainingJobRuntime,
   stopTrainingJobRun,
   submitTrainingJob,
@@ -351,6 +352,40 @@ export const trainingRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message:
             error instanceof Error ? error.message : "停止训练运行失败。",
+        });
+      }
+    }),
+
+  deleteStudioRun: operatorProcedure
+    .input(trainingRunActionInput)
+    .mutation(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select()
+        .from(trainingJobs)
+        .where(eq(trainingJobs.id, input.id))
+        .limit(1);
+
+      if (!row) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "训练运行不存在。",
+        });
+      }
+
+      const job = normalizeTrainingJobRecord(row);
+
+      try {
+        await deleteTrainingJobRun(job);
+        await ctx.db.delete(trainingJobs).where(eq(trainingJobs.id, job.id));
+
+        return {
+          message: `训练运行「${job.title}」已删除。`,
+        };
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "删除训练运行失败。",
         });
       }
     }),

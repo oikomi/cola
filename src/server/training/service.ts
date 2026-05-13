@@ -1255,6 +1255,51 @@ async function deleteRuntimeResources(
   const runtimeServiceName = serviceName ?? buildRuntimeServiceName(jobName);
   const runtimeConfigMapName = buildRuntimeConfigMapName(jobName);
 
+  async function deleteRuntimePods() {
+    const podMap = new Map<string, V1Pod>();
+    const labelSelectors = [
+      `cola.training/runtime-name=${jobName}`,
+      `job-name=${jobName}`,
+      `batch.kubernetes.io/job-name=${jobName}`,
+    ];
+
+    for (const labelSelector of labelSelectors) {
+      try {
+        const podList = await ctx.coreApi.listNamespacedPod({
+          namespace,
+          labelSelector,
+        });
+
+        for (const pod of podList.items) {
+          const podName = pod.metadata?.name;
+          if (podName) podMap.set(podName, pod);
+        }
+      } catch (error) {
+        if (isNotFoundError(error)) return;
+        throw error;
+      }
+    }
+
+    await Promise.all(
+      [...podMap.values()].map(async (pod) => {
+        const podName = pod.metadata?.name;
+        if (!podName) return;
+
+        try {
+          await ctx.coreApi.deleteNamespacedPod({
+            namespace,
+            name: podName,
+            gracePeriodSeconds: 0,
+            propagationPolicy: "Background",
+          });
+        } catch (error) {
+          if (isNotFoundError(error)) return;
+          throw error;
+        }
+      }),
+    );
+  }
+
   const cleanupActions = [
     async () =>
       ctx.batchApi.deleteNamespacedJob({
@@ -1263,6 +1308,7 @@ async function deleteRuntimeResources(
         propagationPolicy: "Foreground",
         gracePeriodSeconds: 0,
       }),
+    deleteRuntimePods,
     async () =>
       ctx.coreApi.deleteNamespacedService({
         namespace,
@@ -1338,6 +1384,12 @@ export async function submitTrainingJob(job: TrainingJobRecord) {
 }
 
 export async function stopTrainingJobRun(job: TrainingJobRecord) {
+  await deleteTrainingJobRun(job);
+}
+
+export async function deleteTrainingJobRun(job: TrainingJobRecord) {
+  if (!job.runtimeJobName && !job.runtimeNamespace) return;
+
   const ctx = await createKubeContext();
   const runtimeJob = await resolveRuntimeJobReference(job, ctx);
   const jobName = runtimeJob?.jobName ?? job.runtimeJobName;
