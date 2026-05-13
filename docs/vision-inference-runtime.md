@@ -47,6 +47,16 @@ https://pypi.tuna.tsinghua.edu.cn/simple
 
 创建后部署先处于草稿状态，点击“上线”后拉起 Pod。服务通过 master NodePort 暴露，入口会显示在部署列表里。
 
+首次启动会下载 Hugging Face 模型并加载到 GPU，RT-DETRv2 这类模型可能需要数分钟。Deployment 会使用 `startupProbe` 等待 20 分钟后才开始按 liveness 判定失败。
+
+如果集群不能直连 Hugging Face，可以给控制面设置：
+
+```env
+INFERENCE_HF_ENDPOINT=https://hf-mirror.com
+```
+
+新创建的推理 Pod 会把这个值注入为容器内 `HF_ENDPOINT`。
+
 ## 远程 API
 
 健康检查：

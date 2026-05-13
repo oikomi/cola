@@ -499,6 +499,47 @@ function imagePullPolicyFor(image: string) {
   return image.trim().endsWith(":local") ? "Never" : "IfNotPresent";
 }
 
+function positiveIntegerEnv(name: string, fallback: number) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function buildRuntimeEnv() {
+  const hfEndpoint =
+    process.env.INFERENCE_HF_ENDPOINT?.trim() ?? process.env.HF_ENDPOINT?.trim();
+
+  return [
+    {
+      name: "TZ",
+      value: process.env.INFERENCE_TZ ?? "Asia/Shanghai",
+    },
+    {
+      name: "HF_HOME",
+      value: DEFAULT_INFERENCE_CACHE_ROOT,
+    },
+    {
+      name: "TRANSFORMERS_CACHE",
+      value: DEFAULT_INFERENCE_CACHE_ROOT,
+    },
+    ...(hfEndpoint ? [{ name: "HF_ENDPOINT", value: hfEndpoint }] : []),
+  ];
+}
+
+function buildStartupProbe(engine: InferenceDeploymentEngine) {
+  return {
+    tcpSocket: { port: 8000 },
+    initialDelaySeconds: positiveIntegerEnv(
+      "INFERENCE_STARTUP_INITIAL_DELAY_SECONDS",
+      5,
+    ),
+    periodSeconds: positiveIntegerEnv("INFERENCE_STARTUP_PERIOD_SECONDS", 10),
+    failureThreshold: positiveIntegerEnv(
+      "INFERENCE_STARTUP_FAILURE_THRESHOLD",
+      engine === "vision-detection" ? 120 : 60,
+    ),
+  };
+}
+
 function buildRuntimeCommand(input: {
   name: string;
   engine: InferenceDeploymentEngine;
@@ -746,20 +787,8 @@ function buildInferenceDeployment(input: {
                 : {}),
               args: runtimeCommand.args,
               ports: [{ containerPort: 8000, name: "http" }],
-              env: [
-                {
-                  name: "TZ",
-                  value: process.env.INFERENCE_TZ ?? "Asia/Shanghai",
-                },
-                {
-                  name: "HF_HOME",
-                  value: DEFAULT_INFERENCE_CACHE_ROOT,
-                },
-                {
-                  name: "TRANSFORMERS_CACHE",
-                  value: DEFAULT_INFERENCE_CACHE_ROOT,
-                },
-              ],
+              env: buildRuntimeEnv(),
+              startupProbe: buildStartupProbe(input.engine),
               readinessProbe: {
                 tcpSocket: { port: 8000 },
                 initialDelaySeconds: 15,

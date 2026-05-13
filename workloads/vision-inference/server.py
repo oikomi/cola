@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import io
+import logging
 import os
 from typing import Any
 
@@ -13,6 +14,9 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, ValidationError
 from PIL import Image, UnidentifiedImageError
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
+
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("cola.vision")
 
 
 class PredictRequest(BaseModel):
@@ -29,10 +33,13 @@ class RuntimeState:
         self.model_ref = model_ref
         self.threshold = threshold
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Loading image processor for model=%s", model_ref)
         self.processor = AutoImageProcessor.from_pretrained(model_ref)
+        logger.info("Loading object detection model=%s on device=%s", model_ref, self.device)
         self.model = AutoModelForObjectDetection.from_pretrained(model_ref)
         self.model.to(self.device)
         self.model.eval()
+        logger.info("Model ready: model=%s device=%s", model_ref, self.device)
 
     @torch.inference_mode()
     def predict(self, image: Image.Image, threshold: float | None = None) -> dict[str, Any]:
