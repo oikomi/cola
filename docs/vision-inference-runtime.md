@@ -28,6 +28,8 @@ nvcr.io/nvidia/tensorrt:24.07-py3
 https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
+PyTorch 固定为 CUDA 12.4 wheel（`torch==2.6.0+cu124`），以避免 pip 拉到比节点驱动更激进的 CUDA wheel。
+
 如需切换：
 
 ```bash

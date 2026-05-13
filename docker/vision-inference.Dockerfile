@@ -14,7 +14,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY workloads/vision-inference/requirements.txt /tmp/requirements.txt
-RUN python -m pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" -r /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" --trusted-host download.pytorch.org -r /tmp/requirements.txt
 
 COPY workloads/vision-inference/server.py /app/server.py
 

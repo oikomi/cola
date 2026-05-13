@@ -122,9 +122,9 @@ def create_app(state: RuntimeState) -> FastAPI:
 
     @app.post("/predict")
     async def predict(
+        request: Request,
         image: UploadFile | None = File(default=None),
         threshold: float | None = Form(default=None),
-        request: Request | None = None,
     ) -> dict[str, Any]:
         if image is not None:
             payload = await image.read()
@@ -146,10 +146,7 @@ def create_app(state: RuntimeState) -> FastAPI:
     return app
 
 
-async def load_predict_request(request: Request | None) -> PredictRequest:
-    if request is None:
-        return PredictRequest()
-
+async def load_predict_request(request: Request) -> PredictRequest:
     try:
         payload = await request.json()
     except ValueError as exc:
