@@ -11,6 +11,7 @@ TENSORRT_BASE_IMAGE="nvcr.io/nvidia/tensorrt:24.07-py3"
 PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn"
 DOCKER_BUILD_NETWORK="host"
+DOCKER_BUILD_NO_CACHE=0
 RUNTIME_DIR="$REPO_ROOT/runtime"
 
 usage() {
@@ -30,6 +31,7 @@ Options:
                         Trusted host for the configured pip index
   --build-network <mode>
                         Docker build network mode, default host
+  --no-cache           Build the image without Docker layer cache
   --archive <path>      Image archive path for load, default runtime/<image>_<tag>.tar.gz
   -h, --help            Show help
 EOF
@@ -68,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       DOCKER_BUILD_NETWORK="$2"
       shift 2
       ;;
+    --no-cache)
+      DOCKER_BUILD_NO_CACHE=1
+      shift
+      ;;
     --archive)
       ARCHIVE_PATH="$2"
       shift 2
@@ -104,9 +110,14 @@ LOCAL_PLATFORM="linux/$LOCAL_ARCH"
 
 if [[ "$cmd" == "build-and-load" ]]; then
   print_step "构建视觉推理镜像 $IMAGE_REF"
+  BUILD_ARGS=()
+  if [[ "$DOCKER_BUILD_NO_CACHE" == "1" ]]; then
+    BUILD_ARGS+=(--no-cache)
+  fi
   docker build \
     -f "$DOCKERFILE_PATH" \
     --network "$DOCKER_BUILD_NETWORK" \
+    "${BUILD_ARGS[@]}" \
     --build-arg "TENSORRT_BASE_IMAGE=$TENSORRT_BASE_IMAGE" \
     --build-arg "PIP_INDEX_URL=$PIP_INDEX_URL" \
     --build-arg "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST" \

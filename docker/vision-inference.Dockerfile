@@ -14,7 +14,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY workloads/vision-inference/requirements.txt /tmp/requirements.txt
+COPY workloads/vision-inference/requirements-torch.txt /tmp/requirements-torch.txt
 RUN python -m pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" --trusted-host download.pytorch.org -r /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir --no-deps --index-url https://download.pytorch.org/whl/cu124 --trusted-host download.pytorch.org -r /tmp/requirements-torch.txt && \
+    python -c "import torch, torchvision; print('torch', torch.__version__, 'cuda', torch.version.cuda); print('torchvision', torchvision.__version__)"
 
 COPY workloads/vision-inference/server.py /app/server.py
 

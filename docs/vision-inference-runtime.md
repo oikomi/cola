@@ -28,7 +28,13 @@ nvcr.io/nvidia/tensorrt:24.07-py3
 https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-PyTorch 固定为 CUDA 12.4 wheel（`torch==2.6.0+cu124`），以避免 pip 拉到比节点驱动更激进的 CUDA wheel。
+PyTorch 固定为 CUDA 12.4 wheel（`torch==2.6.0+cu124`），以避免 pip 拉到比节点驱动更激进的 CUDA wheel。Dockerfile 会先从配置的 PyPI 镜像安装普通依赖，再单独从 PyTorch cu124 源安装 `torch` / `torchvision`。
+
+如果远端 Docker 缓存命中了旧依赖层，可以强制重建：
+
+```bash
+./scripts/vision-inference-image.sh build-and-load --no-cache
+```
 
 如需切换：
 
