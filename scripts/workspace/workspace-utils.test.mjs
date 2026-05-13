@@ -91,7 +91,7 @@ test("resolveWorkspaceNodePort skips used ports", () => {
       items: [
         {
           spec: {
-            ports: [{ nodePort: 32080 }, { nodePort: 32081 }],
+            ports: [{ nodePort: 31480 }, { nodePort: 31481 }],
           },
         },
       ],
@@ -99,7 +99,7 @@ test("resolveWorkspaceNodePort skips used ports", () => {
     "",
   );
 
-  assert.equal(nodePort, 32082);
+  assert.equal(nodePort, 31482);
 });
 
 test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () => {
@@ -110,13 +110,13 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
     nodeName: "worker-b",
     image: "remote-workspace:test",
     gpu: 1,
-    nodePort: 32090,
+    nodePort: 31490,
     allowGpuNode: false,
     ingressHost: "alice.example.com",
     tlsSecret: "alice-tls",
   });
 
-  assert.equal(normalizedNodePort, 32090);
+  assert.equal(normalizedNodePort, 31490);
   assert.match(manifest, /runtimeClassName: nvidia/);
   assert.match(manifest, /host: alice\.example\.com/);
   assert.match(manifest, /secretName: alice-tls/);
@@ -164,14 +164,14 @@ test("prepareWorkspace returns manifest path and access url", () => {
   });
 
   assert.equal(plan.nodeName, "worker-a");
-  assert.equal(plan.nodePort, 32080);
+  assert.equal(plan.nodePort, 31480);
   assert.equal(
     plan.accessUrl,
     buildWorkspaceAccessUrl({
       ingressHost: "",
       tlsSecret: "",
       nodeIp: "10.0.0.10",
-      nodePort: 32080,
+      nodePort: 31480,
     }),
   );
   assert.equal(plan.manifestPath, "/tmp/bob-workspace-test.yaml");

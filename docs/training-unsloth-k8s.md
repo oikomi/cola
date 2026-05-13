@@ -51,12 +51,24 @@ JupyterLab 环境变量：
 - `COLA_JUPYTERLAB_IMAGE`，默认 `quay.io/jupyter/pytorch-notebook:latest`
 - `COLA_JUPYTERLAB_IMAGE_OPTIONS`，逗号或换行分隔的 `名称=镜像` 列表，最多展示 5 个
 - `COLA_JUPYTERLAB_IMAGE_PULL_POLICY`
-- `COLA_JUPYTERLAB_NODE_PORT_START`，默认 `31980`
-- `COLA_JUPYTERLAB_NODE_PORT_END`，默认 `32079`
+- `COLA_JUPYTERLAB_NODE_PORT_START`，默认 `31580`
+- `COLA_JUPYTERLAB_NODE_PORT_END`，默认 `31679`
 - `COLA_JUPYTERLAB_RUNTIME_CLASS_NAME`
 - `COLA_JUPYTERLAB_PVC_NAME`
 - `COLA_JUPYTERLAB_PVC_MOUNT_PATH`
 - `COLA_JUPYTERLAB_WORKDIR`
+
+NodePort 默认分区：
+
+- OpenClaw：`31180-31279`
+- Hermes：`31280-31379`
+- 远程桌面：`31480-31579`
+- JupyterLab：`31580-31679`
+- 平台/遗留保留：`31680-32079`
+- Unsloth Studio：`32080-32179`
+- 推理部署：`32300-32760`
+
+各业务只会在自己的区间内自动分配 NodePort。平台/遗留保留区用于避开 HAMi 等集群组件和历史已创建入口。若通过环境变量覆盖区间，系统会校验所有区间不能重叠。
 
 前端跳转配置：
 

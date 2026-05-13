@@ -26,16 +26,13 @@ import type {
   ProvisionRunnerInput,
   ProvisionRunnerResult,
 } from "@/server/office/provision-types";
-import {
-  createKubeConfig,
-} from "@/server/kubernetes/kubeconfig";
+import { createKubeConfig } from "@/server/kubernetes/kubeconfig";
+import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
-const OPENCLAW_NODE_PORT_START = 31180;
 const OPENCLAW_DASHBOARD_PORT = 18789;
-const HERMES_NODE_PORT_START = 31280;
 const HERMES_DASHBOARD_PORT = 9119;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
@@ -157,18 +154,9 @@ function runnerPodSortScore(pod: V1Pod) {
 function compareRunnerPods(left: V1Pod, right: V1Pod) {
   const leftScore = runnerPodSortScore(left);
   const rightScore = runnerPodSortScore(right);
-  const [
-    leftReady,
-    leftRunning,
-    leftRestartScore,
-    leftStartedAt,
-  ] = leftScore;
-  const [
-    rightReady,
-    rightRunning,
-    rightRestartScore,
-    rightStartedAt,
-  ] = rightScore;
+  const [leftReady, leftRunning, leftRestartScore, leftStartedAt] = leftScore;
+  const [rightReady, rightRunning, rightRestartScore, rightStartedAt] =
+    rightScore;
 
   if (leftReady !== rightReady) return rightReady - leftReady;
   if (leftRunning !== rightRunning) return rightRunning - leftRunning;
@@ -250,10 +238,14 @@ async function execOpenClawDashboardUrl(options: {
   let stderrText = "";
 
   stdout.on("data", (chunk) => {
-    stdoutText += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    stdoutText += Buffer.isBuffer(chunk)
+      ? chunk.toString("utf8")
+      : String(chunk);
   });
   stderr.on("data", (chunk) => {
-    stderrText += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    stderrText += Buffer.isBuffer(chunk)
+      ? chunk.toString("utf8")
+      : String(chunk);
   });
 
   const exec = new Exec(kubeConfig);
@@ -430,12 +422,12 @@ function codexAuthPathForEngine(engine: DockerRunnerEngine) {
 function dashboardPublicHost(engine: DockerRunnerEngine) {
   const configured =
     engine === "hermes-agent"
-      ? process.env.COLA_HERMES_DASHBOARD_PUBLIC_HOST ??
+      ? (process.env.COLA_HERMES_DASHBOARD_PUBLIC_HOST ??
         process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
-        process.env.COLA_DASHBOARD_PUBLIC_HOST
-      : process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
+        process.env.COLA_DASHBOARD_PUBLIC_HOST)
+      : (process.env.COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST ??
         process.env.COLA_K8S_RUNNER_PUBLIC_HOST ??
-        process.env.COLA_DASHBOARD_PUBLIC_HOST;
+        process.env.COLA_DASHBOARD_PUBLIC_HOST);
   const clusterHost = clusterControllerIp();
 
   if (configured?.trim()) {
@@ -548,16 +540,21 @@ async function getReservedNodePorts(coreApi: CoreV1Api) {
   }
 }
 
-async function findAvailableNodePort(coreApi: CoreV1Api, start: number) {
+async function findAvailableNodePort(
+  coreApi: CoreV1Api,
+  range: { label: string; start: number; end: number },
+) {
   const reserved = await getReservedNodePorts(coreApi);
 
-  for (let port = start; port < start + 200; port += 1) {
+  for (let port = range.start; port <= range.end; port += 1) {
     if (!reserved.has(port)) {
       return port;
     }
   }
 
-  throw new Error(`无法找到可用 NodePort，起始端口 ${start}`);
+  throw new Error(
+    `无法为 ${range.label} 找到可用 NodePort，区间 ${range.start}-${range.end}`,
+  );
 }
 
 function buildCodexSecret(
@@ -1121,8 +1118,8 @@ export async function provisionKubernetesRunner(
     const nodePort = await findAvailableNodePort(
       coreApi,
       input.engine === "hermes-agent"
-        ? HERMES_NODE_PORT_START
-        : OPENCLAW_NODE_PORT_START,
+        ? NODE_PORT_RANGES.hermes
+        : NODE_PORT_RANGES.openclaw,
     );
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);
     const resources = buildRunnerResources(

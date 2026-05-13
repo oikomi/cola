@@ -5,8 +5,16 @@ import {
   ensureWorkspaceManifestDir,
 } from "./paths.mjs";
 
-const WORKSPACE_NODE_PORT_START = 32080;
-const WORKSPACE_NODE_PORT_END = 32760;
+const WORKSPACE_NODE_PORT_START = Number(
+  process.env.COLA_WORKSPACE_NODE_PORT_START ??
+    process.env.REMOTE_WORKSPACE_NODE_PORT_START ??
+    "31480",
+);
+const WORKSPACE_NODE_PORT_END = Number(
+  process.env.COLA_WORKSPACE_NODE_PORT_END ??
+    process.env.REMOTE_WORKSPACE_NODE_PORT_END ??
+    "31579",
+);
 
 function yamlQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
@@ -187,7 +195,9 @@ export function resolveWorkspaceNodePort(services, requestedPort) {
       nodePort < WORKSPACE_NODE_PORT_START ||
       nodePort > WORKSPACE_NODE_PORT_END
     ) {
-      throw new Error("--node-port 必须处于 Kubernetes NodePort 范围内");
+      throw new Error(
+        `--node-port 必须处于远程桌面 NodePort 区间 ${WORKSPACE_NODE_PORT_START}-${WORKSPACE_NODE_PORT_END}`,
+      );
     }
     if (usedPorts.has(nodePort)) {
       throw new Error(`NodePort ${nodePort} 已被占用，请改用其他端口。`);

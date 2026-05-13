@@ -27,6 +27,8 @@ import {
   createKubeConfig as createSharedKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
+import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
   loadResourceOwnerMap,
   ownerForUserId,
@@ -38,12 +40,6 @@ import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
-const JUPYTERLAB_NODE_PORT_START = Number(
-  process.env.COLA_JUPYTERLAB_NODE_PORT_START ?? "31980",
-);
-const JUPYTERLAB_NODE_PORT_END = Number(
-  process.env.COLA_JUPYTERLAB_NODE_PORT_END ?? "32079",
-);
 const JUPYTERLAB_PORT = 8888;
 const JUPYTERLAB_WORKDIR =
   process.env.COLA_JUPYTERLAB_WORKDIR ?? "/home/jovyan/work";
@@ -456,32 +452,13 @@ function selectJupyterLabNode(params: {
   })[0]!;
 }
 
-function collectUsedNodePorts(services: V1Service[]) {
-  const ports = new Set<number>();
-
-  for (const service of services) {
-    for (const port of service.spec?.ports ?? []) {
-      if (typeof port.nodePort === "number") {
-        ports.add(port.nodePort);
-      }
-    }
-  }
-
-  return ports;
-}
-
 function resolveJupyterLabNodePort(services: V1Service[]) {
-  const usedPorts = collectUsedNodePorts(services);
-
-  for (
-    let candidate = JUPYTERLAB_NODE_PORT_START;
-    candidate <= JUPYTERLAB_NODE_PORT_END;
-    candidate += 1
-  ) {
-    if (!usedPorts.has(candidate)) return candidate;
-  }
-
-  throw new Error("无法为 JupyterLab 自动分配 NodePort。");
+  return resolveAvailableNodePort({
+    services,
+    start: NODE_PORT_RANGES.jupyterlab.start,
+    end: NODE_PORT_RANGES.jupyterlab.end,
+    errorMessage: "无法为 JupyterLab 自动分配 NodePort。",
+  });
 }
 
 function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {

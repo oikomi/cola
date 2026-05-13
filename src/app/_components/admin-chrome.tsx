@@ -8,6 +8,7 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   ChevronRightIcon,
+  DatabaseIcon,
   MonitorSmartphoneIcon,
   ServerIcon,
   Settings2Icon,
@@ -29,6 +30,7 @@ const areaIcons = {
   workspace: MonitorSmartphoneIcon,
   cmdb: ServerIcon,
   training: BrainCircuitIcon,
+  storage: DatabaseIcon,
   deployments: BlocksIcon,
   system: Settings2Icon,
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
@@ -65,6 +67,16 @@ const areaChrome = {
       "border-violet-200/22 bg-violet-300/[0.075] shadow-[inset_2px_0_0_rgba(196,181,253,0.92),0_18px_42px_rgba(76,29,149,0.2)]",
     icon: "bg-violet-300/18 text-violet-50 ring-violet-100/22 shadow-[0_0_22px_rgba(196,181,253,0.1)]",
     hover: "hover:border-violet-200/14 hover:bg-violet-100/[0.055]",
+  },
+  storage: {
+    label: "Storage",
+    tag: "卷",
+    signal: "JuiceFS / PVC",
+    marker: "bg-lime-300",
+    active:
+      "border-lime-200/22 bg-lime-300/[0.075] shadow-[inset_2px_0_0_rgba(190,242,100,0.92),0_18px_42px_rgba(77,124,15,0.16)]",
+    icon: "bg-lime-300/18 text-lime-50 ring-lime-100/22 shadow-[0_0_22px_rgba(190,242,100,0.1)]",
+    hover: "hover:border-lime-200/14 hover:bg-lime-100/[0.055]",
   },
   deployments: {
     label: "Serving",

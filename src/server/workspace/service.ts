@@ -28,6 +28,8 @@ import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
+import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
   loadResourceOwnerMap,
   ownerForUserId,
@@ -40,8 +42,6 @@ const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const RUNTIME_IMAGE_PATH = path.join(WORKSPACE_RUNTIME_DIR, "latest-image.txt");
 
-const WORKSPACE_NODE_PORT_START = 32080;
-const WORKSPACE_NODE_PORT_END = 32760;
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.WORKSPACE_K8S_API_CONNECT_TIMEOUT_MS ?? 2500,
 );
@@ -145,7 +145,9 @@ function buildWorkspaceCapabilityError(kubeconfigPath: string) {
 }
 
 function buildWorkspaceAccessError(ctx: KubeContext, error: unknown) {
-  const target = ctx.apiServer ? `Kubernetes API ${ctx.apiServer}` : "Kubernetes API";
+  const target = ctx.apiServer
+    ? `Kubernetes API ${ctx.apiServer}`
+    : "Kubernetes API";
   return error instanceof Error
     ? `无法访问 ${target}。${error.message}`
     : `无法访问 ${target}。`;
@@ -383,32 +385,13 @@ function selectWorkspaceNode(params: {
   })[0]!;
 }
 
-function collectUsedNodePorts(services: V1Service[]) {
-  const ports = new Set<number>();
-
-  for (const service of services) {
-    for (const port of service.spec?.ports ?? []) {
-      if (typeof port.nodePort === "number") {
-        ports.add(port.nodePort);
-      }
-    }
-  }
-
-  return ports;
-}
-
 function resolveWorkspaceNodePort(services: V1Service[]) {
-  const usedPorts = collectUsedNodePorts(services);
-
-  for (
-    let candidate = WORKSPACE_NODE_PORT_START;
-    candidate <= WORKSPACE_NODE_PORT_END;
-    candidate += 1
-  ) {
-    if (!usedPorts.has(candidate)) return candidate;
-  }
-
-  throw new Error("无法为远程桌面自动分配 NodePort。");
+  return resolveAvailableNodePort({
+    services,
+    start: NODE_PORT_RANGES.workspace.start,
+    end: NODE_PORT_RANGES.workspace.end,
+    errorMessage: "无法为远程桌面自动分配 NodePort。",
+  });
 }
 
 function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node) {
@@ -510,23 +493,38 @@ async function ensureNamespace(coreApi: CoreV1Api, namespace: string) {
   });
 }
 
+async function listAllServicesWithFallback(ctx: KubeContext) {
+  try {
+    const services = await ctx.coreApi.listServiceForAllNamespaces();
+    return services.items ?? [];
+  } catch {
+    const namespaceServices = await ctx.coreApi.listNamespacedService({
+      namespace: ctx.config.workspaceNamespace,
+    });
+    return namespaceServices.items ?? [];
+  }
+}
+
 async function listWorkspaceResources(ctx: KubeContext) {
   const namespace = ctx.config.workspaceNamespace;
   if (!(await namespaceExists(ctx.coreApi, namespace))) {
     return {
       deployments: [] as V1Deployment[],
       services: [] as V1Service[],
+      allServices: [] as V1Service[],
       ingresses: [] as V1Ingress[],
       liveNodes: [] as V1Node[],
     };
   }
 
-  const [deployments, services, ingresses, liveNodes] = await Promise.all([
-    ctx.appsApi.listNamespacedDeployment({ namespace }),
-    ctx.coreApi.listNamespacedService({ namespace }),
-    ctx.networkingApi.listNamespacedIngress({ namespace }),
-    ctx.coreApi.listNode(),
-  ]);
+  const [deployments, services, allServices, ingresses, liveNodes] =
+    await Promise.all([
+      ctx.appsApi.listNamespacedDeployment({ namespace }),
+      ctx.coreApi.listNamespacedService({ namespace }),
+      listAllServicesWithFallback(ctx),
+      ctx.networkingApi.listNamespacedIngress({ namespace }),
+      ctx.coreApi.listNode(),
+    ]);
 
   return {
     deployments: (deployments.items ?? []).filter((deployment) =>
@@ -538,6 +536,7 @@ async function listWorkspaceResources(ctx: KubeContext) {
     ingresses: (ingresses.items ?? []).filter((ingress) =>
       ingress.metadata?.name?.startsWith("workspace-"),
     ),
+    allServices,
     liveNodes: liveNodes.items ?? [],
   };
 }
@@ -598,7 +597,9 @@ function buildWorkspaceDeployment(input: {
           },
         },
         spec: {
-          ...(usesGpuAcceleration(gpuSpec) ? { runtimeClassName: "nvidia" } : {}),
+          ...(usesGpuAcceleration(gpuSpec)
+            ? { runtimeClassName: "nvidia" }
+            : {}),
           nodeSelector: {
             "kubernetes.io/hostname": input.nodeName,
           },
@@ -886,7 +887,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
 
   await ensureNamespace(ctx.coreApi, namespace);
 
-  const { deployments, services, liveNodes } =
+  const { deployments, allServices, liveNodes } =
     await listWorkspaceResources(ctx);
   const existing = deployments.some(
     (deployment) =>
@@ -905,7 +906,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     workspaceLabelKey: ctx.config.workspaceLabelKey,
     gpuLabelKey: ctx.config.gpuLabelKey,
   });
-  const nodePort = resolveWorkspaceNodePort(services);
+  const nodePort = resolveWorkspaceNodePort(allServices);
   const image = resolveWorkspaceImage();
 
   await ctx.appsApi.createNamespacedDeployment({

@@ -6,8 +6,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_DIR="$INFRA_DIR/k8s"
 CLUSTER_CONFIG="$K8S_DIR/cluster/config.json"
+CLUSTER_NODES="$K8S_DIR/cluster/nodes.json"
 DEFAULT_ENV_FILE="$SCRIPT_DIR/juicefs.env"
 DEFAULT_VALUES_FILE="$SCRIPT_DIR/values.yaml"
+DEFAULT_JUICEFS_NAME="cola-juicefs"
+DEFAULT_LOCAL_BACKEND_NAMESPACE="storage"
+DEFAULT_LOCAL_BACKEND_ROOT="/var/lib/cola/juicefs"
+DEFAULT_LOCAL_BACKEND_REDIS_NAME="juicefs-redis"
+DEFAULT_LOCAL_BACKEND_MINIO_NAME="juicefs-minio"
+DEFAULT_LOCAL_BACKEND_BUCKET="$DEFAULT_JUICEFS_NAME"
+DEFAULT_LOCAL_BACKEND_ACCESS_KEY="minioadmin"
+DEFAULT_LOCAL_BACKEND_SECRET_KEY="minioadmin"
 
 ACTION="install"
 ENV_FILE=""
@@ -34,6 +43,10 @@ Options:
 
 Environment:
   JUICEFS_CREATE_STORAGECLASS=0 skips Secret and StorageClass creation.
+  JUICEFS_LOCAL_BACKEND=0 skips the cluster-local Redis and MinIO backend.
+
+By default this script deploys Redis and MinIO inside Kubernetes and stores
+their data on a selected node via hostPath under /var/lib/cola/juicefs.
 EOF
 }
 
@@ -103,6 +116,40 @@ EOF
 cluster_name() {
   [[ -f "$CLUSTER_CONFIG" ]] || die "找不到集群配置: $CLUSTER_CONFIG"
   json_field clusterName
+}
+
+default_backend_node_name() {
+  [[ -f "$CLUSTER_NODES" ]] || return 0
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$CLUSTER_NODES" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+nodes = json.loads(Path(sys.argv[1]).read_text())
+workers = [node for node in nodes if "worker" in node.get("roles", [])]
+preferred = [node for node in workers if "master" not in node.get("roles", [])]
+selected = (preferred or workers or nodes or [None])[0]
+if selected and selected.get("name"):
+    print(selected["name"])
+PY
+    return 0
+  fi
+
+  if command -v node >/dev/null 2>&1; then
+    node --input-type=module - "$CLUSTER_NODES" <<'EOF'
+import fs from "node:fs";
+
+const [path] = process.argv.slice(2);
+const nodes = JSON.parse(fs.readFileSync(path, "utf8"));
+const workers = nodes.filter((node) => node.roles?.includes("worker"));
+const preferred = workers.filter((node) => !node.roles?.includes("master"));
+const selected = (preferred[0] ?? workers[0] ?? nodes[0]);
+if (selected?.name) process.stdout.write(selected.name);
+EOF
+    return 0
+  fi
 }
 
 resolve_kubeconfig() {
@@ -198,6 +245,8 @@ parse_args() {
 }
 
 set_defaults() {
+  local default_backend_node
+
   JUICEFS_CSI_NAMESPACE="${JUICEFS_CSI_NAMESPACE:-kube-system}"
   JUICEFS_RELEASE="${JUICEFS_RELEASE:-juicefs-csi-driver}"
   JUICEFS_REPO_NAME="${JUICEFS_REPO_NAME:-juicefs}"
@@ -215,12 +264,34 @@ set_defaults() {
   JUICEFS_RECLAIM_POLICY="${JUICEFS_RECLAIM_POLICY:-Retain}"
   JUICEFS_ALLOW_VOLUME_EXPANSION="${JUICEFS_ALLOW_VOLUME_EXPANSION:-true}"
 
-  JUICEFS_NAME="${JUICEFS_NAME:-juicefs}"
-  JUICEFS_METAURL="${JUICEFS_METAURL:-}"
-  JUICEFS_STORAGE="${JUICEFS_STORAGE:-}"
-  JUICEFS_BUCKET="${JUICEFS_BUCKET:-}"
-  JUICEFS_ACCESS_KEY="${JUICEFS_ACCESS_KEY:-}"
-  JUICEFS_SECRET_KEY="${JUICEFS_SECRET_KEY:-}"
+  default_backend_node="$(default_backend_node_name || true)"
+  JUICEFS_LOCAL_BACKEND="${JUICEFS_LOCAL_BACKEND:-1}"
+  JUICEFS_LOCAL_BACKEND_NAMESPACE="${JUICEFS_LOCAL_BACKEND_NAMESPACE:-$DEFAULT_LOCAL_BACKEND_NAMESPACE}"
+  JUICEFS_LOCAL_BACKEND_NODE_NAME="${JUICEFS_LOCAL_BACKEND_NODE_NAME:-$default_backend_node}"
+  JUICEFS_LOCAL_BACKEND_ROOT="${JUICEFS_LOCAL_BACKEND_ROOT:-$DEFAULT_LOCAL_BACKEND_ROOT}"
+  JUICEFS_LOCAL_BACKEND_REDIS_NAME="${JUICEFS_LOCAL_BACKEND_REDIS_NAME:-$DEFAULT_LOCAL_BACKEND_REDIS_NAME}"
+  JUICEFS_LOCAL_BACKEND_REDIS_IMAGE="${JUICEFS_LOCAL_BACKEND_REDIS_IMAGE:-redis:7-alpine}"
+  JUICEFS_LOCAL_BACKEND_MINIO_NAME="${JUICEFS_LOCAL_BACKEND_MINIO_NAME:-$DEFAULT_LOCAL_BACKEND_MINIO_NAME}"
+  JUICEFS_LOCAL_BACKEND_MINIO_IMAGE="${JUICEFS_LOCAL_BACKEND_MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
+  JUICEFS_LOCAL_BACKEND_MC_IMAGE="${JUICEFS_LOCAL_BACKEND_MC_IMAGE:-minio/mc:RELEASE.2025-04-16T18-13-26Z}"
+  JUICEFS_LOCAL_BACKEND_BUCKET="${JUICEFS_LOCAL_BACKEND_BUCKET:-$DEFAULT_LOCAL_BACKEND_BUCKET}"
+  JUICEFS_LOCAL_BACKEND_ACCESS_KEY="${JUICEFS_LOCAL_BACKEND_ACCESS_KEY:-$DEFAULT_LOCAL_BACKEND_ACCESS_KEY}"
+  JUICEFS_LOCAL_BACKEND_SECRET_KEY="${JUICEFS_LOCAL_BACKEND_SECRET_KEY:-$DEFAULT_LOCAL_BACKEND_SECRET_KEY}"
+
+  JUICEFS_NAME="${JUICEFS_NAME:-$DEFAULT_JUICEFS_NAME}"
+  if is_true "$JUICEFS_LOCAL_BACKEND"; then
+    JUICEFS_METAURL="${JUICEFS_METAURL:-redis://${JUICEFS_LOCAL_BACKEND_REDIS_NAME}.${JUICEFS_LOCAL_BACKEND_NAMESPACE}.svc.cluster.local:6379/1}"
+    JUICEFS_STORAGE="${JUICEFS_STORAGE:-minio}"
+    JUICEFS_BUCKET="${JUICEFS_BUCKET:-http://${JUICEFS_LOCAL_BACKEND_MINIO_NAME}.${JUICEFS_LOCAL_BACKEND_NAMESPACE}.svc.cluster.local:9000/${JUICEFS_LOCAL_BACKEND_BUCKET}}"
+    JUICEFS_ACCESS_KEY="${JUICEFS_ACCESS_KEY:-$JUICEFS_LOCAL_BACKEND_ACCESS_KEY}"
+    JUICEFS_SECRET_KEY="${JUICEFS_SECRET_KEY:-$JUICEFS_LOCAL_BACKEND_SECRET_KEY}"
+  else
+    JUICEFS_METAURL="${JUICEFS_METAURL:-}"
+    JUICEFS_STORAGE="${JUICEFS_STORAGE:-}"
+    JUICEFS_BUCKET="${JUICEFS_BUCKET:-}"
+    JUICEFS_ACCESS_KEY="${JUICEFS_ACCESS_KEY:-}"
+    JUICEFS_SECRET_KEY="${JUICEFS_SECRET_KEY:-}"
+  fi
   JUICEFS_FORMAT_OPTIONS="${JUICEFS_FORMAT_OPTIONS:-}"
   JUICEFS_MOUNT_OPTIONS="${JUICEFS_MOUNT_OPTIONS:-}"
   JUICEFS_EXISTING_VOLUME="${JUICEFS_EXISTING_VOLUME:-0}"
@@ -294,6 +365,223 @@ connectivity_check() {
   fi
 
   kubectl_cmd get nodes >/dev/null
+}
+
+validate_local_backend_inputs() {
+  if ! is_true "$JUICEFS_LOCAL_BACKEND"; then
+    return 0
+  fi
+
+  [[ -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" ]] || die "JUICEFS_LOCAL_BACKEND_NAMESPACE 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_NODE_NAME" ]] || die "JUICEFS_LOCAL_BACKEND_NODE_NAME 不能为空。请检查 $CLUSTER_NODES 或手动设置。"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_ROOT" ]] || die "JUICEFS_LOCAL_BACKEND_ROOT 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_REDIS_NAME" ]] || die "JUICEFS_LOCAL_BACKEND_REDIS_NAME 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_MINIO_NAME" ]] || die "JUICEFS_LOCAL_BACKEND_MINIO_NAME 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_BUCKET" ]] || die "JUICEFS_LOCAL_BACKEND_BUCKET 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_ACCESS_KEY" ]] || die "JUICEFS_LOCAL_BACKEND_ACCESS_KEY 不能为空"
+  [[ -n "$JUICEFS_LOCAL_BACKEND_SECRET_KEY" ]] || die "JUICEFS_LOCAL_BACKEND_SECRET_KEY 不能为空"
+}
+
+render_local_backend() {
+  local redis_dir="${JUICEFS_LOCAL_BACKEND_ROOT%/}/redis"
+  local minio_dir="${JUICEFS_LOCAL_BACKEND_ROOT%/}/minio"
+
+  cat <<YAML
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+type: Opaque
+stringData:
+  root-user: ${JUICEFS_LOCAL_BACKEND_ACCESS_KEY}
+  root-password: ${JUICEFS_LOCAL_BACKEND_SECRET_KEY}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+    app.kubernetes.io/part-of: juicefs-local-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+        app.kubernetes.io/part-of: juicefs-local-backend
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${JUICEFS_LOCAL_BACKEND_NODE_NAME}
+      containers:
+        - name: redis
+          image: ${JUICEFS_LOCAL_BACKEND_REDIS_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          hostPath:
+            path: ${redis_dir}
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_REDIS_NAME}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+    app.kubernetes.io/part-of: juicefs-local-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+        app.kubernetes.io/part-of: juicefs-local-backend
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${JUICEFS_LOCAL_BACKEND_NODE_NAME}
+      containers:
+        - name: minio
+          image: ${JUICEFS_LOCAL_BACKEND_MINIO_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+                  key: root-password
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          hostPath:
+            path: ${minio_dir}
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+spec:
+  selector:
+    app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+    - name: console
+      port: 9001
+      targetPort: console
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}-bucket
+  namespace: ${JUICEFS_LOCAL_BACKEND_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}-bucket
+    app.kubernetes.io/part-of: juicefs-local-backend
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}-bucket
+        app.kubernetes.io/part-of: juicefs-local-backend
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: create-bucket
+          image: ${JUICEFS_LOCAL_BACKEND_MC_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${JUICEFS_LOCAL_BACKEND_MINIO_NAME}
+                  key: root-password
+          command: ["/bin/sh", "-lc"]
+          args:
+            - |
+              until mc alias set local "http://${JUICEFS_LOCAL_BACKEND_MINIO_NAME}.${JUICEFS_LOCAL_BACKEND_NAMESPACE}.svc.cluster.local:9000" "\$MINIO_ROOT_USER" "\$MINIO_ROOT_PASSWORD"; do
+                sleep 2
+              done
+              mc mb --ignore-existing "local/${JUICEFS_LOCAL_BACKEND_BUCKET}"
+YAML
+}
+
+apply_local_backend() {
+  if ! is_true "$JUICEFS_LOCAL_BACKEND"; then
+    return 0
+  fi
+
+  validate_local_backend_inputs
+  log "创建或更新集群内 JuiceFS 本地硬盘后端: namespace=${JUICEFS_LOCAL_BACKEND_NAMESPACE}, node=${JUICEFS_LOCAL_BACKEND_NODE_NAME}, root=${JUICEFS_LOCAL_BACKEND_ROOT}"
+  render_local_backend | apply_yaml "JuiceFS local Redis/MinIO backend"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    return 0
+  fi
+
+  kubectl_cmd -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" rollout status "deployment/${JUICEFS_LOCAL_BACKEND_REDIS_NAME}" --timeout="$JUICEFS_WAIT_TIMEOUT"
+  kubectl_cmd -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" rollout status "deployment/${JUICEFS_LOCAL_BACKEND_MINIO_NAME}" --timeout="$JUICEFS_WAIT_TIMEOUT"
+  kubectl_cmd -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" wait --for=condition=complete "job/${JUICEFS_LOCAL_BACKEND_MINIO_NAME}-bucket" --timeout="$JUICEFS_WAIT_TIMEOUT"
 }
 
 install_driver() {
@@ -436,6 +724,12 @@ apply_storageclass() {
 }
 
 print_status() {
+  if is_true "$JUICEFS_LOCAL_BACKEND"; then
+    log "JuiceFS local backend"
+    kubectl_cmd -n "$JUICEFS_LOCAL_BACKEND_NAMESPACE" get deployment,job,svc,pods -l "app.kubernetes.io/part-of=juicefs-local-backend" -o wide || true
+    echo
+  fi
+
   log "Helm release"
   helm_cmd status "$JUICEFS_RELEASE" --namespace "$JUICEFS_CSI_NAMESPACE" || true
 
@@ -455,6 +749,10 @@ uninstall_driver() {
   echo "Secret 和 StorageClass 未自动删除。如需删除，请手动确认后执行："
   echo "  kubectl --kubeconfig \"$KUBECONFIG_PATH\" delete storageclass \"$JUICEFS_STORAGECLASS_NAME\""
   echo "  kubectl --kubeconfig \"$KUBECONFIG_PATH\" -n \"$JUICEFS_SECRET_NAMESPACE\" delete secret \"$JUICEFS_SECRET_NAME\""
+  if is_true "$JUICEFS_LOCAL_BACKEND"; then
+    echo "  kubectl --kubeconfig \"$KUBECONFIG_PATH\" delete namespace \"$JUICEFS_LOCAL_BACKEND_NAMESPACE\""
+    echo "注意：namespace 删除不会清理节点上的 hostPath 数据目录: $JUICEFS_LOCAL_BACKEND_ROOT"
+  fi
 }
 
 main() {
@@ -480,6 +778,7 @@ main() {
   case "$ACTION" in
     install)
       connectivity_check
+      apply_local_backend
       install_driver
       if is_true "$JUICEFS_CREATE_STORAGECLASS"; then
         validate_storageclass_inputs

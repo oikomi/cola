@@ -5,6 +5,7 @@ export type ProductAreaKey =
   | "workspace"
   | "cmdb"
   | "training"
+  | "storage"
   | "deployments"
   | "system";
 
@@ -31,6 +32,12 @@ export const PRODUCT_AREAS: Array<{
     href: "/training",
     title: "训练作业",
     description: "统一管理训练任务、数据集、优先级和 GPU 消耗。",
+  },
+  {
+    key: "storage",
+    href: "/storage",
+    title: "存储管理",
+    description: "管理 JuiceFS、PVC、数据集目录和训练产物共享空间。",
   },
   {
     key: "deployments",
@@ -85,6 +92,10 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/training")) {
     return "training";
+  }
+
+  if (pathname.startsWith("/storage")) {
+    return "storage";
   }
 
   if (pathname.startsWith("/deployments")) {

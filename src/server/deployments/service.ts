@@ -48,6 +48,8 @@ import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
+import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
   loadResourceOwnerMap,
   ownerForUserId,
@@ -60,8 +62,6 @@ const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 
 const INFERENCE_DEPLOYMENT_PREFIX = "inference-";
 const INFERENCE_SERVICE_SUFFIX = "-svc";
-const INFERENCE_NODE_PORT_START = 32300;
-const INFERENCE_NODE_PORT_END = 32760;
 const METADATA_PREFIX = "cola.dev";
 const MODEL_CACHE_ROOT =
   process.env.INFERENCE_MODEL_CACHE_ROOT ??
@@ -427,32 +427,13 @@ function selectEligibleInferenceNodes(params: {
     .map((entry) => entry.node.name);
 }
 
-function collectUsedNodePorts(services: V1Service[]) {
-  const ports = new Set<number>();
-
-  for (const service of services) {
-    for (const port of service.spec?.ports ?? []) {
-      if (typeof port.nodePort === "number") {
-        ports.add(port.nodePort);
-      }
-    }
-  }
-
-  return ports;
-}
-
 function resolveInferenceNodePort(services: V1Service[]) {
-  const usedPorts = collectUsedNodePorts(services);
-
-  for (
-    let candidate = INFERENCE_NODE_PORT_START;
-    candidate <= INFERENCE_NODE_PORT_END;
-    candidate += 1
-  ) {
-    if (!usedPorts.has(candidate)) return candidate;
-  }
-
-  throw new Error("无法为推理部署自动分配 NodePort。");
+  return resolveAvailableNodePort({
+    services,
+    start: NODE_PORT_RANGES.inference.start,
+    end: NODE_PORT_RANGES.inference.end,
+    errorMessage: "无法为推理部署自动分配 NodePort。",
+  });
 }
 
 function resolveControllerAccessHost(

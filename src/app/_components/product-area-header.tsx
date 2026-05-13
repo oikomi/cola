@@ -5,6 +5,7 @@ import {
   BlocksIcon,
   BrainCircuitIcon,
   Building2Icon,
+  DatabaseIcon,
   MonitorSmartphoneIcon,
   ServerIcon,
   Settings2Icon,
@@ -22,6 +23,7 @@ const areaIcons = {
   workspace: MonitorSmartphoneIcon,
   cmdb: ServerIcon,
   training: BrainCircuitIcon,
+  storage: DatabaseIcon,
   deployments: BlocksIcon,
   system: Settings2Icon,
 } satisfies Record<ProductAreaKey, typeof Building2Icon>;
@@ -31,6 +33,7 @@ const areaEyebrows: Record<ProductAreaKey, string> = {
   workspace: "Workspace Control",
   cmdb: "CMDB Ops",
   training: "Training Ops",
+  storage: "Storage Ops",
   deployments: "Inference Ops",
   system: "Cluster Surface",
 };
