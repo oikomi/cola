@@ -8,16 +8,29 @@ DOCKERFILE_PATH="$REPO_ROOT/docker/vision-inference.Dockerfile"
 IMAGE_NAME="cola-vision-tensorrt"
 IMAGE_TAG="local"
 TENSORRT_BASE_IMAGE="nvcr.io/nvidia/tensorrt:24.07-py3"
+PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn"
+DOCKER_BUILD_NETWORK="host"
 RUNTIME_DIR="$REPO_ROOT/runtime"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/vision-inference-image.sh build-and-load [options]
+Usage: ./scripts/vision-inference-image.sh [build-and-load|load] [options]
+
+Commands:
+  build-and-load          Build the image, export it, and load it into cluster nodes
+  load                    Load an existing image archive into cluster nodes
 
 Options:
   --image-name <name>   Image name, default cola-vision-tensorrt
   --image-tag <tag>     Image tag, default local
   --base-image <ref>    TensorRT base image, default nvcr.io/nvidia/tensorrt:24.07-py3
+  --pip-index-url <url> Python package index, default Tsinghua PyPI mirror
+  --pip-trusted-host <host>
+                        Trusted host for the configured pip index
+  --build-network <mode>
+                        Docker build network mode, default host
+  --archive <path>      Image archive path for load, default runtime/<image>_<tag>.tar.gz
   -h, --help            Show help
 EOF
 }
@@ -43,6 +56,22 @@ while [[ $# -gt 0 ]]; do
       TENSORRT_BASE_IMAGE="$2"
       shift 2
       ;;
+    --pip-index-url)
+      PIP_INDEX_URL="$2"
+      shift 2
+      ;;
+    --pip-trusted-host)
+      PIP_TRUSTED_HOST="$2"
+      shift 2
+      ;;
+    --build-network)
+      DOCKER_BUILD_NETWORK="$2"
+      shift 2
+      ;;
+    --archive)
+      ARCHIVE_PATH="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       usage >&2
@@ -51,7 +80,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$cmd" != "build-and-load" ]]; then
+if [[ "$cmd" != "build-and-load" && "$cmd" != "load" ]]; then
   echo "Unknown command: $cmd" >&2
   usage >&2
   exit 1
@@ -69,19 +98,26 @@ require_cmd ssh
 ensure_runtime_dirs
 
 IMAGE_REF="${IMAGE_NAME}:${IMAGE_TAG}"
-ARCHIVE_PATH="$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz"
+ARCHIVE_PATH="${ARCHIVE_PATH:-$RUNTIME_DIR/${IMAGE_NAME//\//-}_${IMAGE_TAG}.tar.gz}"
 LOCAL_ARCH="$(local_arch)"
 LOCAL_PLATFORM="linux/$LOCAL_ARCH"
 
-print_step "构建视觉推理镜像 $IMAGE_REF"
-docker build \
-  -f "$DOCKERFILE_PATH" \
-  --build-arg "TENSORRT_BASE_IMAGE=$TENSORRT_BASE_IMAGE" \
-  -t "$IMAGE_REF" \
-  "$REPO_ROOT"
+if [[ "$cmd" == "build-and-load" ]]; then
+  print_step "构建视觉推理镜像 $IMAGE_REF"
+  docker build \
+    -f "$DOCKERFILE_PATH" \
+    --network "$DOCKER_BUILD_NETWORK" \
+    --build-arg "TENSORRT_BASE_IMAGE=$TENSORRT_BASE_IMAGE" \
+    --build-arg "PIP_INDEX_URL=$PIP_INDEX_URL" \
+    --build-arg "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST" \
+    -t "$IMAGE_REF" \
+    "$REPO_ROOT"
 
-print_step "导出视觉推理镜像"
-docker image save --platform "$LOCAL_PLATFORM" "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
+  print_step "导出视觉推理镜像"
+  docker image save --platform "$LOCAL_PLATFORM" "$IMAGE_REF" | gzip > "$ARCHIVE_PATH"
+fi
+
+[[ -f "$ARCHIVE_PATH" ]] || die "找不到镜像归档: $ARCHIVE_PATH。请先执行 build-and-load，或通过 --archive 指定归档。"
 
 mapfile -t TARGET_NODES < <(cluster_query nodeNamesByArch "$LOCAL_ARCH")
 if [[ "${#TARGET_NODES[@]}" -eq 0 ]]; then

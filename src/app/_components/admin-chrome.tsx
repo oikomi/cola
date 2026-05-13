@@ -130,7 +130,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
 
   return (
     <div className="text-foreground bg-background min-h-dvh overflow-x-hidden md:h-dvh md:overflow-hidden">
-      <div className="mx-auto grid min-h-dvh w-full max-w-[1880px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:h-full md:min-h-0 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[360px_minmax(0,1fr)] 2xl:gap-4 2xl:px-5 2xl:py-5">
+      <div className="mx-auto grid min-h-dvh w-full max-w-[1840px] grid-rows-[auto_minmax(0,1fr)] gap-2 px-2 py-2 md:h-full md:min-h-0 md:grid-cols-[64px_minmax(0,1fr)] md:grid-rows-1 md:gap-2.5 md:px-3 md:py-3 2xl:grid-cols-[228px_minmax(0,1fr)] 2xl:gap-3 2xl:px-4 2xl:py-4">
         <aside className="text-sidebar-foreground relative z-30 min-h-0 min-w-0 overflow-visible rounded-[var(--radius-shell)] border border-white/[0.12] bg-[linear-gradient(180deg,#12202a_0%,#0e1822_48%,#0a1119_100%)] shadow-[0_24px_70px_rgba(15,23,42,0.28),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(125,211,252,0.13),transparent_28%),radial-gradient(circle_at_90%_18%,rgba(52,211,153,0.09),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_36%)]" />
@@ -140,8 +140,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
           </div>
 
           <div className="relative flex h-full min-h-0 flex-col">
-            <div className="border-b border-white/[0.08] px-3.5 py-2.5 min-[1700px]:py-5 md:px-2.5 md:py-3 2xl:px-6 2xl:py-4">
-              <div className="flex items-center gap-3.5 md:justify-center 2xl:justify-start">
+            <div className="border-b border-white/[0.08] px-3.5 py-2.5 md:px-2.5 md:py-3 2xl:px-3 2xl:py-2.5">
+              <div className="flex items-center gap-2.5 md:justify-center 2xl:justify-start">
                 <div className="relative shrink-0">
                   <span className="absolute -inset-2 rounded-2xl bg-sky-300/10 blur-xl" />
                   <Image
@@ -150,17 +150,17 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                     width={48}
                     height={48}
                     priority
-                    className="relative size-[42px] rounded-[10px] shadow-[0_10px_24px_rgba(15,23,42,0.3)] ring-1 ring-white/16 2xl:size-[52px] 2xl:rounded-xl"
+                    className="relative size-[42px] rounded-[10px] shadow-[0_10px_24px_rgba(15,23,42,0.3)] ring-1 ring-white/16 2xl:size-10 2xl:rounded-[9px]"
                   />
                 </div>
                 <div className="min-w-0 md:hidden 2xl:block">
-                  <p className="text-[10px] leading-none font-semibold tracking-[0.32em] text-sky-100/48 uppercase">
+                  <p className="text-[8px] leading-none font-semibold tracking-[0.24em] text-sky-100/48 uppercase">
                     XDREAM
                   </p>
-                  <p className="mt-1.5 truncate text-[18px] leading-none font-semibold text-white">
+                  <p className="mt-1 truncate text-[14px] leading-none font-semibold text-white">
                     Cloud Console
                   </p>
-                  <div className="mt-2.5 flex items-center gap-2 text-[12px] text-slate-300/70">
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-300/70">
                     <span
                       className={cn(
                         "size-2 rounded-full shadow-[0_0_0_5px_rgba(52,211,153,0.09)]",
@@ -175,19 +175,19 @@ export function AdminChrome({ children }: { children: ReactNode }) {
 
             <nav
               aria-label="产品区域导航"
-              className="flex min-h-0 flex-1 flex-col px-2.5 py-2 min-[1700px]:py-4 md:min-w-0 md:px-2 md:py-2.5 2xl:px-4 2xl:py-3"
+              className="flex min-h-0 flex-1 flex-col px-2.5 py-2 md:min-w-0 md:px-2 md:py-2.5 2xl:px-2.5 2xl:py-2"
             >
-              <div className="mb-3.5 hidden items-center justify-between px-1.5 2xl:flex">
-                <span className="text-[10px] font-semibold tracking-[0.32em] text-slate-300/54 uppercase">
+              <div className="mb-1.5 hidden items-center justify-between px-1 2xl:flex">
+                <span className="text-[8px] font-semibold tracking-[0.24em] text-slate-300/54 uppercase">
                   Operations
                 </span>
-                <span className="rounded-full border border-white/[0.095] bg-white/[0.045] px-3 py-1.5 text-[10px] leading-none font-medium text-slate-200/72">
+                <span className="rounded-full border border-white/[0.095] bg-white/[0.045] px-2 py-0.5 text-[8px] leading-none font-medium text-slate-200/72">
                   {PRODUCT_AREAS.length} modules
                 </span>
               </div>
 
-              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 min-[1700px]:gap-2.5 min-[1700px]:pb-4 md:min-h-0 md:flex-1 md:flex-col md:gap-1.5 md:overflow-visible md:pb-0 2xl:gap-2 2xl:overflow-y-auto 2xl:pr-1.5 2xl:pb-3">
-                <span className="pointer-events-none absolute top-5 bottom-8 left-[42px] hidden w-px bg-gradient-to-b from-transparent via-slate-200/13 to-transparent 2xl:block" />
+              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1 md:overflow-visible md:pb-0 2xl:gap-1 2xl:overflow-y-auto 2xl:pr-1 2xl:pb-2">
+                <span className="pointer-events-none absolute top-4 bottom-4 left-[25px] hidden w-px bg-gradient-to-b from-transparent via-slate-200/13 to-transparent 2xl:block" />
                 {PRODUCT_AREAS.map((area) => {
                   const active = area.key === activeArea;
 
@@ -240,7 +240,7 @@ function ProductAreaNavItem({
         aria-current={active ? "page" : undefined}
         aria-label={`${area.title}：${area.description}`}
         className={cn(
-          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 min-[1700px]:min-h-[94px] min-[1700px]:py-3 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:min-h-[66px] 2xl:justify-start 2xl:px-4 2xl:py-2",
+          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:min-h-[40px] 2xl:justify-start 2xl:px-2 2xl:py-1.5",
           active
             ? cn("text-white", chrome.active)
             : cn(
@@ -254,57 +254,45 @@ function ProductAreaNavItem({
         ) : null}
         <span
           className={cn(
-            "pointer-events-none absolute top-3 bottom-3 left-0 hidden w-0.5 rounded-full min-[1700px]:top-4 min-[1700px]:bottom-4 2xl:block",
+            "pointer-events-none absolute top-2 bottom-2 left-0 hidden w-0.5 rounded-full 2xl:block",
             active ? chrome.marker : "bg-white/0 group-hover:bg-white/16",
           )}
         />
 
-        <div className="relative flex w-full items-center gap-2.5 md:justify-center 2xl:justify-start 2xl:gap-3">
+        <div className="relative flex w-full items-center gap-2 md:justify-center 2xl:justify-start">
           <span
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200 min-[1700px]:size-11 2xl:size-9",
+              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200 2xl:size-7",
               active
                 ? chrome.icon
                 : "bg-slate-950/16 text-slate-200/70 ring-white/[0.07] group-hover:bg-white/[0.065] group-hover:text-white",
             )}
           >
-            <Icon className="size-[15px] min-[1700px]:size-5 2xl:size-4" />
+            <Icon className="size-[14px] 2xl:size-3.5" />
           </span>
 
           <div className="min-w-0 flex-1 md:hidden 2xl:block">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-[15px] leading-5 font-semibold text-slate-100">
-                    {area.title}
-                  </span>
-                  {active ? (
-                    <Badge className="hidden shrink-0 border border-white/10 bg-white/[0.115] px-1.5 py-0 text-[10px] leading-4 text-white shadow-none 2xl:inline-flex">
-                      当前
-                    </Badge>
-                  ) : null}
-                </div>
-
-                <div className="mt-1.5 flex min-w-0 items-center gap-2">
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      chrome.marker,
-                    )}
-                  />
-                  <span className="truncate text-[10px] font-semibold tracking-[0.18em] text-slate-300/58 uppercase">
-                    {chrome.label}
-                  </span>
-                  <span className="text-[10px] text-slate-500/60">/</span>
-                  <span className="truncate text-[11px] text-slate-300/64">
-                    {chrome.signal}
-                  </span>
-                </div>
+            <div className="flex min-w-0 items-center justify-between gap-1.5">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    chrome.marker,
+                  )}
+                />
+                <span className="truncate text-[12px] leading-4 font-medium text-slate-100">
+                  {area.title}
+                </span>
+                {active ? (
+                  <Badge className="hidden shrink-0 border border-white/10 bg-white/[0.115] px-1 py-0 text-[8px] leading-3 text-white shadow-none 2xl:inline-flex">
+                    当前
+                  </Badge>
+                ) : null}
               </div>
 
               <span
                 className={cn(
-                  "mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[10px] leading-none font-medium",
+                  "shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] leading-none font-medium",
                   active
                     ? "border-white/14 bg-white/[0.105] text-white"
                     : "border-white/8 bg-white/[0.035] text-slate-300/58 group-hover:border-white/10 group-hover:bg-white/[0.055] group-hover:text-slate-200/76",
@@ -314,15 +302,13 @@ function ProductAreaNavItem({
               </span>
             </div>
 
-            <p className="mt-2 hidden overflow-hidden text-[12px] leading-[1.45] text-slate-300/68 min-[1700px]:[display:-webkit-box] min-[1700px]:[-webkit-box-orient:vertical] min-[1700px]:[-webkit-line-clamp:2]">
-              {area.description}
-            </p>
+            <p className="sr-only">{area.description}</p>
           </div>
 
           <div className="absolute top-1/2 right-0 hidden -translate-y-1/2 items-center 2xl:flex">
             <ChevronRightIcon
               className={cn(
-                "size-4 transition-all duration-200",
+                "size-3.5 transition-all duration-200",
                 active
                   ? "translate-x-0 text-white/82 opacity-100"
                   : "-translate-x-1 text-slate-300/40 opacity-0 group-hover:translate-x-0 group-hover:opacity-100",

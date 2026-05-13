@@ -22,6 +22,20 @@ nvcr.io/nvidia/tensorrt:24.07-py3
 ./scripts/vision-inference-image.sh build-and-load --base-image nvcr.io/nvidia/tensorrt:<tag>-py3
 ```
 
+默认 pip 镜像源使用清华 PyPI：
+
+```bash
+https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+如需切换：
+
+```bash
+./scripts/vision-inference-image.sh build-and-load \
+  --pip-index-url https://pypi.org/simple \
+  --pip-trusted-host pypi.org
+```
+
 ## 创建部署
 
 在 `/deployments` 中创建推理部署：

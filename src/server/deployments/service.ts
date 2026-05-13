@@ -495,6 +495,10 @@ function deploymentAnnotations(input: {
   };
 }
 
+function imagePullPolicyFor(image: string) {
+  return image.trim().endsWith(":local") ? "Never" : "IfNotPresent";
+}
+
 function buildRuntimeCommand(input: {
   name: string;
   engine: InferenceDeploymentEngine;
@@ -736,7 +740,7 @@ function buildInferenceDeployment(input: {
             {
               name: "server",
               image: input.image,
-              imagePullPolicy: "IfNotPresent",
+              imagePullPolicy: imagePullPolicyFor(input.image),
               ...(runtimeCommand.command
                 ? { command: runtimeCommand.command }
                 : {}),
