@@ -58,6 +58,7 @@ type StudioRun = RouterOutputs["training"]["listStudioRuns"][number];
 type JupyterLabImageOption =
   RouterOutputs["training"]["listJupyterLabs"]["imageOptions"][number];
 type RuntimeStatus = "running" | "starting" | "error";
+type TrainingWorkspaceTabKey = "studio" | "jupyterlab";
 
 type RuntimeDraft = {
   name: string;
@@ -386,6 +387,25 @@ function TrainingCompactEmptyState(props: {
         </p>
       </div>
       {props.action ? <div className="shrink-0">{props.action}</div> : null}
+    </div>
+  );
+}
+
+function TrainingWorkspaceTabPanel(props: {
+  value: TrainingWorkspaceTabKey;
+  activeValue: TrainingWorkspaceTabKey;
+  children: ReactNode;
+}) {
+  const isActive = props.value === props.activeValue;
+
+  return (
+    <div
+      id={`training-workspace-panel-${props.value}`}
+      role="tabpanel"
+      aria-labelledby={`training-workspace-tab-${props.value}`}
+      hidden={!isActive}
+    >
+      {isActive ? props.children : null}
     </div>
   );
 }
@@ -1430,6 +1450,8 @@ export function TrainingShell() {
   const [studioDraft, setStudioDraft] = useState(defaultStudioDraft);
   const [runDraft, setRunDraft] = useState(defaultStudioRunDraft);
   const [labDraft, setLabDraft] = useState(defaultJupyterLabDraft);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] =
+    useState<TrainingWorkspaceTabKey>("studio");
   const [pendingDeletedStudioNames, setPendingDeletedStudioNames] = useState<
     string[]
   >([]);
@@ -1449,6 +1471,22 @@ export function TrainingShell() {
   const studioCapabilityReason = studiosQuery.data?.reason ?? null;
   const labAvailable = jupyterLabsQuery.data?.available === true;
   const labCapabilityReason = jupyterLabsQuery.data?.reason ?? null;
+  const workspaceTabs = [
+    {
+      key: "studio" as const,
+      label: "Unsloth Studio",
+      description: "配置与提交多机多卡训练",
+      countLabel: `${studios.length} Studio`,
+      icon: BrainCircuitIcon,
+    },
+    {
+      key: "jupyterlab" as const,
+      label: "JupyterLab",
+      description: "数据检查与 notebook 调试",
+      countLabel: `${jupyterLabs.length} Lab`,
+      icon: NotebookTabsIcon,
+    },
+  ];
 
   const studioImageOptions = useMemo(
     () => studiosQuery.data?.imageOptions ?? [],
@@ -1916,106 +1954,77 @@ export function TrainingShell() {
 
       <ModuleSection
         density="compact"
-        title="Unsloth Studio"
-        description="创建 Studio 工作区，并从这里提交多机多卡训练运行。运行记录是 Studio 提交后的后端执行对象，不作为第三个入口。"
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={!studioAvailable}
-              onClick={() => setIsRunCreateOpen(true)}
-            >
-              <PlayIcon data-icon="inline-start" />
-              提交训练
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!studioAvailable}
-              onClick={() => setIsStudioCreateOpen(true)}
-            >
-              <PlusIcon data-icon="inline-start" />
-              新建 Studio
-            </Button>
-          </div>
-        }
+        title="训练环境"
+        description="Unsloth Studio 和 JupyterLab 作为并列入口切换；训练运行记录仍归在 Studio 面板内。"
       >
-        {studiosQuery.isLoading ? <LoadingCards /> : null}
+        <div
+          role="tablist"
+          aria-label="训练环境切换"
+          className="scrollbar-none flex gap-1 overflow-x-auto rounded-[10px] border border-slate-200/90 bg-slate-100/80 p-1"
+        >
+          {workspaceTabs.map((workspaceTab) => {
+            const isActive = workspaceTab.key === activeWorkspaceTab;
+            const Icon = workspaceTab.icon;
 
-        {!studiosQuery.isLoading && studios.length === 0 ? (
-          <TrainingCompactEmptyState
-            title="还没有 Unsloth Studio"
-            description="创建一个 Studio 后，可以进入原生界面配置模型、数据集和训练参数。"
-            action={
-              <Button
-                size="sm"
-                disabled={!studioAvailable}
-                onClick={() => setIsStudioCreateOpen(true)}
-              >
-                <PlusIcon data-icon="inline-start" />
-                新建 Studio
-              </Button>
-            }
-          />
-        ) : null}
-
-        {!studiosQuery.isLoading && studios.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {studios.map((studio) => (
-              <RuntimeCard
-                key={studio.id}
-                kind="studio"
-                title={studio.name}
-                status={studio.status}
-                updatedAt={studio.updatedAt}
-                spec={runtimeSpecLabel(studio)}
-                nodeName={studio.nodeName}
-                endpoint={studio.endpoint}
-                image={studio.image}
-                openUrl={studio.studioUrl}
-                owner={studio}
-                isDeleting={
-                  deleteStudio.isPending &&
-                  deleteStudio.variables?.name === studio.name
-                }
-                onDelete={() => void handleDeleteStudio(studio.name)}
-              />
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-4 border-t border-slate-200/80 pt-4">
-          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-[15px] font-semibold text-slate-950">
-                多机多卡运行记录
-              </h3>
-              <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
-                这些记录由 Studio 配置后提交，实际运行在 Kubernetes Indexed
-                Job。
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={studioRunsQuery.isFetching}
-              onClick={() => void studioRunsQuery.refetch()}
-            >
-              <RefreshCwIcon
-                data-icon="inline-start"
+            return (
+              <button
+                key={workspaceTab.key}
+                id={`training-workspace-tab-${workspaceTab.key}`}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`training-workspace-panel-${workspaceTab.key}`}
+                onClick={() => setActiveWorkspaceTab(workspaceTab.key)}
                 className={cn(
-                  studioRunsQuery.isFetching ? "animate-spin" : undefined,
+                  "flex min-h-10 min-w-[220px] items-center justify-between gap-3 rounded-[8px] px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 focus-visible:outline-none md:min-w-0 md:flex-1",
+                  isActive
+                    ? "bg-white text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
+                    : "text-slate-600 hover:bg-white/64 hover:text-slate-950",
                 )}
-              />
-              刷新运行
-            </Button>
-          </div>
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    className={cn(
+                      "flex size-7 shrink-0 items-center justify-center rounded-[8px]",
+                      isActive
+                        ? "bg-slate-100 text-slate-700"
+                        : "bg-transparent text-slate-500",
+                    )}
+                  >
+                    <Icon className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-semibold">
+                      {workspaceTab.label}
+                    </span>
+                    <span className="hidden truncate text-[11px] text-slate-500 sm:block">
+                      {workspaceTab.description}
+                    </span>
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-500">
+                  {workspaceTab.countLabel}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-          {studioRunsQuery.isLoading ? <LoadingCards /> : null}
-
-          {!studioRunsQuery.isLoading && studioRuns.length === 0 ? (
-            <TrainingCompactEmptyState
-              title="还没有训练运行"
-              description="从 Studio 区域提交一次多机多卡训练后，运行状态会显示在这里。"
-              action={
+        <TrainingWorkspaceTabPanel
+          value="studio"
+          activeValue={activeWorkspaceTab}
+        >
+          <div className="mt-4">
+            <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-[15px] font-semibold text-slate-950">
+                  Unsloth Studio
+                </h3>
+                <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+                  创建 Studio 工作区，并从这里提交多机多卡训练运行。
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
                   disabled={!studioAvailable}
@@ -2024,52 +2033,144 @@ export function TrainingShell() {
                   <PlayIcon data-icon="inline-start" />
                   提交训练
                 </Button>
-              }
-            />
-          ) : null}
-
-          {!studioRunsQuery.isLoading && studioRuns.length > 0 ? (
-            <div className="grid gap-3">
-              {studioRuns.map((run) => (
-                <StudioRunCard
-                  key={run.id}
-                  run={run}
-                  isStarting={
-                    startRun.isPending && startRun.variables?.id === run.id
-                  }
-                  isStopping={
-                    stopRun.isPending && stopRun.variables?.id === run.id
-                  }
-                  onStart={() => startRun.mutate({ id: run.id })}
-                  onStop={() => void handleStopRun(run)}
-                />
-              ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!studioAvailable}
+                  onClick={() => setIsStudioCreateOpen(true)}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  新建 Studio
+                </Button>
+              </div>
             </div>
-          ) : null}
-        </div>
-      </ModuleSection>
 
-      <ModuleSection
-        density="compact"
-        title="JupyterLab"
-        description="用于数据检查、notebook 实验和单节点调试；正式多机多卡训练从 Unsloth Studio 区域提交。"
-        action={
-          <Button
-            disabled={!labAvailable}
-            onClick={() => setIsLabCreateOpen(true)}
-          >
-            <PlusIcon data-icon="inline-start" />
-            新建 JupyterLab
-          </Button>
-        }
-      >
-        {jupyterLabsQuery.isLoading ? <LoadingCards /> : null}
+            {studiosQuery.isLoading ? <LoadingCards /> : null}
 
-        {!jupyterLabsQuery.isLoading && jupyterLabs.length === 0 ? (
-          <TrainingCompactEmptyState
-            title="还没有 JupyterLab"
-            description="创建一个环境后，可以从这里直接进入 JupyterLab。"
-            action={
+            {!studiosQuery.isLoading && studios.length === 0 ? (
+              <TrainingCompactEmptyState
+                title="还没有 Unsloth Studio"
+                description="创建一个 Studio 后，可以进入原生界面配置模型、数据集和训练参数。"
+                action={
+                  <Button
+                    size="sm"
+                    disabled={!studioAvailable}
+                    onClick={() => setIsStudioCreateOpen(true)}
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    新建 Studio
+                  </Button>
+                }
+              />
+            ) : null}
+
+            {!studiosQuery.isLoading && studios.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {studios.map((studio) => (
+                  <RuntimeCard
+                    key={studio.id}
+                    kind="studio"
+                    title={studio.name}
+                    status={studio.status}
+                    updatedAt={studio.updatedAt}
+                    spec={runtimeSpecLabel(studio)}
+                    nodeName={studio.nodeName}
+                    endpoint={studio.endpoint}
+                    image={studio.image}
+                    openUrl={studio.studioUrl}
+                    owner={studio}
+                    isDeleting={
+                      deleteStudio.isPending &&
+                      deleteStudio.variables?.name === studio.name
+                    }
+                    onDelete={() => void handleDeleteStudio(studio.name)}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-4 border-t border-slate-200/80 pt-4">
+              <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-[15px] font-semibold text-slate-950">
+                    多机多卡运行记录
+                  </h3>
+                  <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+                    这些记录由 Studio 配置后提交，实际运行在 Kubernetes Indexed
+                    Job。
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={studioRunsQuery.isFetching}
+                  onClick={() => void studioRunsQuery.refetch()}
+                >
+                  <RefreshCwIcon
+                    data-icon="inline-start"
+                    className={cn(
+                      studioRunsQuery.isFetching ? "animate-spin" : undefined,
+                    )}
+                  />
+                  刷新运行
+                </Button>
+              </div>
+
+              {studioRunsQuery.isLoading ? <LoadingCards /> : null}
+
+              {!studioRunsQuery.isLoading && studioRuns.length === 0 ? (
+                <TrainingCompactEmptyState
+                  title="还没有训练运行"
+                  description="从 Studio 区域提交一次多机多卡训练后，运行状态会显示在这里。"
+                  action={
+                    <Button
+                      size="sm"
+                      disabled={!studioAvailable}
+                      onClick={() => setIsRunCreateOpen(true)}
+                    >
+                      <PlayIcon data-icon="inline-start" />
+                      提交训练
+                    </Button>
+                  }
+                />
+              ) : null}
+
+              {!studioRunsQuery.isLoading && studioRuns.length > 0 ? (
+                <div className="grid gap-3">
+                  {studioRuns.map((run) => (
+                    <StudioRunCard
+                      key={run.id}
+                      run={run}
+                      isStarting={
+                        startRun.isPending && startRun.variables?.id === run.id
+                      }
+                      isStopping={
+                        stopRun.isPending && stopRun.variables?.id === run.id
+                      }
+                      onStart={() => startRun.mutate({ id: run.id })}
+                      onStop={() => void handleStopRun(run)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </TrainingWorkspaceTabPanel>
+
+        <TrainingWorkspaceTabPanel
+          value="jupyterlab"
+          activeValue={activeWorkspaceTab}
+        >
+          <div className="mt-4">
+            <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-[15px] font-semibold text-slate-950">
+                  JupyterLab
+                </h3>
+                <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+                  用于数据检查、notebook 实验和单节点调试。
+                </p>
+              </div>
               <Button
                 size="sm"
                 disabled={!labAvailable}
@@ -2078,34 +2179,53 @@ export function TrainingShell() {
                 <PlusIcon data-icon="inline-start" />
                 新建 JupyterLab
               </Button>
-            }
-          />
-        ) : null}
+            </div>
 
-        {!jupyterLabsQuery.isLoading && jupyterLabs.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {jupyterLabs.map((lab) => (
-              <RuntimeCard
-                key={lab.id}
-                kind="jupyter"
-                title={lab.name}
-                status={lab.status}
-                updatedAt={lab.updatedAt}
-                spec={runtimeSpecLabel(lab)}
-                nodeName={lab.nodeName}
-                endpoint={lab.endpoint}
-                image={lab.image}
-                openUrl={lab.labUrl}
-                owner={lab}
-                isDeleting={
-                  deleteJupyterLab.isPending &&
-                  deleteJupyterLab.variables?.name === lab.name
+            {jupyterLabsQuery.isLoading ? <LoadingCards /> : null}
+
+            {!jupyterLabsQuery.isLoading && jupyterLabs.length === 0 ? (
+              <TrainingCompactEmptyState
+                title="还没有 JupyterLab"
+                description="创建一个环境后，可以从这里直接进入 JupyterLab。"
+                action={
+                  <Button
+                    size="sm"
+                    disabled={!labAvailable}
+                    onClick={() => setIsLabCreateOpen(true)}
+                  >
+                    <PlusIcon data-icon="inline-start" />
+                    新建 JupyterLab
+                  </Button>
                 }
-                onDelete={() => void handleDeleteJupyterLab(lab.name)}
               />
-            ))}
+            ) : null}
+
+            {!jupyterLabsQuery.isLoading && jupyterLabs.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {jupyterLabs.map((lab) => (
+                  <RuntimeCard
+                    key={lab.id}
+                    kind="jupyter"
+                    title={lab.name}
+                    status={lab.status}
+                    updatedAt={lab.updatedAt}
+                    spec={runtimeSpecLabel(lab)}
+                    nodeName={lab.nodeName}
+                    endpoint={lab.endpoint}
+                    image={lab.image}
+                    openUrl={lab.labUrl}
+                    owner={lab}
+                    isDeleting={
+                      deleteJupyterLab.isPending &&
+                      deleteJupyterLab.variables?.name === lab.name
+                    }
+                    onDelete={() => void handleDeleteJupyterLab(lab.name)}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </TrainingWorkspaceTabPanel>
       </ModuleSection>
 
       <RuntimeDialog

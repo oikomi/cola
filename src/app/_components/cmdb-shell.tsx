@@ -165,9 +165,10 @@ type TerminalSessionStatus =
   | "error";
 type TerminalSessionInfo = {
   sessionId: string;
-  projectId: number;
+  projectId: number | null;
   projectName: string;
   deployTarget: ProjectRow["deployTarget"];
+  assetId: number | null;
   targetAssetName: string;
   host: string;
   sshUser: string;
@@ -1052,6 +1053,11 @@ function projectOperationIssue(
     return "当前仅 Docker 部署项目支持查看容器状态、日志和监控。";
   }
 
+  return null;
+}
+
+function assetSshLoginIssue(asset: AssetRow) {
+  if (!asset.sshUser) return "资产未配置 SSH 用户。";
   return null;
 }
 
@@ -3474,6 +3480,7 @@ export function CmdbShell() {
   const [operationSelectedAssetName, setOperationSelectedAssetName] = useState<
     string | null
   >(null);
+  const [operationAsset, setOperationAsset] = useState<AssetRow | null>(null);
   const [monitorProject, setMonitorProject] = useState<ProjectRow | null>(null);
   const [operationAction, setOperationAction] =
     useState<ProjectOperationAction>("dockerStatus");
@@ -3870,6 +3877,15 @@ export function CmdbShell() {
     ? (projects.find((project) => project.id === monitorProject.id) ??
       monitorProject)
     : null;
+  const operationTitle = operationAsset
+    ? "SSH 登录"
+    : projectOperationLabel(operationAction, operationProject?.deployTarget);
+  const operationDescription = operationAsset
+    ? "自动登录目标服务器资产，打开远程终端。"
+    : projectOperationDescription(
+        operationAction,
+        operationProject?.deployTarget,
+      );
   const OperationIcon =
     operationAction === "dockerStatus"
       ? ActivityIcon
@@ -3886,17 +3902,19 @@ export function CmdbShell() {
   const operationTargetAssetName =
     operationResult?.targetAssetName ??
     terminalSession?.targetAssetName ??
+    operationAsset?.name ??
     operationSelectedAssetName ??
     (operationProject
       ? projectTargetAssetsLabel(operationProject.config)
       : "-");
-  const operationHost = operationResult?.host ?? terminalSession?.host ?? "-";
+  const operationHost =
+    operationResult?.host ?? terminalSession?.host ?? operationAsset?.ip ?? "-";
   const operationContainerName =
     operationDockerStatus?.name ??
     operationResult?.containerName ??
     terminalSession?.containerName ??
     operationProject?.name ??
-    "-";
+    (operationAsset ? "远程主机" : "-");
   const operationStatusText = isTerminalOperation
     ? terminalStatusLabel(terminalStatusState)
     : operationDockerStatus
@@ -4392,10 +4410,11 @@ export function CmdbShell() {
     return fallback;
   }
 
-  async function startTerminalLogin(
-    project: ProjectRow,
-    targetAssetName?: string,
-  ) {
+  async function startTerminalLogin(input: {
+    project?: ProjectRow;
+    targetAssetName?: string;
+    asset?: AssetRow;
+  }) {
     closeTerminalSession();
     const token = terminalStartTokenRef.current + 1;
     terminalStartTokenRef.current = token;
@@ -4411,12 +4430,19 @@ export function CmdbShell() {
       const response = await fetch("/api/cmdb/terminal-session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId: project.id, targetAssetName }),
+        body: JSON.stringify(
+          input.asset
+            ? { assetId: input.asset.id }
+            : {
+                projectId: input.project?.id,
+                targetAssetName: input.targetAssetName,
+              },
+        ),
       });
 
       if (!response.ok) {
         throw new Error(
-          await responseErrorMessage(response, "容器登录会话创建失败。"),
+          await responseErrorMessage(response, "SSH 登录会话创建失败。"),
         );
       }
 
@@ -4459,7 +4485,7 @@ export function CmdbShell() {
     } catch (error) {
       if (terminalStartTokenRef.current !== token) return;
 
-      const message = error instanceof Error ? error.message : "容器登录失败";
+      const message = error instanceof Error ? error.message : "SSH 登录失败";
       setTerminalStatus("error");
       setTerminalError(message);
       appendTerminalOutput(`\r\n${message}\r\n`);
@@ -4604,6 +4630,7 @@ export function CmdbShell() {
     }
 
     setOperationProject(project);
+    setOperationAsset(null);
     setOperationSelectedAssetName(targetAssetName ?? null);
     setOperationAction(action);
     setOperationResult(null);
@@ -4612,7 +4639,7 @@ export function CmdbShell() {
 
     if (action === "sshInfo") {
       projectOperation.reset();
-      void startTerminalLogin(project, targetAssetName);
+      void startTerminalLogin({ project, targetAssetName });
       return;
     }
 
@@ -4623,6 +4650,18 @@ export function CmdbShell() {
       targetAssetName,
       tail: action === "dockerLogs" ? 200 : undefined,
     });
+  }
+
+  function openAssetSshLogin(asset: AssetRow) {
+    setOperationProject(null);
+    setOperationAsset(asset);
+    setOperationSelectedAssetName(asset.name);
+    setOperationAction("sshInfo");
+    setOperationResult(null);
+    setOperationCopied(false);
+    setOperationDialogOpen(true);
+    projectOperation.reset();
+    void startTerminalLogin({ asset });
   }
 
   function openMonitorDialog(project: ProjectRow) {
@@ -5459,6 +5498,17 @@ export function CmdbShell() {
                           variant="outline"
                           size="sm"
                           className="h-8 rounded-[9px] border-slate-300 bg-white"
+                          onClick={() => openAssetSshLogin(asset)}
+                          disabled={Boolean(assetSshLoginIssue(asset))}
+                          title={assetSshLoginIssue(asset) ?? "SSH 登录"}
+                        >
+                          <TerminalIcon data-icon="inline-start" />
+                          SSH 登录
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-[9px] border-slate-300 bg-white"
                           onClick={() => toggleAssetServices(asset.name)}
                           aria-expanded={servicesExpanded}
                           aria-controls={`asset-services-${asset.id}`}
@@ -5633,6 +5683,16 @@ export function CmdbShell() {
                                       servicesExpanded ? "rotate-180" : "",
                                     )}
                                   />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon-sm"
+                                  className="rounded-[10px]"
+                                  onClick={() => openAssetSshLogin(asset)}
+                                  disabled={Boolean(assetSshLoginIssue(asset))}
+                                  title={assetSshLoginIssue(asset) ?? "SSH 登录"}
+                                >
+                                  <TerminalIcon />
                                 </Button>
                                 <Button
                                   variant="outline"
@@ -6431,21 +6491,19 @@ export function CmdbShell() {
                 </span>
                 <div className="min-w-0">
                   <DialogTitle className="text-base leading-6 font-semibold tracking-normal text-slate-950">
-                    {projectOperationLabel(
-                      operationAction,
-                      operationProject?.deployTarget,
-                    )}
+                    {operationTitle}
                   </DialogTitle>
                   <DialogDescription className="mt-1 max-w-2xl text-sm leading-5 text-slate-600">
-                    {projectOperationDescription(
-                      operationAction,
-                      operationProject?.deployTarget,
-                    )}
+                    {operationDescription}
                   </DialogDescription>
                 </div>
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
-                {operationProject ? (
+                {operationAsset ? (
+                  <Badge className="max-w-full truncate border border-slate-200 bg-slate-50 text-slate-700 md:max-w-[240px]">
+                    {operationAsset.name}
+                  </Badge>
+                ) : operationProject ? (
                   <Badge className="max-w-full truncate border border-slate-200 bg-slate-50 text-slate-700 md:max-w-[240px]">
                     {operationProject.name}
                   </Badge>
@@ -6585,7 +6643,7 @@ export function CmdbShell() {
                   >
                     <div
                       ref={setTerminalHost}
-                      aria-label="容器终端"
+                      aria-label={operationAsset ? "SSH 终端" : "容器终端"}
                       role="application"
                       className={cn(
                         "h-full w-full cursor-text bg-slate-950 px-3 py-3 text-slate-100",
@@ -6680,18 +6738,25 @@ export function CmdbShell() {
                 <ClipboardIcon data-icon="inline-start" />
                 {operationCopied ? "已复制" : "复制"}
               </Button>
-              {operationProject ? (
+              {operationProject || operationAsset ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="rounded-[10px]"
-                  onClick={() =>
-                    openProjectOperation(
-                      operationProject,
-                      operationAction,
-                      operationSelectedAssetName ?? undefined,
-                    )
-                  }
+                  onClick={() => {
+                    if (operationAsset) {
+                      openAssetSshLogin(operationAsset);
+                      return;
+                    }
+
+                    if (operationProject) {
+                      openProjectOperation(
+                        operationProject,
+                        operationAction,
+                        operationSelectedAssetName ?? undefined,
+                      );
+                    }
+                  }}
                   disabled={projectOperation.isPending}
                 >
                   <RefreshCwIcon data-icon="inline-start" />

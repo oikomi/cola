@@ -721,8 +721,7 @@ function buildStudioDeployment(input: {
               name: "unsloth-studio",
               image: input.image,
               imagePullPolicy:
-                process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ??
-                "IfNotPresent",
+                process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ?? "Always",
               workingDir: mountPath,
               command: ["bash", "-lc"],
               args: [buildStudioCommand(mountPath)],

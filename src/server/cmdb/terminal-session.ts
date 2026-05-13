@@ -32,9 +32,10 @@ export type CmdbTerminalSessionEvent =
 
 export type CmdbTerminalSessionInfo = {
   sessionId: string;
-  projectId: number;
+  projectId: number | null;
   projectName: string;
   deployTarget: CmdbProjectTerminalTarget["deployTarget"];
+  assetId: number | null;
   targetAssetName: string;
   host: string;
   sshUser: string;
@@ -87,6 +88,7 @@ class CmdbTerminalSession {
       projectId: this.target.projectId,
       projectName: this.target.projectName,
       deployTarget: this.target.deployTarget,
+      assetId: this.target.assetId,
       targetAssetName: this.target.targetAssetName,
       host: this.target.host,
       sshUser: this.target.sshUser,

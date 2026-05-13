@@ -143,9 +143,10 @@ const cmdbAssetSshMonitor = (() => {
 })();
 
 export type CmdbProjectTerminalTarget = {
-  projectId: number;
+  projectId: number | null;
   projectName: string;
   deployTarget: CmdbProjectRow["deployTarget"];
+  assetId: number | null;
   targetAssetName: string;
   host: string;
   sshUser: string;
@@ -828,6 +829,30 @@ async function resolvePrimaryProjectAsset(
   };
 }
 
+async function resolveSshReadyAssetById(
+  database: Database,
+  assetId: number,
+): Promise<SshReadyAssetRow> {
+  const [asset] = await database
+    .select()
+    .from(cmdbAssets)
+    .where(eq(cmdbAssets.id, assetId));
+
+  if (!asset) {
+    throw new Error("资产不存在，无法登录。");
+  }
+
+  if (!asset.sshUser || !asset.sshPassword) {
+    throw new Error(`目标资产 ${asset.name} 未配置 SSH 用户或密码。`);
+  }
+
+  return {
+    ...asset,
+    sshUser: asset.sshUser,
+    sshPassword: asset.sshPassword,
+  };
+}
+
 async function resolveProjectAssets(
   database: Database,
   project: Pick<CmdbProjectRow, "name" | "config">,
@@ -1499,6 +1524,7 @@ export async function resolveCmdbProjectTerminalTarget(
     projectId: project.id,
     projectName: project.name,
     deployTarget: project.deployTarget,
+    assetId: asset.id,
     targetAssetName: asset.name,
     host: asset.ip,
     sshUser: asset.sshUser,
@@ -1513,6 +1539,33 @@ export async function resolveCmdbProjectTerminalTarget(
     remoteCommand: containerName
       ? buildDockerContainerLoginRemoteCommand(containerName)
       : null,
+  };
+}
+
+export async function resolveCmdbAssetTerminalTarget(
+  database: Database,
+  assetId: number,
+): Promise<CmdbProjectTerminalTarget> {
+  const asset = await resolveSshReadyAssetById(database, assetId);
+  const sshPort = asset.sshPort ?? 22;
+
+  return {
+    projectId: null,
+    projectName: "服务器资产",
+    deployTarget: "ssh",
+    assetId: asset.id,
+    targetAssetName: asset.name,
+    host: asset.ip,
+    sshUser: asset.sshUser,
+    sshPort,
+    sshConfig: buildSshConfig({
+      ip: asset.ip,
+      sshUser: asset.sshUser,
+      sshPassword: asset.sshPassword,
+      sshPort,
+    }),
+    containerName: null,
+    remoteCommand: null,
   };
 }
 
