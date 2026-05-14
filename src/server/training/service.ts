@@ -39,6 +39,7 @@ import {
   buildWorkVolumeMounts,
   buildWorkVolumeSecurityContext,
   buildWorkVolumeShellCommand,
+  buildWorkVolumeWorkingDir,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
   SHARED_STORAGE_MOUNT_PATH,
@@ -303,10 +304,14 @@ function buildLeaderPodName(runtimeJobName: string) {
   return appendDnsLabelSuffix(runtimeJobName, "0");
 }
 
-function resolveArtifactPath(job: TrainingJobRecord, runtimeJobName: string) {
+function resolveArtifactPath(
+  job: TrainingJobRecord,
+  runtimeJobName: string,
+  sharedStorageRoot = SHARED_STORAGE_MOUNT_PATH,
+) {
   const outputRoot =
     process.env.COLA_TRAINING_OUTPUT_ROOT?.trim() ??
-    path.posix.join(SHARED_STORAGE_MOUNT_PATH, "cola-training");
+    path.posix.join(sharedStorageRoot, "cola-training");
   return path.posix.join(outputRoot, job.id, runtimeJobName);
 }
 
@@ -655,11 +660,11 @@ function buildTrainingRuntime(
   const runtimeServiceName = buildRuntimeServiceName(runtimeJobName);
   const runtimeConfigMapName = buildRuntimeConfigMapName(runtimeJobName);
   const leaderPodName = buildLeaderPodName(runtimeJobName);
-  const artifactPath = resolveArtifactPath(job, runtimeJobName);
   const cpuRequest = resolveCpuRequest(config.gpusPerNode);
   const memoryRequest = resolveMemoryRequest(config.gpusPerNode);
   const workVolume = resolveWorkVolume();
   const { mountPath } = workVolume;
+  const artifactPath = resolveArtifactPath(job, runtimeJobName, mountPath);
   const labels = {
     "app.kubernetes.io/name": "cola-training",
     "app.kubernetes.io/component": "unsloth-job",
@@ -869,7 +874,7 @@ function buildTrainingRuntime(
               image: ctx.image,
               imagePullPolicy:
                 process.env.COLA_TRAINING_IMAGE_PULL_POLICY ?? "IfNotPresent",
-              workingDir: mountPath,
+              workingDir: buildWorkVolumeWorkingDir(workVolume),
               command: ["sh", "-lc"],
               args: [
                 buildWorkVolumeShellCommand(

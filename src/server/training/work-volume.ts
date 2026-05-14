@@ -7,9 +7,13 @@ type WorkVolume = {
   };
   hostPath?: {
     path: string;
-    type?: "Directory" | "DirectoryOrCreate" | "CharDevice";
+    type?: "Directory" | "DirectoryOrCreate" | "CharDevice" | "File";
   };
   emptyDir?: Record<string, never>;
+};
+
+type VirtualWorkVolume = {
+  name: string;
 };
 
 type WorkVolumeMount = {
@@ -29,6 +33,8 @@ type WorkContainer = {
   env?: Array<{ name: string; value: string }>;
   volumeMounts?: WorkVolumeMount[];
   securityContext?: {
+    runAsUser?: number;
+    runAsGroup?: number;
     privileged?: boolean;
     allowPrivilegeEscalation?: boolean;
     capabilities?: {
@@ -53,7 +59,7 @@ type WorkVolumeMode = "seaweedfs" | "hostPath" | "pvc" | "emptyDir";
 
 type WorkVolumeSource = {
   mode: WorkVolumeMode;
-  volume: WorkVolume;
+  volume: WorkVolume | VirtualWorkVolume;
   volumes: WorkVolume[];
   mountPath: string;
   mountPropagation?: "HostToContainer";
@@ -70,8 +76,8 @@ const DEFAULT_SEAWEEDFS_FILER =
 const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/cola-training";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
+const DEFAULT_SEAWEEDFS_FUSERMOUNT_HOST_PATH = "/bin/fusermount3";
 export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
-const SEAWEEDFS_MOUNT_SUBDIR = ".seaweedfs";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
   for (const name of names) {
@@ -108,21 +114,17 @@ function volumeName(base: string, suffix: string) {
   return `${base}-${suffix}`.slice(0, 63).replace(/-+$/g, "");
 }
 
-function joinPosixPath(base: string, child: string) {
-  return `${base.replace(/\/+$/g, "")}/${child.replace(/^\/+/g, "")}`;
-}
-
 function buildSeaweedfsInstallCommand() {
   return `set -eu
 mkdir -p "${SEAWEEDFS_TOOLS_DIR}"
 cp "$(command -v weed)" "${SEAWEEDFS_TOOLS_DIR}/weed"
 chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/weed"
 
-mkdir -p "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
+mkdir -p "$COLA_SEAWEEDFS_CACHE_DIR"
 if [ "$(id -u)" = "0" ]; then
-  chown -R "$COLA_SEAWEEDFS_MOUNT_UID:\${COLA_SEAWEEDFS_MOUNT_GID:-$COLA_SEAWEEDFS_MOUNT_UID}" "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
+  chown -R "$COLA_SEAWEEDFS_MOUNT_UID:\${COLA_SEAWEEDFS_MOUNT_GID:-$COLA_SEAWEEDFS_MOUNT_UID}" "$COLA_SEAWEEDFS_CACHE_DIR"
 fi
-chmod 0777 "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR" || true
+chmod 0777 "$COLA_SEAWEEDFS_CACHE_DIR" || true
 
 cat > "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" <<'SH'
 #!/bin/sh
@@ -288,21 +290,27 @@ function resolveSeaweedfsWorkVolume(input: {
 }): WorkVolumeSource {
   const cacheVolumeName = volumeName(input.volumeName, "seaweedfs-cache");
   const fuseVolumeName = volumeName(input.volumeName, "fuse-device");
+  const fusermountVolumeName = volumeName(input.volumeName, "fusermount");
   const toolsVolumeName = volumeName(input.volumeName, "seaweedfs-tools");
   const installContainerName = volumeName(input.volumeName, "seaweedfs-tools");
   const cacheDir =
     firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_DIR"]) ??
     DEFAULT_SEAWEEDFS_CACHE_DIR;
-  const mountSubdir =
-    firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_SUBDIR"]) ??
-    SEAWEEDFS_MOUNT_SUBDIR;
-  const mountPath = joinPosixPath(input.mountPath, mountSubdir);
+  const fusermountHostPath =
+    firstEnvValue(input.env, ["COLA_SEAWEEDFS_FUSERMOUNT_HOST_PATH"]) ??
+    DEFAULT_SEAWEEDFS_FUSERMOUNT_HOST_PATH;
+  const runMountAsRoot = isEnabled(
+    firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_RUN_AS_ROOT"]),
+    true,
+  );
   const containerEnv = buildSeaweedfsEnv({
     env: input.env,
-    mountPath,
+    mountPath: input.mountPath,
     cacheDir,
   });
   const containerSecurityContext = {
+    runAsUser: runMountAsRoot ? 0 : undefined,
+    runAsGroup: runMountAsRoot ? 0 : undefined,
     privileged: isEnabled(
       firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_PRIVILEGED"]),
       true,
@@ -315,14 +323,12 @@ function resolveSeaweedfsWorkVolume(input: {
 
   const volume = {
     name: input.volumeName,
-    emptyDir: {},
-  } satisfies WorkVolume;
+  } satisfies VirtualWorkVolume;
 
   return {
     mode: "seaweedfs",
     volume,
     volumes: [
-      volume,
       {
         name: cacheVolumeName,
         emptyDir: {},
@@ -335,11 +341,18 @@ function resolveSeaweedfsWorkVolume(input: {
         },
       },
       {
+        name: fusermountVolumeName,
+        hostPath: {
+          path: fusermountHostPath,
+          type: "File",
+        },
+      },
+      {
         name: toolsVolumeName,
         emptyDir: {},
       },
     ],
-    mountPath,
+    mountPath: input.mountPath,
     initContainers: [
       {
         name: installContainerName,
@@ -353,10 +366,6 @@ function resolveSeaweedfsWorkVolume(input: {
         args: [buildSeaweedfsInstallCommand()],
         env: containerEnv,
         volumeMounts: [
-          {
-            name: input.volumeName,
-            mountPath: input.mountPath,
-          },
           {
             name: cacheVolumeName,
             mountPath: cacheDir,
@@ -389,16 +398,17 @@ function resolveSeaweedfsWorkVolume(input: {
     ],
     containerVolumeMounts: [
       {
-        name: input.volumeName,
-        mountPath: input.mountPath,
-      },
-      {
         name: cacheVolumeName,
         mountPath: cacheDir,
       },
       {
         name: fuseVolumeName,
         mountPath: "/dev/fuse",
+      },
+      {
+        name: fusermountVolumeName,
+        mountPath: "/bin/fusermount",
+        readOnly: true,
       },
       {
         name: toolsVolumeName,
@@ -618,4 +628,8 @@ export function buildWorkVolumeShellCommand(
   return workVolume.shellPrefix
     ? `${workVolume.shellPrefix}\n\n${command}`
     : command;
+}
+
+export function buildWorkVolumeWorkingDir(workVolume: WorkVolumeSource) {
+  return workVolume.mode === "seaweedfs" ? "/" : workVolume.mountPath;
 }

@@ -43,6 +43,7 @@ import {
   buildWorkVolumeMounts,
   buildWorkVolumeSecurityContext,
   buildWorkVolumeShellCommand,
+  buildWorkVolumeWorkingDir,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
   SHARED_STORAGE_MOUNT_PATH,
@@ -709,7 +710,7 @@ function buildStudioDeployment(input: {
               imagePullPolicy:
                 process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ??
                 "IfNotPresent",
-              workingDir: mountPath,
+              workingDir: buildWorkVolumeWorkingDir(workVolume),
               command: ["bash", "-lc"],
               args: [
                 buildWorkVolumeShellCommand(

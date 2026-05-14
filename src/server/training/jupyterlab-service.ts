@@ -44,6 +44,7 @@ import {
   buildWorkVolumeMounts,
   buildWorkVolumeSecurityContext,
   buildWorkVolumeShellCommand,
+  buildWorkVolumeWorkingDir,
   buildWorkVolumes,
   SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
@@ -685,7 +686,7 @@ function buildJupyterLabDeployment(input: {
               image: input.image,
               imagePullPolicy:
                 process.env.COLA_JUPYTERLAB_IMAGE_PULL_POLICY ?? "IfNotPresent",
-              workingDir: mountPath,
+              workingDir: buildWorkVolumeWorkingDir(workVolume),
               command: ["bash", "-lc"],
               args: [
                 buildWorkVolumeShellCommand(

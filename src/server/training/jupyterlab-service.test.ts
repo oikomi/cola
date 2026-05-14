@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveJupyterLabWorkVolume } from "./jupyterlab-volume.ts";
-import { SHARED_STORAGE_MOUNT_PATH } from "./work-volume.ts";
+import {
+  buildWorkVolumeMounts,
+  buildWorkVolumeWorkingDir,
+  SHARED_STORAGE_MOUNT_PATH,
+} from "./work-volume.ts";
 
 function withEnv<T>(
   patch: Record<string, string | undefined>,
@@ -34,7 +38,7 @@ function withEnv<T>(
 }
 
 void test("JupyterLab mounts SeaweedFS automatically by default", () => {
-  const { mode, volume, mountPath, initContainers } = withEnv(
+  const workVolume = withEnv(
     {
       COLA_TRAINING_PVC_NAME: "cola-training-workspace",
       COLA_JUPYTERLAB_PVC_NAME: undefined,
@@ -49,12 +53,20 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
         workdir: SHARED_STORAGE_MOUNT_PATH,
       }),
   );
+  const { mode, volume, mountPath, initContainers } = workVolume;
 
   assert.equal(mode, "seaweedfs");
   assert.deepEqual(volume, {
     name: "jupyterlab-workdir",
   });
   assert.equal(mountPath, SHARED_STORAGE_MOUNT_PATH);
+  assert.equal(buildWorkVolumeWorkingDir(workVolume), "/");
+  assert.equal(
+    buildWorkVolumeMounts(workVolume).some(
+      (mount) => mount.mountPath === SHARED_STORAGE_MOUNT_PATH,
+    ),
+    false,
+  );
   assert.equal(initContainers.length, 1);
   assert.equal(initContainers[0]?.name, "jupyterlab-workdir-seaweedfs-tools");
   assert.equal(initContainers[0]?.restartPolicy, undefined);
