@@ -617,8 +617,7 @@ async function listJupyterLabResources(
       (pod) =>
         pod.metadata?.labels?.["app.kubernetes.io/name"] ===
           "cola-jupyterlab" ||
-        pod.metadata?.labels?.["cola.training/jupyterlab-name"] !==
-          undefined ||
+        pod.metadata?.labels?.["cola.training/jupyterlab-name"] !== undefined ||
         pod.metadata?.name?.startsWith("jupyterlab-"),
     ),
     liveNodes: liveNodes.items ?? [],
