@@ -639,7 +639,8 @@ async function listStudioResources(
       (pod) =>
         pod.metadata?.labels?.["app.kubernetes.io/name"] ===
           "cola-unsloth-studio" ||
-        pod.metadata?.labels?.["cola.training/unsloth-studio-name"] ||
+        pod.metadata?.labels?.["cola.training/unsloth-studio-name"] !==
+          undefined ||
         pod.metadata?.name?.startsWith("unsloth-studio-"),
     ),
     liveNodes: liveNodes.items ?? [],

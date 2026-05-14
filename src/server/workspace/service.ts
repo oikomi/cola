@@ -542,7 +542,7 @@ async function listWorkspaceResources(ctx: KubeContext) {
       (pod) =>
         pod.metadata?.labels?.["app.kubernetes.io/name"] ===
           "remote-workspace" ||
-        pod.metadata?.labels?.["remote-work/name"] ||
+        pod.metadata?.labels?.["remote-work/name"] !== undefined ||
         pod.metadata?.name?.startsWith("workspace-"),
     ),
     allServices,
