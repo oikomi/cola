@@ -7,7 +7,6 @@ import {
   BlocksIcon,
   BrainCircuitIcon,
   Building2Icon,
-  ChevronRightIcon,
   DatabaseIcon,
   MonitorSmartphoneIcon,
   ServerIcon,
@@ -16,7 +15,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_AREAS,
@@ -43,70 +41,42 @@ const areaChrome = {
     tag: "协作",
     signal: "Agent / Task",
     marker: "bg-cyan-300",
-    active:
-      "border-cyan-200/22 bg-cyan-300/[0.075] shadow-[inset_2px_0_0_rgba(103,232,249,0.92),0_18px_42px_rgba(8,47,73,0.22)]",
-    icon: "bg-cyan-300/18 text-cyan-50 ring-cyan-100/22 shadow-[0_0_22px_rgba(103,232,249,0.1)]",
-    hover: "hover:border-cyan-200/14 hover:bg-cyan-100/[0.055]",
   },
   workspace: {
     label: "Remote",
     tag: "桌面",
     signal: "Desktop / Node",
-    marker: "bg-teal-300",
-    active:
-      "border-teal-200/22 bg-teal-300/[0.075] shadow-[inset_2px_0_0_rgba(94,234,212,0.92),0_18px_42px_rgba(13,148,136,0.18)]",
-    icon: "bg-teal-300/18 text-teal-50 ring-teal-100/22 shadow-[0_0_22px_rgba(94,234,212,0.1)]",
-    hover: "hover:border-teal-200/14 hover:bg-teal-100/[0.055]",
+    marker: "bg-cyan-300",
   },
   training: {
     label: "GPU Queue",
     tag: "队列",
     signal: "Job / Dataset",
-    marker: "bg-violet-300",
-    active:
-      "border-violet-200/22 bg-violet-300/[0.075] shadow-[inset_2px_0_0_rgba(196,181,253,0.92),0_18px_42px_rgba(76,29,149,0.2)]",
-    icon: "bg-violet-300/18 text-violet-50 ring-violet-100/22 shadow-[0_0_22px_rgba(196,181,253,0.1)]",
-    hover: "hover:border-violet-200/14 hover:bg-violet-100/[0.055]",
+    marker: "bg-cyan-300",
   },
   storage: {
     label: "Storage",
     tag: "对象",
     signal: "SeaweedFS / S3",
-    marker: "bg-lime-300",
-    active:
-      "border-lime-200/22 bg-lime-300/[0.075] shadow-[inset_2px_0_0_rgba(190,242,100,0.92),0_18px_42px_rgba(77,124,15,0.16)]",
-    icon: "bg-lime-300/18 text-lime-50 ring-lime-100/22 shadow-[0_0_22px_rgba(190,242,100,0.1)]",
-    hover: "hover:border-lime-200/14 hover:bg-lime-100/[0.055]",
+    marker: "bg-cyan-300",
   },
   deployments: {
     label: "Serving",
     tag: "服务",
     signal: "Model / Route",
-    marker: "bg-amber-300",
-    active:
-      "border-amber-200/22 bg-amber-300/[0.075] shadow-[inset_2px_0_0_rgba(252,211,77,0.92),0_18px_42px_rgba(146,64,14,0.18)]",
-    icon: "bg-amber-300/18 text-amber-50 ring-amber-100/22 shadow-[0_0_22px_rgba(252,211,77,0.1)]",
-    hover: "hover:border-amber-200/14 hover:bg-amber-100/[0.055]",
+    marker: "bg-cyan-300",
   },
   system: {
     label: "Cluster",
     tag: "K8s",
     signal: "Dashboard / Host",
-    marker: "bg-sky-300",
-    active:
-      "border-sky-200/22 bg-sky-300/[0.075] shadow-[inset_2px_0_0_rgba(125,211,252,0.92),0_18px_42px_rgba(30,64,175,0.18)]",
-    icon: "bg-sky-300/18 text-sky-50 ring-sky-100/22 shadow-[0_0_22px_rgba(125,211,252,0.1)]",
-    hover: "hover:border-sky-200/14 hover:bg-sky-100/[0.055]",
+    marker: "bg-cyan-300",
   },
   cmdb: {
     label: "Assets",
     tag: "资产",
     signal: "Server / GitLab",
-    marker: "bg-emerald-300",
-    active:
-      "border-emerald-200/22 bg-emerald-300/[0.075] shadow-[inset_2px_0_0_rgba(110,231,183,0.92),0_18px_42px_rgba(6,95,70,0.2)]",
-    icon: "bg-emerald-300/18 text-emerald-50 ring-emerald-100/22 shadow-[0_0_22px_rgba(110,231,183,0.1)]",
-    hover: "hover:border-emerald-200/14 hover:bg-emerald-100/[0.055]",
+    marker: "bg-cyan-300",
   },
 } satisfies Record<
   ProductAreaKey,
@@ -115,11 +85,15 @@ const areaChrome = {
     tag: string;
     signal: string;
     marker: string;
-    active: string;
-    icon: string;
-    hover: string;
   }
 >;
+
+const NAV_ACTIVE_MARKER_CLASS = "bg-amber-300";
+const NAV_ACTIVE_CLASS =
+  "border-amber-200/24 bg-[linear-gradient(90deg,rgba(245,158,11,0.15),rgba(34,211,238,0.06))] text-white shadow-[inset_2px_0_0_rgba(251,191,36,0.96),0_18px_42px_rgba(15,23,42,0.2)]";
+const NAV_ACTIVE_ICON_CLASS =
+  "bg-amber-300/18 text-amber-50 ring-amber-100/28 shadow-[0_0_22px_rgba(252,211,77,0.12)]";
+const NAV_HOVER_CLASS = "hover:border-cyan-100/14 hover:bg-cyan-100/[0.055]";
 
 export function AdminChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -163,7 +137,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                   <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-slate-300/70">
                     <span
                       className={cn(
-                        "size-2 rounded-full shadow-[0_0_0_5px_rgba(52,211,153,0.09)]",
+                        "size-2 rounded-full shadow-[0_0_0_5px_rgba(34,211,238,0.08)]",
                         activeAreaChrome.marker,
                       )}
                     />
@@ -186,7 +160,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                 </span>
               </div>
 
-              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1 md:overflow-visible md:pb-0 2xl:gap-1 2xl:overflow-y-auto 2xl:pr-1 2xl:pb-2">
+              <div className="scrollbar-none relative flex gap-1 overflow-x-auto pb-0.5 md:min-h-0 md:flex-1 md:flex-col md:gap-1 md:overflow-visible md:pb-0 2xl:gap-1.5 2xl:overflow-y-auto 2xl:pr-1 2xl:pb-2">
                 <span className="pointer-events-none absolute top-4 bottom-4 left-[25px] hidden w-px bg-gradient-to-b from-transparent via-slate-200/13 to-transparent 2xl:block" />
                 {PRODUCT_AREAS.map((area) => {
                   const active = area.key === activeArea;
@@ -240,12 +214,12 @@ function ProductAreaNavItem({
         aria-current={active ? "page" : undefined}
         aria-label={`${area.title}：${area.description}`}
         className={cn(
-          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:min-h-[40px] 2xl:justify-start 2xl:px-2 2xl:py-1.5",
+          "group relative block overflow-hidden rounded-[var(--radius-card)] border px-2.5 py-2 text-left transition-all duration-200 md:flex md:min-h-11 md:items-center md:justify-center md:px-2 2xl:min-h-[46px] 2xl:justify-start 2xl:px-2.5 2xl:py-2",
           active
-            ? cn("text-white", chrome.active)
+            ? NAV_ACTIVE_CLASS
             : cn(
                 "border-transparent text-slate-200/68 hover:text-white",
-                chrome.hover,
+                NAV_HOVER_CLASS,
               ),
         )}
       >
@@ -255,66 +229,52 @@ function ProductAreaNavItem({
         <span
           className={cn(
             "pointer-events-none absolute top-2 bottom-2 left-0 hidden w-0.5 rounded-full 2xl:block",
-            active ? chrome.marker : "bg-white/0 group-hover:bg-white/16",
+            active
+              ? NAV_ACTIVE_MARKER_CLASS
+              : "bg-white/0 group-hover:bg-white/16",
           )}
         />
 
-        <div className="relative flex w-full items-center gap-2 md:justify-center 2xl:justify-start">
+        <div className="relative flex w-full items-center gap-2 md:justify-center 2xl:grid 2xl:grid-cols-[2rem_minmax(0,1fr)_auto] 2xl:gap-2">
           <span
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200 2xl:size-7",
+              "flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 transition-all duration-200",
               active
-                ? chrome.icon
+                ? NAV_ACTIVE_ICON_CLASS
                 : "bg-slate-950/16 text-slate-200/70 ring-white/[0.07] group-hover:bg-white/[0.065] group-hover:text-white",
             )}
           >
-            <Icon className="size-[14px] 2xl:size-3.5" />
+            <Icon className="size-[14px]" />
           </span>
 
           <div className="min-w-0 flex-1 md:hidden 2xl:block">
-            <div className="flex min-w-0 items-center justify-between gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               <div className="flex min-w-0 items-center gap-1.5">
                 <span
                   className={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    chrome.marker,
+                    "size-1.5 shrink-0 rounded-full shadow-[0_0_0_4px_rgba(34,211,238,0.05)]",
+                    active ? NAV_ACTIVE_MARKER_CLASS : chrome.marker,
                   )}
                 />
                 <span className="truncate text-[12px] leading-4 font-medium text-slate-100">
                   {area.title}
                 </span>
-                {active ? (
-                  <Badge className="hidden shrink-0 border border-white/10 bg-white/[0.115] px-1 py-0 text-[8px] leading-3 text-white shadow-none 2xl:inline-flex">
-                    当前
-                  </Badge>
-                ) : null}
               </div>
-
-              <span
-                className={cn(
-                  "shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] leading-none font-medium",
-                  active
-                    ? "border-white/14 bg-white/[0.105] text-white"
-                    : "border-white/8 bg-white/[0.035] text-slate-300/58 group-hover:border-white/10 group-hover:bg-white/[0.055] group-hover:text-slate-200/76",
-                )}
-              >
-                {chrome.tag}
-              </span>
             </div>
 
             <p className="sr-only">{area.description}</p>
           </div>
 
-          <div className="absolute top-1/2 right-0 hidden -translate-y-1/2 items-center 2xl:flex">
-            <ChevronRightIcon
-              className={cn(
-                "size-3.5 transition-all duration-200",
-                active
-                  ? "translate-x-0 text-white/82 opacity-100"
-                  : "-translate-x-1 text-slate-300/40 opacity-0 group-hover:translate-x-0 group-hover:opacity-100",
-              )}
-            />
-          </div>
+          <span
+            className={cn(
+              "hidden shrink-0 justify-self-end text-[8px] leading-3 font-medium transition-colors md:hidden 2xl:inline-flex",
+              active
+                ? "rounded-full border border-amber-100/18 bg-amber-100/[0.10] px-1.5 py-0.5 text-amber-50"
+                : "px-1 text-slate-200/78 group-hover:text-slate-100",
+            )}
+          >
+            {chrome.tag}
+          </span>
         </div>
       </Link>
 
@@ -340,8 +300,7 @@ function NavTooltip({
       <div className="flex items-center gap-2">
         <span
           className={cn(
-            "flex size-7 items-center justify-center rounded-[var(--radius-card)] text-slate-950 ring-1 ring-slate-200",
-            chrome.marker,
+            "flex size-7 items-center justify-center rounded-[var(--radius-card)] bg-cyan-100 text-slate-950 ring-1 ring-cyan-200",
           )}
         >
           <Icon className="size-3.5" />

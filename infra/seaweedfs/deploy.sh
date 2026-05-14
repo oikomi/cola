@@ -250,7 +250,8 @@ set_defaults() {
   SEAWEEDFS_HELM_REPO_NAME="${SEAWEEDFS_HELM_REPO_NAME:-seaweedfs}"
   SEAWEEDFS_HELM_REPO_URL="${SEAWEEDFS_HELM_REPO_URL:-https://seaweedfs.github.io/seaweedfs/helm}"
   SEAWEEDFS_CHART="${SEAWEEDFS_CHART:-${SEAWEEDFS_HELM_REPO_NAME}/seaweedfs}"
-  SEAWEEDFS_CHART_VERSION="${SEAWEEDFS_CHART_VERSION:-}"
+  SEAWEEDFS_CHART_VERSION="${SEAWEEDFS_CHART_VERSION:-4.23.0}"
+  SEAWEEDFS_IMAGE_TAG="${SEAWEEDFS_IMAGE_TAG:-4.23}"
   SEAWEEDFS_WAIT_TIMEOUT="${SEAWEEDFS_WAIT_TIMEOUT:-600s}"
 
   SEAWEEDFS_DATA_ROOT="${SEAWEEDFS_DATA_ROOT:-/var/lib/cola/seaweedfs}"
@@ -481,6 +482,9 @@ seaweedfs:
     enabled: false
   enableReplication: true
   replicationPlacement: "${SEAWEEDFS_REPLICATION}"
+
+image:
+  tag: $(yaml_quote "$SEAWEEDFS_IMAGE_TAG")
 
 admin:
   enabled: $(if is_true "$SEAWEEDFS_ADMIN_ENABLED"; then echo true; else echo false; fi)
@@ -718,12 +722,18 @@ install_chart() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     log "Dry-run: render SeaweedFS Helm values"
     render_values
-    helm_cmd upgrade --install "$SEAWEEDFS_RELEASE" "$SEAWEEDFS_CHART" \
+    local -a dry_run_args=(
+      upgrade --install "$SEAWEEDFS_RELEASE" "$SEAWEEDFS_CHART"
       --namespace "$SEAWEEDFS_NAMESPACE" \
       --create-namespace \
       --wait \
       --timeout "$SEAWEEDFS_WAIT_TIMEOUT" \
       --values -
+    )
+    if [[ -n "$SEAWEEDFS_CHART_VERSION" ]]; then
+      dry_run_args+=(--version "$SEAWEEDFS_CHART_VERSION")
+    fi
+    helm_cmd "${dry_run_args[@]}"
     return 0
   fi
 

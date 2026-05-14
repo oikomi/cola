@@ -35,7 +35,7 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
       type="button"
       variant="ghost"
       size={compact ? "icon-sm" : "sm"}
-      className="h-7 border border-white/8 bg-white/[0.045] px-2 text-xs text-slate-200/78 hover:bg-white/[0.075] hover:text-white"
+      className="h-8 border border-white/8 bg-white/[0.045] px-2 text-[11px] text-slate-200/82 hover:bg-white/[0.075] hover:text-white [&_svg:not([class*='size-'])]:size-3.5"
       disabled={pending}
       onClick={logout}
       aria-label="退出登录"

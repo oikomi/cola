@@ -54,8 +54,8 @@ export function CurrentUserBadge() {
 
   return (
     <div className="relative border-t border-white/[0.08] px-2.5 py-2.5 2xl:px-2.5 2xl:py-2">
-      <div className="flex items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.08] bg-white/[0.045] px-2.5 py-2 2xl:px-2 2xl:py-1.5">
-        <Avatar className="size-8 2xl:size-7">
+      <div className="flex items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.08] bg-white/[0.045] px-2 py-1.5">
+        <Avatar className="size-8">
           {user.avatarUrl ? (
             <AvatarImage src={user.avatarUrl} alt={user.name ?? ""} />
           ) : null}
@@ -65,7 +65,7 @@ export function CurrentUserBadge() {
           <p className="truncate text-[12px] leading-4 font-semibold text-white">
             {user.name ?? user.email ?? "Feishu User"}
           </p>
-          <p className="truncate text-[10px] leading-3 text-slate-300/62">
+          <p className="truncate text-[10px] leading-3 text-slate-300/68">
             {user.role}
           </p>
         </div>
