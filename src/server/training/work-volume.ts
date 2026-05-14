@@ -113,6 +113,12 @@ mkdir -p "${SEAWEEDFS_TOOLS_DIR}"
 cp "$(command -v weed)" "${SEAWEEDFS_TOOLS_DIR}/weed"
 chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/weed"
 
+mkdir -p "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
+if [ "$(id -u)" = "0" ]; then
+  chown -R "$COLA_SEAWEEDFS_MOUNT_UID:\${COLA_SEAWEEDFS_MOUNT_GID:-$COLA_SEAWEEDFS_MOUNT_UID}" "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
+fi
+chmod 0777 "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR" || true
+
 cat > "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" <<'SH'
 #!/bin/sh
 set -eu
@@ -335,7 +341,16 @@ function resolveSeaweedfsWorkVolume(input: {
           "IfNotPresent",
         command: ["sh", "-lc"],
         args: [buildSeaweedfsInstallCommand()],
+        env: containerEnv,
         volumeMounts: [
+          {
+            name: input.volumeName,
+            mountPath: input.mountPath,
+          },
+          {
+            name: cacheVolumeName,
+            mountPath: cacheDir,
+          },
           {
             name: toolsVolumeName,
             mountPath: SEAWEEDFS_TOOLS_DIR,

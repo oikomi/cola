@@ -10,6 +10,7 @@ import {
   CoreV1Api,
   type V1Deployment,
   type V1Node,
+  type V1Pod,
   type V1Service,
 } from "@kubernetes/client-node";
 
@@ -89,6 +90,7 @@ type JupyterLabResources = {
   deployments: V1Deployment[];
   services: V1Service[];
   allServices: V1Service[];
+  pods: V1Pod[];
   liveNodes: V1Node[];
 };
 
@@ -394,20 +396,9 @@ function isGpuCapable(
   );
 }
 
-function countJupyterLabsOnNode(deployments: V1Deployment[], nodeName: string) {
-  return deployments.filter(
-    (deployment) =>
-      deployment.metadata?.name?.startsWith("jupyterlab-") &&
-      deployment.spec?.template?.spec?.nodeSelector?.[
-        "kubernetes.io/hostname"
-      ] === nodeName,
-  ).length;
-}
-
-function selectJupyterLabNode(params: {
+function assertJupyterLabSchedulable(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
-  deployments: V1Deployment[];
   requestedGpuSpec: GpuAllocationSpec;
   gpuLabelKey: string;
 }) {
@@ -425,7 +416,6 @@ function selectJupyterLabNode(params: {
         node,
         live,
         ready: live ? isReady(live) : false,
-        labCount: countJupyterLabsOnNode(params.deployments, node.name),
         isMaster: node.roles.includes("master"),
         allocatableGpu: live ? allocatableGpuCount(live) : 0,
         gpuCapable: live ? isGpuCapable(node, live, params.gpuLabelKey) : false,
@@ -451,14 +441,6 @@ function selectJupyterLabNode(params: {
         : "没有找到可用的 Ready worker 节点。",
     );
   }
-
-  return [...preferred].sort((left, right) => {
-    if (left.labCount !== right.labCount) {
-      return left.labCount - right.labCount;
-    }
-
-    return left.node.name.localeCompare(right.node.name, "en");
-  })[0]!;
 }
 
 function resolveJupyterLabNodePort(services: V1Service[]) {
@@ -485,6 +467,14 @@ function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
       ?.address;
 
   return external ?? null;
+}
+
+function controllerAccessHost(config: ClusterConfig, nodes: ClusterNode[]) {
+  return (
+    config.controllerIp ??
+    nodes.find((node) => node.roles.includes("master"))?.ip ??
+    null
+  );
 }
 
 function buildLabUrl(params: {
@@ -595,16 +585,19 @@ async function listJupyterLabResources(
       deployments: [],
       services: [],
       allServices: [],
+      pods: [],
       liveNodes: [],
     };
   }
 
-  const [deployments, services, allServices, liveNodes] = await Promise.all([
-    ctx.appsApi.listNamespacedDeployment({ namespace: ctx.namespace }),
-    ctx.coreApi.listNamespacedService({ namespace: ctx.namespace }),
-    listAllServicesWithFallback(ctx),
-    ctx.coreApi.listNode(),
-  ]);
+  const [deployments, services, allServices, pods, liveNodes] =
+    await Promise.all([
+      ctx.appsApi.listNamespacedDeployment({ namespace: ctx.namespace }),
+      ctx.coreApi.listNamespacedService({ namespace: ctx.namespace }),
+      listAllServicesWithFallback(ctx),
+      ctx.coreApi.listNamespacedPod({ namespace: ctx.namespace }),
+      ctx.coreApi.listNode(),
+    ]);
 
   return {
     deployments: (deployments.items ?? []).filter(
@@ -620,6 +613,13 @@ async function listJupyterLabResources(
         service.metadata?.name?.startsWith("jupyterlab-"),
     ),
     allServices,
+    pods: (pods.items ?? []).filter(
+      (pod) =>
+        pod.metadata?.labels?.["app.kubernetes.io/name"] ===
+          "cola-jupyterlab" ||
+        pod.metadata?.labels?.["cola.training/jupyterlab-name"] ||
+        pod.metadata?.name?.startsWith("jupyterlab-"),
+    ),
     liveNodes: liveNodes.items ?? [],
   };
 }
@@ -628,7 +628,6 @@ function buildJupyterLabDeployment(input: {
   name: string;
   image: string;
   token: string;
-  nodeName: string;
   cpu: string;
   memory: string;
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
@@ -677,9 +676,6 @@ function buildJupyterLabDeployment(input: {
           ...(usesGpuAcceleration(gpuSpec) && runtimeClassName
             ? { runtimeClassName }
             : {}),
-          nodeSelector: {
-            "kubernetes.io/hostname": input.nodeName,
-          },
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
@@ -829,16 +825,22 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
       .map((node) => [node.metadata?.name, node] as const)
       .filter((entry): entry is readonly [string, V1Node] => Boolean(entry[0])),
   );
+  const podNodeByName = new Map<string, string>();
+  for (const pod of resources.pods) {
+    const labName = jupyterLabLabel(pod.metadata);
+    const nodeName = pod.spec?.nodeName;
+    if (labName && nodeName && !podNodeByName.has(labName)) {
+      podNodeByName.set(labName, nodeName);
+    }
+  }
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
 
   const itemsWithoutOwners: JupyterLabRuntimeItem[] = resources.deployments
     .map<JupyterLabRuntimeItem | null>((deployment) => {
       const name = jupyterLabLabel(deployment.metadata);
       if (!name) return null;
 
-      const nodeName =
-        deployment.spec?.template?.spec?.nodeSelector?.[
-          "kubernetes.io/hostname"
-        ] ?? null;
+      const nodeName = podNodeByName.get(name) ?? null;
       const liveNode = nodeName ? liveNodeMap.get(nodeName) : undefined;
       const nodeIp = resolveNodeIp(ctx.nodes, liveNode);
       const service = serviceByName.get(name) ?? null;
@@ -874,8 +876,8 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
         image: container?.image ?? resolveJupyterLabImage(null),
         nodeName,
         nodeIp,
-        endpoint: buildEndpoint({ service, nodeIp }),
-        labUrl: buildLabUrl({ service, nodeIp, token }),
+        endpoint: buildEndpoint({ service, nodeIp: accessHost }),
+        labUrl: buildLabUrl({ service, nodeIp: accessHost, token }),
         ownerUserId:
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
           deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -925,10 +927,9 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
     throw new Error(`JupyterLab ${name} 已存在。`);
   }
 
-  const selectedNode = selectJupyterLabNode({
+  assertJupyterLabSchedulable({
     configNodes: ctx.nodes,
     liveNodes: resources.liveNodes,
-    deployments: resources.deployments,
     requestedGpuSpec: gpuSpec,
     gpuLabelKey: ctx.gpuLabelKey,
   });
@@ -939,7 +940,6 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
     name,
     image,
     token,
-    nodeName: selectedNode.node.name,
     cpu,
     memory,
     gpuAllocationMode: gpuSpec.gpuAllocationMode,
@@ -972,13 +972,13 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
     throw error;
   }
 
-  const nodeIp = resolveNodeIp(ctx.nodes, selectedNode.live);
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
   return {
     name,
     namespace: ctx.namespace,
-    nodeName: selectedNode.node.name,
+    nodeName: null,
     nodePort,
-    labUrl: buildLabUrl({ service, nodeIp, token }),
+    labUrl: buildLabUrl({ service, nodeIp: accessHost, token }),
     message: `JupyterLab 已提交到 Kubernetes：${ctx.namespace}/${deploymentName(name)}`,
   };
 }

@@ -330,15 +330,6 @@ function isGpuCapable(
   );
 }
 
-function countInferenceDeploymentsOnNode(
-  deployments: V1Deployment[],
-  nodeName: string,
-) {
-  return deployments.filter((deployment) =>
-    eligibleNodeNamesFromDeployment(deployment).includes(nodeName),
-  ).length;
-}
-
 function eligibleNodeNamesFromDeployment(deployment: V1Deployment) {
   const affinity =
     deployment.spec?.template?.spec?.affinity?.nodeAffinity
@@ -365,10 +356,9 @@ function resolveDeploymentCheckNodes(
   return candidateNodes.length > 0 ? candidateNodes : configNodes;
 }
 
-function selectEligibleInferenceNodes(params: {
+function assertInferenceSchedulable(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
-  deployments: V1Deployment[];
   requestedGpuSpec: GpuAllocationSpec;
   gpuLabelKey: string;
 }) {
@@ -389,10 +379,6 @@ function selectEligibleInferenceNodes(params: {
         isMaster: node.roles.includes("master"),
         allocatableGpu: live ? allocatableGpuCount(live) : 0,
         gpuCapable: live ? isGpuCapable(node, live, params.gpuLabelKey) : false,
-        workloadCount: countInferenceDeploymentsOnNode(
-          params.deployments,
-          node.name,
-        ),
       };
     })
     .filter((entry) => entry.live && entry.ready)
@@ -415,16 +401,6 @@ function selectEligibleInferenceNodes(params: {
         : "没有找到可用的 Ready worker 节点。",
     );
   }
-
-  return [...preferred]
-    .sort((left, right) => {
-      if (left.workloadCount !== right.workloadCount) {
-        return left.workloadCount - right.workloadCount;
-      }
-
-      return left.node.name.localeCompare(right.node.name, "en");
-    })
-    .map((entry) => entry.node.name);
 }
 
 function resolveInferenceNodePort(services: V1Service[]) {
@@ -680,7 +656,6 @@ function buildInferenceDeployment(input: {
   gpuCount: number;
   gpuMemoryGi: number | null;
   replicaCount: number;
-  eligibleNodeNames: string[];
   ownerUserId?: string;
 }) {
   const gpuSpec = {
@@ -748,23 +723,6 @@ function buildInferenceDeployment(input: {
             ? { runtimeClassName: "nvidia" }
             : {}),
           ...(initContainers.length > 0 ? { initContainers } : {}),
-          affinity: {
-            nodeAffinity: {
-              requiredDuringSchedulingIgnoredDuringExecution: {
-                nodeSelectorTerms: [
-                  {
-                    matchExpressions: [
-                      {
-                        key: "kubernetes.io/hostname",
-                        operator: "In",
-                        values: input.eligibleNodeNames,
-                      },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
           topologySpreadConstraints: [
             {
               maxSkew: 1,
@@ -1231,10 +1189,9 @@ export async function createInferenceDeployment(
     throw new Error(`推理部署 ${input.name} 已存在。`);
   }
 
-  const eligibleNodeNames = selectEligibleInferenceNodes({
+  assertInferenceSchedulable({
     configNodes: ctx.nodes,
     liveNodes,
-    deployments,
     requestedGpuSpec: gpuSpec,
     gpuLabelKey: ctx.config.gpuLabelKey,
   });
@@ -1253,7 +1210,6 @@ export async function createInferenceDeployment(
       gpuCount: gpuSpec.gpuCount,
       gpuMemoryGi: gpuSpec.gpuMemoryGi,
       replicaCount,
-      eligibleNodeNames,
       ownerUserId: input.ownerUserId,
     }),
   });
@@ -1291,7 +1247,7 @@ export async function createInferenceDeployment(
         ownerUserId: input.ownerUserId,
       }),
     }),
-    eligibleNodeNames,
+    eligibleNodeNames: [],
     nodePort,
   };
 }

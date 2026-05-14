@@ -11,6 +11,7 @@ import {
   type V1Deployment,
   type V1Ingress,
   type V1Node,
+  type V1Pod,
   type V1Service,
 } from "@kubernetes/client-node";
 
@@ -63,6 +64,7 @@ function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
 
 type ClusterConfig = {
   clusterName: string;
+  controllerIp?: string;
   workspaceNamespace: string;
   workspaceLabelKey: string;
   gpuLabelKey: string;
@@ -325,20 +327,9 @@ function isGpuCapable(
   );
 }
 
-function countWorkspacesOnNode(deployments: V1Deployment[], nodeName: string) {
-  return deployments.filter(
-    (deployment) =>
-      deployment.metadata?.name?.startsWith("workspace-") &&
-      deployment.spec?.template?.spec?.nodeSelector?.[
-        "kubernetes.io/hostname"
-      ] === nodeName,
-  ).length;
-}
-
-function selectWorkspaceNode(params: {
+function assertWorkspaceSchedulable(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
-  deployments: V1Deployment[];
   requestedGpuSpec: GpuAllocationSpec;
   workspaceLabelKey: string;
   gpuLabelKey: string;
@@ -357,7 +348,6 @@ function selectWorkspaceNode(params: {
         node,
         live,
         ready: live ? isReady(live) : false,
-        workspaceCount: countWorkspacesOnNode(params.deployments, node.name),
         workspaceLabeled:
           live?.metadata?.labels?.[params.workspaceLabelKey] === "true",
         allocatableGpu: live ? allocatableGpuCount(live) : 0,
@@ -385,14 +375,6 @@ function selectWorkspaceNode(params: {
         : "没有找到可用的 Ready worker 节点。",
     );
   }
-
-  return [...preferred].sort((left, right) => {
-    if (left.workspaceCount !== right.workspaceCount) {
-      return left.workspaceCount - right.workspaceCount;
-    }
-
-    return left.node.name.localeCompare(right.node.name, "en");
-  })[0]!;
 }
 
 function resolveWorkspaceNodePort(services: V1Service[]) {
@@ -419,6 +401,14 @@ function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node) {
       ?.address;
 
   return external ?? null;
+}
+
+function controllerAccessHost(config: ClusterConfig, nodes: ClusterNode[]) {
+  return (
+    config.controllerIp ??
+    nodes.find((node) => node.roles.includes("master"))?.ip ??
+    null
+  );
 }
 
 function buildLoginUrl(params: {
@@ -523,16 +513,18 @@ async function listWorkspaceResources(ctx: KubeContext) {
       services: [] as V1Service[],
       allServices: [] as V1Service[],
       ingresses: [] as V1Ingress[],
+      pods: [] as V1Pod[],
       liveNodes: [] as V1Node[],
     };
   }
 
-  const [deployments, services, allServices, ingresses, liveNodes] =
+  const [deployments, services, allServices, ingresses, pods, liveNodes] =
     await Promise.all([
       ctx.appsApi.listNamespacedDeployment({ namespace }),
       ctx.coreApi.listNamespacedService({ namespace }),
       listAllServicesWithFallback(ctx),
       ctx.networkingApi.listNamespacedIngress({ namespace }),
+      ctx.coreApi.listNamespacedPod({ namespace }),
       ctx.coreApi.listNode(),
     ]);
 
@@ -546,6 +538,13 @@ async function listWorkspaceResources(ctx: KubeContext) {
     ingresses: (ingresses.items ?? []).filter((ingress) =>
       ingress.metadata?.name?.startsWith("workspace-"),
     ),
+    pods: (pods.items ?? []).filter(
+      (pod) =>
+        pod.metadata?.labels?.["app.kubernetes.io/name"] ===
+          "remote-workspace" ||
+        pod.metadata?.labels?.["remote-work/name"] ||
+        pod.metadata?.name?.startsWith("workspace-"),
+    ),
     allServices,
     liveNodes: liveNodes.items ?? [],
   };
@@ -554,7 +553,6 @@ async function listWorkspaceResources(ctx: KubeContext) {
 function buildWorkspaceDeployment(input: {
   name: string;
   image: string;
-  nodeName: string;
   cpu: string;
   memory: string;
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
@@ -634,9 +632,6 @@ function buildWorkspaceDeployment(input: {
           ...(usesGpuAcceleration(gpuSpec)
             ? { runtimeClassName: "nvidia" }
             : {}),
-          nodeSelector: {
-            "kubernetes.io/hostname": input.nodeName,
-          },
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
@@ -806,7 +801,8 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
     };
   }
 
-  const { deployments, services, ingresses, liveNodes } = resources;
+  const { deployments, services, ingresses, liveNodes, pods } = resources;
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
 
   const serviceByName = new Map(
     services
@@ -829,16 +825,21 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
       .map((node) => [node.metadata?.name, node] as const)
       .filter((entry): entry is readonly [string, V1Node] => Boolean(entry[0])),
   );
+  const podNodeByName = new Map<string, string>();
+  for (const pod of pods) {
+    const name = workspaceLabel(pod.metadata);
+    const nodeName = pod.spec?.nodeName;
+    if (name && nodeName && !podNodeByName.has(name)) {
+      podNodeByName.set(name, nodeName);
+    }
+  }
 
   const itemsWithoutOwners: WorkspaceItem[] = deployments
     .map<WorkspaceItem | null>((deployment) => {
       const name = workspaceNameFromDeployment(deployment.metadata?.name);
       if (!name) return null;
 
-      const nodeName =
-        deployment.spec?.template?.spec?.nodeSelector?.[
-          "kubernetes.io/hostname"
-        ] ?? null;
+      const nodeName = podNodeByName.get(name) ?? null;
       const liveNode = nodeName ? liveNodeMap.get(nodeName) : undefined;
       const nodeIp = resolveNodeIp(ctx.nodes, liveNode);
       const service = serviceByName.get(name) ?? null;
@@ -879,13 +880,13 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
         endpoint:
           ingress?.spec?.rules?.[0]?.host ??
           (service?.spec?.ports?.find((port) => port.nodePort)?.nodePort &&
-          nodeIp
-            ? `${nodeIp}:${service.spec.ports?.find((port) => port.nodePort)?.nodePort}`
+          accessHost
+            ? `${accessHost}:${service.spec.ports?.find((port) => port.nodePort)?.nodePort}`
             : null),
         loginUrl: buildLoginUrl({
           ingress,
           service,
-          nodeIp,
+          nodeIp: accessHost,
         }),
         ownerUserId:
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -940,10 +941,9 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     throw new Error(`工作区 ${input.name} 已存在。`);
   }
 
-  const selectedNode = selectWorkspaceNode({
+  assertWorkspaceSchedulable({
     configNodes: ctx.nodes,
     liveNodes,
-    deployments,
     requestedGpuSpec: gpuSpec,
     workspaceLabelKey: ctx.config.workspaceLabelKey,
     gpuLabelKey: ctx.config.gpuLabelKey,
@@ -956,7 +956,6 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     body: buildWorkspaceDeployment({
       name: input.name,
       image,
-      nodeName: selectedNode.node.name,
       cpu,
       memory,
       gpuAllocationMode: gpuSpec.gpuAllocationMode,
@@ -985,18 +984,18 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     throw error;
   }
 
-  const nodeIp = resolveNodeIp(ctx.nodes, selectedNode.live);
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
   return {
     name: input.name,
     loginUrl: buildLoginUrl({
-      nodeIp,
+      nodeIp: accessHost,
       service: buildWorkspaceService({
         name: input.name,
         nodePort,
         ownerUserId: input.ownerUserId,
       }),
     }),
-    nodeName: selectedNode.node.name,
+    nodeName: null,
     nodePort,
   };
 }

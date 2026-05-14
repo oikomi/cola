@@ -10,6 +10,7 @@ import {
   CoreV1Api,
   type V1Deployment,
   type V1Node,
+  type V1Pod,
   type V1Service,
 } from "@kubernetes/client-node";
 
@@ -67,6 +68,7 @@ type ClusterConfig = {
   clusterName: string;
   workspaceNamespace?: string;
   gpuLabelKey?: string;
+  controllerIp?: string;
 };
 
 type ClusterNode = {
@@ -90,6 +92,7 @@ type UnslothStudioResources = {
   deployments: V1Deployment[];
   services: V1Service[];
   allServices: V1Service[];
+  pods: V1Pod[];
   liveNodes: V1Node[];
 };
 
@@ -395,20 +398,9 @@ function isGpuCapable(
   );
 }
 
-function countStudiosOnNode(deployments: V1Deployment[], nodeName: string) {
-  return deployments.filter(
-    (deployment) =>
-      deployment.metadata?.name?.startsWith("unsloth-studio-") &&
-      deployment.spec?.template?.spec?.nodeSelector?.[
-        "kubernetes.io/hostname"
-      ] === nodeName,
-  ).length;
-}
-
-function selectStudioNode(params: {
+function assertStudioSchedulable(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
-  deployments: V1Deployment[];
   requestedGpuSpec: GpuAllocationSpec;
   gpuLabelKey: string;
 }) {
@@ -426,7 +418,6 @@ function selectStudioNode(params: {
         node,
         live,
         ready: live ? isReady(live) : false,
-        studioCount: countStudiosOnNode(params.deployments, node.name),
         isMaster: node.roles.includes("master"),
         allocatableGpu: live ? allocatableGpuCount(live) : 0,
         gpuCapable: live ? isGpuCapable(node, live, params.gpuLabelKey) : false,
@@ -452,14 +443,6 @@ function selectStudioNode(params: {
         : "没有找到可用的 Ready worker 节点。",
     );
   }
-
-  return [...preferred].sort((left, right) => {
-    if (left.studioCount !== right.studioCount) {
-      return left.studioCount - right.studioCount;
-    }
-
-    return left.node.name.localeCompare(right.node.name, "en");
-  })[0]!;
 }
 
 function resolveStudioNodePort(services: V1Service[]) {
@@ -486,6 +469,14 @@ function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
       ?.address;
 
   return external ?? null;
+}
+
+function controllerAccessHost(config: ClusterConfig, nodes: ClusterNode[]) {
+  return (
+    config.controllerIp ??
+    nodes.find((node) => node.roles.includes("master"))?.ip ??
+    null
+  );
 }
 
 function buildStudioUrl(params: {
@@ -616,16 +607,19 @@ async function listStudioResources(
       deployments: [],
       services: [],
       allServices: [],
+      pods: [],
       liveNodes: [],
     };
   }
 
-  const [deployments, services, allServices, liveNodes] = await Promise.all([
-    ctx.appsApi.listNamespacedDeployment({ namespace: ctx.namespace }),
-    ctx.coreApi.listNamespacedService({ namespace: ctx.namespace }),
-    listAllServicesWithFallback(ctx),
-    ctx.coreApi.listNode(),
-  ]);
+  const [deployments, services, allServices, pods, liveNodes] =
+    await Promise.all([
+      ctx.appsApi.listNamespacedDeployment({ namespace: ctx.namespace }),
+      ctx.coreApi.listNamespacedService({ namespace: ctx.namespace }),
+      listAllServicesWithFallback(ctx),
+      ctx.coreApi.listNamespacedPod({ namespace: ctx.namespace }),
+      ctx.coreApi.listNode(),
+    ]);
 
   return {
     deployments: (deployments.items ?? []).filter(
@@ -641,6 +635,13 @@ async function listStudioResources(
         service.metadata?.name?.startsWith("unsloth-studio-"),
     ),
     allServices,
+    pods: (pods.items ?? []).filter(
+      (pod) =>
+        pod.metadata?.labels?.["app.kubernetes.io/name"] ===
+          "cola-unsloth-studio" ||
+        pod.metadata?.labels?.["cola.training/unsloth-studio-name"] ||
+        pod.metadata?.name?.startsWith("unsloth-studio-"),
+    ),
     liveNodes: liveNodes.items ?? [],
   };
 }
@@ -649,7 +650,6 @@ function buildStudioDeployment(input: {
   name: string;
   image: string;
   token: string;
-  nodeName: string;
   cpu: string;
   memory: string;
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
@@ -698,16 +698,14 @@ function buildStudioDeployment(input: {
           ...(usesGpuAcceleration(gpuSpec) && runtimeClassName
             ? { runtimeClassName }
             : {}),
-          nodeSelector: {
-            "kubernetes.io/hostname": input.nodeName,
-          },
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
               name: "unsloth-studio",
               image: input.image,
               imagePullPolicy:
-                process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ?? "Always",
+                process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ??
+                "IfNotPresent",
               workingDir: mountPath,
               command: ["bash", "-lc"],
               args: [
@@ -849,16 +847,22 @@ export async function listUnslothStudioRuntimes(): Promise<UnslothStudioListResu
       .map((node) => [node.metadata?.name, node] as const)
       .filter((entry): entry is readonly [string, V1Node] => Boolean(entry[0])),
   );
+  const podNodeByName = new Map<string, string>();
+  for (const pod of resources.pods) {
+    const studioName = studioLabel(pod.metadata);
+    const nodeName = pod.spec?.nodeName;
+    if (studioName && nodeName && !podNodeByName.has(studioName)) {
+      podNodeByName.set(studioName, nodeName);
+    }
+  }
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
 
   const itemsWithoutOwners: UnslothStudioRuntimeItem[] = resources.deployments
     .map<UnslothStudioRuntimeItem | null>((deployment) => {
       const name = studioLabel(deployment.metadata);
       if (!name) return null;
 
-      const nodeName =
-        deployment.spec?.template?.spec?.nodeSelector?.[
-          "kubernetes.io/hostname"
-        ] ?? null;
+      const nodeName = podNodeByName.get(name) ?? null;
       const liveNode = nodeName ? liveNodeMap.get(nodeName) : undefined;
       const nodeIp = resolveNodeIp(ctx.nodes, liveNode);
       const service = serviceByName.get(name) ?? null;
@@ -894,8 +898,8 @@ export async function listUnslothStudioRuntimes(): Promise<UnslothStudioListResu
         image: container?.image ?? resolveUnslothStudioImage(null),
         nodeName,
         nodeIp,
-        endpoint: buildEndpoint({ service, nodeIp }),
-        studioUrl: buildStudioUrl({ service, nodeIp, token }),
+        endpoint: buildEndpoint({ service, nodeIp: accessHost }),
+        studioUrl: buildStudioUrl({ service, nodeIp: accessHost, token }),
         ownerUserId:
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
           deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -947,10 +951,9 @@ export async function createUnslothStudioRuntime(
     throw new Error(`Unsloth Studio ${name} 已存在。`);
   }
 
-  const selectedNode = selectStudioNode({
+  assertStudioSchedulable({
     configNodes: ctx.nodes,
     liveNodes: resources.liveNodes,
-    deployments: resources.deployments,
     requestedGpuSpec: gpuSpec,
     gpuLabelKey: ctx.gpuLabelKey,
   });
@@ -961,7 +964,6 @@ export async function createUnslothStudioRuntime(
     name,
     image,
     token,
-    nodeName: selectedNode.node.name,
     cpu,
     memory,
     gpuAllocationMode: gpuSpec.gpuAllocationMode,
@@ -994,13 +996,13 @@ export async function createUnslothStudioRuntime(
     throw error;
   }
 
-  const nodeIp = resolveNodeIp(ctx.nodes, selectedNode.live);
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
   return {
     name,
     namespace: ctx.namespace,
-    nodeName: selectedNode.node.name,
+    nodeName: null,
     nodePort,
-    studioUrl: buildStudioUrl({ service, nodeIp, token }),
+    studioUrl: buildStudioUrl({ service, nodeIp: accessHost, token }),
     message: `Unsloth Studio 已提交到 Kubernetes：${ctx.namespace}/${deploymentName(name)}`,
   };
 }
