@@ -2,17 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildWorkVolumeEnv,
   buildWorkVolumeInitContainers,
   buildWorkVolumeMount,
+  buildWorkVolumeMounts,
+  buildWorkVolumeSecurityContext,
+  buildWorkVolumeShellCommand,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
+  SHARED_STORAGE_MOUNT_PATH,
 } from "./work-volume.ts";
 
 void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
   const workVolume = resolveKubernetesWorkVolume({
     env: {},
     volumeName: "training-workdir",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
     hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
     pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
@@ -24,36 +29,61 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     name: "training-workdir",
     emptyDir: {},
   });
-  assert.equal(workVolume.mountPath, "/workspace");
+  assert.equal(workVolume.mountPath, SHARED_STORAGE_MOUNT_PATH);
   assert.deepEqual(buildWorkVolumeMount(workVolume), {
     name: "training-workdir",
-    mountPath: "/workspace",
-    mountPropagation: "HostToContainer",
+    mountPath: SHARED_STORAGE_MOUNT_PATH,
   });
 
   const initContainers = buildWorkVolumeInitContainers(workVolume);
   assert.equal(initContainers.length, 1);
-  assert.equal(initContainers[0]?.name, "training-workdir-seaweedfs-mount");
-  assert.equal(initContainers[0]?.restartPolicy, "Always");
+  assert.equal(initContainers[0]?.name, "training-workdir-seaweedfs-tools");
+  assert.equal(initContainers[0]?.restartPolicy, undefined);
+  assert.equal(initContainers[0]?.env, undefined);
+  assert.equal(initContainers[0]?.securityContext, undefined);
+  assert.deepEqual(
+    initContainers[0]?.volumeMounts?.map((mount) => mount.name),
+    ["training-workdir-seaweedfs-tools"],
+  );
   assert.equal(
-    initContainers[0]?.env?.find(
+    buildWorkVolumeEnv(workVolume).find(
+      (entry) => entry.name === "COLA_SHARED_STORAGE_DIR",
+    )?.value,
+    SHARED_STORAGE_MOUNT_PATH,
+  );
+  assert.equal(
+    buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SEAWEEDFS_FILER",
     )?.value,
     "seaweedfs-filer.storage.svc.cluster.local:8888",
   );
   assert.equal(
-    initContainers[0]?.env?.find(
+    buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SEAWEEDFS_FILER_PATH",
     )?.value,
     "/buckets/cola-training",
   );
-  assert.equal(initContainers[0]?.securityContext?.privileged, true);
+  assert.equal(buildWorkVolumeSecurityContext(workVolume)?.privileged, true);
+  assert.deepEqual(
+    buildWorkVolumeMounts(workVolume).map((mount) => mount.name),
+    [
+      "training-workdir",
+      "training-workdir-seaweedfs-cache",
+      "training-workdir-fuse-device",
+      "training-workdir-seaweedfs-tools",
+    ],
+  );
+  assert.match(
+    buildWorkVolumeShellCommand(workVolume, "exec train"),
+    /mount-workdir\.sh/,
+  );
   assert.deepEqual(
     buildWorkVolumes(workVolume).map((volume) => volume.name),
     [
       "training-workdir",
       "training-workdir-seaweedfs-cache",
       "training-workdir-fuse-device",
+      "training-workdir-seaweedfs-tools",
     ],
   );
 });
@@ -67,7 +97,7 @@ void test("work volume can use a node mounted SeaweedFS FUSE hostPath when autom
       COLA_TRAINING_PVC_NAME: "ignored-when-hostpath-is-set",
     },
     volumeName: "training-workdir",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
     hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
     pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
@@ -100,7 +130,7 @@ void test("work volume falls back to PVC before emptyDir when automatic mount is
       COLA_TRAINING_PVC_MOUNT_PATH: "/workspace",
     },
     volumeName: "training-workdir",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
     hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
     pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
@@ -124,7 +154,7 @@ void test("work volume uses emptyDir when automatic mount is disabled and no per
       COLA_SEAWEEDFS_MOUNT_ENABLED: "false",
     },
     volumeName: "training-workdir",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
     hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
     pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
@@ -136,5 +166,5 @@ void test("work volume uses emptyDir when automatic mount is disabled and no per
     name: "training-workdir",
     emptyDir: {},
   });
-  assert.equal(workVolume.mountPath, "/workspace");
+  assert.equal(workVolume.mountPath, SHARED_STORAGE_MOUNT_PATH);
 });

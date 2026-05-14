@@ -36,10 +36,14 @@ import {
   type ResourceOwner,
 } from "@/server/resource-owners";
 import {
+  buildWorkVolumeEnv,
   buildWorkVolumeInitContainers,
-  buildWorkVolumeMount,
+  buildWorkVolumeMounts,
+  buildWorkVolumeSecurityContext,
+  buildWorkVolumeShellCommand,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
+  SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -564,7 +568,7 @@ function buildWorkspaceDeployment(input: {
   const workVolume = resolveKubernetesWorkVolume({
     env: process.env,
     volumeName: "workspace",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     seaweedfsEnabledEnvNames: ["REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
     mountPathEnvNames: [
       "REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH",
@@ -657,6 +661,14 @@ function buildWorkspaceDeployment(input: {
                 { name: "NOVNC_PORT", value: "6080" },
                 { name: "VNC_PORT", value: "5901" },
                 { name: "VNC_DISABLE_PASSWORD", value: "1" },
+                ...buildWorkVolumeEnv(workVolume),
+              ],
+              command: ["/bin/bash", "-lc"],
+              args: [
+                buildWorkVolumeShellCommand(
+                  workVolume,
+                  "exec /usr/bin/tini -- /opt/remote-work/entrypoint.sh",
+                ),
               ],
               readinessProbe: {
                 httpGet: { path: "/vnc.html", port: 6080 },
@@ -682,8 +694,13 @@ function buildWorkspaceDeployment(input: {
               },
               volumeMounts: [
                 { name: "home", mountPath: "/home/worker" },
-                buildWorkVolumeMount(workVolume),
+                ...buildWorkVolumeMounts(workVolume),
               ],
+              ...(buildWorkVolumeSecurityContext(workVolume)
+                ? {
+                    securityContext: buildWorkVolumeSecurityContext(workVolume),
+                  }
+                : {}),
             },
           ],
           volumes: [

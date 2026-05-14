@@ -8,6 +8,12 @@ mkdir -p "$HOME/.config/google-chrome" "$HOME/Downloads"
 exec /usr/bin/google-chrome-stable \
   --no-sandbox \
   --disable-dev-shm-usage \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-software-rasterizer \
+  --disable-accelerated-2d-canvas \
+  --disable-accelerated-video-decode \
+  --disable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan \
   --ozone-platform=x11 \
   --user-data-dir="${CHROME_USER_DATA_DIR:-$HOME/.config/google-chrome}" \
   "$@"

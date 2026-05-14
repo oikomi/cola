@@ -3,6 +3,7 @@
 set -euo pipefail
 
 export HOME="${HOME:-/home/worker}"
+export COLA_SHARED_STORAGE_DIR="${COLA_SHARED_STORAGE_DIR:-/shared-dist-storage}"
 
 CONFIG_ROOT="/opt/remote-work/config"
 BASHRC_PATH="$HOME/.bashrc"
@@ -39,7 +40,7 @@ cat >>"$BASHRC_PATH" <<'EOF'
 # cola-workspace-shell
 export WORKSPACE_PROMPT_NAME="${WORKSPACE_NAME:-workspace}"
 if [[ $- == *i* ]] && [[ "$PWD" == "$HOME" || "$PWD" == "$HOME/Desktop" ]]; then
-  cd /workspace 2>/dev/null || true
+  cd "${COLA_SHARED_STORAGE_DIR:-/shared-dist-storage}" 2>/dev/null || true
 fi
 alias ll='ls -lah --color=auto'
 PS1="\[\033[38;5;111m\]\u\[\033[0m\]@\[\033[38;5;223m\]${WORKSPACE_PROMPT_NAME}\[\033[0m\]:\[\033[38;5;117m\]\w\[\033[0m\]\\$ "

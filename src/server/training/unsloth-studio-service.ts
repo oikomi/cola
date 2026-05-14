@@ -36,10 +36,14 @@ import {
 } from "@/server/resource-owners";
 import { resolveUnslothStudioImage } from "@/server/training/unsloth-studio-images";
 import {
+  buildWorkVolumeEnv,
   buildWorkVolumeInitContainers,
-  buildWorkVolumeMount,
+  buildWorkVolumeMounts,
+  buildWorkVolumeSecurityContext,
+  buildWorkVolumeShellCommand,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
+  SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -49,7 +53,7 @@ const UNSLOTH_STUDIO_PORT = Number(
   process.env.COLA_UNSLOTH_STUDIO_PORT ?? "8888",
 );
 const UNSLOTH_STUDIO_WORKDIR =
-  process.env.COLA_UNSLOTH_STUDIO_WORKDIR ?? "/workspace";
+  process.env.COLA_UNSLOTH_STUDIO_WORKDIR ?? SHARED_STORAGE_MOUNT_PATH;
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_UNSLOTH_STUDIO_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
@@ -706,7 +710,12 @@ function buildStudioDeployment(input: {
                 process.env.COLA_UNSLOTH_STUDIO_IMAGE_PULL_POLICY ?? "Always",
               workingDir: mountPath,
               command: ["bash", "-lc"],
-              args: [buildStudioCommand(mountPath)],
+              args: [
+                buildWorkVolumeShellCommand(
+                  workVolume,
+                  buildStudioCommand(mountPath),
+                ),
+              ],
               ports: [{ containerPort: UNSLOTH_STUDIO_PORT, name: "http" }],
               env: [
                 {
@@ -716,6 +725,7 @@ function buildStudioDeployment(input: {
                 { name: "UNSLOTH_STUDIO_TOKEN", value: input.token },
                 { name: "COLA_UNSLOTH_STUDIO_NAME", value: input.name },
                 { name: "COLA_UNSLOTH_STUDIO_WORKDIR", value: mountPath },
+                ...buildWorkVolumeEnv(workVolume),
               ],
               readinessProbe: {
                 httpGet: { path: "/", port: UNSLOTH_STUDIO_PORT },
@@ -727,7 +737,12 @@ function buildStudioDeployment(input: {
                 initialDelaySeconds: 45,
                 periodSeconds: 20,
               },
-              volumeMounts: [buildWorkVolumeMount(workVolume)],
+              volumeMounts: buildWorkVolumeMounts(workVolume),
+              ...(buildWorkVolumeSecurityContext(workVolume)
+                ? {
+                    securityContext: buildWorkVolumeSecurityContext(workVolume),
+                  }
+                : {}),
               resources: {
                 requests: {
                   cpu: input.cpu,

@@ -58,6 +58,10 @@ type WorkVolumeSource = {
   mountPath: string;
   mountPropagation?: "HostToContainer";
   initContainers: WorkContainer[];
+  containerVolumeMounts: WorkVolumeMount[];
+  containerEnv: Array<{ name: string; value: string }>;
+  containerSecurityContext?: WorkContainer["securityContext"];
+  shellPrefix: string | null;
 };
 
 const DEFAULT_SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.23";
@@ -65,6 +69,8 @@ const DEFAULT_SEAWEEDFS_FILER =
   "seaweedfs-filer.storage.svc.cluster.local:8888";
 const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/cola-training";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
+const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
+export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
   for (const name of names) {
@@ -101,20 +107,33 @@ function volumeName(base: string, suffix: string) {
   return `${base}-${suffix}`.slice(0, 63).replace(/-+$/g, "");
 }
 
-function buildSeaweedfsMountCommand() {
+function buildSeaweedfsInstallCommand() {
   return `set -eu
+mkdir -p "${SEAWEEDFS_TOOLS_DIR}"
+cp "$(command -v weed)" "${SEAWEEDFS_TOOLS_DIR}/weed"
+chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/weed"
+
+cat > "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" <<'SH'
+#!/bin/sh
+set -eu
 mkdir -p "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
 
 extra_args=""
 if [ -n "\${COLA_SEAWEEDFS_ALLOW_OTHERS:-}" ]; then
-  mkdir -p /etc
-  touch /etc/fuse.conf
-  if ! grep -qs "^user_allow_other" /etc/fuse.conf; then
-    echo user_allow_other >> /etc/fuse.conf
+  if [ "$(id -u)" = "0" ]; then
+    mkdir -p /etc
+    touch /etc/fuse.conf
+    if ! grep -qs "^user_allow_other" /etc/fuse.conf; then
+      echo user_allow_other >> /etc/fuse.conf
+    fi
+    extra_args="$extra_args -allowOthers=$COLA_SEAWEEDFS_ALLOW_OTHERS"
+  elif grep -qs "^user_allow_other" /etc/fuse.conf 2>/dev/null; then
+    extra_args="$extra_args -allowOthers=$COLA_SEAWEEDFS_ALLOW_OTHERS"
+  else
+    echo "COLA_SEAWEEDFS_ALLOW_OTHERS requested but /etc/fuse.conf does not allow it; continuing without allow_other" >&2
   fi
-  extra_args="$extra_args -allowOthers=$COLA_SEAWEEDFS_ALLOW_OTHERS"
 fi
-if [ -n "\${COLA_SEAWEEDFS_MOUNT_UID:-}" ]; then
+if [ "$(id -u)" = "0" ] && [ -n "\${COLA_SEAWEEDFS_MOUNT_UID:-}" ]; then
   chown -R "$COLA_SEAWEEDFS_MOUNT_UID:\${COLA_SEAWEEDFS_MOUNT_GID:-$COLA_SEAWEEDFS_MOUNT_UID}" "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
 fi
 if [ -n "\${COLA_SEAWEEDFS_MOUNT_UMASK:-}" ]; then
@@ -130,14 +149,124 @@ if [ -n "\${COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS:-}" ]; then
   extra_args="$extra_args -volumeServerAccess=$COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS"
 fi
 
-exec weed mount \\
+exec "${SEAWEEDFS_TOOLS_DIR}/weed" mount \\
   -filer="$COLA_SEAWEEDFS_FILER" \\
   -dir="$COLA_SEAWEEDFS_MOUNT_DIR" \\
   -filer.path="$COLA_SEAWEEDFS_FILER_PATH" \\
   -cacheDir="$COLA_SEAWEEDFS_CACHE_DIR" \\
   -cacheCapacityMB="$COLA_SEAWEEDFS_CACHE_CAPACITY_MB" \\
   -chunkSizeLimitMB="$COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB" \\
-  $extra_args`;
+  $extra_args
+SH
+chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh"`;
+}
+
+function buildSeaweedfsShellPrefix() {
+  return `if [ -x "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" ]; then
+  "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" &
+  cola_seaweedfs_mount_pid=$!
+  cola_seaweedfs_waited=0
+  cola_seaweedfs_timeout="\${COLA_SEAWEEDFS_MOUNT_READY_TIMEOUT_SECONDS:-60}"
+  while [ "$cola_seaweedfs_waited" -lt "$cola_seaweedfs_timeout" ]; do
+    if grep -qs " $COLA_SEAWEEDFS_MOUNT_DIR fuse.seaweedfs " /proc/mounts || grep -qs " $COLA_SEAWEEDFS_MOUNT_DIR fuse " /proc/mounts; then
+      break
+    fi
+    if ! kill -0 "$cola_seaweedfs_mount_pid" 2>/dev/null; then
+      echo "SeaweedFS mount process exited before $COLA_SEAWEEDFS_MOUNT_DIR became ready" >&2
+      exit 1
+    fi
+    cola_seaweedfs_waited=$((cola_seaweedfs_waited + 1))
+    sleep 1
+  done
+  if ! grep -qs " $COLA_SEAWEEDFS_MOUNT_DIR fuse.seaweedfs " /proc/mounts && ! grep -qs " $COLA_SEAWEEDFS_MOUNT_DIR fuse " /proc/mounts; then
+    echo "Timed out waiting for SeaweedFS mount at $COLA_SEAWEEDFS_MOUNT_DIR" >&2
+    cat /proc/mounts >&2
+    kill "$cola_seaweedfs_mount_pid" 2>/dev/null || true
+    exit 1
+  fi
+fi`;
+}
+
+function buildSeaweedfsEnv(input: {
+  env: WorkVolumeEnv;
+  mountPath: string;
+  cacheDir: string;
+}) {
+  return [
+    {
+      name: "COLA_SHARED_STORAGE_DIR",
+      value: input.mountPath,
+    },
+    {
+      name: "COLA_SEAWEEDFS_FILER",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_FILER"]) ??
+        DEFAULT_SEAWEEDFS_FILER,
+    },
+    {
+      name: "COLA_SEAWEEDFS_FILER_PATH",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_FILER_PATH"]) ??
+        DEFAULT_SEAWEEDFS_FILER_PATH,
+    },
+    {
+      name: "COLA_SEAWEEDFS_MOUNT_DIR",
+      value: input.mountPath,
+    },
+    {
+      name: "COLA_SEAWEEDFS_CACHE_DIR",
+      value: input.cacheDir,
+    },
+    {
+      name: "COLA_SEAWEEDFS_CACHE_CAPACITY_MB",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_CAPACITY_MB"]) ??
+        "4096",
+    },
+    {
+      name: "COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB"]) ??
+        "32",
+    },
+    {
+      name: "COLA_SEAWEEDFS_ALLOW_OTHERS",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_ALLOW_OTHERS"]) ?? "true",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MOUNT_UID",
+      value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_UID"]) ?? "1000",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MOUNT_GID",
+      value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_GID"]) ?? "1000",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MOUNT_UMASK",
+      value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_UMASK"]) ?? "000",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MAP_UID",
+      value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MAP_UID"]) ?? "",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MAP_GID",
+      value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MAP_GID"]) ?? "",
+    },
+    {
+      name: "COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS",
+      value:
+        firstEnvValue(input.env, ["COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS"]) ?? "",
+    },
+    {
+      name: "COLA_SEAWEEDFS_MOUNT_READY_TIMEOUT_SECONDS",
+      value:
+        firstEnvValue(input.env, [
+          "COLA_SEAWEEDFS_MOUNT_READY_TIMEOUT_SECONDS",
+        ]) ?? "60",
+    },
+  ];
 }
 
 function resolveSeaweedfsWorkVolume(input: {
@@ -147,10 +276,26 @@ function resolveSeaweedfsWorkVolume(input: {
 }): WorkVolumeSource {
   const cacheVolumeName = volumeName(input.volumeName, "seaweedfs-cache");
   const fuseVolumeName = volumeName(input.volumeName, "fuse-device");
-  const mountContainerName = volumeName(input.volumeName, "seaweedfs-mount");
+  const toolsVolumeName = volumeName(input.volumeName, "seaweedfs-tools");
+  const installContainerName = volumeName(input.volumeName, "seaweedfs-tools");
   const cacheDir =
     firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_DIR"]) ??
     DEFAULT_SEAWEEDFS_CACHE_DIR;
+  const containerEnv = buildSeaweedfsEnv({
+    env: input.env,
+    mountPath: input.mountPath,
+    cacheDir,
+  });
+  const containerSecurityContext = {
+    privileged: isEnabled(
+      firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_PRIVILEGED"]),
+      true,
+    ),
+    allowPrivilegeEscalation: true,
+    capabilities: {
+      add: ["SYS_ADMIN"],
+    },
+  } satisfies WorkContainer["securityContext"];
 
   const volume = {
     name: input.volumeName,
@@ -173,141 +318,29 @@ function resolveSeaweedfsWorkVolume(input: {
           type: "CharDevice",
         },
       },
+      {
+        name: toolsVolumeName,
+        emptyDir: {},
+      },
     ],
     mountPath: input.mountPath,
-    mountPropagation: "HostToContainer",
     initContainers: [
       {
-        name: mountContainerName,
+        name: installContainerName,
         image:
           firstEnvValue(input.env, ["COLA_SEAWEEDFS_IMAGE"]) ??
           DEFAULT_SEAWEEDFS_IMAGE,
         imagePullPolicy:
           firstEnvValue(input.env, ["COLA_SEAWEEDFS_IMAGE_PULL_POLICY"]) ??
           "IfNotPresent",
-        restartPolicy: "Always",
         command: ["sh", "-lc"],
-        args: [buildSeaweedfsMountCommand()],
-        env: [
-          {
-            name: "COLA_SEAWEEDFS_FILER",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_FILER"]) ??
-              DEFAULT_SEAWEEDFS_FILER,
-          },
-          {
-            name: "COLA_SEAWEEDFS_FILER_PATH",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_FILER_PATH"]) ??
-              DEFAULT_SEAWEEDFS_FILER_PATH,
-          },
-          {
-            name: "COLA_SEAWEEDFS_MOUNT_DIR",
-            value: input.mountPath,
-          },
-          {
-            name: "COLA_SEAWEEDFS_CACHE_DIR",
-            value: cacheDir,
-          },
-          {
-            name: "COLA_SEAWEEDFS_CACHE_CAPACITY_MB",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_CAPACITY_MB"]) ??
-              "4096",
-          },
-          {
-            name: "COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB",
-            value:
-              firstEnvValue(input.env, [
-                "COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB",
-              ]) ?? "32",
-          },
-          {
-            name: "COLA_SEAWEEDFS_ALLOW_OTHERS",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_ALLOW_OTHERS"]) ??
-              "true",
-          },
-          {
-            name: "COLA_SEAWEEDFS_MOUNT_UID",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_UID"]) ?? "1000",
-          },
-          {
-            name: "COLA_SEAWEEDFS_MOUNT_GID",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_GID"]) ?? "1000",
-          },
-          {
-            name: "COLA_SEAWEEDFS_MOUNT_UMASK",
-            value:
-              firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_UMASK"]) ?? "000",
-          },
-          {
-            name: "COLA_SEAWEEDFS_MAP_UID",
-            value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MAP_UID"]) ?? "",
-          },
-          {
-            name: "COLA_SEAWEEDFS_MAP_GID",
-            value: firstEnvValue(input.env, ["COLA_SEAWEEDFS_MAP_GID"]) ?? "",
-          },
-          {
-            name: "COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS",
-            value:
-              firstEnvValue(input.env, [
-                "COLA_SEAWEEDFS_VOLUME_SERVER_ACCESS",
-              ]) ?? "",
-          },
-        ],
+        args: [buildSeaweedfsInstallCommand()],
         volumeMounts: [
           {
-            name: input.volumeName,
-            mountPath: input.mountPath,
-            mountPropagation: "Bidirectional",
-          },
-          {
-            name: cacheVolumeName,
-            mountPath: cacheDir,
-          },
-          {
-            name: fuseVolumeName,
-            mountPath: "/dev/fuse",
+            name: toolsVolumeName,
+            mountPath: SEAWEEDFS_TOOLS_DIR,
           },
         ],
-        securityContext: {
-          privileged: isEnabled(
-            firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_PRIVILEGED"]),
-            true,
-          ),
-          allowPrivilegeEscalation: true,
-          capabilities: {
-            add: ["SYS_ADMIN"],
-          },
-        },
-        startupProbe: {
-          exec: {
-            command: [
-              "sh",
-              "-lc",
-              'grep -qs " ${COLA_SEAWEEDFS_MOUNT_DIR} " /proc/mounts',
-            ],
-          },
-          failureThreshold: Number(
-            firstEnvValue(input.env, [
-              "COLA_SEAWEEDFS_MOUNT_STARTUP_FAILURE_THRESHOLD",
-            ]) ?? "60",
-          ),
-          periodSeconds: Number(
-            firstEnvValue(input.env, [
-              "COLA_SEAWEEDFS_MOUNT_STARTUP_PERIOD_SECONDS",
-            ]) ?? "1",
-          ),
-          timeoutSeconds: Number(
-            firstEnvValue(input.env, [
-              "COLA_SEAWEEDFS_MOUNT_STARTUP_TIMEOUT_SECONDS",
-            ]) ?? "1",
-          ),
-        },
         resources: {
           requests: {
             cpu:
@@ -329,6 +362,28 @@ function resolveSeaweedfsWorkVolume(input: {
         },
       },
     ],
+    containerVolumeMounts: [
+      {
+        name: input.volumeName,
+        mountPath: input.mountPath,
+      },
+      {
+        name: cacheVolumeName,
+        mountPath: cacheDir,
+      },
+      {
+        name: fuseVolumeName,
+        mountPath: "/dev/fuse",
+      },
+      {
+        name: toolsVolumeName,
+        mountPath: SEAWEEDFS_TOOLS_DIR,
+        readOnly: true,
+      },
+    ],
+    containerEnv,
+    containerSecurityContext,
+    shellPrefix: buildSeaweedfsShellPrefix(),
   };
 }
 
@@ -360,6 +415,20 @@ function resolveLegacyWorkVolume(input: {
       mountPath: input.mountPath,
       mountPropagation: "HostToContainer",
       initContainers: [],
+      containerVolumeMounts: [
+        {
+          name: volume.name,
+          mountPath: input.mountPath,
+          mountPropagation: "HostToContainer",
+        },
+      ],
+      containerEnv: [
+        {
+          name: "COLA_SHARED_STORAGE_DIR",
+          value: input.mountPath,
+        },
+      ],
+      shellPrefix: null,
     };
   }
 
@@ -378,6 +447,19 @@ function resolveLegacyWorkVolume(input: {
       volumes: [volume],
       mountPath: input.mountPath,
       initContainers: [],
+      containerVolumeMounts: [
+        {
+          name: volume.name,
+          mountPath: input.mountPath,
+        },
+      ],
+      containerEnv: [
+        {
+          name: "COLA_SHARED_STORAGE_DIR",
+          value: input.mountPath,
+        },
+      ],
+      shellPrefix: null,
     };
   }
 
@@ -394,6 +476,20 @@ function resolveLegacyWorkVolume(input: {
       mountPath: input.mountPath,
       mountPropagation: "HostToContainer",
       initContainers: [],
+      containerVolumeMounts: [
+        {
+          name: volume.name,
+          mountPath: input.mountPath,
+          mountPropagation: "HostToContainer",
+        },
+      ],
+      containerEnv: [
+        {
+          name: "COLA_SHARED_STORAGE_DIR",
+          value: input.mountPath,
+        },
+      ],
+      shellPrefix: null,
     };
   }
 
@@ -408,6 +504,19 @@ function resolveLegacyWorkVolume(input: {
     volumes: [volume],
     mountPath: input.mountPath,
     initContainers: [],
+    containerVolumeMounts: [
+      {
+        name: volume.name,
+        mountPath: input.mountPath,
+      },
+    ],
+    containerEnv: [
+      {
+        name: "COLA_SHARED_STORAGE_DIR",
+        value: input.mountPath,
+      },
+    ],
+    shellPrefix: null,
   };
 }
 
@@ -454,13 +563,11 @@ export function resolveKubernetesWorkVolume(input: {
 }
 
 export function buildWorkVolumeMount(workVolume: WorkVolumeSource) {
-  return {
-    name: workVolume.volume.name,
-    mountPath: workVolume.mountPath,
-    ...(workVolume.mountPropagation
-      ? { mountPropagation: workVolume.mountPropagation }
-      : {}),
-  };
+  return workVolume.containerVolumeMounts[0]!;
+}
+
+export function buildWorkVolumeMounts(workVolume: WorkVolumeSource) {
+  return workVolume.containerVolumeMounts;
 }
 
 export function buildWorkVolumes(workVolume: WorkVolumeSource) {
@@ -469,4 +576,21 @@ export function buildWorkVolumes(workVolume: WorkVolumeSource) {
 
 export function buildWorkVolumeInitContainers(workVolume: WorkVolumeSource) {
   return workVolume.initContainers;
+}
+
+export function buildWorkVolumeEnv(workVolume: WorkVolumeSource) {
+  return workVolume.containerEnv;
+}
+
+export function buildWorkVolumeSecurityContext(workVolume: WorkVolumeSource) {
+  return workVolume.containerSecurityContext;
+}
+
+export function buildWorkVolumeShellCommand(
+  workVolume: WorkVolumeSource,
+  command: string,
+) {
+  return workVolume.shellPrefix
+    ? `${workVolume.shellPrefix}\n\n${command}`
+    : command;
 }

@@ -115,7 +115,7 @@ const defaultStudioRunDraft: StudioRunDraft = {
   jobType: "lora",
   priority: "medium",
   baseModel: "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
-  datasetName: "/workspace/datasets/train.jsonl",
+  datasetName: "/shared-dist-storage/datasets/train.jsonl",
   datasetSplit: "train",
   datasetTextField: "text",
   objective: "",
@@ -1071,7 +1071,7 @@ function StudioRunDialog(props: {
                         datasetName: event.target.value,
                       }))
                     }
-                    placeholder="/workspace/datasets/train.jsonl"
+                    placeholder="/shared-dist-storage/datasets/train.jsonl"
                   />
                 </Field>
                 <Field label="Split">
@@ -1889,7 +1889,8 @@ export function TrainingShell() {
   async function handleStopRun(run: StudioRun) {
     const confirmed = await confirm({
       title: `确认停止训练运行「${run.title}」？`,
-      description: "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap。",
+      description:
+        "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap。",
       confirmLabel: "停止训练",
       cancelLabel: "取消",
       confirmVariant: "destructive",
@@ -1902,7 +1903,8 @@ export function TrainingShell() {
   async function handleDeleteRun(run: StudioRun) {
     const confirmed = await confirm({
       title: `确认删除训练运行「${run.title}」？`,
-      description: "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap，并移除运行记录。",
+      description:
+        "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap，并移除运行记录。",
       confirmLabel: "删除运行",
       cancelLabel: "取消",
       confirmVariant: "destructive",
@@ -2188,7 +2190,8 @@ export function TrainingShell() {
                         stopRun.isPending && stopRun.variables?.id === run.id
                       }
                       isDeleting={
-                        deleteRun.isPending && deleteRun.variables?.id === run.id
+                        deleteRun.isPending &&
+                        deleteRun.variables?.id === run.id
                       }
                       onStart={() => startRun.mutate({ id: run.id })}
                       onStop={() => void handleStopRun(run)}

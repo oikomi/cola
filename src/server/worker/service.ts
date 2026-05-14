@@ -250,16 +250,16 @@ export async function heartbeatRunner(
   if (!device) {
     if (input.name && input.resourcePool) {
       const registration = await registerDockerRunner(database, {
-            name: input.name,
-            resourcePool: input.resourcePool,
-            status: input.status,
-            engine: input.engine,
-            host: input.host,
-            healthSummary: input.healthSummary,
-            containerName: input.containerName,
-            image: input.image,
-            runtime: input.runtime,
-          });
+        name: input.name,
+        resourcePool: input.resourcePool,
+        status: input.status,
+        engine: input.engine,
+        host: input.host,
+        healthSummary: input.healthSummary,
+        containerName: input.containerName,
+        image: input.image,
+        runtime: input.runtime,
+      });
 
       device = await findDeviceById(registration.deviceId);
     }
@@ -613,7 +613,7 @@ export async function pullNextTaskForRunner(
         `Task type: ${nextTask.taskType}`,
         `Priority: ${nextTask.priority}`,
         `Risk level: ${nextTask.riskLevel}`,
-        "Operate inside the mounted /workspace directory.",
+        "Operate inside the mounted /shared-dist-storage directory.",
         "Return a concise completion summary and mention any files changed.",
       ].join("\n"),
       engine,

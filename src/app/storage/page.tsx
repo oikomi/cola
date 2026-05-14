@@ -37,7 +37,7 @@ const INTERNAL_FILER_ENDPOINT = `${SEAWEEDFS_FILER_SERVICE}.${STORAGE_NAMESPACE}
 const DEFAULT_CHECKPOINT_PREFIX = `s3://${DEFAULT_BUCKET}/checkpoints/`;
 const DEFAULT_MODEL_PREFIX = `s3://${DEFAULT_BUCKET}/models/`;
 const DEFAULT_BUCKET_FILER_PATH = `/buckets/${DEFAULT_BUCKET}`;
-const TRAINING_WORKDIR = "/workspace";
+const TRAINING_WORKDIR = "/shared-dist-storage";
 const TRAINING_DATASET_DIR = `${TRAINING_WORKDIR}/datasets`;
 const TRAINING_CHECKPOINT_DIR = `${TRAINING_WORKDIR}/checkpoints`;
 const TRAINING_MODEL_DIR = `${TRAINING_WORKDIR}/models`;
@@ -113,9 +113,9 @@ for obj in s3.list_objects_v2(Bucket=bucket, Prefix="datasets/").get("Contents",
 s3.download_file(bucket, "datasets/sample.jsonl", "sample.downloaded.jsonl")
 PY`;
   const fuseExample = `# 平台创建远程桌面、训练 Job、JupyterLab、Unsloth Studio 时会自动注入：
-# 1. restartable init sidecar: ${SEAWEEDFS_FUSE_IMAGE}
-# 2. SeaweedFS FUSE: ${INTERNAL_FILER_ENDPOINT}${DEFAULT_BUCKET_FILER_PATH}
-# 3. 主业务容器挂载: ${TRAINING_WORKDIR}
+# 1. init container 准备 weed FUSE 工具: ${SEAWEEDFS_FUSE_IMAGE}
+# 2. 主业务容器启动时挂载 SeaweedFS FUSE: ${INTERNAL_FILER_ENDPOINT}${DEFAULT_BUCKET_FILER_PATH}
+# 3. 共享存储目录: ${TRAINING_WORKDIR}
 
 export COLA_SEAWEEDFS_MOUNT_ENABLED=true
 export COLA_SEAWEEDFS_FILER="${INTERNAL_FILER_ENDPOINT}"
@@ -214,7 +214,7 @@ export COLA_TRAINING_WORKDIR_MOUNT_PATH=${TRAINING_WORKDIR}`;
                 ["数据集目录", TRAINING_DATASET_DIR],
                 ["checkpoint", TRAINING_CHECKPOINT_DIR],
                 ["模型目录", TRAINING_MODEL_DIR],
-                ["底层挂载", "SeaweedFS FUSE sidecar"],
+                ["底层挂载", "业务容器内 SeaweedFS FUSE"],
               ]}
             />
             <StorageBindingCard
@@ -323,7 +323,7 @@ export COLA_TRAINING_WORKDIR_MOUNT_PATH=${TRAINING_WORKDIR}`;
 
       <ModuleSection
         title="使用例子"
-        description="训练脚本、Notebook、远程桌面和 Studio 使用 /workspace 下的普通文件路径；导入导出、自动化同步和外部机器访问仍可走 S3 API。"
+        description="训练脚本、Notebook、远程桌面和 Studio 使用 /shared-dist-storage 下的普通文件路径；导入导出、自动化同步和外部机器访问仍可走 S3 API。"
         density="compact"
       >
         <div className="grid gap-4 xl:grid-cols-2">
@@ -419,11 +419,11 @@ function StorageGuidanceCard() {
         />
         <StorageFact
           label="自动挂载"
-          value="restartable init sidecar 挂载 SeaweedFS 到 /workspace"
+          value="主业务容器启动时挂载 SeaweedFS 到 /shared-dist-storage"
         />
         <StorageFact
           label="注意"
-          value="临时 scratch、数据库和日志热写入继续放本地盘；共享数据和产物放 /workspace"
+          value="临时 scratch、数据库和日志热写入继续放本地盘；共享数据和产物放 /shared-dist-storage"
         />
       </div>
     </div>

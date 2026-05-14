@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveJupyterLabWorkVolume } from "./jupyterlab-volume.ts";
+import { SHARED_STORAGE_MOUNT_PATH } from "./work-volume.ts";
 
 function withEnv<T>(
   patch: Record<string, string | undefined>,
@@ -45,7 +46,7 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
     () =>
       resolveJupyterLabWorkVolume({
         env: process.env,
-        workdir: "/workspace",
+        workdir: SHARED_STORAGE_MOUNT_PATH,
       }),
   );
 
@@ -54,9 +55,10 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
     name: "jupyterlab-workdir",
     emptyDir: {},
   });
-  assert.equal(mountPath, "/workspace");
+  assert.equal(mountPath, SHARED_STORAGE_MOUNT_PATH);
   assert.equal(initContainers.length, 1);
-  assert.equal(initContainers[0]?.restartPolicy, "Always");
+  assert.equal(initContainers[0]?.name, "jupyterlab-workdir-seaweedfs-tools");
+  assert.equal(initContainers[0]?.restartPolicy, undefined);
 });
 
 void test("JupyterLab does not inherit the training PVC when automatic mount is disabled", () => {
@@ -72,7 +74,7 @@ void test("JupyterLab does not inherit the training PVC when automatic mount is 
     () =>
       resolveJupyterLabWorkVolume({
         env: process.env,
-        workdir: "/workspace",
+        workdir: SHARED_STORAGE_MOUNT_PATH,
       }),
   );
 
@@ -80,7 +82,7 @@ void test("JupyterLab does not inherit the training PVC when automatic mount is 
     name: "jupyterlab-workdir",
     emptyDir: {},
   });
-  assert.equal(mountPath, "/workspace");
+  assert.equal(mountPath, SHARED_STORAGE_MOUNT_PATH);
 });
 
 void test("JupyterLab uses a PVC only when explicitly configured", () => {

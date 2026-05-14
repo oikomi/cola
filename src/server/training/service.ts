@@ -33,10 +33,14 @@ import {
   trainingK8sSupportedJobTypes,
 } from "@/server/training/catalog";
 import {
+  buildWorkVolumeEnv,
   buildWorkVolumeInitContainers,
-  buildWorkVolumeMount,
+  buildWorkVolumeMounts,
+  buildWorkVolumeSecurityContext,
+  buildWorkVolumeShellCommand,
   buildWorkVolumes,
   resolveKubernetesWorkVolume,
+  SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -300,7 +304,8 @@ function buildLeaderPodName(runtimeJobName: string) {
 
 function resolveArtifactPath(job: TrainingJobRecord, runtimeJobName: string) {
   const outputRoot =
-    process.env.COLA_TRAINING_OUTPUT_ROOT?.trim() ?? "/workspace/cola-training";
+    process.env.COLA_TRAINING_OUTPUT_ROOT?.trim() ??
+    path.posix.join(SHARED_STORAGE_MOUNT_PATH, "cola-training");
   return path.posix.join(outputRoot, job.id, runtimeJobName);
 }
 
@@ -308,7 +313,7 @@ function resolveWorkVolume() {
   return resolveKubernetesWorkVolume({
     env: process.env,
     volumeName: "training-workdir",
-    defaultMountPath: "/workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
     seaweedfsEnabledEnvNames: ["COLA_TRAINING_SEAWEEDFS_MOUNT_ENABLED"],
     mountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
     hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
@@ -867,17 +872,27 @@ function buildTrainingRuntime(
                 process.env.COLA_TRAINING_IMAGE_PULL_POLICY ?? "IfNotPresent",
               workingDir: mountPath,
               command: ["sh", "-lc"],
-              args: [buildTrainingShellCommand()],
-              env,
+              args: [
+                buildWorkVolumeShellCommand(
+                  workVolume,
+                  buildTrainingShellCommand(),
+                ),
+              ],
+              env: [...env, ...buildWorkVolumeEnv(workVolume)],
               ports: [{ containerPort: MASTER_PORT, name: "torchrun" }],
               volumeMounts: [
-                buildWorkVolumeMount(workVolume),
+                ...buildWorkVolumeMounts(workVolume),
                 {
                   name: "training-config",
                   mountPath: TRAINING_CONFIG_MOUNT_PATH,
                   readOnly: true,
                 },
               ],
+              ...(buildWorkVolumeSecurityContext(workVolume)
+                ? {
+                    securityContext: buildWorkVolumeSecurityContext(workVolume),
+                  }
+                : {}),
               resources,
             },
           ],

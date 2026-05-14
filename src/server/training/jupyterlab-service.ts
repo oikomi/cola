@@ -37,16 +37,21 @@ import {
 import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 import {
+  buildWorkVolumeEnv,
   buildWorkVolumeInitContainers,
-  buildWorkVolumeMount,
+  buildWorkVolumeMounts,
+  buildWorkVolumeSecurityContext,
+  buildWorkVolumeShellCommand,
   buildWorkVolumes,
+  SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const JUPYTERLAB_PORT = 8888;
-const JUPYTERLAB_WORKDIR = process.env.COLA_JUPYTERLAB_WORKDIR ?? "/workspace";
+const JUPYTERLAB_WORKDIR =
+  process.env.COLA_JUPYTERLAB_WORKDIR ?? SHARED_STORAGE_MOUNT_PATH;
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_JUPYTERLAB_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
@@ -684,7 +689,12 @@ function buildJupyterLabDeployment(input: {
                 process.env.COLA_JUPYTERLAB_IMAGE_PULL_POLICY ?? "IfNotPresent",
               workingDir: mountPath,
               command: ["bash", "-lc"],
-              args: [buildJupyterLabCommand(mountPath)],
+              args: [
+                buildWorkVolumeShellCommand(
+                  workVolume,
+                  buildJupyterLabCommand(mountPath),
+                ),
+              ],
               ports: [{ containerPort: JUPYTERLAB_PORT, name: "http" }],
               env: [
                 {
@@ -695,6 +705,7 @@ function buildJupyterLabDeployment(input: {
                 { name: "JUPYTER_TOKEN", value: input.token },
                 { name: "COLA_JUPYTERLAB_NAME", value: input.name },
                 { name: "COLA_JUPYTERLAB_WORKDIR", value: mountPath },
+                ...buildWorkVolumeEnv(workVolume),
               ],
               readinessProbe: {
                 httpGet: { path: "/lab", port: JUPYTERLAB_PORT },
@@ -706,7 +717,12 @@ function buildJupyterLabDeployment(input: {
                 initialDelaySeconds: 45,
                 periodSeconds: 20,
               },
-              volumeMounts: [buildWorkVolumeMount(workVolume)],
+              volumeMounts: buildWorkVolumeMounts(workVolume),
+              ...(buildWorkVolumeSecurityContext(workVolume)
+                ? {
+                    securityContext: buildWorkVolumeSecurityContext(workVolume),
+                  }
+                : {}),
               resources: {
                 requests: {
                   cpu: input.cpu,
