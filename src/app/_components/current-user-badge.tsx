@@ -53,8 +53,8 @@ export function CurrentUserBadge() {
   if (!user) return null;
 
   return (
-    <div className="relative border-t border-white/[0.08] px-2.5 py-2.5 2xl:px-2.5 2xl:py-2">
-      <div className="flex items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.08] bg-white/[0.045] px-2 py-1.5">
+    <div className="relative border-t border-white/[0.1] px-2.5 py-2.5 2xl:px-2.5 2xl:py-2.5">
+      <div className="grid items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.1] bg-white/[0.05] px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:flex md:justify-center 2xl:grid-cols-[2.25rem_minmax(0,1fr)_auto]">
         <Avatar className="size-8">
           {user.avatarUrl ? (
             <AvatarImage src={user.avatarUrl} alt={user.name ?? ""} />
@@ -62,10 +62,10 @@ export function CurrentUserBadge() {
           <AvatarFallback>{userFallback(user.name, user.email)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1 md:hidden 2xl:block">
-          <p className="truncate text-[12px] leading-4 font-semibold text-white">
+          <p className="truncate text-[13px] leading-5 font-semibold text-white">
             {user.name ?? user.email ?? "Feishu User"}
           </p>
-          <p className="truncate text-[10px] leading-3 text-slate-300/68">
+          <p className="truncate text-[11px] leading-4 font-medium text-slate-300/76">
             {user.role}
           </p>
         </div>

@@ -740,7 +740,6 @@ install_chart() {
   local values_file
   values_file="$(mktemp)"
   render_values >"$values_file"
-  trap 'rm -f "$values_file"' RETURN
 
   local args=(
     upgrade --install "$SEAWEEDFS_RELEASE" "$SEAWEEDFS_CHART"
@@ -755,7 +754,10 @@ install_chart() {
     args+=(--version "$SEAWEEDFS_CHART_VERSION")
   fi
 
-  helm_cmd "${args[@]}"
+  local helm_status=0
+  helm_cmd "${args[@]}" || helm_status=$?
+  rm -f "$values_file"
+  return "$helm_status"
 }
 
 apply_bucket_job() {
