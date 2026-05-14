@@ -23,6 +23,7 @@ import {
 } from "@/lib/gpu-allocation";
 import {
   buildHamiGpuResources,
+  buildHamiSchedulerSpec,
   normalizeGpuAllocation,
 } from "@/server/gpu/hami";
 import { createKubeConfig as createSharedKubeConfig } from "@/server/kubernetes/kubeconfig";
@@ -825,6 +826,7 @@ function buildTrainingRuntime(
           ...(runtimeClassName && usesGpuAcceleration(gpuSpec)
             ? { runtimeClassName }
             : {}),
+          ...buildHamiSchedulerSpec(gpuSpec),
           ...(process.env.COLA_TRAINING_SERVICE_ACCOUNT?.trim()
             ? {
                 serviceAccountName:

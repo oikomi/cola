@@ -40,6 +40,7 @@ import {
 } from "@/server/deployments/runtime-utils";
 import {
   buildHamiGpuResources,
+  buildHamiSchedulerSpec,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
@@ -722,6 +723,7 @@ function buildInferenceDeployment(input: {
           ...(usesGpuAcceleration(gpuSpec)
             ? { runtimeClassName: "nvidia" }
             : {}),
+          ...buildHamiSchedulerSpec(gpuSpec),
           ...(initContainers.length > 0 ? { initContainers } : {}),
           topologySpreadConstraints: [
             {

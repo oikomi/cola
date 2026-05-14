@@ -21,6 +21,7 @@ import {
 } from "@/lib/gpu-allocation";
 import {
   buildHamiGpuResources,
+  buildHamiSchedulerSpec,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
@@ -632,6 +633,7 @@ function buildWorkspaceDeployment(input: {
           ...(usesGpuAcceleration(gpuSpec)
             ? { runtimeClassName: "nvidia" }
             : {}),
+          ...buildHamiSchedulerSpec(gpuSpec),
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {

@@ -7,6 +7,7 @@ import {
 
 export const HAMI_GPU_RESOURCE_NAME = "nvidia.com/gpu";
 export const HAMI_GPU_MEMORY_RESOURCE_NAME = "nvidia.com/gpumem";
+export const HAMI_SCHEDULER_NAME = "hami-scheduler";
 const GPU_MEMORY_GI_IN_MIB = 1024;
 
 type NormalizeGpuAllocationOptions = {
@@ -78,6 +79,12 @@ export function buildHamiGpuResources(spec: GpuAllocationSpec) {
   resources[HAMI_GPU_RESOURCE_NAME] = `${spec.gpuCount}`;
   resources[HAMI_GPU_MEMORY_RESOURCE_NAME] = `${(spec.gpuMemoryGi ?? 0) * GPU_MEMORY_GI_IN_MIB}`;
   return resources;
+}
+
+export function buildHamiSchedulerSpec(spec: GpuAllocationSpec) {
+  return spec.gpuAllocationMode === "memory" && spec.gpuCount > 0
+    ? { schedulerName: HAMI_SCHEDULER_NAME }
+    : {};
 }
 
 function parseIntegerResource(
