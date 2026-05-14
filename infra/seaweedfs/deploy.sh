@@ -7,11 +7,14 @@ INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 K8S_DIR="$INFRA_DIR/k8s"
 CLUSTER_CONFIG="$K8S_DIR/cluster/config.json"
 DEFAULT_ENV_FILE="$SCRIPT_DIR/seaweedfs.env"
+KUBEASZ_BASE_DIR="${KUBEASZ_BASE_DIR:-/etc/kubeasz}"
 
 ACTION="install"
 ENV_FILE=""
 DRY_RUN=0
 KUBECONFIG_PATH="${KUBECONFIG:-}"
+KUBECTL_BIN=""
+HELM_BIN=""
 
 usage() {
   cat <<'EOF'
@@ -151,6 +154,45 @@ resolve_kubeconfig() {
   die "找不到 kubeconfig。请先完成 infra/k8s 集群安装，或通过 --kubeconfig 指定。已尝试: $user_kubeconfig, $kubeasz_kubeconfig"
 }
 
+kubectl_bin_path() {
+  if command -v kubectl >/dev/null 2>&1; then
+    command -v kubectl
+    return 0
+  fi
+
+  if [[ -x "$KUBEASZ_BASE_DIR/bin/kubectl" ]]; then
+    printf '%s\n' "$KUBEASZ_BASE_DIR/bin/kubectl"
+    return 0
+  fi
+
+  die "缺少 kubectl，且 $KUBEASZ_BASE_DIR/bin/kubectl 不存在。"
+}
+
+helm_bin_path() {
+  if command -v helm >/dev/null 2>&1; then
+    command -v helm
+    return 0
+  fi
+
+  if [[ -x "$KUBEASZ_BASE_DIR/bin/helm" ]]; then
+    printf '%s\n' "$KUBEASZ_BASE_DIR/bin/helm"
+    return 0
+  fi
+
+  die "缺少 helm，且 $KUBEASZ_BASE_DIR/bin/helm 不存在。"
+}
+
+resolve_cluster_bins() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
+    HELM_BIN="${HELM_BIN:-helm}"
+    return 0
+  fi
+
+  KUBECTL_BIN="$(kubectl_bin_path)"
+  HELM_BIN="$(helm_bin_path)"
+}
+
 load_env_file() {
   local file="$ENV_FILE"
 
@@ -243,24 +285,24 @@ set_defaults() {
 
 kubectl_cmd() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    printf 'DRY-RUN KUBECONFIG=%q kubectl' "$KUBECONFIG_PATH"
+    printf 'DRY-RUN KUBECONFIG=%q %q' "$KUBECONFIG_PATH" "$KUBECTL_BIN"
     printf ' %q' "$@"
     printf '\n'
     return 0
   fi
 
-  KUBECONFIG="$KUBECONFIG_PATH" kubectl "$@"
+  KUBECONFIG="$KUBECONFIG_PATH" "$KUBECTL_BIN" "$@"
 }
 
 helm_cmd() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    printf 'DRY-RUN KUBECONFIG=%q helm' "$KUBECONFIG_PATH"
+    printf 'DRY-RUN KUBECONFIG=%q %q' "$KUBECONFIG_PATH" "$HELM_BIN"
     printf ' %q' "$@"
     printf '\n'
     return 0
   fi
 
-  KUBECONFIG="$KUBECONFIG_PATH" helm "$@"
+  KUBECONFIG="$KUBECONFIG_PATH" "$HELM_BIN" "$@"
 }
 
 apply_yaml() {
@@ -272,7 +314,7 @@ apply_yaml() {
     return 0
   fi
 
-  KUBECONFIG="$KUBECONFIG_PATH" kubectl apply -f -
+  KUBECONFIG="$KUBECONFIG_PATH" "$KUBECTL_BIN" apply -f -
 }
 
 validate_json_nodes() {
@@ -839,11 +881,8 @@ main() {
       ;;
   esac
 
-  if [[ "$DRY_RUN" -eq 0 ]]; then
-    require_cmd kubectl
-    require_cmd helm
-  fi
   resolve_kubeconfig
+  resolve_cluster_bins
 
   case "$ACTION" in
     install)
