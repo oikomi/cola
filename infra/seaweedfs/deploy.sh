@@ -15,7 +15,7 @@ KUBECONFIG_PATH="${KUBECONFIG:-}"
 
 usage() {
   cat <<'EOF'
-Usage: ./deploy.sh [install|status|smoke-test|render-values|render-admin-service|render-bucket-job|render-smoke-test|uninstall] [options]
+Usage: ./deploy.sh [install|status|smoke-test|render-values|render-s3-service|render-admin-service|render-bucket-job|render-smoke-test|uninstall] [options]
 
 Deploy SeaweedFS as a lightweight distributed S3-compatible object store.
 
@@ -24,10 +24,11 @@ Actions:
   status                  Show Helm release and Kubernetes resources
   smoke-test              Run an in-cluster S3 upload/download smoke test
   render-values           Print generated SeaweedFS Helm values
+  render-s3-service       Print the SeaweedFS S3 LAN NodePort Service YAML
   render-admin-service    Print the SeaweedFS Admin UI NodePort Service YAML
   render-bucket-job       Print bucket initialization Job YAML
   render-smoke-test       Print the S3 smoke test Job YAML
-  uninstall               Remove the Helm release only
+  uninstall               Remove the Helm release and helper Services/Jobs
 
 Options:
   --env-file <path>       Load SeaweedFS settings from a local env file
@@ -169,7 +170,7 @@ load_env_file() {
 parse_args() {
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      install | status | smoke-test | render-values | render-admin-service | render-bucket-job | render-smoke-test | uninstall)
+      install | status | smoke-test | render-values | render-s3-service | render-admin-service | render-bucket-job | render-smoke-test | uninstall)
         ACTION="$1"
         shift
         ;;
@@ -221,6 +222,9 @@ set_defaults() {
   SEAWEEDFS_S3_ENABLED="${SEAWEEDFS_S3_ENABLED:-true}"
   SEAWEEDFS_S3_SERVICE_NAME="${SEAWEEDFS_S3_SERVICE_NAME:-seaweedfs-s3}"
   SEAWEEDFS_S3_PORT="${SEAWEEDFS_S3_PORT:-8333}"
+  SEAWEEDFS_S3_NODEPORT_ENABLED="${SEAWEEDFS_S3_NODEPORT_ENABLED:-true}"
+  SEAWEEDFS_S3_NODEPORT_SERVICE_NAME="${SEAWEEDFS_S3_NODEPORT_SERVICE_NAME:-seaweedfs-s3-nodeport}"
+  SEAWEEDFS_S3_NODE_PORT="${SEAWEEDFS_S3_NODE_PORT:-32247}"
   SEAWEEDFS_S3_BUCKET="${SEAWEEDFS_S3_BUCKET:-cola-training}"
   SEAWEEDFS_S3_ACCESS_KEY="${SEAWEEDFS_S3_ACCESS_KEY:-seaweedfs}"
   SEAWEEDFS_S3_SECRET_KEY="${SEAWEEDFS_S3_SECRET_KEY:-seaweedfs-secret}"
@@ -333,7 +337,22 @@ validate_inputs() {
   [[ -n "$SEAWEEDFS_S3_BUCKET" ]] || die "SEAWEEDFS_S3_BUCKET 不能为空"
   [[ -n "$SEAWEEDFS_S3_ACCESS_KEY" ]] || die "SEAWEEDFS_S3_ACCESS_KEY 不能为空"
   [[ -n "$SEAWEEDFS_S3_SECRET_KEY" ]] || die "SEAWEEDFS_S3_SECRET_KEY 不能为空"
-  [[ -n "$SEAWEEDFS_ADMIN_SERVICE_NAME" ]] || die "SEAWEEDFS_ADMIN_SERVICE_NAME 不能为空"
+
+  if [[ "$SEAWEEDFS_S3_ACCESS_KEY" == "seaweedfs" && "$SEAWEEDFS_S3_SECRET_KEY" == "seaweedfs-secret" ]]; then
+    warn "SEAWEEDFS_S3_ACCESS_KEY / SEAWEEDFS_S3_SECRET_KEY 仍是示例值。正式部署前必须修改。"
+  fi
+
+  if ! [[ "$SEAWEEDFS_S3_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_S3_PORT" -lt 1 ]] || [[ "$SEAWEEDFS_S3_PORT" -gt 65535 ]]; then
+    die "SEAWEEDFS_S3_PORT 必须是 1-65535 之间的整数"
+  fi
+
+  if is_true "$SEAWEEDFS_S3_NODEPORT_ENABLED"; then
+    [[ -n "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" ]] || die "SEAWEEDFS_S3_NODEPORT_SERVICE_NAME 不能为空"
+
+    if ! [[ "$SEAWEEDFS_S3_NODE_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_S3_NODE_PORT" -lt 30000 ]] || [[ "$SEAWEEDFS_S3_NODE_PORT" -gt 32767 ]]; then
+      die "SEAWEEDFS_S3_NODE_PORT 必须是 30000-32767 之间的整数"
+    fi
+  fi
 
   validate_json_nodes
 
@@ -348,10 +367,11 @@ validate_inputs() {
   fi
 
   if is_true "$SEAWEEDFS_ADMIN_ENABLED"; then
+    [[ -n "$SEAWEEDFS_ADMIN_SERVICE_NAME" ]] || die "SEAWEEDFS_ADMIN_SERVICE_NAME 不能为空"
     [[ -n "$SEAWEEDFS_ADMIN_USER" ]] || die "SEAWEEDFS_ADMIN_USER 不能为空"
     [[ -n "$SEAWEEDFS_ADMIN_PASSWORD" ]] || die "SEAWEEDFS_ADMIN_PASSWORD 不能为空；为空会关闭 Admin UI 认证"
 
-    if [[ "$SEAWEEDFS_ADMIN_PASSWORD" == "change-me-before-deploy" ]]; then
+    if [[ "$SEAWEEDFS_ADMIN_PASSWORD" == "change-me-before-deploy" || "$SEAWEEDFS_ADMIN_PASSWORD" == "123456" ]]; then
       warn "SEAWEEDFS_ADMIN_PASSWORD 仍是示例值。正式部署前必须修改。"
     fi
 
@@ -524,6 +544,32 @@ spec:
 YAML
 }
 
+render_s3_service() {
+  cat <<YAML
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${SEAWEEDFS_S3_NODEPORT_SERVICE_NAME}
+  namespace: ${SEAWEEDFS_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: seaweedfs-s3
+    app.kubernetes.io/instance: ${SEAWEEDFS_RELEASE}
+    app.kubernetes.io/part-of: seaweedfs
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/instance: ${SEAWEEDFS_RELEASE}
+    app.kubernetes.io/component: s3
+  ports:
+    - name: swfs-s3
+      protocol: TCP
+      port: ${SEAWEEDFS_S3_PORT}
+      targetPort: ${SEAWEEDFS_S3_PORT}
+      nodePort: ${SEAWEEDFS_S3_NODE_PORT}
+YAML
+}
+
 render_bucket_job() {
   cat <<YAML
 apiVersion: batch/v1
@@ -549,9 +595,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: AWS_ACCESS_KEY_ID
-              value: ${SEAWEEDFS_S3_ACCESS_KEY}
+              value: $(yaml_quote "$SEAWEEDFS_S3_ACCESS_KEY")
             - name: AWS_SECRET_ACCESS_KEY
-              value: ${SEAWEEDFS_S3_SECRET_KEY}
+              value: $(yaml_quote "$SEAWEEDFS_S3_SECRET_KEY")
             - name: AWS_DEFAULT_REGION
               value: us-east-1
           command: ["/bin/sh", "-lc"]
@@ -589,9 +635,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: AWS_ACCESS_KEY_ID
-              value: ${SEAWEEDFS_S3_ACCESS_KEY}
+              value: $(yaml_quote "$SEAWEEDFS_S3_ACCESS_KEY")
             - name: AWS_SECRET_ACCESS_KEY
-              value: ${SEAWEEDFS_S3_SECRET_KEY}
+              value: $(yaml_quote "$SEAWEEDFS_S3_SECRET_KEY")
             - name: AWS_DEFAULT_REGION
               value: us-east-1
           command: ["/bin/sh", "-lc"]
@@ -679,6 +725,15 @@ apply_admin_service() {
   render_admin_service | apply_yaml "SeaweedFS Admin UI NodePort Service"
 }
 
+apply_s3_service() {
+  if ! is_true "$SEAWEEDFS_S3_NODEPORT_ENABLED"; then
+    return 0
+  fi
+
+  log "创建或更新 SeaweedFS S3 LAN NodePort Service: ${SEAWEEDFS_S3_NODEPORT_SERVICE_NAME}:${SEAWEEDFS_S3_NODE_PORT}"
+  render_s3_service | apply_yaml "SeaweedFS S3 LAN NodePort Service"
+}
+
 wait_for_bucket_job() {
   if ! is_true "$SEAWEEDFS_CREATE_BUCKET_JOB"; then
     return 0
@@ -718,17 +773,24 @@ status() {
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" -o wide || true
   echo
 
+  log "SeaweedFS S3 LAN NodePort"
+  kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get svc "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" -o wide || true
+  echo
+
   log "Bucket init job"
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get job "${SEAWEEDFS_RELEASE}-bucket-init" -o wide || true
   echo
 
   log "S3 endpoint"
+  local controller_ip
+  controller_ip="$(json_field controllerIp)"
   cat <<EOF
 Internal endpoint: http://${SEAWEEDFS_S3_SERVICE_NAME}.${SEAWEEDFS_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_S3_PORT}
+LAN endpoint: $(if is_true "$SEAWEEDFS_S3_NODEPORT_ENABLED"; then echo "http://${controller_ip}:${SEAWEEDFS_S3_NODE_PORT}"; else echo "disabled"; fi)
 Bucket: ${SEAWEEDFS_S3_BUCKET}
 AWS_ACCESS_KEY_ID: ${SEAWEEDFS_S3_ACCESS_KEY}
 AWS_SECRET_ACCESS_KEY: <redacted>
-Admin UI: http://$(json_field controllerIp):${SEAWEEDFS_ADMIN_NODE_PORT}
+Admin UI: http://${controller_ip}:${SEAWEEDFS_ADMIN_NODE_PORT}
 Admin UI user: ${SEAWEEDFS_ADMIN_USER}
 EOF
 }
@@ -736,7 +798,7 @@ EOF
 uninstall() {
   log "卸载 SeaweedFS Helm release: ${SEAWEEDFS_NAMESPACE}/${SEAWEEDFS_RELEASE}"
   helm_cmd uninstall "$SEAWEEDFS_RELEASE" --namespace "$SEAWEEDFS_NAMESPACE" || true
-  kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" --ignore-not-found || true
+  kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" --ignore-not-found || true
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete job "${SEAWEEDFS_RELEASE}-bucket-init" "$SEAWEEDFS_SMOKE_TEST_JOB" --ignore-not-found || true
 
   cat <<EOF
@@ -757,6 +819,10 @@ main() {
   case "$ACTION" in
     render-values)
       render_values
+      return 0
+      ;;
+    render-s3-service)
+      render_s3_service
       return 0
       ;;
     render-admin-service)
@@ -783,6 +849,7 @@ main() {
     install)
       connectivity_check
       install_chart
+      apply_s3_service
       apply_admin_service
       apply_bucket_job
       wait_for_bucket_job

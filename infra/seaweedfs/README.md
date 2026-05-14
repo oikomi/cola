@@ -66,6 +66,7 @@ SEAWEEDFS_ADMIN_NODE_PORT=32246
 
 ```bash
 ./deploy.sh render-values --env-file seaweedfs.env
+./deploy.sh render-s3-service --env-file seaweedfs.env
 ./deploy.sh render-admin-service --env-file seaweedfs.env
 ./deploy.sh render-bucket-job --env-file seaweedfs.env
 ./deploy.sh render-smoke-test --env-file seaweedfs.env
@@ -124,6 +125,41 @@ http://172.16.60.198:32246
 _smoke/seaweedfs-smoke.txt
 ```
 
+## 局域网访问
+
+部署脚本默认会额外创建一个 S3 NodePort Service，用于局域网内其他机器访问：
+
+```bash
+SEAWEEDFS_S3_NODEPORT_ENABLED=true
+SEAWEEDFS_S3_NODEPORT_SERVICE_NAME=seaweedfs-s3-nodeport
+SEAWEEDFS_S3_NODE_PORT=32247
+```
+
+按当前 `infra/k8s/cluster/config.json`，局域网 S3 endpoint 是：
+
+```text
+http://172.16.60.198:32247
+```
+
+局域网机器上可以这样验证：
+
+```bash
+export AWS_ACCESS_KEY_ID='...'
+export AWS_SECRET_ACCESS_KEY='...'
+export AWS_DEFAULT_REGION=us-east-1
+
+aws --endpoint-url http://172.16.60.198:32247 s3 ls s3://cola-training
+aws --endpoint-url http://172.16.60.198:32247 s3 cp ./dataset.jsonl s3://cola-training/datasets/dataset.jsonl
+```
+
+如果连不上，先确认端口能从局域网机器打通：
+
+```bash
+nc -vz 172.16.60.198 32247
+```
+
+如果 `nc` 不通，通常是节点防火墙、交换机 ACL 或 Kubernetes NodePort 没有创建成功。这个 NodePort 只建议开放给可信局域网，不要直接暴露到公网。
+
 ## 集群内访问参数
 
 给训练任务、JupyterLab 或 Unsloth Studio 注入类似环境变量：
@@ -143,7 +179,7 @@ aws --endpoint-url "$AWS_ENDPOINT_URL" s3 ls "s3://$COLA_TRAINING_S3_BUCKET"
 aws --endpoint-url "$AWS_ENDPOINT_URL" s3 cp ./dataset.jsonl "s3://$COLA_TRAINING_S3_BUCKET/datasets/dataset.jsonl"
 ```
 
-如果容器在集群外访问，需要额外暴露 S3 Service，例如 NodePort、Ingress 或端口转发；默认方案只暴露集群内 ClusterIP。
+集群内 Pod 不需要走 NodePort，继续使用 `seaweedfs-s3.storage.svc.cluster.local:8333`，这样不会绕到节点外部网络。
 
 ## 和训练平台的关系
 

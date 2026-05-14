@@ -25,6 +25,7 @@ const STORAGE_NAMESPACE = "storage";
 const SEAWEEDFS_SERVICE = "seaweedfs-s3";
 const SEAWEEDFS_PORT = "8333";
 const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
+const SEAWEEDFS_S3_NODE_PORT = "32247";
 const DEFAULT_BUCKET = "cola-training";
 const INTERNAL_ENDPOINT = `http://${SEAWEEDFS_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_PORT}`;
 const DEFAULT_DATASET_PREFIX = `s3://${DEFAULT_BUCKET}/datasets/`;
@@ -43,6 +44,7 @@ export default function StoragePage() {
       ? clusterConfig.controllerIp.trim()
       : "172.16.60.198";
   const adminUiUrl = `http://${controllerIp}:${SEAWEEDFS_ADMIN_NODE_PORT}`;
+  const lanS3Endpoint = `http://${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}`;
 
   return (
     <ModulePageShell>
@@ -78,9 +80,9 @@ export default function StoragePage() {
         <div className="grid gap-3 md:grid-cols-4">
           <ModuleMetricCard
             size="compact"
-            label="Admin UI"
-            value={`:${SEAWEEDFS_ADMIN_NODE_PORT}`}
-            description="SeaweedFS 官方 Web 管理入口，点击按钮新窗口打开。"
+            label="LAN S3"
+            value={`:${SEAWEEDFS_S3_NODE_PORT}`}
+            description="局域网内其他机器访问 SeaweedFS S3 的 NodePort。"
             icon={RouteIcon}
           />
           <ModuleMetricCard
@@ -120,6 +122,7 @@ export default function StoragePage() {
               icon={CheckCircle2Icon}
               rows={[
                 ["Endpoint", "AWS_ENDPOINT_URL"],
+                ["集群内地址", INTERNAL_ENDPOINT],
                 ["Bucket", "COLA_TRAINING_S3_BUCKET"],
                 ["数据集前缀", DEFAULT_DATASET_PREFIX],
                 ["产物前缀", DEFAULT_CHECKPOINT_PREFIX],
@@ -131,6 +134,7 @@ export default function StoragePage() {
               icon={PackageIcon}
               rows={[
                 ["Endpoint", INTERNAL_ENDPOINT],
+                ["局域网 Endpoint", lanS3Endpoint],
                 ["Bucket", DEFAULT_BUCKET],
                 ["用途", "上传数据集与调试脚本"],
                 ["认证", "AWS_ACCESS_KEY_ID"],
@@ -154,6 +158,7 @@ export default function StoragePage() {
               rows={[
                 ["默认数据根", "/var/lib/cola/seaweedfs"],
                 ["当前节点", "master-01 / node-01"],
+                ["Admin UI", adminUiUrl],
                 ["副本策略", "SEAWEEDFS_REPLICATION"],
                 ["PVC", "当前方案不创建"],
               ]}
@@ -166,10 +171,10 @@ export default function StoragePage() {
                 <KeyRoundIcon className="size-4" />
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-slate-950">集群内访问参数</p>
+                <p className="font-semibold text-slate-950">访问参数</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  把这些变量注入到训练容器或 Notebook 后，即可通过标准 S3
-                  工具访问 SeaweedFS。
+                  集群内训练容器使用 ClusterIP，局域网机器使用 NodePort。
+                  两者共用同一组 S3 凭据。
                 </p>
               </div>
             </div>
@@ -182,6 +187,7 @@ export default function StoragePage() {
                   label="AWS_ENDPOINT_URL"
                   value={INTERNAL_ENDPOINT}
                 />
+                <StorageFact label="LAN_ENDPOINT_URL" value={lanS3Endpoint} />
                 <StorageFact label="AWS_DEFAULT_REGION" value="us-east-1" />
                 <StorageFact
                   label="AWS_ACCESS_KEY_ID"
