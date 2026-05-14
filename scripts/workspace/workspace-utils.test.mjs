@@ -118,6 +118,8 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
 
   assert.equal(normalizedNodePort, 31490);
   assert.match(manifest, /runtimeClassName: nvidia/);
+  assert.doesNotMatch(manifest, /kubernetes\.io\/hostname/);
+  assert.doesNotMatch(manifest, /nodeSelector:/);
   assert.match(manifest, /host: alice\.example\.com/);
   assert.match(manifest, /secretName: alice-tls/);
 });

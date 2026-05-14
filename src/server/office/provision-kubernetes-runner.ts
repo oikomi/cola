@@ -727,22 +727,6 @@ export async function resolveKubernetesRunnerDashboardUrl(options: {
   }
 }
 
-function nodeSelection() {
-  const nodeName = process.env.COLA_K8S_RUNNER_NODE_NAME;
-  if (!nodeName) return {};
-
-  return {
-    nodeSelector: {
-      "kubernetes.io/hostname": nodeName,
-    },
-    tolerations: [
-      {
-        operator: "Exists" as const,
-      },
-    ],
-  };
-}
-
 function buildRunnerResources(
   input: ProvisionRunnerInput,
   deploymentName: string,
@@ -801,7 +785,6 @@ function buildRunnerResources(
           },
         },
         spec: {
-          ...nodeSelection(),
           containers: [
             {
               name: "runner",

@@ -241,9 +241,12 @@ export function buildWorkspaceManifest({
 }) {
   validateWorkspaceName(name);
 
-  const targetNode = nodes.find((node) => node.name === nodeName);
+  const targetNode =
+    nodes.find((node) => node.name === nodeName) ??
+    nodes.find((node) => node.roles.includes("master")) ??
+    nodes[0];
   if (!targetNode) {
-    throw new Error(`目标节点不存在: ${nodeName}`);
+    throw new Error("没有可用于生成远程桌面访问地址的集群节点。");
   }
 
   const normalizedGpu = Number(gpu);
@@ -308,8 +311,6 @@ export function buildWorkspaceManifest({
     `        remote-work/name: ${name}`,
     `    spec:`,
     ...(normalizedGpu > 0 ? [`      runtimeClassName: nvidia`] : []),
-    `      nodeSelector:`,
-    `        kubernetes.io/hostname: ${yamlQuote(targetNode.name)}`,
     `      containers:`,
     `        - name: desktop`,
     `          image: ${yamlQuote(image)}`,
