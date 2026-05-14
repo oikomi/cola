@@ -27,11 +27,12 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
   assert.equal(workVolume.mode, "seaweedfs");
   assert.deepEqual(workVolume.volume, {
     name: "training-workdir",
+    emptyDir: {},
   });
-  assert.equal(workVolume.mountPath, SHARED_STORAGE_MOUNT_PATH);
+  assert.equal(workVolume.mountPath, `${SHARED_STORAGE_MOUNT_PATH}/.seaweedfs`);
   assert.deepEqual(buildWorkVolumeMount(workVolume), {
-    name: "training-workdir-seaweedfs-cache",
-    mountPath: "/var/cache/seaweedfs",
+    name: "training-workdir",
+    mountPath: SHARED_STORAGE_MOUNT_PATH,
   });
 
   const initContainers = buildWorkVolumeInitContainers(workVolume);
@@ -42,18 +43,22 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     initContainers[0]?.env?.find(
       (entry) => entry.name === "COLA_SEAWEEDFS_MOUNT_DIR",
     )?.value,
-    SHARED_STORAGE_MOUNT_PATH,
+    `${SHARED_STORAGE_MOUNT_PATH}/.seaweedfs`,
   );
   assert.equal(initContainers[0]?.securityContext, undefined);
   assert.deepEqual(
     initContainers[0]?.volumeMounts?.map((mount) => mount.name),
-    ["training-workdir-seaweedfs-cache", "training-workdir-seaweedfs-tools"],
+    [
+      "training-workdir",
+      "training-workdir-seaweedfs-cache",
+      "training-workdir-seaweedfs-tools",
+    ],
   );
   assert.equal(
     buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SHARED_STORAGE_DIR",
     )?.value,
-    SHARED_STORAGE_MOUNT_PATH,
+    `${SHARED_STORAGE_MOUNT_PATH}/.seaweedfs`,
   );
   assert.equal(
     buildWorkVolumeEnv(workVolume).find(
@@ -71,22 +76,19 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
   assert.deepEqual(
     buildWorkVolumeMounts(workVolume).map((mount) => mount.name),
     [
+      "training-workdir",
       "training-workdir-seaweedfs-cache",
       "training-workdir-fuse-device",
-      "training-workdir-fusermount",
       "training-workdir-seaweedfs-tools",
     ],
   );
-  assert.notEqual(
-    buildWorkVolumeMounts(workVolume)[0]?.mountPath,
-    SHARED_STORAGE_MOUNT_PATH,
-  );
+  assert.notEqual(workVolume.mountPath, buildWorkVolumeMount(workVolume).mountPath);
   assert.deepEqual(
     buildWorkVolumeMounts(workVolume).map((mount) => mount.mountPath),
     [
+      SHARED_STORAGE_MOUNT_PATH,
       "/var/cache/seaweedfs",
       "/dev/fuse",
-      "/bin/fusermount",
       "/opt/cola-seaweedfs",
     ],
   );
@@ -101,14 +103,14 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
   assert.match(initContainers[0]?.args?.[0] ?? "", /-nonempty/);
   assert.deepEqual(
     initContainers[0]?.volumeMounts?.map((mount) => mount.mountPath),
-    ["/var/cache/seaweedfs", "/opt/cola-seaweedfs"],
+    [SHARED_STORAGE_MOUNT_PATH, "/var/cache/seaweedfs", "/opt/cola-seaweedfs"],
   );
   assert.deepEqual(
     buildWorkVolumes(workVolume).map((volume) => volume.name),
     [
+      "training-workdir",
       "training-workdir-seaweedfs-cache",
       "training-workdir-fuse-device",
-      "training-workdir-fusermount",
       "training-workdir-seaweedfs-tools",
     ],
   );
