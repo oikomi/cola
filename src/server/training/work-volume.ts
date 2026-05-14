@@ -71,6 +71,7 @@ const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/cola-training";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
 export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
+const SEAWEEDFS_MOUNT_SUBDIR = ".seaweedfs";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
   for (const name of names) {
@@ -105,6 +106,10 @@ function resolveMountPath(input: {
 
 function volumeName(base: string, suffix: string) {
   return `${base}-${suffix}`.slice(0, 63).replace(/-+$/g, "");
+}
+
+function joinPosixPath(base: string, child: string) {
+  return `${base.replace(/\/+$/g, "")}/${child.replace(/^\/+/g, "")}`;
 }
 
 function buildSeaweedfsInstallCommand() {
@@ -288,9 +293,13 @@ function resolveSeaweedfsWorkVolume(input: {
   const cacheDir =
     firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_DIR"]) ??
     DEFAULT_SEAWEEDFS_CACHE_DIR;
+  const mountSubdir =
+    firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_SUBDIR"]) ??
+    SEAWEEDFS_MOUNT_SUBDIR;
+  const mountPath = joinPosixPath(input.mountPath, mountSubdir);
   const containerEnv = buildSeaweedfsEnv({
     env: input.env,
-    mountPath: input.mountPath,
+    mountPath,
     cacheDir,
   });
   const containerSecurityContext = {
@@ -330,7 +339,7 @@ function resolveSeaweedfsWorkVolume(input: {
         emptyDir: {},
       },
     ],
-    mountPath: input.mountPath,
+    mountPath,
     initContainers: [
       {
         name: installContainerName,

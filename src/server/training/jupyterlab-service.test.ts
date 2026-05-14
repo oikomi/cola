@@ -53,7 +53,6 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
   assert.equal(mode, "seaweedfs");
   assert.deepEqual(volume, {
     name: "jupyterlab-workdir",
-    emptyDir: {},
   });
   assert.equal(mountPath, SHARED_STORAGE_MOUNT_PATH);
   assert.equal(initContainers.length, 1);
