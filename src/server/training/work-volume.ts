@@ -162,6 +162,7 @@ exec "${SEAWEEDFS_TOOLS_DIR}/weed" mount \\
   -cacheDir="$COLA_SEAWEEDFS_CACHE_DIR" \\
   -cacheCapacityMB="$COLA_SEAWEEDFS_CACHE_CAPACITY_MB" \\
   -chunkSizeLimitMB="$COLA_SEAWEEDFS_CHUNK_SIZE_LIMIT_MB" \\
+  -nonempty \\
   $extra_args
 SH
 chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh"`;

@@ -90,6 +90,7 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     initContainers[0]?.args?.[0] ?? "",
     /chown -R "\$COLA_SEAWEEDFS_MOUNT_UID/,
   );
+  assert.match(initContainers[0]?.args?.[0] ?? "", /-nonempty/);
   assert.deepEqual(
     initContainers[0]?.volumeMounts?.map((mount) => mount.mountPath),
     [SHARED_STORAGE_MOUNT_PATH, "/var/cache/seaweedfs", "/opt/cola-seaweedfs"],

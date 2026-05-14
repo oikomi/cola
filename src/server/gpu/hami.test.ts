@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildHamiGpuResources,
+  buildHamiSchedulerSpec,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "./hami.ts";
@@ -41,5 +42,29 @@ void test("memory mode requests gpumem and round-trips back to Gi", () => {
       gpuCount: 1,
       gpuMemoryGi: 8,
     },
+  );
+});
+
+void test("memory mode uses the HAMi scheduler", () => {
+  assert.deepEqual(
+    buildHamiSchedulerSpec({
+      gpuAllocationMode: "memory",
+      gpuCount: 1,
+      gpuMemoryGi: 8,
+    }),
+    {
+      schedulerName: "hami-scheduler",
+    },
+  );
+});
+
+void test("whole GPU mode keeps the default scheduler", () => {
+  assert.deepEqual(
+    buildHamiSchedulerSpec({
+      gpuAllocationMode: "whole",
+      gpuCount: 1,
+      gpuMemoryGi: null,
+    }),
+    {},
   );
 });
