@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 
 export function LogoutButton({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
