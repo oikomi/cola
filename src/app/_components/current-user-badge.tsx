@@ -54,7 +54,7 @@ export function CurrentUserBadge() {
 
   return (
     <div className="relative border-t border-white/[0.1] px-2.5 py-2.5 2xl:px-2.5 2xl:py-2.5">
-      <div className="grid items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.1] bg-white/[0.05] px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:flex md:justify-center 2xl:grid-cols-[2.25rem_minmax(0,1fr)_auto]">
+      <div className="flex items-center gap-2 rounded-[var(--radius-card)] border border-white/[0.1] bg-white/[0.05] px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:flex-col md:justify-center md:px-1.5 2xl:grid 2xl:grid-cols-[2.25rem_minmax(0,1fr)_auto] 2xl:px-2">
         <Avatar className="size-8">
           {user.avatarUrl ? (
             <AvatarImage src={user.avatarUrl} alt={user.name ?? ""} />

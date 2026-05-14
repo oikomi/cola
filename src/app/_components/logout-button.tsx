@@ -35,7 +35,10 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
       type="button"
       variant="ghost"
       size={compact ? "icon-sm" : "sm"}
-      className="h-9 rounded-[var(--radius-card)] border border-white/10 bg-slate-950/20 px-2.5 text-[12px] text-slate-200/86 hover:bg-white/[0.075] hover:text-white [&_svg:not([class*='size-'])]:size-4"
+      className={cn(
+        "h-9 rounded-[var(--radius-card)] border border-white/10 bg-slate-950/20 px-2.5 text-[12px] text-slate-200/86 hover:bg-white/[0.075] hover:text-white [&_svg:not([class*='size-'])]:size-4",
+        compact && "size-8 px-0",
+      )}
       disabled={pending}
       onClick={logout}
       aria-label="退出登录"
