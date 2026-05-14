@@ -15,6 +15,9 @@ VNC_PASSWORD="${VNC_PASSWORD:-ChangeMe-123!}"
 
 mkdir -p "$HOME/.vnc" "$COLA_SHARED_STORAGE_DIR"
 mkdir -p "$HOME/.config" "$HOME/.local/share"
+if [[ ! -s /etc/machine-id ]]; then
+  dbus-uuidgen >/etc/machine-id 2>/dev/null || true
+fi
 chown -R worker:worker "$HOME"
 chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 

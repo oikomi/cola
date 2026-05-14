@@ -3,17 +3,55 @@
 set -euo pipefail
 
 export HOME="${HOME:-/home/worker}"
-mkdir -p "$HOME/.config/google-chrome" "$HOME/Downloads"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+CHROME_USER_DATA_DIR="${CHROME_USER_DATA_DIR:-$HOME/.config/google-chrome}"
+CHROME_CACHE_DIR="$XDG_CACHE_HOME/google-chrome"
 
+if [[ "$(id -u)" = "0" && "$HOME" = "/home/worker" ]] && id -u worker >/dev/null 2>&1; then
+  install -d -m 0755 -o worker -g worker \
+    "$HOME/Downloads" \
+    "$XDG_CONFIG_HOME" \
+    "$XDG_CACHE_HOME" \
+    "$CHROME_USER_DATA_DIR" \
+    "$CHROME_CACHE_DIR"
+
+  exec sudo -u worker \
+    HOME="$HOME" \
+    DISPLAY="${DISPLAY:-:1}" \
+    XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+    XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+    CHROME_USER_DATA_DIR="$CHROME_USER_DATA_DIR" \
+    "$0" "$@"
+fi
+
+mkdir -p "$HOME/Downloads" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$CHROME_USER_DATA_DIR" "$CHROME_CACHE_DIR"
+
+chrome_args=(
+  --no-sandbox
+  --disable-setuid-sandbox
+  --disable-dev-shm-usage
+  --disable-breakpad
+  --disable-crash-reporter
+  --disable-extensions
+  --disable-features=UseChromeOSDirectVideoDecoder,Vulkan,VulkanFromANGLE,DefaultANGLEVulkan,UseOzonePlatform
+  --disable-gpu
+  --disable-gpu-compositing
+  --disable-accelerated-2d-canvas
+  --disable-accelerated-video-decode
+  --no-first-run
+  --no-default-browser-check
+  --password-store=basic
+  --use-mock-keychain
+  --ozone-platform=x11
+)
+
+if /usr/bin/google-chrome-stable "${chrome_args[@]}" --user-data-dir="$CHROME_USER_DATA_DIR" "$@"; then
+  exit 0
+fi
+
+fallback_user_data_dir="$(mktemp -d "$HOME/.cache/google-chrome/session.XXXXXX")"
 exec /usr/bin/google-chrome-stable \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --disable-gpu \
-  --disable-gpu-compositing \
-  --disable-software-rasterizer \
-  --disable-accelerated-2d-canvas \
-  --disable-accelerated-video-decode \
-  --disable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan \
-  --ozone-platform=x11 \
-  --user-data-dir="${CHROME_USER_DATA_DIR:-$HOME/.config/google-chrome}" \
+  "${chrome_args[@]}" \
+  --user-data-dir="$fallback_user_data_dir" \
   "$@"

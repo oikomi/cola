@@ -36,6 +36,7 @@ import {
   ownerForUserId,
   type ResourceOwner,
 } from "@/server/resource-owners";
+import { buildJupyterLabCommand } from "@/server/training/jupyterlab-command";
 import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 import {
@@ -515,19 +516,6 @@ function resolveWorkVolume() {
   });
 }
 
-function buildJupyterLabCommand(workdir: string) {
-  return [
-    "set -eu",
-    `mkdir -p ${JSON.stringify(workdir)}`,
-    "exec start-notebook.py \\",
-    "  --ServerApp.ip=0.0.0.0 \\",
-    `  --ServerApp.port=${JUPYTERLAB_PORT} \\`,
-    "  --ServerApp.open_browser=False \\",
-    `  --ServerApp.root_dir=${JSON.stringify(workdir)} \\`,
-    '  --ServerApp.token="${JUPYTER_TOKEN}"',
-  ].join("\n");
-}
-
 function deploymentStatus(deployment: V1Deployment) {
   const desired = deployment.spec?.replicas ?? 0;
   const ready = deployment.status?.readyReplicas ?? 0;
@@ -691,7 +679,10 @@ function buildJupyterLabDeployment(input: {
               args: [
                 buildWorkVolumeShellCommand(
                   workVolume,
-                  buildJupyterLabCommand(mountPath),
+                  buildJupyterLabCommand({
+                    workdir: mountPath,
+                    port: JUPYTERLAB_PORT,
+                  }),
                 ),
               ],
               ports: [{ containerPort: JUPYTERLAB_PORT, name: "http" }],

@@ -10,6 +10,7 @@ NOVNC_VERSION="v1.6.0"
 UBUNTU_VERSION="24.04.4"
 BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
+SKIP_PACKAGE_INSTALL="0"
 TARGET_ARCH=""
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 WORKSPACE_IMAGE_CONTEXT_DIR="$REPO_ROOT/workloads/remote-workspace"
@@ -26,6 +27,7 @@ Options:
   --ubuntu-version <ver>  Ubuntu base image version, default 24.04.4
   --base-image <ref>      Override Docker base image, default resolved from --ubuntu-version
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
+  --skip-package-install  Reuse a base image that already contains desktop packages, Chrome, websockify and noVNC
   --target-arch <arch>    Target node arch, default first configured node arch
   --novnc-version <ver>   noVNC git tag, default v1.6.0
   -h, --help              Show help
@@ -53,6 +55,7 @@ build_workspace_image() {
     --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
     --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
     --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
+    --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
     -t "$image_ref" \
     "$WORKSPACE_IMAGE_CONTEXT_DIR" 2>&1 | tee "$build_log"
   status=${PIPESTATUS[0]}
@@ -72,6 +75,7 @@ build_workspace_image() {
       --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
       --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
+      --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
       -t "$image_ref" \
       "$WORKSPACE_IMAGE_CONTEXT_DIR"
     return 0
@@ -119,6 +123,10 @@ while [[ $# -gt 0 ]]; do
     --offline-deb-dir)
       OFFLINE_DEB_DIR="$2"
       shift 2
+      ;;
+    --skip-package-install)
+      SKIP_PACKAGE_INSTALL="1"
+      shift
       ;;
     --target-arch)
       TARGET_ARCH="$2"

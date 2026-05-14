@@ -4,15 +4,20 @@ import {
   Code2Icon,
   DatabaseIcon,
   ExternalLinkIcon,
+  FilesIcon,
   HardDriveIcon,
   KeyRoundIcon,
+  NetworkIcon,
   PackageIcon,
   RouteIcon,
   Settings2Icon,
   TerminalIcon,
+  UploadCloudIcon,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import clusterConfig from "../../../infra/k8s/cluster/config.json";
+import clusterNodes from "../../../infra/k8s/cluster/nodes.json";
 import {
   ModuleHero,
   ModuleMetricCard,
@@ -32,15 +37,32 @@ const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
 const SEAWEEDFS_S3_NODE_PORT = "32247";
 const SEAWEEDFS_FUSE_IMAGE = "chrislusf/seaweedfs:4.23";
 const DEFAULT_BUCKET = "cola-training";
+const SEAWEEDFS_DATA_ROOT = "/var/lib/cola/seaweedfs";
+const SEAWEEDFS_VOLUME_ROOT = `${SEAWEEDFS_DATA_ROOT}/volume`;
 const INTERNAL_ENDPOINT = `http://${SEAWEEDFS_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_PORT}`;
 const INTERNAL_FILER_ENDPOINT = `${SEAWEEDFS_FILER_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_FILER_PORT}`;
-const DEFAULT_CHECKPOINT_PREFIX = `s3://${DEFAULT_BUCKET}/checkpoints/`;
-const DEFAULT_MODEL_PREFIX = `s3://${DEFAULT_BUCKET}/models/`;
 const DEFAULT_BUCKET_FILER_PATH = `/buckets/${DEFAULT_BUCKET}`;
 const TRAINING_WORKDIR = "/shared-dist-storage";
 const TRAINING_DATASET_DIR = `${TRAINING_WORKDIR}/datasets`;
 const TRAINING_CHECKPOINT_DIR = `${TRAINING_WORKDIR}/checkpoints`;
 const TRAINING_MODEL_DIR = `${TRAINING_WORKDIR}/models`;
+const TRAINING_OUTPUT_ROOT = `${TRAINING_WORKDIR}/cola-training`;
+
+const clusterNodeNames = clusterNodes
+  .map((node) => node.name)
+  .filter(
+    (name): name is string => typeof name === "string" && name.length > 0,
+  );
+
+type StepItem = {
+  title: string;
+  description: string;
+};
+
+type FactItem = {
+  label: string;
+  value: string;
+};
 
 export default function StoragePage() {
   const namespace =
@@ -53,303 +75,378 @@ export default function StoragePage() {
     clusterConfig.controllerIp.trim().length > 0
       ? clusterConfig.controllerIp.trim()
       : "172.16.60.198";
-  const adminUiUrl = `http://${controllerIp}:${SEAWEEDFS_ADMIN_NODE_PORT}`;
-  const lanS3Endpoint = `http://${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}`;
+  const clusterName =
+    typeof clusterConfig.clusterName === "string" &&
+    clusterConfig.clusterName.trim().length > 0
+      ? clusterConfig.clusterName.trim()
+      : "xdream-cloud";
   const kubernetesVersion =
     typeof clusterConfig.kubernetesVersion === "string" &&
     clusterConfig.kubernetesVersion.trim().length > 0
       ? clusterConfig.kubernetesVersion.trim()
       : "1.34";
-  const curlExample = `set -a
-source infra/seaweedfs/seaweedfs.env
-set +a
-
-export LAN_ENDPOINT_URL="${lanS3Endpoint}"
-export AWS_ACCESS_KEY_ID="$SEAWEEDFS_S3_ACCESS_KEY"
-export AWS_SECRET_ACCESS_KEY="$SEAWEEDFS_S3_SECRET_KEY"
-export COLA_TRAINING_S3_BUCKET="\${SEAWEEDFS_S3_BUCKET:-${DEFAULT_BUCKET}}"
-
-printf '{"prompt":"hello"}\\n' > sample.jsonl
-
-curl --aws-sigv4 "aws:amz:us-east-1:s3" \\
-  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \\
-  -T ./sample.jsonl \\
-  "$LAN_ENDPOINT_URL/$COLA_TRAINING_S3_BUCKET/datasets/sample.jsonl"
-
-curl --aws-sigv4 "aws:amz:us-east-1:s3" \\
-  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \\
-  "$LAN_ENDPOINT_URL/$COLA_TRAINING_S3_BUCKET?list-type=2&prefix=datasets/"`;
-  const pythonExample = `set -a
-source infra/seaweedfs/seaweedfs.env
-set +a
-
-export AWS_ENDPOINT_URL="${INTERNAL_ENDPOINT}"
-export AWS_ACCESS_KEY_ID="$SEAWEEDFS_S3_ACCESS_KEY"
-export AWS_SECRET_ACCESS_KEY="$SEAWEEDFS_S3_SECRET_KEY"
+  const adminUiUrl = `http://${controllerIp}:${SEAWEEDFS_ADMIN_NODE_PORT}`;
+  const lanS3Endpoint = `http://${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}`;
+  const nodeSummary = clusterNodeNames.join(" / ") || "master-01 / node-01";
+  const lanUploadExample = `# 在局域网应用服务器或开发机上执行，不需要进 Kubernetes 集群。
+# endpoint 来自 infra/k8s/cluster/config.json 的 controllerIp + SeaweedFS NodePort。
+export AWS_ENDPOINT_URL="${lanS3Endpoint}"
+export AWS_ACCESS_KEY_ID="从 infra/seaweedfs/seaweedfs.env 读取"
+export AWS_SECRET_ACCESS_KEY="从 infra/seaweedfs/seaweedfs.env 读取"
 export AWS_DEFAULT_REGION="us-east-1"
-export COLA_TRAINING_S3_BUCKET="\${SEAWEEDFS_S3_BUCKET:-${DEFAULT_BUCKET}}"
+export COLA_BUCKET="${DEFAULT_BUCKET}"
 
-python - <<'PY'
-import os
-from pathlib import Path
+aws --endpoint-url "$AWS_ENDPOINT_URL" s3 cp \\
+  ./dataset.jsonl "s3://$COLA_BUCKET/datasets/dataset.jsonl"
 
+aws --endpoint-url "$AWS_ENDPOINT_URL" s3 ls \\
+  "s3://$COLA_BUCKET/datasets/"`;
+  const appUploadExample = `# 外部局域网应用上传时只要按 S3 API 写入约定前缀。
 import boto3
 
-bucket = os.getenv("COLA_TRAINING_S3_BUCKET", "cola-training")
 s3 = boto3.client(
     "s3",
-    endpoint_url=os.environ["AWS_ENDPOINT_URL"],
-    aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-    aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-    region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+    endpoint_url="${lanS3Endpoint}",
+    aws_access_key_id="从 infra/seaweedfs/seaweedfs.env 读取",
+    aws_secret_access_key="从 infra/seaweedfs/seaweedfs.env 读取",
+    region_name="us-east-1",
 )
 
-Path("sample.jsonl").write_text('{"prompt":"hello"}\\n', encoding="utf-8")
-s3.upload_file("sample.jsonl", bucket, "datasets/sample.jsonl")
+s3.upload_file(
+    "dataset.jsonl",
+    "${DEFAULT_BUCKET}",
+    "datasets/my-app/dataset.jsonl",
+)`;
+  const internalMountExample = `# 平台创建远程桌面、训练 Job、JupyterLab、Unsloth Studio 时自动完成。
+# 业务容器启动后，把 SeaweedFS Filer 路径挂成本地目录：
+COLA_SEAWEEDFS_FILER="${INTERNAL_FILER_ENDPOINT}"
+COLA_SEAWEEDFS_FILER_PATH="${DEFAULT_BUCKET_FILER_PATH}"
+COLA_SEAWEEDFS_MOUNT_DIR="${TRAINING_WORKDIR}"
 
-for obj in s3.list_objects_v2(Bucket=bucket, Prefix="datasets/").get("Contents", []):
-    print(obj["Key"])
+# 容器里的业务代码直接按本地文件系统使用：
+ls ${TRAINING_WORKDIR}
+python train.py \\
+  --data ${TRAINING_DATASET_DIR}/my-app/dataset.jsonl \\
+  --output ${TRAINING_CHECKPOINT_DIR}/run-001
 
-s3.download_file(bucket, "datasets/sample.jsonl", "sample.downloaded.jsonl")
-PY`;
-  const fuseExample = `# 平台创建远程桌面、训练 Job、JupyterLab、Unsloth Studio 时会自动注入：
-# 1. init container 准备 weed FUSE 工具: ${SEAWEEDFS_FUSE_IMAGE}
-# 2. 主业务容器启动时挂载 SeaweedFS FUSE: ${INTERNAL_FILER_ENDPOINT}${DEFAULT_BUCKET_FILER_PATH}
-# 3. 共享存储目录: ${TRAINING_WORKDIR}
+# 训练平台默认产物根目录：
+${TRAINING_OUTPUT_ROOT}/<job-id>/<runtime-job-name>`;
+  const fallbackExample = `# 默认走 SeaweedFS FUSE。如需临时切换，必须先关闭自动挂载。
+COLA_SEAWEEDFS_MOUNT_ENABLED=false
 
-export COLA_SEAWEEDFS_MOUNT_ENABLED=true
-export COLA_SEAWEEDFS_FILER="${INTERNAL_FILER_ENDPOINT}"
-export COLA_SEAWEEDFS_FILER_PATH="${DEFAULT_BUCKET_FILER_PATH}"
-export COLA_SEAWEEDFS_IMAGE="${SEAWEEDFS_FUSE_IMAGE}"
-export COLA_TRAINING_WORKDIR_MOUNT_PATH="${TRAINING_WORKDIR}"
+# 方案 A：节点已经预挂载共享目录。
+COLA_TRAINING_WORKDIR_HOST_PATH=/mnt/cola-training
+COLA_TRAINING_WORKDIR_MOUNT_PATH=${TRAINING_WORKDIR}
 
-# 业务容器内直接按本地文件系统使用：
-mkdir -p ${TRAINING_DATASET_DIR} ${TRAINING_CHECKPOINT_DIR} ${TRAINING_MODEL_DIR}
-printf '{"prompt":"hello"}\\n' > ${TRAINING_DATASET_DIR}/sample.jsonl
-python train.py --data ${TRAINING_DATASET_DIR}/sample.jsonl \\
-  --output ${TRAINING_CHECKPOINT_DIR}
-ls -lah ${TRAINING_WORKDIR}
-
-# 兼容回退：如需暂时改用节点预挂载或 PVC，可关闭自动 FUSE。
-export COLA_SEAWEEDFS_MOUNT_ENABLED=false
-export COLA_TRAINING_WORKDIR_HOST_PATH=/mnt/cola-training
-export COLA_TRAINING_WORKDIR_MOUNT_PATH=${TRAINING_WORKDIR}`;
+# 方案 B：已有可用 PVC。只部署 infra/seaweedfs 不会创建 PVC。
+COLA_TRAINING_PVC_NAME=cola-training-workspace
+COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
 
   return (
     <ModulePageShell>
       <ModuleHero
         eyebrow="Storage Ops"
         title="存储管理"
-        description="集中管理训练平台使用的 SeaweedFS S3 对象存储、数据集路径、checkpoint 和模型产物归档。"
+        description="这页只说明两件核心事：外部局域网应用如何把数据传进 SeaweedFS；集群内部的远程桌面、训练任务和 Notebook 如何把同一份数据挂成本地目录使用。"
         icon={DatabaseIcon}
         badges={
           <>
             <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
-              SeaweedFS
+              SeaweedFS S3
+            </Badge>
+            <Badge className="border border-slate-200 bg-white text-slate-700">
+              {clusterName}
             </Badge>
             <Badge className="border border-slate-200 bg-white text-slate-700">
               {STORAGE_NAMESPACE}
             </Badge>
-            <Badge className="border border-slate-200 bg-white text-slate-700">
-              S3 API
-            </Badge>
-            <a
-              href={adminUiUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants({ size: "sm" }), "h-7 gap-1.5")}
-            >
-              <ExternalLinkIcon className="size-3.5" />
-              打开 Admin UI
-            </a>
           </>
+        }
+        actions={
+          <a
+            href={adminUiUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(buttonVariants({ size: "sm" }), "h-8 gap-1.5")}
+          >
+            <ExternalLinkIcon className="size-3.5" />
+            打开 Admin UI
+          </a>
         }
         size="compact"
       >
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ModuleMetricCard
             size="compact"
-            label="LAN S3"
+            label="外部上传入口"
             value={`:${SEAWEEDFS_S3_NODE_PORT}`}
-            description="局域网内其他机器访问 SeaweedFS S3 的 NodePort。"
+            description={`${lanS3Endpoint}，给可信局域网应用使用。`}
+            icon={UploadCloudIcon}
+          />
+          <ModuleMetricCard
+            size="compact"
+            label="内部 S3"
+            value={`:${SEAWEEDFS_PORT}`}
+            description="Pod 内访问 ClusterIP，不绕 NodePort。"
             icon={RouteIcon}
           />
           <ModuleMetricCard
             size="compact"
-            label="Namespace"
-            value={STORAGE_NAMESPACE}
-            description="SeaweedFS master、volume、filer 和 S3 gateway 所在命名空间。"
-            icon={DatabaseIcon}
+            label="本地挂载"
+            value={TRAINING_WORKDIR}
+            description="业务容器内看到的共享文件系统路径。"
+            icon={HardDriveIcon}
           />
           <ModuleMetricCard
             size="compact"
             label="Bucket"
             value={DEFAULT_BUCKET}
-            description="默认训练数据、checkpoint 和模型产物 bucket。"
+            description="数据集、checkpoint 和模型产物的默认 bucket。"
             icon={ArchiveIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="Workloads"
-            value={namespace}
-            description="训练任务、JupyterLab 和 Unsloth Studio 默认工作 namespace。"
-            icon={HardDriveIcon}
           />
         </div>
       </ModuleHero>
 
       <ModuleSection
-        title="SeaweedFS S3 接入"
-        description="平台在业务创建和启动时自动挂载 SeaweedFS Filer/FUSE；业务优先把共享数据当作本地文件路径管理，S3 API 作为导入导出接口。"
+        title="外部局域网应用怎么传数据"
+        description="外部应用不需要知道 Pod、PVC 或 FUSE，只要把文件按 S3 API 上传到 NodePort endpoint，并落到约定前缀。"
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="grid gap-3 md:grid-cols-2">
-            <StorageBindingCard
-              title="训练任务"
-              status="按本地路径读取数据集和写入产物"
-              icon={CheckCircle2Icon}
-              rows={[
-                ["工作目录", TRAINING_WORKDIR],
-                ["数据集目录", TRAINING_DATASET_DIR],
-                ["checkpoint", TRAINING_CHECKPOINT_DIR],
-                ["模型目录", TRAINING_MODEL_DIR],
-                ["底层挂载", "业务容器内 SeaweedFS FUSE"],
-              ]}
-            />
-            <StorageBindingCard
-              title="JupyterLab"
-              status="启动时自动挂载共享工作目录"
-              icon={PackageIcon}
-              rows={[
-                ["Endpoint", INTERNAL_ENDPOINT],
-                ["Filer", INTERNAL_FILER_ENDPOINT],
-                ["局域网 Endpoint", lanS3Endpoint],
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
+          <div className="space-y-4">
+            <FlowCard
+              icon={NetworkIcon}
+              title="入口路径"
+              description="可信局域网应用 -> Kubernetes NodePort -> SeaweedFS S3 gateway -> cola-training bucket。"
+              facts={[
+                ["LAN endpoint", lanS3Endpoint],
                 ["Bucket", DEFAULT_BUCKET],
-                ["文件路径", TRAINING_WORKDIR],
-                ["用途", "上传数据集、调试脚本和查看产物"],
-                ["认证", "AWS_ACCESS_KEY_ID"],
+                [
+                  "推荐前缀",
+                  "datasets/<source>/..., checkpoints/..., models/...",
+                ],
+                ["凭据来源", "infra/seaweedfs/seaweedfs.env"],
               ]}
             />
-            <StorageBindingCard
-              title="Unsloth Studio"
-              status="保存模型和导出产物到共享目录"
-              icon={Settings2Icon}
-              rows={[
-                ["Endpoint", INTERNAL_ENDPOINT],
-                ["文件路径", TRAINING_WORKDIR],
-                ["模型前缀", DEFAULT_MODEL_PREFIX],
-                ["checkpoint", DEFAULT_CHECKPOINT_PREFIX],
-                ["认证", "AWS_SECRET_ACCESS_KEY"],
-              ]}
-            />
-            <StorageBindingCard
-              title="容量说明"
-              status="由 volume 节点实际磁盘决定"
-              icon={HardDriveIcon}
-              rows={[
-                ["默认数据根", "/var/lib/cola/seaweedfs"],
-                ["当前节点", "master-01 / node-01"],
-                ["Filer 路径", DEFAULT_BUCKET_FILER_PATH],
-                ["Admin UI", adminUiUrl],
-                ["Kubernetes", kubernetesVersion],
-                ["副本策略", "SEAWEEDFS_REPLICATION"],
-                ["PVC", "当前方案不创建"],
+            <StepList
+              steps={[
+                {
+                  title: "1. 打通网络",
+                  description: `外部机器先确认能访问 ${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}。不通时优先查节点防火墙、交换机 ACL 和 seaweedfs-s3-nodeport Service。`,
+                },
+                {
+                  title: "2. 配置 S3 凭据",
+                  description:
+                    "从 infra/seaweedfs/seaweedfs.env 读取 SEAWEEDFS_S3_ACCESS_KEY 和 SEAWEEDFS_S3_SECRET_KEY，不把凭据写进前端页面或代码仓库。",
+                },
+                {
+                  title: "3. 上传到约定前缀",
+                  description: `数据集放 s3://${DEFAULT_BUCKET}/datasets/...，模型放 models/...，训练归档和 checkpoint 放 checkpoints/...。`,
+                },
               ]}
             />
           </div>
-
-          <div className="rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
-            <div className="flex items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-white text-emerald-700 ring-1 ring-emerald-100">
-                <KeyRoundIcon className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-slate-950">访问参数</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  集群内训练容器使用 ClusterIP，局域网机器使用 NodePort。 FUSE
-                  挂载直接访问 Filer；S3 导入导出共用同一组凭据。
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 rounded-[12px] border border-white/80 bg-white/82 p-4">
-              <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-                Environment
-              </p>
-              <dl className="mt-3 grid gap-2 text-sm">
-                <StorageFact
-                  label="AWS_ENDPOINT_URL"
-                  value={INTERNAL_ENDPOINT}
-                />
-                <StorageFact label="LAN_ENDPOINT_URL" value={lanS3Endpoint} />
-                <StorageFact
-                  label="FILER_ENDPOINT"
-                  value={INTERNAL_FILER_ENDPOINT}
-                />
-                <StorageFact
-                  label="FILER_BUCKET_PATH"
-                  value={DEFAULT_BUCKET_FILER_PATH}
-                />
-                <StorageFact
-                  label="TRAINING_WORKDIR"
-                  value={TRAINING_WORKDIR}
-                />
-                <StorageFact
-                  label="COLA_SEAWEEDFS_IMAGE"
-                  value={SEAWEEDFS_FUSE_IMAGE}
-                />
-                <StorageFact
-                  label="MOUNT_ENABLED"
-                  value="COLA_SEAWEEDFS_MOUNT_ENABLED=true"
-                />
-                <StorageFact label="AWS_DEFAULT_REGION" value="us-east-1" />
-                <StorageFact
-                  label="AWS_ACCESS_KEY_ID"
-                  value="来自 infra/seaweedfs/seaweedfs.env"
-                />
-                <StorageFact
-                  label="AWS_SECRET_ACCESS_KEY"
-                  value="来自 infra/seaweedfs/seaweedfs.env"
-                />
-                <StorageFact
-                  label="COLA_TRAINING_S3_BUCKET"
-                  value={DEFAULT_BUCKET}
-                />
-              </dl>
-            </div>
+          <div className="grid min-w-0 gap-4">
+            <StorageExampleCard
+              title="命令行导入"
+              status="局域网机器直接通过 S3 NodePort 上传数据集。"
+              icon={TerminalIcon}
+              code={lanUploadExample}
+            />
+            <StorageExampleCard
+              title="应用代码导入"
+              status="外部服务按 S3 SDK 写入 SeaweedFS。"
+              icon={Code2Icon}
+              code={appUploadExample}
+            />
           </div>
         </div>
       </ModuleSection>
 
       <ModuleSection
-        title="使用例子"
-        description="训练脚本、Notebook、远程桌面和 Studio 使用 /shared-dist-storage 下的普通文件路径；导入导出、自动化同步和外部机器访问仍可走 S3 API。"
+        title="系统内部怎么本地挂载使用"
+        description="内部工作负载默认不直接处理 S3 对象路径。平台在 Pod 启动时用 SeaweedFS Filer/FUSE 挂载，同一份 bucket 内容在容器内表现为普通目录。"
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <StorageGuidanceCard />
-          <StorageExampleCard
-            title="curl"
-            status="局域网机器通过 NodePort 上传和列出数据集对象"
-            icon={TerminalIcon}
-            code={curlExample}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <StorageBindingCard
+              title="远程工作区"
+              status="桌面容器启动时挂载共享目录"
+              icon={FilesIcon}
+              rows={[
+                ["启用变量", "REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
+                ["默认目录", TRAINING_WORKDIR],
+                [
+                  "回退配置",
+                  "REMOTE_WORKSPACE_WORKDIR_HOST_PATH / REMOTE_WORKSPACE_PVC_NAME",
+                ],
+              ]}
+            />
+            <StorageBindingCard
+              title="训练任务"
+              status="训练脚本按本地文件路径读写"
+              icon={CheckCircle2Icon}
+              rows={[
+                ["启用变量", "COLA_TRAINING_SEAWEEDFS_MOUNT_ENABLED"],
+                ["数据集", TRAINING_DATASET_DIR],
+                ["checkpoint", TRAINING_CHECKPOINT_DIR],
+                ["模型目录", TRAINING_MODEL_DIR],
+                ["产物根目录", TRAINING_OUTPUT_ROOT],
+              ]}
+            />
+            <StorageBindingCard
+              title="JupyterLab"
+              status="Notebook 里看到同一个共享目录"
+              icon={PackageIcon}
+              rows={[
+                ["启用变量", "COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED"],
+                ["目录覆盖", "COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH"],
+                ["用途", "上传数据、调试脚本、查看训练产物"],
+              ]}
+            />
+            <StorageBindingCard
+              title="Unsloth Studio"
+              status="模型导出和调试产物写入共享目录"
+              icon={Settings2Icon}
+              rows={[
+                ["启用变量", "COLA_UNSLOTH_STUDIO_SEAWEEDFS_MOUNT_ENABLED"],
+                ["目录覆盖", "COLA_UNSLOTH_STUDIO_WORKDIR_MOUNT_PATH"],
+                [
+                  "PVC 回退",
+                  "COLA_UNSLOTH_STUDIO_PVC_NAME / COLA_TRAINING_PVC_NAME",
+                ],
+              ]}
+            />
+          </div>
+          <div className="grid min-w-0 gap-4">
+            <FlowCard
+              icon={HardDriveIcon}
+              title="挂载机制"
+              description="平台会给业务 Pod 注入 init container、/dev/fuse、fusermount 和挂载脚本。业务容器启动命令前先挂载 SeaweedFS，再执行真正的训练、桌面或 Studio 命令。"
+              facts={[
+                ["ClusterIP S3", INTERNAL_ENDPOINT],
+                ["Filer", INTERNAL_FILER_ENDPOINT],
+                ["Filer path", DEFAULT_BUCKET_FILER_PATH],
+                ["FUSE image", SEAWEEDFS_FUSE_IMAGE],
+                ["默认缓存", "/var/cache/seaweedfs"],
+                ["默认权限", "root + SYS_ADMIN + /dev/fuse"],
+              ]}
+            />
+            <StorageExampleCard
+              title="容器内看到的路径"
+              status="业务代码只依赖本地路径，不需要拼 S3 URL。"
+              icon={HardDriveIcon}
+              code={internalMountExample}
+            />
+            <StorageExampleCard
+              title="临时回退方式"
+              status="只有在关闭自动 FUSE 后，才会使用节点 hostPath 或 PVC。"
+              icon={TerminalIcon}
+              code={fallbackExample}
+            />
+          </div>
+        </div>
+      </ModuleSection>
+
+      <ModuleSection
+        title="运维补充"
+        description="这些信息用于判断当前存储能不能稳定承载训练数据，不是业务侧上传或挂载的主流程。"
+        density="compact"
+      >
+        <div className="grid gap-4 lg:grid-cols-3">
+          <StorageBindingCard
+            title="当前集群"
+            status="页面信息来自 infra/k8s/cluster"
+            icon={DatabaseIcon}
+            rows={[
+              ["集群", clusterName],
+              ["Kubernetes", kubernetesVersion],
+              ["工作 namespace", namespace],
+              ["控制节点", controllerIp],
+              ["节点", nodeSummary],
+            ]}
           />
-          <StorageExampleCard
-            title="Python"
-            status="训练容器或 Notebook 通过 ClusterIP 读写对象"
-            icon={Code2Icon}
-            code={pythonExample}
+          <StorageBindingCard
+            title="SeaweedFS 部署"
+            status="infra/seaweedfs 只部署对象存储"
+            icon={ArchiveIcon}
+            rows={[
+              ["Namespace", STORAGE_NAMESPACE],
+              ["S3 Service", `${SEAWEEDFS_SERVICE}:${SEAWEEDFS_PORT}`],
+              ["Admin UI", adminUiUrl],
+              ["数据根目录", SEAWEEDFS_DATA_ROOT],
+              ["Volume hostPath", SEAWEEDFS_VOLUME_ROOT],
+            ]}
           />
-          <StorageExampleCard
-            title="Filer / FUSE"
-            status="平台自动挂载为本地目录，业务按文件路径读写训练数据"
-            icon={HardDriveIcon}
-            code={fuseExample}
-            wide
+          <StorageBindingCard
+            title="边界说明"
+            status="避免把对象存储和 PVC 混在一起"
+            icon={KeyRoundIcon}
+            rows={[
+              ["默认模式", "SeaweedFS FUSE 本地挂载"],
+              ["PVC", "infra/seaweedfs 不创建 PVC"],
+              ["独立数据盘", "当前节点信息未声明独立数据盘"],
+              ["公网暴露", "不建议；NodePort 只给可信局域网"],
+            ]}
           />
         </div>
       </ModuleSection>
     </ModulePageShell>
+  );
+}
+
+function FlowCard({
+  icon: Icon,
+  title,
+  description,
+  facts,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  facts: Array<[string, string]>;
+}) {
+  return (
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-white text-emerald-700 ring-1 ring-emerald-100">
+          <Icon className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-950">{title}</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+        </div>
+      </div>
+      <dl className="mt-4 grid gap-2">
+        {facts.map(([label, value]) => (
+          <StorageFact key={label} label={label} value={value} />
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function StepList({ steps }: { steps: StepItem[] }) {
+  return (
+    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+      <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
+        External Ingest
+      </p>
+      <div className="mt-4 grid gap-3">
+        {steps.map((step) => (
+          <div
+            key={step.title}
+            className="rounded-[10px] border border-slate-200/80 bg-slate-50/70 px-4 py-3"
+          >
+            <p className="text-sm font-semibold text-slate-950">{step.title}</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              {step.description}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -361,17 +458,17 @@ function StorageBindingCard({
 }: {
   title: string;
   status: string;
-  icon: typeof DatabaseIcon;
+  icon: LucideIcon;
   rows: Array<[string, string]>;
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-base font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-sm text-slate-500">{status}</p>
+          <p className="mt-1 text-sm leading-5 text-slate-500">{status}</p>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
           <Icon className="size-4" />
         </div>
       </div>
@@ -384,48 +481,15 @@ function StorageBindingCard({
   );
 }
 
-function StorageFact({ label, value }: { label: string; value: string }) {
+function StorageFact({ label, value }: FactItem) {
   return (
-    <div className="grid gap-1 rounded-[10px] bg-slate-50/80 px-3 py-2 sm:grid-cols-[126px_minmax(0,1fr)] sm:items-center">
-      <dt className="text-[12px] font-medium text-slate-500">{label}</dt>
-      <dd className="min-w-0 font-mono text-[12px] break-all text-slate-800">
+    <div className="grid gap-1 rounded-[10px] bg-slate-50/80 px-3 py-2 sm:grid-cols-[112px_minmax(0,1fr)] sm:items-start">
+      <dt className="text-[12px] leading-5 font-medium text-slate-500">
+        {label}
+      </dt>
+      <dd className="min-w-0 font-mono text-[12px] leading-5 break-all text-slate-800">
         {value}
       </dd>
-    </div>
-  );
-}
-
-function StorageGuidanceCard() {
-  return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-amber-200/80 bg-amber-50/45 px-5 py-5 xl:col-span-2">
-      <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-white text-amber-700 ring-1 ring-amber-100">
-          <HardDriveIcon className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="font-semibold text-slate-950">业务使用方式</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            远程桌面、训练任务、JupyterLab 和 Unsloth Studio 统一使用{" "}
-            {TRAINING_WORKDIR} 作为共享工作目录，业务代码可以按本地文件路径管理
-            datasets、checkpoints 和 models。底层由平台在 Pod 启动时自动拉起
-            SeaweedFS Filer/FUSE 挂载。
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-2 md:grid-cols-3">
-        <StorageFact
-          label="文件路径"
-          value={`${TRAINING_DATASET_DIR}、${TRAINING_CHECKPOINT_DIR}、${TRAINING_MODEL_DIR}`}
-        />
-        <StorageFact
-          label="自动挂载"
-          value="主业务容器启动时挂载 SeaweedFS 到 /shared-dist-storage"
-        />
-        <StorageFact
-          label="注意"
-          value="临时 scratch、数据库和日志热写入继续放本地盘；共享数据和产物放 /shared-dist-storage"
-        />
-      </div>
     </div>
   );
 }
@@ -435,31 +499,24 @@ function StorageExampleCard({
   status,
   icon: Icon,
   code,
-  wide = false,
 }: {
   title: string;
   status: string;
-  icon: typeof DatabaseIcon;
+  icon: LucideIcon;
   code: string;
-  wide?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]",
-        wide ? "xl:col-span-2" : undefined,
-      )}
-    >
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-base font-semibold text-slate-950">{title}</p>
           <p className="mt-1 text-sm leading-5 text-slate-500">{status}</p>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
           <Icon className="size-4" />
         </div>
       </div>
-      <pre className="mt-4 max-h-[420px] w-full min-w-0 overflow-auto rounded-[10px] border border-slate-200 bg-slate-950 p-4 text-[12px] leading-5 text-slate-100 shadow-inner">
+      <pre className="mt-4 max-h-[360px] w-full min-w-0 overflow-auto rounded-[10px] border border-slate-200 bg-slate-950 p-4 text-[12px] leading-5 text-slate-100 shadow-inner">
         <code>{code}</code>
       </pre>
     </div>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { buildJupyterLabCommand } from "./jupyterlab-command.ts";
 import { resolveJupyterLabWorkVolume } from "./jupyterlab-volume.ts";
 import {
   buildWorkVolumeMounts,
@@ -36,6 +37,20 @@ function withEnv<T>(
     }
   }
 }
+
+void test("JupyterLab command allows root when FUSE mounting requires a root container", () => {
+  const command = buildJupyterLabCommand({
+    workdir: SHARED_STORAGE_MOUNT_PATH,
+    port: 8888,
+  });
+
+  assert.match(command, /exec start-notebook\.py/);
+  assert.match(command, /--allow-root/);
+  assert.match(
+    command,
+    /--ServerApp\.root_dir="\/shared-dist-storage"/,
+  );
+});
 
 void test("JupyterLab mounts SeaweedFS automatically by default", () => {
   const workVolume = withEnv(
