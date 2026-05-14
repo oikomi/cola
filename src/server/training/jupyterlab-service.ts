@@ -36,13 +36,17 @@ import {
 } from "@/server/resource-owners";
 import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
+import {
+  buildWorkVolumeInitContainers,
+  buildWorkVolumeMount,
+  buildWorkVolumes,
+} from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const JUPYTERLAB_PORT = 8888;
-const JUPYTERLAB_WORKDIR =
-  process.env.COLA_JUPYTERLAB_WORKDIR ?? "/home/jovyan/work";
+const JUPYTERLAB_WORKDIR = process.env.COLA_JUPYTERLAB_WORKDIR ?? "/workspace";
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_JUPYTERLAB_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
@@ -635,7 +639,8 @@ function buildJupyterLabDeployment(input: {
     gpuMemoryGi: input.gpuMemoryGi,
   } satisfies GpuAllocationSpec;
   const gpuResources = buildHamiGpuResources(gpuSpec);
-  const { volume, mountPath } = resolveWorkVolume();
+  const workVolume = resolveWorkVolume();
+  const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
 
   return {
@@ -670,6 +675,7 @@ function buildJupyterLabDeployment(input: {
           nodeSelector: {
             "kubernetes.io/hostname": input.nodeName,
           },
+          initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
               name: "jupyterlab",
@@ -700,12 +706,7 @@ function buildJupyterLabDeployment(input: {
                 initialDelaySeconds: 45,
                 periodSeconds: 20,
               },
-              volumeMounts: [
-                {
-                  name: volume.name,
-                  mountPath,
-                },
-              ],
+              volumeMounts: [buildWorkVolumeMount(workVolume)],
               resources: {
                 requests: {
                   cpu: input.cpu,
@@ -720,7 +721,7 @@ function buildJupyterLabDeployment(input: {
               },
             },
           ],
-          volumes: [volume],
+          volumes: buildWorkVolumes(workVolume),
         },
       },
     },

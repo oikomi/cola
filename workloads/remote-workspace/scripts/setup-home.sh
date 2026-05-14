@@ -14,6 +14,16 @@ if [[ -d "$CONFIG_ROOT/.config" ]]; then
   cp -R "$CONFIG_ROOT/.config/." "$HOME/.config/"
 fi
 
+if [[ -d "$CONFIG_ROOT/.local" ]]; then
+  mkdir -p "$HOME/.local"
+  cp -R "$CONFIG_ROOT/.local/." "$HOME/.local/"
+fi
+
+if [[ -d "$CONFIG_ROOT/Desktop" ]]; then
+  mkdir -p "$HOME/Desktop"
+  cp -R "$CONFIG_ROOT/Desktop/." "$HOME/Desktop/"
+fi
+
 if [[ -f "$BASHRC_PATH" ]]; then
   awk -v marker="$PROFILE_MARKER" '
     $0 == marker { skip=1; next }
@@ -36,10 +46,33 @@ PS1="\[\033[38;5;111m\]\u\[\033[0m\]@\[\033[38;5;223m\]${WORKSPACE_PROMPT_NAME}\
 # /cola-workspace-shell
 EOF
 
-mkdir -p "$HOME/Desktop" "$HOME/.config/gtk-3.0" "$HOME/.config/xfce4/terminal"
+mkdir -p \
+  "$HOME/Desktop" \
+  "$HOME/Downloads" \
+  "$HOME/.config/gtk-3.0" \
+  "$HOME/.config/xfce4/terminal" \
+  "$HOME/.local/share/applications"
+
+if [[ -f "$HOME/Desktop/Google Chrome.desktop" ]]; then
+  chmod +x "$HOME/Desktop/Google Chrome.desktop"
+fi
+
+if command -v xdg-settings >/dev/null 2>&1; then
+  xdg-settings set default-web-browser google-chrome-workspace.desktop >/dev/null 2>&1 || true
+fi
+
+if command -v xdg-mime >/dev/null 2>&1; then
+  xdg-mime default google-chrome-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
+  xdg-mime default google-chrome-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
+  xdg-mime default google-chrome-workspace.desktop text/html >/dev/null 2>&1 || true
+fi
 
 if command -v xfconf-query >/dev/null 2>&1; then
   for monitor_name in monitor0 monitorscreen; do
+    wallpaper="/usr/share/backgrounds/warty-final-ubuntu.png"
+    if [[ ! -f "$wallpaper" ]]; then
+      wallpaper="/opt/remote-work/assets/workspace-wallpaper.svg"
+    fi
     xfconf-query -c xfce4-desktop \
       -p "/backdrop/screen0/${monitor_name}/workspace0/color-style" \
       -n -t int -s 0 >/dev/null 2>&1 || true
@@ -51,12 +84,12 @@ if command -v xfconf-query >/dev/null 2>&1; then
       -n -t int -s 5 >/dev/null 2>&1 || true
     xfconf-query -c xfce4-desktop \
       -p "/backdrop/screen0/${monitor_name}/workspace0/image-path" \
-      -n -t string -s /opt/remote-work/assets >/dev/null 2>&1 || true
+      -n -t string -s "$(dirname "$wallpaper")" >/dev/null 2>&1 || true
     xfconf-query -c xfce4-desktop \
       -p "/backdrop/screen0/${monitor_name}/workspace0/image-filename" \
-      -n -t string -s /opt/remote-work/assets/workspace-wallpaper.svg >/dev/null 2>&1 || true
+      -n -t string -s "$wallpaper" >/dev/null 2>&1 || true
     xfconf-query -c xfce4-desktop \
       -p "/backdrop/screen0/${monitor_name}/workspace0/last-image" \
-      -n -t string -s /opt/remote-work/assets/workspace-wallpaper.svg >/dev/null 2>&1 || true
+      -n -t string -s "$wallpaper" >/dev/null 2>&1 || true
   done
 fi

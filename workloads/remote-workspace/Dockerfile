@@ -1,7 +1,13 @@
-ARG UBUNTU_VERSION=24.04
-FROM ubuntu:${UBUNTU_VERSION}
+ARG BASE_IMAGE=ubuntu:noble-20260410
+FROM ${BASE_IMAGE}
 
+ARG BASE_IMAGE
+ARG UBUNTU_VERSION=24.04.4
 ARG NOVNC_VERSION=v1.6.0
+ARG OFFLINE_DEB_DIR=""
+
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
+  org.opencontainers.image.version="${UBUNTU_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -9,7 +15,17 @@ ENV LC_ALL=C.UTF-8
 ENV HOME=/home/worker
 ENV PATH=/opt/websockify-venv/bin:$PATH
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+COPY debs/ /opt/remote-work-debs/
+
+RUN if [ -n "$OFFLINE_DEB_DIR" ] && [ -n "$(find "$OFFLINE_DEB_DIR" -maxdepth 1 -name '*.deb' -print -quit)" ]; then \
+    dpkg -i "$OFFLINE_DEB_DIR"/*.deb; \
+  else \
+    printf '%s\n' \
+    'Acquire::Retries "5";' \
+    'Acquire::http::Timeout "30";' \
+    'Acquire::https::Timeout "30";' \
+    >/etc/apt/apt.conf.d/80-retries \
+    && apt-get update && apt-get install -y --no-install-recommends \
     arc-theme \
     ca-certificates \
     curl \
@@ -30,23 +46,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor \
     tini \
     wget \
+    xdg-utils \
     x11-utils \
     x11vnc \
     xfce4 \
-    xfce4-goodies \
     xfce4-terminal \
     xterm \
     xvfb \
-  && locale-gen en_US.UTF-8 \
-  && useradd -m -s /bin/bash worker \
+    && locale-gen en_US.UTF-8 \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /etc/apt/keyrings/google-linux.gpg \
+    && chmod 0644 /etc/apt/keyrings/google-linux.gpg \
+    && printf '%s\n' \
+    "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-linux.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+    >/etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable ubuntu-wallpapers-noble; \
+  fi \
+  && if ! id -u worker >/dev/null 2>&1; then useradd -m -s /bin/bash worker; fi \
   && echo "worker ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/worker \
   && chmod 0440 /etc/sudoers.d/worker \
   && python3 -m venv /opt/websockify-venv \
   && /opt/websockify-venv/bin/pip install --no-cache-dir websockify==0.12.0 \
   && ln -sf /opt/websockify-venv/bin/websockify /usr/local/bin/websockify \
-  && git clone --depth 1 --branch "${NOVNC_VERSION}" https://github.com/novnc/noVNC.git /opt/novnc \
+  && if [ ! -d /opt/novnc/.git ]; then rm -rf /opt/novnc && git clone --depth 1 --branch "${NOVNC_VERSION}" https://github.com/novnc/noVNC.git /opt/novnc; fi \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* /opt/remote-work-debs
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     yaru-theme-gtk \
@@ -57,10 +83,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/ /opt/remote-work/
 COPY config/ /opt/remote-work/config/
 COPY assets/ /opt/remote-work/assets/
+COPY bin/ /opt/remote-work/bin/
 COPY novnc/ /opt/remote-work/novnc/
 
 RUN cp /opt/remote-work/novnc/vnc_lite.html /opt/novnc/vnc_lite.html \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
+  && install -m 0755 /opt/remote-work/bin/google-chrome-workspace /usr/local/bin/google-chrome-workspace \
   && chmod +x /opt/remote-work/*.sh
 
 WORKDIR /home/worker

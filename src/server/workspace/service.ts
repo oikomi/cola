@@ -35,6 +35,12 @@ import {
   ownerForUserId,
   type ResourceOwner,
 } from "@/server/resource-owners";
+import {
+  buildWorkVolumeInitContainers,
+  buildWorkVolumeMount,
+  buildWorkVolumes,
+  resolveKubernetesWorkVolume,
+} from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
@@ -555,6 +561,30 @@ function buildWorkspaceDeployment(input: {
 }) {
   const workspaceRoot =
     process.env.REMOTE_WORKSPACE_ROOT ?? "/var/lib/remote-work/workspaces";
+  const workVolume = resolveKubernetesWorkVolume({
+    env: process.env,
+    volumeName: "workspace",
+    defaultMountPath: "/workspace",
+    seaweedfsEnabledEnvNames: ["REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
+    mountPathEnvNames: [
+      "REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH",
+      "COLA_TRAINING_WORKDIR_MOUNT_PATH",
+    ],
+    hostPathEnvNames: [
+      "REMOTE_WORKSPACE_WORKDIR_HOST_PATH",
+      "COLA_TRAINING_WORKDIR_HOST_PATH",
+    ],
+    hostPathMountPathEnvNames: [
+      "REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH",
+      "COLA_TRAINING_WORKDIR_MOUNT_PATH",
+    ],
+    pvcNameEnvNames: ["REMOTE_WORKSPACE_PVC_NAME"],
+    pvcMountPathEnvNames: ["REMOTE_WORKSPACE_PVC_MOUNT_PATH"],
+    fallbackHostPath: {
+      path: path.posix.join(workspaceRoot, input.name, "workspace"),
+      type: "DirectoryOrCreate",
+    },
+  });
   const gpuSpec = {
     gpuAllocationMode: input.gpuAllocationMode,
     gpuCount: input.gpuCount,
@@ -603,6 +633,7 @@ function buildWorkspaceDeployment(input: {
           nodeSelector: {
             "kubernetes.io/hostname": input.nodeName,
           },
+          initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
               name: "desktop",
@@ -651,7 +682,7 @@ function buildWorkspaceDeployment(input: {
               },
               volumeMounts: [
                 { name: "home", mountPath: "/home/worker" },
-                { name: "workspace", mountPath: "/workspace" },
+                buildWorkVolumeMount(workVolume),
               ],
             },
           ],
@@ -663,13 +694,7 @@ function buildWorkspaceDeployment(input: {
                 type: "DirectoryOrCreate",
               },
             },
-            {
-              name: "workspace",
-              hostPath: {
-                path: path.posix.join(workspaceRoot, input.name, "workspace"),
-                type: "DirectoryOrCreate",
-              },
-            },
+            ...buildWorkVolumes(workVolume),
           ],
         },
       },

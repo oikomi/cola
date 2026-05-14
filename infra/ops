@@ -30,5 +30,5 @@ kubectl -n remote-work cp /home/tts-data/fishaudio_dataset.zip  \
 
 
 
-  以后机器重启后，如果 8443 又打不开，先跑一次 ./bin/cluster.sh dashboard port-forward。
+  以后机器重启后，如果 8443 又打不开，先跑一次 ./bin/cluster.sh dashboard port-forward
         ./bin/cluster.sh monitoring port-forward

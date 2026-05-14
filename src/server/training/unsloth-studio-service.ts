@@ -35,6 +35,12 @@ import {
   type ResourceOwner,
 } from "@/server/resource-owners";
 import { resolveUnslothStudioImage } from "@/server/training/unsloth-studio-images";
+import {
+  buildWorkVolumeInitContainers,
+  buildWorkVolumeMount,
+  buildWorkVolumes,
+  resolveKubernetesWorkVolume,
+} from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -508,32 +514,29 @@ function buildEndpoint(params: {
 }
 
 function resolveWorkVolume() {
-  const pvcName =
-    process.env.COLA_UNSLOTH_STUDIO_PVC_NAME?.trim() ??
-    process.env.COLA_TRAINING_PVC_NAME?.trim();
-
-  if (pvcName) {
-    return {
-      volume: {
-        name: "unsloth-studio-workdir",
-        persistentVolumeClaim: {
-          claimName: pvcName,
-        },
-      },
-      mountPath:
-        process.env.COLA_UNSLOTH_STUDIO_PVC_MOUNT_PATH?.trim() ??
-        process.env.COLA_TRAINING_PVC_MOUNT_PATH?.trim() ??
-        UNSLOTH_STUDIO_WORKDIR,
-    };
-  }
-
-  return {
-    volume: {
-      name: "unsloth-studio-workdir",
-      emptyDir: {},
-    },
-    mountPath: UNSLOTH_STUDIO_WORKDIR,
-  };
+  return resolveKubernetesWorkVolume({
+    env: process.env,
+    volumeName: "unsloth-studio-workdir",
+    defaultMountPath: UNSLOTH_STUDIO_WORKDIR,
+    seaweedfsEnabledEnvNames: ["COLA_UNSLOTH_STUDIO_SEAWEEDFS_MOUNT_ENABLED"],
+    mountPathEnvNames: [
+      "COLA_UNSLOTH_STUDIO_WORKDIR_MOUNT_PATH",
+      "COLA_TRAINING_WORKDIR_MOUNT_PATH",
+    ],
+    hostPathEnvNames: [
+      "COLA_UNSLOTH_STUDIO_WORKDIR_HOST_PATH",
+      "COLA_TRAINING_WORKDIR_HOST_PATH",
+    ],
+    hostPathMountPathEnvNames: [
+      "COLA_UNSLOTH_STUDIO_WORKDIR_MOUNT_PATH",
+      "COLA_TRAINING_WORKDIR_MOUNT_PATH",
+    ],
+    pvcNameEnvNames: ["COLA_UNSLOTH_STUDIO_PVC_NAME", "COLA_TRAINING_PVC_NAME"],
+    pvcMountPathEnvNames: [
+      "COLA_UNSLOTH_STUDIO_PVC_MOUNT_PATH",
+      "COLA_TRAINING_PVC_MOUNT_PATH",
+    ],
+  });
 }
 
 function buildStudioCommand(workdir: string) {
@@ -658,7 +661,8 @@ function buildStudioDeployment(input: {
     gpuMemoryGi: input.gpuMemoryGi,
   } satisfies GpuAllocationSpec;
   const gpuResources = buildHamiGpuResources(gpuSpec);
-  const { volume, mountPath } = resolveWorkVolume();
+  const workVolume = resolveWorkVolume();
+  const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
 
   return {
@@ -693,6 +697,7 @@ function buildStudioDeployment(input: {
           nodeSelector: {
             "kubernetes.io/hostname": input.nodeName,
           },
+          initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
               name: "unsloth-studio",
@@ -722,12 +727,7 @@ function buildStudioDeployment(input: {
                 initialDelaySeconds: 45,
                 periodSeconds: 20,
               },
-              volumeMounts: [
-                {
-                  name: volume.name,
-                  mountPath,
-                },
-              ],
+              volumeMounts: [buildWorkVolumeMount(workVolume)],
               resources: {
                 requests: {
                   cpu: input.cpu,
@@ -742,7 +742,7 @@ function buildStudioDeployment(input: {
               },
             },
           ],
-          volumes: [volume],
+          volumes: buildWorkVolumes(workVolume),
         },
       },
     },

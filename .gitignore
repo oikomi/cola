@@ -54,4 +54,7 @@ yarn-error.log*
 output
 runtime/
 
+# Local offline package cache for remote workspace image builds.
+/workloads/remote-workspace/debs/*.deb
+
 .codex

@@ -25,15 +25,19 @@ import {
   buildHamiGpuResources,
   normalizeGpuAllocation,
 } from "@/server/gpu/hami";
-import {
-  createKubeConfig as createSharedKubeConfig,
-} from "@/server/kubernetes/kubeconfig";
+import { createKubeConfig as createSharedKubeConfig } from "@/server/kubernetes/kubeconfig";
 import {
   type TrainingDistributedBackend,
   type TrainingJobStatus,
   type TrainingLauncherType,
   trainingK8sSupportedJobTypes,
 } from "@/server/training/catalog";
+import {
+  buildWorkVolumeInitContainers,
+  buildWorkVolumeMount,
+  buildWorkVolumes,
+  resolveKubernetesWorkVolume,
+} from "@/server/training/work-volume";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -301,27 +305,17 @@ function resolveArtifactPath(job: TrainingJobRecord, runtimeJobName: string) {
 }
 
 function resolveWorkVolume() {
-  const pvcName = process.env.COLA_TRAINING_PVC_NAME?.trim();
-  if (pvcName) {
-    return {
-      volume: {
-        name: "training-workdir",
-        persistentVolumeClaim: {
-          claimName: pvcName,
-        },
-      },
-      mountPath:
-        process.env.COLA_TRAINING_PVC_MOUNT_PATH?.trim() ?? "/workspace",
-    };
-  }
-
-  return {
-    volume: {
-      name: "training-workdir",
-      emptyDir: {},
-    },
-    mountPath: "/workspace",
-  };
+  return resolveKubernetesWorkVolume({
+    env: process.env,
+    volumeName: "training-workdir",
+    defaultMountPath: "/workspace",
+    seaweedfsEnabledEnvNames: ["COLA_TRAINING_SEAWEEDFS_MOUNT_ENABLED"],
+    mountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
+    hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
+    hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
+    pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
+    pvcMountPathEnvNames: ["COLA_TRAINING_PVC_MOUNT_PATH"],
+  });
 }
 
 function resolveTrainingConfig(job: TrainingJobRecord): ResolvedTrainingConfig {
@@ -658,7 +652,8 @@ function buildTrainingRuntime(
   const artifactPath = resolveArtifactPath(job, runtimeJobName);
   const cpuRequest = resolveCpuRequest(config.gpusPerNode);
   const memoryRequest = resolveMemoryRequest(config.gpusPerNode);
-  const { volume, mountPath } = resolveWorkVolume();
+  const workVolume = resolveWorkVolume();
+  const { mountPath } = workVolume;
   const labels = {
     "app.kubernetes.io/name": "cola-training",
     "app.kubernetes.io/component": "unsloth-job",
@@ -863,6 +858,7 @@ function buildTrainingRuntime(
               },
             },
           ],
+          initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
               name: "unsloth-trainer",
@@ -875,10 +871,7 @@ function buildTrainingRuntime(
               env,
               ports: [{ containerPort: MASTER_PORT, name: "torchrun" }],
               volumeMounts: [
-                {
-                  name: volume.name,
-                  mountPath,
-                },
+                buildWorkVolumeMount(workVolume),
                 {
                   name: "training-config",
                   mountPath: TRAINING_CONFIG_MOUNT_PATH,
@@ -889,7 +882,7 @@ function buildTrainingRuntime(
             },
           ],
           volumes: [
-            volume,
+            ...buildWorkVolumes(workVolume),
             {
               name: "training-config",
               configMap: {

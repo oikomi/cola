@@ -7,7 +7,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 IMAGE_NAME="remote-workspace"
 IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
 NOVNC_VERSION="v1.6.0"
-UBUNTU_VERSION="24.04"
+UBUNTU_VERSION="24.04.4"
+BASE_IMAGE=""
+OFFLINE_DEB_DIR=""
 TARGET_ARCH=""
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 WORKSPACE_IMAGE_CONTEXT_DIR="$REPO_ROOT/workloads/remote-workspace"
@@ -21,7 +23,9 @@ Usage: ./scripts/workspace-image.sh build-and-load [options]
 Options:
   --image-name <name>     Image name, default remote-workspace
   --image-tag <tag>       Image tag, default current timestamp
-  --ubuntu-version <ver>  Ubuntu base image version, default 24.04
+  --ubuntu-version <ver>  Ubuntu base image version, default 24.04.4
+  --base-image <ref>      Override Docker base image, default resolved from --ubuntu-version
+  --offline-deb-dir <dir> Install .deb files from image context path without apt network access
   --target-arch <arch>    Target node arch, default first configured node arch
   --novnc-version <ver>   noVNC git tag, default v1.6.0
   -h, --help              Show help
@@ -30,8 +34,14 @@ EOF
 
 build_workspace_image() {
   local image_ref="$1"
+  local base_image
   local build_log
   local status
+
+  base_image="$BASE_IMAGE"
+  if [[ -z "$base_image" ]]; then
+    base_image="$(base_image_for_ubuntu_version "$UBUNTU_VERSION")"
+  fi
 
   build_log="$(mktemp)"
   trap 'rm -f "$build_log"' RETURN
@@ -39,8 +49,10 @@ build_workspace_image() {
   set +e
   docker build \
     --platform "$LOCAL_PLATFORM" \
+    --build-arg BASE_IMAGE="$base_image" \
     --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
     --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+    --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
     -t "$image_ref" \
     "$WORKSPACE_IMAGE_CONTEXT_DIR" 2>&1 | tee "$build_log"
   status=${PIPESTATUS[0]}
@@ -56,14 +68,30 @@ build_workspace_image() {
     print_step "检测到 Docker BuildKit snapshot 状态异常，回退到 legacy builder 重试"
     DOCKER_BUILDKIT=0 docker build \
       --platform "$LOCAL_PLATFORM" \
+      --build-arg BASE_IMAGE="$base_image" \
       --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+      --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
       -t "$image_ref" \
       "$WORKSPACE_IMAGE_CONTEXT_DIR"
     return 0
   fi
 
   return "$status"
+}
+
+base_image_for_ubuntu_version() {
+  case "$1" in
+    24.04.4)
+      printf '%s\n' "ubuntu:noble-20260410"
+      ;;
+    24.04|noble)
+      printf '%s\n' "ubuntu:24.04"
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -82,6 +110,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ubuntu-version)
       UBUNTU_VERSION="$2"
+      shift 2
+      ;;
+    --base-image)
+      BASE_IMAGE="$2"
+      shift 2
+      ;;
+    --offline-deb-dir)
+      OFFLINE_DEB_DIR="$2"
       shift 2
       ;;
     --target-arch)

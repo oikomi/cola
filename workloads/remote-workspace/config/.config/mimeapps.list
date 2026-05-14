@@ -1,0 +1,9 @@
+[Default Applications]
+text/html=google-chrome-workspace.desktop
+x-scheme-handler/http=google-chrome-workspace.desktop
+x-scheme-handler/https=google-chrome-workspace.desktop
+
+[Added Associations]
+text/html=google-chrome-workspace.desktop
+x-scheme-handler/http=google-chrome-workspace.desktop
+x-scheme-handler/https=google-chrome-workspace.desktop
