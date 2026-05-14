@@ -831,9 +831,6 @@ function buildTrainingRuntime(
                   process.env.COLA_TRAINING_SERVICE_ACCOUNT.trim(),
               }
             : {}),
-          nodeSelector: {
-            [ctx.gpuLabelKey]: "true",
-          },
           affinity: {
             podAntiAffinity: {
               preferredDuringSchedulingIgnoredDuringExecution: [
