@@ -211,6 +211,10 @@ resolve_cluster_bins() {
 }
 
 load_env_file() {
+  if is_true "${SEAWEEDFS_SKIP_ENV_FILE:-false}"; then
+    return 0
+  fi
+
   local file="$ENV_FILE"
 
   if [[ -z "$file" && -f "$DEFAULT_ENV_FILE" ]]; then

@@ -254,7 +254,7 @@ apply_seaweedfs_env() {
 
 render_volume_command() {
   apply_seaweedfs_env
-  "$SEAWEEDFS_DEPLOY" render-external-volume-command
+  SEAWEEDFS_SKIP_ENV_FILE=1 "$SEAWEEDFS_DEPLOY" render-external-volume-command
 }
 
 run_deploy() {
@@ -272,7 +272,7 @@ run_deploy() {
 
   log "执行 SeaweedFS deploy.sh ${action}"
   apply_seaweedfs_env
-  "$SEAWEEDFS_DEPLOY" "${args[@]}"
+  SEAWEEDFS_SKIP_ENV_FILE=1 "$SEAWEEDFS_DEPLOY" "${args[@]}"
 }
 
 run_deploy_k8s_core() {
