@@ -240,6 +240,34 @@ cleanup_prometheus_admission_hook_jobs() {
     --ignore-not-found >/dev/null 2>&1 || true
 }
 
+cleanup_failed_prometheus_release() {
+  local release_status
+
+  release_status="$(
+    run_cluster_helm status "$PROM_RELEASE" \
+      --namespace "$PROM_NAMESPACE" \
+      --output json 2>/dev/null | \
+      node --input-type=module -e '
+        let input = "";
+        process.stdin.on("data", (chunk) => input += chunk);
+        process.stdin.on("end", () => {
+          if (!input.trim()) {
+            return;
+          }
+          const data = JSON.parse(input);
+          process.stdout.write(data.info?.status ?? "");
+        });
+      ' || true
+  )"
+
+  case "$release_status" in
+    failed|pending-install|pending-upgrade|pending-rollback)
+      echo "WARN: 发现 Prometheus Helm release 状态为 $release_status，先清理后重新安装。"
+      run_cluster_helm uninstall "$PROM_RELEASE" --namespace "$PROM_NAMESPACE" >/dev/null 2>&1 || true
+      ;;
+  esac
+}
+
 update_helm_repos_best_effort() {
   local -a repo_names=("$@")
 
@@ -291,6 +319,7 @@ if [[ "${#repo_update_names[@]}" -gt 0 ]]; then
   update_helm_repos_best_effort "${repo_update_names[@]}"
 fi
 
+cleanup_failed_prometheus_release
 cleanup_prometheus_admission_hook_jobs
 
 print_step "安装 Prometheus"
