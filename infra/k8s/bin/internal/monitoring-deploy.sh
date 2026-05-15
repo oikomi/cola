@@ -9,17 +9,17 @@ require_cmd sudo
 PROM_NAMESPACE="monitoring"
 PROM_RELEASE="prometheus"
 PROM_REPO_NAME="prometheus-community"
-PROM_REPO_URL="https://prometheus-community.github.io/helm-charts"
+PROM_REPO_URL="${COLA_PROMETHEUS_HELM_REPO_URL:-https://prometheus-community.github.io/helm-charts}"
 PROM_CHART_REF="${PROM_REPO_NAME}/kube-prometheus-stack"
-PROM_CHART_VERSION=""
+PROM_CHART_VERSION="${COLA_PROMETHEUS_CHART_VERSION:-79.1.1}"
 PROM_SERVICE_NAME=""
 
 WEBUI_NAMESPACE="kube-system"
 WEBUI_RELEASE="hami-webui"
 WEBUI_REPO_NAME="hami-webui"
-WEBUI_REPO_URL="https://project-hami.github.io/HAMi-WebUI"
+WEBUI_REPO_URL="${COLA_HAMI_WEBUI_HELM_REPO_URL:-https://project-hami.github.io/HAMi-WebUI}"
 WEBUI_CHART_REF="${WEBUI_REPO_NAME}/hami-webui"
-WEBUI_CHART_VERSION=""
+WEBUI_CHART_VERSION="${COLA_HAMI_WEBUI_CHART_VERSION:-}"
 
 ENABLE_GRAFANA=0
 ENABLE_ALERTMANAGER=0
@@ -34,11 +34,13 @@ Install Prometheus and HAMi-WebUI for GPU monitoring.
 Options:
   --prom-namespace <name>        Prometheus namespace, default monitoring
   --prom-release <name>          Prometheus release name, default prometheus
-  --prom-chart-version <ver>     kube-prometheus-stack chart version, default repo latest
+  --prom-chart-version <ver>     kube-prometheus-stack chart version, default 79.1.1
   --prom-service <name>          Prometheus service name; default derives from release
+  --prom-repo-url <url>          Prometheus Helm repo URL
   --webui-namespace <name>       HAMi-WebUI namespace, default kube-system
   --webui-release <name>         HAMi-WebUI release name, default hami-webui
   --webui-chart-version <ver>    HAMi-WebUI chart version, default repo latest
+  --webui-repo-url <url>         HAMi-WebUI Helm repo URL
   --enable-grafana               Enable Grafana in kube-prometheus-stack
   --enable-alertmanager          Enable Alertmanager in kube-prometheus-stack
   --wait-timeout <sec>           Helm wait timeout in seconds, default 600
@@ -60,6 +62,10 @@ while [[ $# -gt 0 ]]; do
       PROM_CHART_VERSION="$2"
       shift 2
       ;;
+    --prom-repo-url)
+      PROM_REPO_URL="$2"
+      shift 2
+      ;;
     --prom-service)
       PROM_SERVICE_NAME="$2"
       shift 2
@@ -74,6 +80,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --webui-chart-version)
       WEBUI_CHART_VERSION="$2"
+      shift 2
+      ;;
+    --webui-repo-url)
+      WEBUI_REPO_URL="$2"
       shift 2
       ;;
     --enable-grafana)
@@ -104,6 +114,8 @@ fi
 
 PROM_ADDRESS="http://${PROM_SERVICE_NAME}.${PROM_NAMESPACE}.svc.cluster.local:9090"
 HELM_TIMEOUT="${WAIT_TIMEOUT_SECONDS}s"
+PROM_REPO_READY=0
+WEBUI_REPO_READY=0
 
 print_monitoring_diagnostics() {
   echo
@@ -126,6 +138,74 @@ print_monitoring_diagnostics() {
   run_cluster_kubectl -n "$WEBUI_NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 50 || true
 }
 
+helm_repo_exists() {
+  local repo_name="$1"
+
+  run_cluster_helm repo list -o yaml 2>/dev/null | grep -q "name: ${repo_name}$"
+}
+
+run_helm_repo_command_with_retry() {
+  local label="$1"
+  shift
+
+  local attempts="${COLA_HELM_REPO_RETRY_COUNT:-3}"
+  local delay_seconds="${COLA_HELM_REPO_RETRY_DELAY_SECONDS:-5}"
+  local attempt
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    if run_cluster_helm "$@"; then
+      return 0
+    fi
+
+    if (( attempt < attempts )); then
+      echo "WARN: Helm 仓库操作失败: ${label}，准备第 $((attempt + 1)) 次重试。"
+      sleep "$delay_seconds"
+    fi
+  done
+
+  return 1
+}
+
+ensure_helm_repo_available() {
+  local repo_name="$1"
+  local repo_url="$2"
+
+  if run_helm_repo_command_with_retry \
+    "repo add ${repo_name}" \
+    repo add "$repo_name" "$repo_url" --force-update
+  then
+    return 0
+  fi
+
+  if helm_repo_exists "$repo_name"; then
+    echo "WARN: Helm 仓库 $repo_name 更新失败，继续使用本地已有仓库配置。"
+    return 0
+  fi
+
+  return 1
+}
+
+prometheus_chart_release_url() {
+  [[ -n "$PROM_CHART_VERSION" ]] || return 1
+  printf 'https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-%s/kube-prometheus-stack-%s.tgz\n' \
+    "$PROM_CHART_VERSION" \
+    "$PROM_CHART_VERSION"
+}
+
+update_helm_repos_best_effort() {
+  local -a repo_names=("$@")
+
+  if run_helm_repo_command_with_retry \
+    "repo update ${repo_names[*]}" \
+    repo update "${repo_names[@]}"
+  then
+    return 0
+  fi
+
+  echo "WARN: Helm 仓库更新失败，继续尝试使用本地缓存的 chart index。"
+  return 0
+}
+
 print_step "检查集群连通性"
 run_cluster_kubectl get nodes >/dev/null
 
@@ -134,9 +214,27 @@ if ! run_cluster_kubectl -n kube-system get deployment hami-scheduler >/dev/null
 fi
 
 print_step "添加 Helm 仓库"
-run_cluster_helm repo add "$PROM_REPO_NAME" "$PROM_REPO_URL" --force-update
-run_cluster_helm repo add "$WEBUI_REPO_NAME" "$WEBUI_REPO_URL" --force-update
-run_cluster_helm repo update "$PROM_REPO_NAME" "$WEBUI_REPO_NAME"
+if ensure_helm_repo_available "$PROM_REPO_NAME" "$PROM_REPO_URL"; then
+  PROM_REPO_READY=1
+else
+  if [[ -n "$PROM_CHART_VERSION" ]]; then
+    PROM_CHART_REF="$(prometheus_chart_release_url)"
+    echo "WARN: Helm 仓库 $PROM_REPO_URL 不可用，回退到 Prometheus chart release 包:"
+    echo "WARN: $PROM_CHART_REF"
+  else
+    die "无法添加 Prometheus Helm 仓库：$PROM_REPO_URL"
+  fi
+fi
+
+ensure_helm_repo_available "$WEBUI_REPO_NAME" "$WEBUI_REPO_URL" && WEBUI_REPO_READY=1 || \
+  die "无法添加 HAMi-WebUI Helm 仓库：$WEBUI_REPO_URL"
+
+repo_update_names=()
+[[ "$PROM_REPO_READY" -eq 1 ]] && repo_update_names+=("$PROM_REPO_NAME")
+[[ "$WEBUI_REPO_READY" -eq 1 ]] && repo_update_names+=("$WEBUI_REPO_NAME")
+if [[ "${#repo_update_names[@]}" -gt 0 ]]; then
+  update_helm_repos_best_effort "${repo_update_names[@]}"
+fi
 
 print_step "安装 Prometheus"
 prom_helm_args=(
@@ -151,7 +249,7 @@ prom_helm_args=(
   --set "alertmanager.enabled=$([[ "$ENABLE_ALERTMANAGER" -eq 1 ]] && echo true || echo false)"
 )
 
-if [[ -n "$PROM_CHART_VERSION" ]]; then
+if [[ -n "$PROM_CHART_VERSION" && "$PROM_CHART_REF" == "${PROM_REPO_NAME}/kube-prometheus-stack" ]]; then
   prom_helm_args+=(--version "$PROM_CHART_VERSION")
 fi
 
