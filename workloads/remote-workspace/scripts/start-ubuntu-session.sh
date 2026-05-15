@@ -30,6 +30,8 @@ exec dbus-run-session -- bash -lc '
     gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false || true
     gsettings set org.gnome.desktop.session idle-delay uint32 0 || true
     gsettings set org.gnome.desktop.lockdown disable-lock-screen true || true
+    gsettings set org.gnome.desktop.notifications show-banners false || true
+    gsettings set org.gnome.desktop.notifications show-in-lock-screen false || true
 
     if [[ -f /usr/share/backgrounds/warty-final-ubuntu.png ]]; then
       gsettings set org.gnome.desktop.background picture-uri "$wallpaper_uri" || true
