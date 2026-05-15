@@ -65,12 +65,18 @@ if [[ -d "$HOME/Desktop" ]]; then
   find "$HOME/Desktop" -maxdepth 1 -type f -name "*.desktop" -exec chmod +x {} +
 fi
 
-if command -v xdg-settings >/dev/null 2>&1; then
-  xdg-settings set default-web-browser firefox-workspace.desktop >/dev/null 2>&1 || true
-fi
+if command -v firefox >/dev/null 2>&1; then
+  if command -v xdg-settings >/dev/null 2>&1; then
+    xdg-settings set default-web-browser firefox-workspace.desktop >/dev/null 2>&1 || true
+  fi
 
-if command -v xdg-mime >/dev/null 2>&1; then
-  xdg-mime default firefox-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
-  xdg-mime default firefox-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
-  xdg-mime default firefox-workspace.desktop text/html >/dev/null 2>&1 || true
+  if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default firefox-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
+    xdg-mime default firefox-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
+    xdg-mime default firefox-workspace.desktop text/html >/dev/null 2>&1 || true
+  fi
+else
+  rm -f \
+    "$HOME/Desktop/Firefox.desktop" \
+    "$HOME/.local/share/applications/firefox-workspace.desktop"
 fi

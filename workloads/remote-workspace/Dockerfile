@@ -184,6 +184,7 @@ COPY bin/ /opt/remote-work/bin/
 COPY novnc/ /opt/remote-work/novnc/
 
 RUN cp /opt/remote-work/novnc/vnc_lite.html /opt/novnc/vnc_lite.html \
+  && cp -R /opt/remote-work/config/usr/. /usr/ \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
   && rm -f \
     /usr/local/bin/google-chrome-workspace \

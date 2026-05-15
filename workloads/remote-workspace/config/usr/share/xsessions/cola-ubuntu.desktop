@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Ubuntu Remote Workspace
+Comment=Ubuntu GNOME session for remote workspace containers
+Exec=env GNOME_SHELL_SESSION_MODE=ubuntu gnome-session --session=cola-ubuntu
+TryExec=gnome-session
+Type=Application
+DesktopNames=ubuntu:GNOME
+X-GDM-SessionRegisters=true
