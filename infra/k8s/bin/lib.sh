@@ -1433,12 +1433,8 @@ emit_cluster_installation_image_refs() {
   fi
 }
 
-cache_and_distribute_cluster_installation_images_to_nodes() {
-  local arch="$1"
-  shift
-
-  local -a target_nodes=("$@")
-  local -a image_refs=()
+emit_cluster_installation_image_aliases() {
+  local image_ref="$1"
   local calico_ver
   local dns_node_cache_ver
   local coredns_ver
@@ -1446,14 +1442,7 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
   local metrics_ver
   local sandbox_source_ref
   local sandbox_runtime_ref
-  local image_ref
-  local archive_path
 
-  [[ "${#target_nodes[@]}" -gt 0 ]] || return 0
-  mapfile -t image_refs < <(emit_cluster_installation_image_refs)
-  [[ "${#image_refs[@]}" -gt 0 ]] || return 0
-
-  controller_can_cache_image_archives || return 1
   calico_ver="$(kubeasz_config_value calico_ver || true)"
   dns_node_cache_ver="$(kubeasz_config_value dnsNodeCacheVer || true)"
   coredns_ver="$(kubeasz_config_value corednsVer || true)"
@@ -1465,55 +1454,68 @@ cache_and_distribute_cluster_installation_images_to_nodes() {
   sandbox_source_ref="$(sandbox_image)"
   sandbox_runtime_ref="$(runtime_sandbox_image)"
 
+  if [[ "$image_ref" == "$sandbox_source_ref" ]]; then
+    printf '%s\n' "$sandbox_runtime_ref"
+  fi
+
+  if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/cni:${calico_ver}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/cni:${calico_ver}"
+  fi
+  if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/node:${calico_ver}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/node:${calico_ver}"
+  fi
+  if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/kube-controllers:${calico_ver}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/kube-controllers:${calico_ver}"
+  fi
+  if [[ -n "$dns_node_cache_ver" && "$image_ref" == "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}"
+  fi
+  if [[ -n "$coredns_ver" && -n "$coredns_tag" && "$image_ref" == "registry.k8s.io/coredns/coredns:${coredns_tag}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/coredns:${coredns_ver}"
+  fi
+  if [[ -n "$metrics_ver" && "$image_ref" == "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}" ]]; then
+    printf '%s\n' "easzlab.io.local:5000/easzlab/metrics-server:${metrics_ver}"
+  fi
+}
+
+tag_cluster_installation_image_aliases_on_nodes() {
+  local image_ref="$1"
+  shift
+
+  local -a target_nodes=("$@")
+  local -a aliases=()
+  local alias_ref
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || return 0
+  mapfile -t aliases < <(emit_cluster_installation_image_aliases "$image_ref")
+  [[ "${#aliases[@]}" -gt 0 ]] || return 0
+
+  for alias_ref in "${aliases[@]}"; do
+    tag_k8s_image_aliases_on_nodes "$image_ref" "$alias_ref" "${target_nodes[@]}"
+  done
+}
+
+cache_and_distribute_cluster_installation_images_to_nodes() {
+  local arch="$1"
+  shift
+
+  local -a target_nodes=("$@")
+  local -a image_refs=()
+  local image_ref
+  local archive_path
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || return 0
+  mapfile -t image_refs < <(emit_cluster_installation_image_refs)
+  [[ "${#image_refs[@]}" -gt 0 ]] || return 0
+
+  controller_can_cache_image_archives || return 1
+
   for image_ref in "${image_refs[@]}"; do
     prefetch_image_archive_on_controller "$image_ref" "linux/$arch" || return 1
     archive_path="$(cached_image_archive_path "$image_ref" "linux/$arch")"
     print_step "分发镜像 $image_ref 到 ${#target_nodes[@]} 个节点"
     load_compressed_image_archive_into_nodes "$archive_path" --image-ref "$image_ref" -- "${target_nodes[@]}"
-
-    if [[ "$image_ref" == "$sandbox_source_ref" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "$sandbox_runtime_ref" \
-        "${target_nodes[@]}"
-    fi
-
-    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/cni:${calico_ver}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/cni:${calico_ver}" \
-        "${target_nodes[@]}"
-    fi
-    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/node:${calico_ver}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/node:${calico_ver}" \
-        "${target_nodes[@]}"
-    fi
-    if [[ -n "$calico_ver" && "$image_ref" == "docker.io/calico/kube-controllers:${calico_ver}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/kube-controllers:${calico_ver}" \
-        "${target_nodes[@]}"
-    fi
-    if [[ -n "$dns_node_cache_ver" && "$image_ref" == "registry.k8s.io/dns/k8s-dns-node-cache:${dns_node_cache_ver}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/k8s-dns-node-cache:${dns_node_cache_ver}" \
-        "${target_nodes[@]}"
-    fi
-    if [[ -n "$coredns_ver" && -n "$coredns_tag" && "$image_ref" == "registry.k8s.io/coredns/coredns:${coredns_tag}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/coredns:${coredns_ver}" \
-        "${target_nodes[@]}"
-    fi
-    if [[ -n "$metrics_ver" && "$image_ref" == "registry.k8s.io/metrics-server/metrics-server:${metrics_ver}" ]]; then
-      tag_k8s_image_aliases_on_nodes \
-        "$image_ref" \
-        "easzlab.io.local:5000/easzlab/metrics-server:${metrics_ver}" \
-        "${target_nodes[@]}"
-    fi
+    tag_cluster_installation_image_aliases_on_nodes "$image_ref" "${target_nodes[@]}"
   done
 }
 
@@ -1658,7 +1660,38 @@ set -euo pipefail
 $(remote_ctr_resolver_script)
 
 ${alias_script}
-"
+  "
+}
+
+remote_host_tag_k8s_image_aliases() {
+  local host_ip="$1"
+  local ssh_user="$2"
+  local ssh_password="$3"
+  local ssh_port="$4"
+  local source_ref="$5"
+  shift 5
+
+  local alias_script=""
+  local alias_ref
+  for alias_ref in "$@"; do
+    [[ -n "$alias_ref" && "$alias_ref" != "$source_ref" ]] || continue
+    alias_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$alias_ref") >/dev/null 2>&1 || true; "
+    alias_script+="\"\$CTR_BIN\" -n k8s.io images tag $(printf '%q' "$source_ref") $(printf '%q' "$alias_ref") >/dev/null 2>&1; "
+  done
+
+  [[ -n "$alias_script" ]] || return 0
+
+  run_password_command "$ssh_password" \
+    ssh "${SSH_OPTS[@]}" \
+    -p "$ssh_port" \
+    "$ssh_user@$host_ip" \
+    "printf '%s\n' $(printf '%q' "$ssh_password") | sudo -S -p '' bash -lc $(printf '%q' "
+set -euo pipefail
+
+$(remote_ctr_resolver_script)
+
+${alias_script}
+")"
 }
 
 tag_k8s_image_aliases_on_nodes() {
@@ -1677,20 +1710,37 @@ tag_k8s_image_aliases_on_nodes() {
 remote_pull_k8s_image() {
   local node_name="$1"
   local image_ref="$2"
-  local platform="${3:-linux/$(node_arch "$node_name")}"
-  shift 3
+  local platform
+  if [[ $# -ge 3 ]]; then
+    platform="$3"
+    shift 3
+  else
+    platform="linux/$(node_arch "$node_name")"
+    shift 2
+  fi
 
-  local cleanup_script=""
-  local alias_script=""
+  local -a refs=()
+  local refs_script="refs=("
   local ref
+  local existing_ref
+  local is_duplicate
   for ref in "$image_ref" "$@"; do
     [[ -n "$ref" ]] || continue
-    cleanup_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
-    if [[ "$ref" != "$image_ref" ]]; then
-      alias_script+="\"\$CTR_BIN\" -n k8s.io images rm $(printf '%q' "$ref") >/dev/null 2>&1 || true; "
-      alias_script+="\"\$CTR_BIN\" -n k8s.io images tag $(printf '%q' "$image_ref") $(printf '%q' "$ref") >/dev/null 2>&1; "
-    fi
+    is_duplicate=0
+    for existing_ref in "${refs[@]}"; do
+      if [[ "$existing_ref" == "$ref" ]]; then
+        is_duplicate=1
+        break
+      fi
+    done
+    [[ "$is_duplicate" -eq 0 ]] || continue
+    refs+=("$ref")
   done
+
+  for ref in "${refs[@]}"; do
+    refs_script+=" $(printf '%q' "$ref")"
+  done
+  refs_script+=" )"
 
   remote_sudo_ssh_retry "$node_name" "
 set -euo pipefail
@@ -1698,10 +1748,64 @@ set -euo pipefail
 $(remote_ctr_resolver_script)
 
 pull_log=\"/tmp/remote-work-ctr-pull.\$\$.log\"
+source_ref=$(printf '%q' "$image_ref")
+platform=$(printf '%q' "$platform")
+${refs_script}
+
+image_exists() {
+  \"\$CTR_BIN\" -n k8s.io images list name==\"\$1\" | tail -n +2 | grep -q .
+}
+
+tag_missing_refs_from() {
+  local existing_ref=\"\$1\"
+  local target_ref
+
+  for target_ref in \"\${refs[@]}\"; do
+    [[ -n \"\$target_ref\" && \"\$target_ref\" != \"\$existing_ref\" ]] || continue
+    if image_exists \"\$target_ref\"; then
+      continue
+    fi
+
+    \"\$CTR_BIN\" -n k8s.io images rm \"\$target_ref\" >/dev/null 2>&1 || true
+    \"\$CTR_BIN\" -n k8s.io images tag \"\$existing_ref\" \"\$target_ref\" >/dev/null 2>&1
+  done
+}
+
+all_refs_exist() {
+  local target_ref
+
+  for target_ref in \"\${refs[@]}\"; do
+    if ! image_exists \"\$target_ref\"; then
+      return 1
+    fi
+  done
+
+  return 0
+}
 
 cleanup_image_refs() {
-  ${cleanup_script}
+  local target_ref
+
+  for target_ref in \"\${refs[@]}\"; do
+    [[ -n \"\$target_ref\" ]] || continue
+    \"\$CTR_BIN\" -n k8s.io images rm \"\$target_ref\" >/dev/null 2>&1 || true
+  done
 }
+
+for ref in \"\${refs[@]}\"; do
+  if image_exists \"\$ref\"; then
+    tag_missing_refs_from \"\$ref\"
+    all_refs_exist && exit 0
+  fi
+done
+
+for ref in \"\${refs[@]:1}\"; do
+  if \"\$CTR_BIN\" -n k8s.io images pull --platform \"\$platform\" \"\$ref\" >\"\$pull_log\" 2>&1; then
+    tag_missing_refs_from \"\$ref\"
+    rm -f \"\$pull_log\"
+    all_refs_exist && exit 0
+  fi
+done
 
 cleanup_corrupt_content() {
   if [[ ! -f \"\$pull_log\" ]]; then
@@ -1717,10 +1821,10 @@ cleanup_corrupt_content() {
     done || true
 }
 
-if \"\$CTR_BIN\" -n k8s.io images pull --platform $(printf '%q' "$platform") $(printf '%q' "$image_ref") >\"\$pull_log\" 2>&1; then
-  ${alias_script}
+if \"\$CTR_BIN\" -n k8s.io images pull --platform \"\$platform\" \"\$source_ref\" >\"\$pull_log\" 2>&1; then
+  tag_missing_refs_from \"\$source_ref\"
   rm -f \"\$pull_log\"
-  exit 0
+  all_refs_exist && exit 0
 fi
 
 tail -n 80 \"\$pull_log\" >&2 || true

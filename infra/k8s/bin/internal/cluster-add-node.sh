@@ -151,7 +151,9 @@ PY
 
 cache_and_distribute_installation_images_to_new_node() {
   local -a image_refs=()
+  local -a image_aliases=()
   local image_ref
+  local alias_ref
   local archive_path
 
   mapfile -t image_refs < <(emit_cluster_installation_image_refs)
@@ -169,6 +171,14 @@ cache_and_distribute_installation_images_to_new_node() {
       "$SSH_PASSWORD" \
       "$SSH_PORT" \
       "$image_ref"
+
+    mapfile -t image_aliases < <(emit_cluster_installation_image_aliases "$image_ref")
+    for alias_ref in "${image_aliases[@]}"; do
+      remote_host_tag_k8s_image_aliases \
+        "$IP" "$SSH_USER" "$SSH_PASSWORD" "$SSH_PORT" \
+        "$image_ref" \
+        "$alias_ref"
+    done
   done
 }
 
