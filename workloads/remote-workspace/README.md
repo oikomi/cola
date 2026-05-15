@@ -12,6 +12,8 @@
 默认基础镜像为 Ubuntu 24.04.4 对应的 Noble 官方容器 tag `ubuntu:noble-20260410`，可通过 `./scripts/workspace-image.sh build-and-load --ubuntu-version <ver>` 切换。
 如果外部 registry 网络不稳定，也可以用 `--base-image remote-workspace:ubuntu24` 复用本地已经构建好的 Ubuntu 24.04.4 工作区镜像层。
 `debs/` 保存 Chrome 及其少量运行依赖的 Noble amd64 离线包；网络不稳定时可通过 `--offline-deb-dir /opt/remote-work-debs` 构建。
+如果只是基于已完整构建的 `remote-workspace` 镜像迭代 `scripts/`、`config/`、`assets/`、`bin/` 或 `novnc/`，
+可加 `--skip-package-install` 跳过 apt 安装阶段。
 如需从 Apple Silicon 主机为 amd64 集群节点构建，可使用 `--target-arch amd64`。
 
 `novnc/vnc_lite.html` 是项目维护的轻量 noVNC 入口。它保留上游 lite 页面结构，

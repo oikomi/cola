@@ -93,11 +93,15 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
   && rm -rf /var/lib/apt/lists/* /opt/remote-work-debs; \
   fi
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
+    dpkg -s yaru-theme-gtk yaru-theme-icon yaru-theme-sound >/dev/null; \
+  else \
+    apt-get update && apt-get install -y --no-install-recommends \
     yaru-theme-gtk \
     yaru-theme-icon \
     yaru-theme-sound \
-  && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*; \
+  fi
 
 COPY scripts/ /opt/remote-work/
 COPY config/ /opt/remote-work/config/
