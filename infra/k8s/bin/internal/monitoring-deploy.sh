@@ -26,6 +26,7 @@ WEBUI_CHART_VERSION="${COLA_HAMI_WEBUI_CHART_VERSION:-}"
 ENABLE_GRAFANA=0
 ENABLE_ALERTMANAGER=0
 ENABLE_PROM_ADMISSION_WEBHOOKS="${COLA_PROMETHEUS_ADMISSION_WEBHOOKS_ENABLED:-0}"
+ENABLE_KUBE_STATE_METRICS="${COLA_KUBE_STATE_METRICS_ENABLED:-0}"
 WAIT_TIMEOUT_SECONDS=600
 
 if [[ -n "${COLA_PROMETHEUS_HELM_REPO_URL:-}" ]]; then
@@ -55,6 +56,7 @@ Options:
   --enable-grafana               Enable Grafana in kube-prometheus-stack
   --enable-alertmanager          Enable Alertmanager in kube-prometheus-stack
   --enable-prom-admission        Enable Prometheus Operator admission webhooks
+  --enable-kube-state-metrics    Enable kube-state-metrics in kube-prometheus-stack
   --wait-timeout <sec>           Helm wait timeout in seconds, default 600
   -h, --help                     Show help
 EOF
@@ -116,6 +118,10 @@ while [[ $# -gt 0 ]]; do
       ENABLE_PROM_ADMISSION_WEBHOOKS=1
       shift
       ;;
+    --enable-kube-state-metrics)
+      ENABLE_KUBE_STATE_METRICS=1
+      shift
+      ;;
     --wait-timeout)
       WAIT_TIMEOUT_SECONDS="$2"
       shift 2
@@ -165,6 +171,42 @@ print_monitoring_diagnostics() {
   echo
   echo "--- recent hami-webui events ---"
   run_cluster_kubectl -n "$WEBUI_NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 50 || true
+}
+
+print_namespace_progress() {
+  local namespace="$1"
+
+  echo
+  echo "--- ${namespace} pods ---"
+  run_cluster_kubectl -n "$namespace" get pods -o wide || true
+  echo
+  echo "--- ${namespace} recent events ---"
+  run_cluster_kubectl -n "$namespace" get events --sort-by=.lastTimestamp | tail -n 20 || true
+}
+
+run_helm_with_progress() {
+  local label="$1"
+  local namespace="$2"
+  shift 2
+
+  local interval="${COLA_HELM_PROGRESS_INTERVAL_SECONDS:-30}"
+  local helm_pid
+  local status
+
+  echo "等待 ${label} 就绪；每 ${interval}s 输出一次当前 Pod 状态。"
+  run_cluster_helm "$@" &
+  helm_pid=$!
+
+  while kill -0 "$helm_pid" >/dev/null 2>&1; do
+    sleep "$interval"
+    if kill -0 "$helm_pid" >/dev/null 2>&1; then
+      print_namespace_progress "$namespace"
+    fi
+  done
+
+  status=0
+  wait "$helm_pid" || status=$?
+  return "$status"
 }
 
 helm_repo_exists() {
@@ -333,6 +375,9 @@ prom_helm_args=(
   --timeout "$HELM_TIMEOUT"
   --set "grafana.enabled=$([[ "$ENABLE_GRAFANA" -eq 1 ]] && echo true || echo false)"
   --set "alertmanager.enabled=$([[ "$ENABLE_ALERTMANAGER" -eq 1 ]] && echo true || echo false)"
+  --set "kubeStateMetrics.enabled=$([[ "$ENABLE_KUBE_STATE_METRICS" -eq 1 ]] && echo true || echo false)"
+  --set "defaultRules.rules.kubeStateMetrics=$([[ "$ENABLE_KUBE_STATE_METRICS" -eq 1 ]] && echo true || echo false)"
+  --set "prometheusOperator.tls.enabled=$([[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 1 ]] && echo true || echo false)"
   --set "prometheusOperator.admissionWebhooks.enabled=$([[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 1 ]] && echo true || echo false)"
   --set "prometheusOperator.admissionWebhooks.patch.enabled=$([[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 1 ]] && echo true || echo false)"
 )
@@ -341,7 +386,7 @@ if [[ -n "$PROM_CHART_VERSION" && "$PROM_CHART_REF" == "${PROM_REPO_NAME}/kube-p
   prom_helm_args+=(--version "$PROM_CHART_VERSION")
 fi
 
-if ! run_cluster_helm "${prom_helm_args[@]}"; then
+if ! run_helm_with_progress "Prometheus" "$PROM_NAMESPACE" "${prom_helm_args[@]}"; then
   print_step "Prometheus 安装失败，输出诊断信息"
   print_monitoring_diagnostics
   die "Prometheus 安装失败。"
@@ -370,7 +415,7 @@ if [[ -n "$WEBUI_CHART_VERSION" ]]; then
   webui_helm_args+=(--version "$WEBUI_CHART_VERSION")
 fi
 
-if ! run_cluster_helm "${webui_helm_args[@]}"; then
+if ! run_helm_with_progress "HAMi-WebUI" "$WEBUI_NAMESPACE" "${webui_helm_args[@]}"; then
   print_step "HAMi-WebUI 安装失败，输出诊断信息"
   print_monitoring_diagnostics
   die "HAMi-WebUI 安装失败。"
