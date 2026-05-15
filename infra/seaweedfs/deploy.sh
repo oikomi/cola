@@ -18,20 +18,33 @@ HELM_BIN=""
 
 usage() {
   cat <<'EOF'
-Usage: ./deploy.sh [install|status|smoke-test|render-values|render-s3-service|render-admin-service|render-bucket-job|render-smoke-test|uninstall] [options]
+Usage: ./deploy.sh [install|install-all|preflight-all|install-nas|status|status-all|status-nas|smoke-test|bucket-init|render-values|render-master-service|render-s3-service|render-admin-service|render-bucket-job|render-smoke-test|render-external-volume-command|render-nas-env|render-nas-volume-command|uninstall|uninstall-nas] [options]
 
 Deploy SeaweedFS as a lightweight distributed S3-compatible object store.
 
 Actions:
-  install                 Install/upgrade SeaweedFS; default action
+  install                 Install/upgrade SeaweedFS in Kubernetes only; default action
+  install-all             One-key install: Kubernetes SeaweedFS + external NAS volume + bucket + smoke test
+  preflight-all           Check local tools, Kubernetes rendering/status, and NAS SSH/sudo basics
+  install-nas             Only prepare/start weed volume on NAS
+  bucket-init             Create/update the configured S3 bucket init Job
   status                  Show Helm release and Kubernetes resources
+  status-all              Show Kubernetes status and NAS weed volume status
+  status-nas              Show NAS weed volume status only
   smoke-test              Run an in-cluster S3 upload/download smoke test
   render-values           Print generated SeaweedFS Helm values
+  render-master-service   Print the SeaweedFS Master NodePort Service YAML
   render-s3-service       Print the SeaweedFS S3 LAN NodePort Service YAML
   render-admin-service    Print the SeaweedFS Admin UI NodePort Service YAML
   render-bucket-job       Print bucket initialization Job YAML
   render-smoke-test       Print the S3 smoke test Job YAML
+  render-external-volume-command
+                          Print the NAS/external host weed volume command
+  render-nas-env          Print env derived from infra/k8s/cluster/nas.json
+  render-nas-volume-command
+                          Print the NAS weed volume command derived from nas.json
   uninstall               Remove the Helm release and helper Services/Jobs
+  uninstall-nas           Stop the NAS weed volume process; data is kept
 
 Options:
   --env-file <path>       Load SeaweedFS settings from a local env file
@@ -120,6 +133,10 @@ PY
   node --input-type=module - "$value" <<'EOF'
 process.stdout.write(JSON.stringify(process.argv[2] ?? ""));
 EOF
+}
+
+shell_quote() {
+  printf '%q' "$1"
 }
 
 cluster_name() {
@@ -212,7 +229,7 @@ load_env_file() {
 parse_args() {
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      install | status | smoke-test | render-values | render-s3-service | render-admin-service | render-bucket-job | render-smoke-test | uninstall)
+      install | install-all | preflight-all | install-nas | bucket-init | status | status-all | status-nas | smoke-test | render-values | render-master-service | render-s3-service | render-admin-service | render-bucket-job | render-smoke-test | render-external-volume-command | render-nas-env | render-nas-volume-command | uninstall | uninstall-nas)
         ACTION="$1"
         shift
         ;;
@@ -244,6 +261,73 @@ parse_args() {
   done
 }
 
+run_nas_helper() {
+  local action="$1"
+  shift || true
+
+  local nas_script="$SCRIPT_DIR/nas.sh"
+  [[ -x "$nas_script" ]] || die "找不到可执行 NAS 部署脚本: $nas_script"
+
+  local -a args=("$action")
+  if [[ -n "$ENV_FILE" ]]; then
+    args+=(--env-file "$ENV_FILE")
+  elif [[ -f "$DEFAULT_ENV_FILE" ]]; then
+    args+=(--env-file "$DEFAULT_ENV_FILE")
+  fi
+  if [[ -n "$KUBECONFIG_PATH" ]]; then
+    args+=(--kubeconfig "$KUBECONFIG_PATH")
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    args+=(--dry-run)
+  fi
+  args+=("$@")
+
+  "$nas_script" "${args[@]}"
+}
+
+is_nas_action() {
+  case "$ACTION" in
+    install-all | preflight-all | install-nas | status-all | status-nas | render-nas-env | render-nas-volume-command | uninstall-nas)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+run_nas_action() {
+  case "$ACTION" in
+    install-all)
+      run_nas_helper install
+      ;;
+    preflight-all)
+      run_nas_helper preflight
+      ;;
+    install-nas)
+      run_nas_helper deploy-nas
+      ;;
+    status-all)
+      run_nas_helper status
+      ;;
+    status-nas)
+      run_nas_helper status-nas
+      ;;
+    render-nas-env)
+      run_nas_helper render-env
+      ;;
+    render-nas-volume-command)
+      run_nas_helper render-volume-command
+      ;;
+    uninstall-nas)
+      run_nas_helper uninstall-nas
+      ;;
+    *)
+      die "未知 NAS action: $ACTION"
+      ;;
+  esac
+}
+
 set_defaults() {
   SEAWEEDFS_NAMESPACE="${SEAWEEDFS_NAMESPACE:-storage}"
   SEAWEEDFS_RELEASE="${SEAWEEDFS_RELEASE:-seaweedfs}"
@@ -254,13 +338,45 @@ set_defaults() {
   SEAWEEDFS_IMAGE_TAG="${SEAWEEDFS_IMAGE_TAG:-4.23}"
   SEAWEEDFS_WAIT_TIMEOUT="${SEAWEEDFS_WAIT_TIMEOUT:-600s}"
 
+  SEAWEEDFS_ENABLE_SECURITY="${SEAWEEDFS_ENABLE_SECURITY:-true}"
   SEAWEEDFS_DATA_ROOT="${SEAWEEDFS_DATA_ROOT:-/var/lib/cola/seaweedfs}"
+  SEAWEEDFS_VOLUME_MODE="${SEAWEEDFS_VOLUME_MODE:-k8s}"
   SEAWEEDFS_VOLUME_NODES="${SEAWEEDFS_VOLUME_NODES:-[]}"
   SEAWEEDFS_REPLICATION="${SEAWEEDFS_REPLICATION:-001}"
+  SEAWEEDFS_MASTER_PORT="${SEAWEEDFS_MASTER_PORT:-9333}"
+  SEAWEEDFS_MASTER_GRPC_PORT="${SEAWEEDFS_MASTER_GRPC_PORT:-19333}"
   SEAWEEDFS_MASTER_REPLICAS="${SEAWEEDFS_MASTER_REPLICAS:-1}"
   SEAWEEDFS_FILER_REPLICAS="${SEAWEEDFS_FILER_REPLICAS:-1}"
   SEAWEEDFS_S3_REPLICAS="${SEAWEEDFS_S3_REPLICAS:-1}"
   SEAWEEDFS_VOLUME_MAX="${SEAWEEDFS_VOLUME_MAX:-100}"
+  SEAWEEDFS_VOLUME_SIZE_LIMIT_MB="${SEAWEEDFS_VOLUME_SIZE_LIMIT_MB:-30000}"
+
+  SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME="${SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME:-seaweedfs-master-nodeport}"
+  if [[ -z "${SEAWEEDFS_MASTER_NODEPORT_ENABLED:-}" ]]; then
+    if [[ "$SEAWEEDFS_VOLUME_MODE" == "external" ]]; then
+      SEAWEEDFS_MASTER_NODEPORT_ENABLED=true
+    else
+      SEAWEEDFS_MASTER_NODEPORT_ENABLED=false
+    fi
+  fi
+  SEAWEEDFS_MASTER_NODE_PORT="${SEAWEEDFS_MASTER_NODE_PORT:-32333}"
+  SEAWEEDFS_MASTER_GRPC_NODE_PORT="${SEAWEEDFS_MASTER_GRPC_NODE_PORT:-32334}"
+  SEAWEEDFS_MASTER_EXTERNAL_HOST="${SEAWEEDFS_MASTER_EXTERNAL_HOST:-}"
+
+  SEAWEEDFS_EXTERNAL_VOLUME_WEED_BIN="${SEAWEEDFS_EXTERNAL_VOLUME_WEED_BIN:-weed}"
+  SEAWEEDFS_EXTERNAL_VOLUME_IP="${SEAWEEDFS_EXTERNAL_VOLUME_IP:-}"
+  SEAWEEDFS_EXTERNAL_VOLUME_BIND_IP="${SEAWEEDFS_EXTERNAL_VOLUME_BIND_IP:-0.0.0.0}"
+  SEAWEEDFS_EXTERNAL_VOLUME_PUBLIC_URL="${SEAWEEDFS_EXTERNAL_VOLUME_PUBLIC_URL:-}"
+  SEAWEEDFS_EXTERNAL_VOLUME_DIR="${SEAWEEDFS_EXTERNAL_VOLUME_DIR:-/volume1/cola/seaweedfs/volume}"
+  SEAWEEDFS_EXTERNAL_VOLUME_PORT="${SEAWEEDFS_EXTERNAL_VOLUME_PORT:-8080}"
+  SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT="${SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT:-18080}"
+  SEAWEEDFS_EXTERNAL_VOLUME_MAX="${SEAWEEDFS_EXTERNAL_VOLUME_MAX:-0}"
+  SEAWEEDFS_EXTERNAL_VOLUME_MIN_FREE_SPACE="${SEAWEEDFS_EXTERNAL_VOLUME_MIN_FREE_SPACE:-100GiB}"
+  SEAWEEDFS_EXTERNAL_VOLUME_DATA_CENTER="${SEAWEEDFS_EXTERNAL_VOLUME_DATA_CENTER:-}"
+  SEAWEEDFS_EXTERNAL_VOLUME_RACK="${SEAWEEDFS_EXTERNAL_VOLUME_RACK:-}"
+  SEAWEEDFS_EXTERNAL_VOLUME_DISK="${SEAWEEDFS_EXTERNAL_VOLUME_DISK:-hdd}"
+  SEAWEEDFS_EXTERNAL_VOLUME_INDEX="${SEAWEEDFS_EXTERNAL_VOLUME_INDEX:-leveldbMedium}"
+  SEAWEEDFS_EXTERNAL_VOLUME_MASTER="${SEAWEEDFS_EXTERNAL_VOLUME_MASTER:-}"
 
   SEAWEEDFS_S3_ENABLED="${SEAWEEDFS_S3_ENABLED:-true}"
   SEAWEEDFS_S3_SERVICE_NAME="${SEAWEEDFS_S3_SERVICE_NAME:-seaweedfs-s3}"
@@ -316,6 +432,24 @@ apply_yaml() {
   fi
 
   KUBECONFIG="$KUBECONFIG_PATH" "$KUBECTL_BIN" apply -f -
+}
+
+validate_port() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -lt 1 ]] || [[ "$value" -gt 65535 ]]; then
+    die "$name 必须是 1-65535 之间的整数"
+  fi
+}
+
+validate_node_port() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -lt 30000 ]] || [[ "$value" -gt 32767 ]]; then
+    die "$name 必须是 30000-32767 之间的整数"
+  fi
 }
 
 validate_json_nodes() {
@@ -381,32 +515,62 @@ validate_inputs() {
   [[ -n "$SEAWEEDFS_S3_ACCESS_KEY" ]] || die "SEAWEEDFS_S3_ACCESS_KEY 不能为空"
   [[ -n "$SEAWEEDFS_S3_SECRET_KEY" ]] || die "SEAWEEDFS_S3_SECRET_KEY 不能为空"
 
+  case "$SEAWEEDFS_VOLUME_MODE" in
+    k8s | external)
+      ;;
+    *)
+      die "SEAWEEDFS_VOLUME_MODE 只能是 k8s 或 external"
+      ;;
+  esac
+
   if [[ "$SEAWEEDFS_S3_ACCESS_KEY" == "seaweedfs" && "$SEAWEEDFS_S3_SECRET_KEY" == "seaweedfs-secret" ]]; then
     warn "SEAWEEDFS_S3_ACCESS_KEY / SEAWEEDFS_S3_SECRET_KEY 仍是示例值。正式部署前必须修改。"
   fi
 
-  if ! [[ "$SEAWEEDFS_S3_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_S3_PORT" -lt 1 ]] || [[ "$SEAWEEDFS_S3_PORT" -gt 65535 ]]; then
-    die "SEAWEEDFS_S3_PORT 必须是 1-65535 之间的整数"
-  fi
+  validate_port "SEAWEEDFS_MASTER_PORT" "$SEAWEEDFS_MASTER_PORT"
+  validate_port "SEAWEEDFS_MASTER_GRPC_PORT" "$SEAWEEDFS_MASTER_GRPC_PORT"
+  validate_port "SEAWEEDFS_S3_PORT" "$SEAWEEDFS_S3_PORT"
 
   if is_true "$SEAWEEDFS_S3_NODEPORT_ENABLED"; then
     [[ -n "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" ]] || die "SEAWEEDFS_S3_NODEPORT_SERVICE_NAME 不能为空"
+    validate_node_port "SEAWEEDFS_S3_NODE_PORT" "$SEAWEEDFS_S3_NODE_PORT"
+  fi
 
-    if ! [[ "$SEAWEEDFS_S3_NODE_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_S3_NODE_PORT" -lt 30000 ]] || [[ "$SEAWEEDFS_S3_NODE_PORT" -gt 32767 ]]; then
-      die "SEAWEEDFS_S3_NODE_PORT 必须是 30000-32767 之间的整数"
-    fi
+  if is_true "$SEAWEEDFS_MASTER_NODEPORT_ENABLED"; then
+    [[ -n "$SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME" ]] || die "SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME 不能为空"
+    validate_node_port "SEAWEEDFS_MASTER_NODE_PORT" "$SEAWEEDFS_MASTER_NODE_PORT"
+    validate_node_port "SEAWEEDFS_MASTER_GRPC_NODE_PORT" "$SEAWEEDFS_MASTER_GRPC_NODE_PORT"
   fi
 
   validate_json_nodes
 
   local node_count
   node_count="$(json_array_length "$SEAWEEDFS_VOLUME_NODES")"
-  if [[ "$node_count" -eq 0 ]]; then
-    die "SEAWEEDFS_VOLUME_NODES 不能为空。至少配置一个 volume 节点。"
-  fi
+  if [[ "$SEAWEEDFS_VOLUME_MODE" == "k8s" ]]; then
+    if [[ "$node_count" -eq 0 ]]; then
+      die "SEAWEEDFS_VOLUME_NODES 不能为空。至少配置一个 volume 节点。"
+    fi
 
-  if [[ "$node_count" -lt 3 ]]; then
-    warn "当前只有 ${node_count} 个 SeaweedFS volume 节点。可以测试，但不是生产级分布式存储。"
+    if [[ "$node_count" -lt 3 ]]; then
+      warn "当前只有 ${node_count} 个 SeaweedFS volume 节点。可以测试，但不是生产级分布式存储。"
+    fi
+  else
+    [[ -n "$SEAWEEDFS_EXTERNAL_VOLUME_IP" ]] || die "SEAWEEDFS_VOLUME_MODE=external 时必须配置 SEAWEEDFS_EXTERNAL_VOLUME_IP"
+    [[ -n "$SEAWEEDFS_EXTERNAL_VOLUME_DIR" ]] || die "SEAWEEDFS_VOLUME_MODE=external 时必须配置 SEAWEEDFS_EXTERNAL_VOLUME_DIR"
+    validate_port "SEAWEEDFS_EXTERNAL_VOLUME_PORT" "$SEAWEEDFS_EXTERNAL_VOLUME_PORT"
+    validate_port "SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT" "$SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT"
+
+    if ! [[ "$SEAWEEDFS_EXTERNAL_VOLUME_MAX" =~ ^[0-9]+$ ]]; then
+      die "SEAWEEDFS_EXTERNAL_VOLUME_MAX 必须是非负整数"
+    fi
+
+    if [[ -z "$SEAWEEDFS_EXTERNAL_VOLUME_MASTER" ]] && ! is_true "$SEAWEEDFS_MASTER_NODEPORT_ENABLED"; then
+      die "SEAWEEDFS_VOLUME_MODE=external 且未配置 SEAWEEDFS_EXTERNAL_VOLUME_MASTER 时，必须启用 SEAWEEDFS_MASTER_NODEPORT_ENABLED"
+    fi
+
+    if is_true "$SEAWEEDFS_ENABLE_SECURITY"; then
+      warn "SEAWEEDFS_ENABLE_SECURITY=true 时，外部 volume server 需要同一套 SeaweedFS security 配置；只在可信局域网测试时可设为 false。"
+    fi
   fi
 
   if is_true "$SEAWEEDFS_ADMIN_ENABLED"; then
@@ -418,17 +582,9 @@ validate_inputs() {
       warn "SEAWEEDFS_ADMIN_PASSWORD 仍是示例值。正式部署前必须修改。"
     fi
 
-    if ! [[ "$SEAWEEDFS_ADMIN_NODE_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_ADMIN_NODE_PORT" -lt 30000 ]] || [[ "$SEAWEEDFS_ADMIN_NODE_PORT" -gt 32767 ]]; then
-      die "SEAWEEDFS_ADMIN_NODE_PORT 必须是 30000-32767 之间的整数"
-    fi
-
-    if ! [[ "$SEAWEEDFS_ADMIN_TARGET_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_ADMIN_TARGET_PORT" -lt 1 ]] || [[ "$SEAWEEDFS_ADMIN_TARGET_PORT" -gt 65535 ]]; then
-      die "SEAWEEDFS_ADMIN_TARGET_PORT 必须是 1-65535 之间的整数"
-    fi
-
-    if ! [[ "$SEAWEEDFS_ADMIN_GRPC_PORT" =~ ^[0-9]+$ ]] || [[ "$SEAWEEDFS_ADMIN_GRPC_PORT" -lt 1 ]] || [[ "$SEAWEEDFS_ADMIN_GRPC_PORT" -gt 65535 ]]; then
-      die "SEAWEEDFS_ADMIN_GRPC_PORT 必须是 1-65535 之间的整数"
-    fi
+    validate_node_port "SEAWEEDFS_ADMIN_NODE_PORT" "$SEAWEEDFS_ADMIN_NODE_PORT"
+    validate_port "SEAWEEDFS_ADMIN_TARGET_PORT" "$SEAWEEDFS_ADMIN_TARGET_PORT"
+    validate_port "SEAWEEDFS_ADMIN_GRPC_PORT" "$SEAWEEDFS_ADMIN_GRPC_PORT"
   fi
 }
 
@@ -471,13 +627,46 @@ process.stdout.write(nodes[0].path);
 EOF
 }
 
-render_values() {
+render_volume_values() {
+  if [[ "$SEAWEEDFS_VOLUME_MODE" == "external" ]]; then
+    cat <<YAML
+volume:
+  enabled: false
+  replicas: 0
+YAML
+    return 0
+  fi
+
   local volume_path
   volume_path="$(render_volume_hostpaths)"
 
   cat <<YAML
+volume:
+  enabled: true
+  replicas: $(json_array_length "$SEAWEEDFS_VOLUME_NODES")
+  dataDirs:
+    - name: data
+      type: hostPath
+      hostPathPrefix: ${volume_path}
+      maxVolumes: ${SEAWEEDFS_VOLUME_MAX}
+  rack: default
+  nodeSelector: {}
+  affinity: |
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+$(render_volume_affinity)
+YAML
+}
+
+render_values() {
+  cat <<YAML
 seaweedfs:
-  enableSecurity: true
+  enableSecurity: $(if is_true "$SEAWEEDFS_ENABLE_SECURITY"; then echo true; else echo false; fi)
   monitoring:
     enabled: false
   enableReplication: true
@@ -502,7 +691,9 @@ admin:
 master:
   enabled: true
   replicas: ${SEAWEEDFS_MASTER_REPLICAS}
-  volumeSizeLimitMB: 30000
+  port: ${SEAWEEDFS_MASTER_PORT}
+  grpcPort: ${SEAWEEDFS_MASTER_GRPC_PORT}
+  volumeSizeLimitMB: ${SEAWEEDFS_VOLUME_SIZE_LIMIT_MB}
   defaultReplication: "${SEAWEEDFS_REPLICATION}"
   data:
     type: hostPath
@@ -511,25 +702,7 @@ master:
     type: hostPath
     hostPathPrefix: ${SEAWEEDFS_DATA_ROOT%/}/master-logs
 
-volume:
-  enabled: true
-  replicas: $(json_array_length "$SEAWEEDFS_VOLUME_NODES")
-  dataDirs:
-    - name: data
-      type: hostPath
-      hostPathPrefix: ${volume_path}
-      maxVolumes: ${SEAWEEDFS_VOLUME_MAX}
-  rack: default
-  nodeSelector: {}
-  affinity: |
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-$(render_volume_affinity)
+$(render_volume_values)
 
 filer:
   enabled: true
@@ -561,6 +734,37 @@ s3:
 
 ingress:
   enabled: false
+YAML
+}
+
+render_master_service() {
+  cat <<YAML
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME}
+  namespace: ${SEAWEEDFS_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: seaweedfs-master
+    app.kubernetes.io/instance: ${SEAWEEDFS_RELEASE}
+    app.kubernetes.io/part-of: seaweedfs
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/instance: ${SEAWEEDFS_RELEASE}
+    app.kubernetes.io/component: master
+  ports:
+    - name: master
+      protocol: TCP
+      port: ${SEAWEEDFS_MASTER_PORT}
+      targetPort: ${SEAWEEDFS_MASTER_PORT}
+      nodePort: ${SEAWEEDFS_MASTER_NODE_PORT}
+    - name: master-grpc
+      protocol: TCP
+      port: ${SEAWEEDFS_MASTER_GRPC_PORT}
+      targetPort: ${SEAWEEDFS_MASTER_GRPC_PORT}
+      nodePort: ${SEAWEEDFS_MASTER_GRPC_NODE_PORT}
 YAML
 }
 
@@ -614,6 +818,71 @@ spec:
       targetPort: ${SEAWEEDFS_S3_PORT}
       nodePort: ${SEAWEEDFS_S3_NODE_PORT}
 YAML
+}
+
+master_external_host() {
+  if [[ -n "$SEAWEEDFS_MASTER_EXTERNAL_HOST" ]]; then
+    printf '%s\n' "$SEAWEEDFS_MASTER_EXTERNAL_HOST"
+    return 0
+  fi
+
+  json_field controllerIp
+}
+
+external_volume_public_url() {
+  if [[ -n "$SEAWEEDFS_EXTERNAL_VOLUME_PUBLIC_URL" ]]; then
+    printf '%s\n' "$SEAWEEDFS_EXTERNAL_VOLUME_PUBLIC_URL"
+    return 0
+  fi
+
+  printf '%s:%s\n' "$SEAWEEDFS_EXTERNAL_VOLUME_IP" "$SEAWEEDFS_EXTERNAL_VOLUME_PORT"
+}
+
+external_volume_master() {
+  if [[ -n "$SEAWEEDFS_EXTERNAL_VOLUME_MASTER" ]]; then
+    printf '%s\n' "$SEAWEEDFS_EXTERNAL_VOLUME_MASTER"
+    return 0
+  fi
+
+  printf '%s:%s.%s\n' "$(master_external_host)" "$SEAWEEDFS_MASTER_NODE_PORT" "$SEAWEEDFS_MASTER_GRPC_NODE_PORT"
+}
+
+append_volume_arg() {
+  local name="$1"
+  local value="$2"
+
+  [[ -n "$value" ]] || return 0
+  printf '  -%s=%s \\\n' "$name" "$(shell_quote "$value")"
+}
+
+render_external_volume_command() {
+  local public_url
+  local master
+
+  public_url="$(external_volume_public_url)"
+  master="$(external_volume_master)"
+
+  cat <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p $(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_DIR")
+
+exec $(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_WEED_BIN") volume \\
+  -dir=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_DIR") \\
+  -max=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_MAX") \\
+  -ip=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_IP") \\
+  -ip.bind=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_BIND_IP") \\
+  -publicUrl=$(shell_quote "$public_url") \\
+  -port=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_PORT") \\
+  -port.grpc=$(shell_quote "$SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT") \\
+EOF
+  append_volume_arg minFreeSpace "$SEAWEEDFS_EXTERNAL_VOLUME_MIN_FREE_SPACE"
+  append_volume_arg dataCenter "$SEAWEEDFS_EXTERNAL_VOLUME_DATA_CENTER"
+  append_volume_arg rack "$SEAWEEDFS_EXTERNAL_VOLUME_RACK"
+  append_volume_arg disk "$SEAWEEDFS_EXTERNAL_VOLUME_DISK"
+  append_volume_arg index "$SEAWEEDFS_EXTERNAL_VOLUME_INDEX"
+  printf '  -master=%s\n' "$(shell_quote "$master")"
 }
 
 render_bucket_job() {
@@ -788,6 +1057,15 @@ apply_s3_service() {
   render_s3_service | apply_yaml "SeaweedFS S3 LAN NodePort Service"
 }
 
+apply_master_service() {
+  if ! is_true "$SEAWEEDFS_MASTER_NODEPORT_ENABLED"; then
+    return 0
+  fi
+
+  log "创建或更新 SeaweedFS Master NodePort Service: ${SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME}:${SEAWEEDFS_MASTER_NODE_PORT}.${SEAWEEDFS_MASTER_GRPC_NODE_PORT}"
+  render_master_service | apply_yaml "SeaweedFS Master NodePort Service"
+}
+
 wait_for_bucket_job() {
   if ! is_true "$SEAWEEDFS_CREATE_BUCKET_JOB"; then
     return 0
@@ -823,6 +1101,12 @@ status() {
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get svc -l app.kubernetes.io/instance="$SEAWEEDFS_RELEASE" -o wide || true
   echo
 
+  if is_true "$SEAWEEDFS_MASTER_NODEPORT_ENABLED"; then
+    log "SeaweedFS Master NodePort"
+    kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get svc "$SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME" -o wide || true
+    echo
+  fi
+
   log "SeaweedFS Admin UI"
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" get svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" -o wide || true
   echo
@@ -847,12 +1131,20 @@ AWS_SECRET_ACCESS_KEY: <redacted>
 Admin UI: http://${controller_ip}:${SEAWEEDFS_ADMIN_NODE_PORT}
 Admin UI user: ${SEAWEEDFS_ADMIN_USER}
 EOF
+
+  if [[ "$SEAWEEDFS_VOLUME_MODE" == "external" ]]; then
+    cat <<EOF
+External volume master: $(external_volume_master)
+External volume address: $(external_volume_public_url)
+Render NAS command: ./deploy.sh render-external-volume-command --env-file <env>
+EOF
+  fi
 }
 
 uninstall() {
   log "卸载 SeaweedFS Helm release: ${SEAWEEDFS_NAMESPACE}/${SEAWEEDFS_RELEASE}"
   helm_cmd uninstall "$SEAWEEDFS_RELEASE" --namespace "$SEAWEEDFS_NAMESPACE" || true
-  kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" --ignore-not-found || true
+  kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete svc "$SEAWEEDFS_ADMIN_SERVICE_NAME" "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" "$SEAWEEDFS_MASTER_NODEPORT_SERVICE_NAME" --ignore-not-found || true
   kubectl_cmd -n "$SEAWEEDFS_NAMESPACE" delete job "${SEAWEEDFS_RELEASE}-bucket-init" "$SEAWEEDFS_SMOKE_TEST_JOB" --ignore-not-found || true
 
   cat <<EOF
@@ -866,6 +1158,11 @@ EOF
 
 main() {
   parse_args "$@"
+  if is_nas_action; then
+    run_nas_action
+    return 0
+  fi
+
   load_env_file
   set_defaults
   validate_inputs
@@ -873,6 +1170,10 @@ main() {
   case "$ACTION" in
     render-values)
       render_values
+      return 0
+      ;;
+    render-master-service)
+      render_master_service
       return 0
       ;;
     render-s3-service)
@@ -891,6 +1192,10 @@ main() {
       render_smoke_test_job
       return 0
       ;;
+    render-external-volume-command)
+      render_external_volume_command
+      return 0
+      ;;
   esac
 
   resolve_kubeconfig
@@ -900,11 +1205,17 @@ main() {
     install)
       connectivity_check
       install_chart
+      apply_master_service
       apply_s3_service
       apply_admin_service
       apply_bucket_job
       wait_for_bucket_job
       status
+      ;;
+    bucket-init)
+      connectivity_check
+      apply_bucket_job
+      wait_for_bucket_job
       ;;
     smoke-test)
       connectivity_check

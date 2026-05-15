@@ -17,15 +17,5 @@
     "sshPort": 22,
     "roles": ["worker", "gpu"],
     "arch": "amd64"
-  },
-
-  {
-    "name": "node-02",
-    "ip": "172.16.60.108",
-    "sshUser": "xdream",
-    "sshPassword": "NAS-a1@123",
-    "sshPort": 22,
-    "roles": ["worker"],
-    "arch": "amd64"
   }
 ]

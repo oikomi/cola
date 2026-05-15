@@ -15,7 +15,7 @@
 ```text
 SeaweedFS
   master: 元数据调度
-  volume: 数据块存储，使用节点 hostPath
+  volume: 数据块存储，可使用 K8s 节点 hostPath 或外部 NAS
   filer: 文件命名空间
   s3: S3-compatible API
   admin: 官方 Web Admin UI
@@ -86,6 +86,84 @@ SEAWEEDFS_ADMIN_NODE_PORT=32246
 kubectl -n storage get pods -o wide
 kubectl -n storage get svc
 ```
+
+## NAS 外部 Volume 模式
+
+如果 NAS 不加入 Kubernetes，可以让 K8s 只运行 `master/filer/s3/admin`，NAS 裸机运行 `weed volume`。NAS 信息来自：
+
+```text
+infra/k8s/cluster/nas.json
+```
+
+推荐统一使用 `deploy.sh` 一键部署，包括 Kubernetes 内的 SeaweedFS 组件和 NAS 上的 `weed volume`。
+
+先预览自动推导出来的配置和 NAS 启动命令：
+
+```bash
+cd infra/seaweedfs
+./deploy.sh render-nas-env
+./deploy.sh render-nas-volume-command
+./deploy.sh install-all --dry-run
+```
+
+正式部署：
+
+```bash
+# NAS external 模式当前使用可信局域网部署，必须先在 seaweedfs.env 设置：
+# SEAWEEDFS_ENABLE_SECURITY=false
+./deploy.sh install-all --env-file seaweedfs.env
+```
+
+它会执行：
+
+- 在 K8s 内部署 SeaweedFS，并禁用 K8s volume Pod
+- 创建 `seaweedfs-master-nodeport`，默认暴露 `32333` 和 `32334`
+- SSH 到 NAS，准备 `/volume1/cola/seaweedfs`
+- 下载 `weed` 二进制到 `/volume1/cola/seaweedfs/bin/weed`
+- 生成 `/volume1/cola/seaweedfs/bin/start-volume.sh`
+- 后台启动 `weed volume`
+- 初始化 S3 bucket
+- 运行集群内 S3 smoke test
+
+常用状态检查：
+
+```bash
+./deploy.sh status-all --env-file seaweedfs.env
+nc -vz 172.16.60.198 32333
+nc -vz 172.16.60.108 8080
+nc -vz 172.16.60.108 18080
+```
+
+默认 NAS 数据目录：
+
+```text
+/volume1/cola/seaweedfs/volume
+```
+
+默认 `SEAWEEDFS_NAS_VOLUME_MAX=0`，表示 `weed volume` 会按磁盘空闲空间和 `SEAWEEDFS_VOLUME_SIZE_LIMIT_MB` 自动计算 volume 数；如果要人为限制可用容量，再显式改这个值。
+
+当前 NAS 一键模式只有一个 external volume server，默认并要求：
+
+```bash
+SEAWEEDFS_REPLICATION=000
+```
+
+这表示单副本，容量接近 NAS 可用空间，但没有副本容错。后续如果增加多个 volume server，再改成更高副本策略。
+
+如需只部署 K8s 或只启动 NAS：
+
+```bash
+./deploy.sh install --env-file seaweedfs.env
+./deploy.sh install-nas --env-file seaweedfs.env
+```
+
+停止 NAS 上的 `weed volume`，但保留数据：
+
+```bash
+./deploy.sh uninstall-nas --env-file seaweedfs.env
+```
+
+NAS external 模式默认 `SEAWEEDFS_ENABLE_SECURITY=false`，只适合可信局域网。要启用 SeaweedFS security，需要把同一套 security 配置同步给 K8s chart 和 NAS 裸机 `weed volume`，并显式设置 `SEAWEEDFS_ALLOW_EXTERNAL_SECURITY=true`。
 
 ## Admin UI
 
