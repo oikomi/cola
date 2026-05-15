@@ -25,6 +25,7 @@ WEBUI_CHART_VERSION="${COLA_HAMI_WEBUI_CHART_VERSION:-}"
 
 ENABLE_GRAFANA=0
 ENABLE_ALERTMANAGER=0
+ENABLE_PROM_ADMISSION_WEBHOOKS="${COLA_PROMETHEUS_ADMISSION_WEBHOOKS_ENABLED:-0}"
 WAIT_TIMEOUT_SECONDS=600
 
 if [[ -n "${COLA_PROMETHEUS_HELM_REPO_URL:-}" ]]; then
@@ -53,6 +54,7 @@ Options:
   --webui-repo-url <url>         HAMi-WebUI Helm repo URL
   --enable-grafana               Enable Grafana in kube-prometheus-stack
   --enable-alertmanager          Enable Alertmanager in kube-prometheus-stack
+  --enable-prom-admission        Enable Prometheus Operator admission webhooks
   --wait-timeout <sec>           Helm wait timeout in seconds, default 600
   -h, --help                     Show help
 EOF
@@ -110,6 +112,10 @@ while [[ $# -gt 0 ]]; do
       ENABLE_ALERTMANAGER=1
       shift
       ;;
+    --enable-prom-admission)
+      ENABLE_PROM_ADMISSION_WEBHOOKS=1
+      shift
+      ;;
     --wait-timeout)
       WAIT_TIMEOUT_SECONDS="$2"
       shift 2
@@ -138,8 +144,15 @@ print_monitoring_diagnostics() {
   echo "--- monitoring namespace pods ---"
   run_cluster_kubectl -n "$PROM_NAMESPACE" get pods -o wide || true
   echo
+  echo "--- monitoring pod images ---"
+  run_cluster_kubectl -n "$PROM_NAMESPACE" get pods \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.initContainers[*]}{.image}{" "}{end}{range .spec.containers[*]}{.image}{" "}{end}{"\n"}{end}' || true
+  echo
   echo "--- monitoring namespace services ---"
   run_cluster_kubectl -n "$PROM_NAMESPACE" get svc -o wide || true
+  echo
+  echo "--- monitoring pod describe ---"
+  run_cluster_kubectl -n "$PROM_NAMESPACE" describe pods || true
   echo
   echo "--- hami-webui pods ---"
   run_cluster_kubectl -n "$WEBUI_NAMESPACE" get pods -l "app.kubernetes.io/instance=${WEBUI_RELEASE}" -o wide || true
@@ -208,6 +221,25 @@ prometheus_chart_release_url() {
     "$PROM_CHART_VERSION"
 }
 
+cleanup_prometheus_admission_hook_jobs() {
+  [[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 0 ]] || return 0
+
+  if ! run_cluster_kubectl get namespace "$PROM_NAMESPACE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  run_cluster_kubectl -n "$PROM_NAMESPACE" delete job \
+    "${PROM_RELEASE}-kube-prometheus-admission-create" \
+    "${PROM_RELEASE}-kube-prometheus-admission-patch" \
+    --ignore-not-found >/dev/null 2>&1 || true
+  run_cluster_kubectl -n "$PROM_NAMESPACE" delete pod \
+    -l "job-name=${PROM_RELEASE}-kube-prometheus-admission-create" \
+    --ignore-not-found >/dev/null 2>&1 || true
+  run_cluster_kubectl -n "$PROM_NAMESPACE" delete pod \
+    -l "job-name=${PROM_RELEASE}-kube-prometheus-admission-patch" \
+    --ignore-not-found >/dev/null 2>&1 || true
+}
+
 update_helm_repos_best_effort() {
   local -a repo_names=("$@")
 
@@ -259,6 +291,8 @@ if [[ "${#repo_update_names[@]}" -gt 0 ]]; then
   update_helm_repos_best_effort "${repo_update_names[@]}"
 fi
 
+cleanup_prometheus_admission_hook_jobs
+
 print_step "安装 Prometheus"
 prom_helm_args=(
   upgrade --install
@@ -270,6 +304,8 @@ prom_helm_args=(
   --timeout "$HELM_TIMEOUT"
   --set "grafana.enabled=$([[ "$ENABLE_GRAFANA" -eq 1 ]] && echo true || echo false)"
   --set "alertmanager.enabled=$([[ "$ENABLE_ALERTMANAGER" -eq 1 ]] && echo true || echo false)"
+  --set "prometheusOperator.admissionWebhooks.enabled=$([[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 1 ]] && echo true || echo false)"
+  --set "prometheusOperator.admissionWebhooks.patch.enabled=$([[ "$ENABLE_PROM_ADMISSION_WEBHOOKS" -eq 1 ]] && echo true || echo false)"
 )
 
 if [[ -n "$PROM_CHART_VERSION" && "$PROM_CHART_REF" == "${PROM_REPO_NAME}/kube-prometheus-stack" ]]; then
