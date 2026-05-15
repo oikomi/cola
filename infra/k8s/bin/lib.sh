@@ -1719,25 +1719,15 @@ remote_pull_k8s_image() {
     shift 2
   fi
 
-  local -a refs=()
   local refs_script="refs=("
   local ref
-  local existing_ref
-  local is_duplicate
+  local seen_refs=$'\n'
   for ref in "$image_ref" "$@"; do
     [[ -n "$ref" ]] || continue
-    is_duplicate=0
-    for existing_ref in "${refs[@]}"; do
-      if [[ "$existing_ref" == "$ref" ]]; then
-        is_duplicate=1
-        break
-      fi
-    done
-    [[ "$is_duplicate" -eq 0 ]] || continue
-    refs+=("$ref")
-  done
-
-  for ref in "${refs[@]}"; do
+    if [[ "$seen_refs" == *$'\n'"$ref"$'\n'* ]]; then
+      continue
+    fi
+    seen_refs+="$ref"$'\n'
     refs_script+=" $(printf '%q' "$ref")"
   done
   refs_script+=" )"
