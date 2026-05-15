@@ -27,8 +27,11 @@ fi
 
 rm -f \
   "$HOME/Desktop/Google Chrome.desktop" \
-  "$HOME/.local/share/applications/google-chrome-workspace.desktop" \
-  "$HOME/.local/share/xfce4/helpers/google-chrome-workspace.desktop"
+  "$HOME/.local/share/applications/google-chrome-workspace.desktop"
+find "$HOME/.local/share" \
+  -path "*/helpers/google-chrome-workspace.desktop" \
+  -type f \
+  -delete
 
 if [[ -f "$BASHRC_PATH" ]]; then
   awk -v marker="$PROFILE_MARKER" '
@@ -56,20 +59,11 @@ mkdir -p \
   "$HOME/Desktop" \
   "$HOME/Downloads" \
   "$HOME/.config/gtk-3.0" \
-  "$HOME/.config/xfce4" \
-  "$HOME/.config/xfce4/terminal" \
-  "$HOME/.local/share/applications" \
-  "$HOME/.local/share/xfce4/helpers"
+  "$HOME/.local/share/applications"
 
 if [[ -d "$HOME/Desktop" ]]; then
   find "$HOME/Desktop" -maxdepth 1 -type f -name "*.desktop" -exec chmod +x {} +
 fi
-
-cat >"$HOME/.config/xfce4/helpers.rc" <<'EOF'
-WebBrowser=firefox-workspace
-FileManager=Thunar
-TerminalEmulator=xfce4-terminal
-EOF
 
 if command -v xdg-settings >/dev/null 2>&1; then
   xdg-settings set default-web-browser firefox-workspace.desktop >/dev/null 2>&1 || true
@@ -79,31 +73,4 @@ if command -v xdg-mime >/dev/null 2>&1; then
   xdg-mime default firefox-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
   xdg-mime default firefox-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
   xdg-mime default firefox-workspace.desktop text/html >/dev/null 2>&1 || true
-fi
-
-if command -v xfconf-query >/dev/null 2>&1; then
-  for monitor_name in monitor0 monitorscreen; do
-    wallpaper="/usr/share/backgrounds/warty-final-ubuntu.png"
-    if [[ ! -f "$wallpaper" ]]; then
-      wallpaper="/opt/remote-work/assets/workspace-wallpaper.svg"
-    fi
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/color-style" \
-      -n -t int -s 0 >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/image-show" \
-      -n -t bool -s true >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/image-style" \
-      -n -t int -s 5 >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/image-path" \
-      -n -t string -s "$(dirname "$wallpaper")" >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/image-filename" \
-      -n -t string -s "$wallpaper" >/dev/null 2>&1 || true
-    xfconf-query -c xfce4-desktop \
-      -p "/backdrop/screen0/${monitor_name}/workspace0/last-image" \
-      -n -t string -s "$wallpaper" >/dev/null 2>&1 || true
-  done
 fi

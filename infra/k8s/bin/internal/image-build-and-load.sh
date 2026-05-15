@@ -11,6 +11,7 @@ UBUNTU_VERSION="24.04.4"
 BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
 SKIP_PACKAGE_INSTALL="0"
+SKIP_BROWSER_INSTALL="0"
 MOZILLA_APT_URL="https://packages.mozilla.org/apt"
 MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 TARGET_ARCH=""
@@ -30,6 +31,7 @@ Options:
   --base-image <ref>      Override Docker base image, default resolved from --ubuntu-version
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
   --skip-package-install  Reuse a base image that already contains desktop packages, Firefox, websockify and noVNC
+  --skip-browser-install  Skip Firefox installation; intended for local desktop smoke tests only
   --mozilla-apt-url <url> Primary Mozilla APT repo URL, default packages.mozilla.org
   --mozilla-apt-fallback-url <url>
                            Fallback Mozilla APT mirror, default CERNET
@@ -61,6 +63,7 @@ build_workspace_image() {
     --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
     --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
     --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
+    --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
     --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
     --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
     -t "$image_ref" \
@@ -83,6 +86,7 @@ build_workspace_image() {
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
       --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
       --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
+      --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
       --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
       --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
       -t "$image_ref" \
@@ -135,6 +139,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-package-install)
       SKIP_PACKAGE_INSTALL="1"
+      shift
+      ;;
+    --skip-browser-install)
+      SKIP_BROWSER_INSTALL="1"
       shift
       ;;
     --mozilla-apt-url)

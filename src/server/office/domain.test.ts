@@ -30,6 +30,7 @@ void test("runner metadata parser accepts only supported enum values", () => {
       containerName: "runner-alice",
       deploymentName: "runner-alice-deploy",
       engine: "hermes-agent",
+      gatewayToken: "token-1",
       namespace: "cola-runners",
       nativeDashboardUrl: "http://127.0.0.1:31080/",
       nodePort: "31080",
@@ -41,6 +42,7 @@ void test("runner metadata parser accepts only supported enum values", () => {
       containerName: "runner-alice",
       deploymentName: "runner-alice-deploy",
       engine: "hermes-agent",
+      gatewayToken: "token-1",
       namespace: "cola-runners",
       nativeDashboardUrl: "http://127.0.0.1:31080/",
       nodePort: 31080,
@@ -61,6 +63,7 @@ void test("runner metadata parser accepts only supported enum values", () => {
       containerName: null,
       deploymentName: null,
       engine: null,
+      gatewayToken: null,
       namespace: null,
       nativeDashboardUrl: null,
       nodePort: null,
@@ -121,5 +124,20 @@ void test("browser native workspace href prefers fresh k8s node IP over stale pu
       origin: "http://localhost:50038",
     }),
     "http://172.16.60.198:31180/chat?session=main",
+  );
+});
+
+void test("browser native workspace href preserves OpenClaw dashboard token fragment", () => {
+  assert.equal(
+    resolveBrowserNativeWorkspaceHref({
+      agentId: "agent-1",
+      deviceId: "device-1",
+      engine: "openclaw",
+      nativeUrl:
+        "http://172.16.60.198:31180/chat?session=agent%3Amain%3Amain#token=gateway-token",
+      openclawTemplate: "http://172.16.60.198:31180/",
+      origin: "http://localhost:50038",
+    }),
+    "http://172.16.60.198:31180/?agentId=agent-1&deviceId=device-1&engine=openclaw#token=gateway-token",
   );
 });

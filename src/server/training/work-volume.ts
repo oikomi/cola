@@ -73,7 +73,7 @@ type WorkVolumeSource = {
 const DEFAULT_SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.23";
 const DEFAULT_SEAWEEDFS_FILER =
   "seaweedfs-filer.storage.svc.cluster.local:8888";
-const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/cola-training";
+const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/xdream";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
 const DEFAULT_SEAWEEDFS_FUSERMOUNT_HOST_PATH = "/bin/fusermount3";

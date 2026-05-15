@@ -57,7 +57,7 @@ SEAWEEDFS_VOLUME_NODES='[
   {"name":"node-01","path":"/var/lib/cola/seaweedfs/volume"}
 ]'
 SEAWEEDFS_REPLICATION=001
-SEAWEEDFS_S3_BUCKET=cola-training
+SEAWEEDFS_S3_BUCKET=xdream
 SEAWEEDFS_ADMIN_PASSWORD=...
 SEAWEEDFS_ADMIN_NODE_PORT=32246
 ```
@@ -197,7 +197,7 @@ http://172.16.60.198:32246
 ./deploy.sh smoke-test --env-file seaweedfs.env
 ```
 
-它会在 `cola-training` bucket 下写入并读回：
+它会在 `xdream` bucket 下写入并读回：
 
 ```text
 _smoke/seaweedfs-smoke.txt
@@ -226,8 +226,8 @@ export AWS_ACCESS_KEY_ID='...'
 export AWS_SECRET_ACCESS_KEY='...'
 export AWS_DEFAULT_REGION=us-east-1
 
-aws --endpoint-url http://172.16.60.198:32247 s3 ls s3://cola-training
-aws --endpoint-url http://172.16.60.198:32247 s3 cp ./dataset.jsonl s3://cola-training/datasets/dataset.jsonl
+aws --endpoint-url http://172.16.60.198:32247 s3 ls s3://xdream
+aws --endpoint-url http://172.16.60.198:32247 s3 cp ./dataset.jsonl s3://xdream/datasets/dataset.jsonl
 ```
 
 如果连不上，先确认端口能从局域网机器打通：
@@ -247,7 +247,7 @@ AWS_ENDPOINT_URL=http://seaweedfs-s3.storage.svc.cluster.local:8333
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_DEFAULT_REGION=us-east-1
-COLA_TRAINING_S3_BUCKET=cola-training
+COLA_TRAINING_S3_BUCKET=xdream
 ```
 
 容器内可以用 `awscli` 验证：
@@ -272,9 +272,9 @@ aws --endpoint-url "$AWS_ENDPOINT_URL" s3 cp ./dataset.jsonl "s3://$COLA_TRAININ
 纯 SeaweedFS 的推荐用法是把数据集和模型产物放到 S3：
 
 ```text
-s3://cola-training/datasets/...
-s3://cola-training/checkpoints/...
-s3://cola-training/models/...
+s3://xdream/datasets/...
+s3://xdream/checkpoints/...
+s3://xdream/models/...
 ```
 
 训练代码或 Notebook 通过 S3 SDK、`awscli`、`s5cmd`、`rclone` 等工具读写对象。

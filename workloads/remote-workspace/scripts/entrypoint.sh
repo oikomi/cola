@@ -18,6 +18,11 @@ mkdir -p "$HOME/.config" "$HOME/.local/share"
 if [[ ! -s /etc/machine-id ]]; then
   dbus-uuidgen >/etc/machine-id 2>/dev/null || true
 fi
+
+if [[ ! -d /run/systemd/system ]]; then
+  rm -rf /run/systemd/seats
+fi
+
 chown -R worker:worker "$HOME"
 chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 

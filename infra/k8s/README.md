@@ -4,7 +4,7 @@
 
 1. 用 `kubeasz` 初始化和扩容 Kubernetes 集群
 2. 在 GPU 节点上安装 `nvidia-container-toolkit`，并在集群里启用 HAMi GPU 共享调度
-3. 构建一个基于 Ubuntu + XFCE + x11vnc + noVNC 的远程桌面镜像
+3. 构建一个基于 Ubuntu 24.04 GNOME/ubuntu-session + x11vnc + noVNC 的远程桌面镜像
 4. 通过脚本在指定节点上创建独立工作区，每个工作区都有自己的 NodePort、密码和宿主机持久目录
 
 推荐拓扑：
@@ -499,7 +499,7 @@ http://<节点IP>:<自动分配端口>/vnc_lite.html?autoconnect=1&resize=remote
 
 ## 12. 已知边界
 
-- 桌面显示层使用 `Xvfb + XFCE + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
+- 桌面显示层使用 `Xvfb + Ubuntu GNOME/ubuntu-session + x11vnc + noVNC`，Pod 能拿到 GPU 资源，但桌面本身不是 VirtualGL 硬件加速栈
 - 工作区持久化依赖目标节点本地目录，所以工作区会固定到指定节点
 - `gpu enable` 假设节点是 Debian/Ubuntu 或 RHEL 系发行版
 - 训练任务和推理部署的“显存模式”依赖 HAMi；如果 Helm 仓库不可达，显存份额调度不会生效

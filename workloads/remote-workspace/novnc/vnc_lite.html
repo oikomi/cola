@@ -271,7 +271,7 @@
             }
         }
 
-        document.addEventListener("DOMContentLoaded", () => {
+        function initialize() {
             document.getElementById("sendCtrlAltDelButton").addEventListener("click", sendCtrlAltDel);
             document.getElementById("pasteButton").addEventListener("click", pasteFromBrowserClipboard);
             document.getElementById("pasteCloseButton").addEventListener("click", hidePastePanel);
@@ -311,7 +311,13 @@
             rfb.resizeSession = resizeMode === "remote";
             rfb.qualityLevel = readIntegerQuery("quality", 6, 0, 9);
             rfb.compressionLevel = readIntegerQuery("compression", 2, 0, 9);
-        });
+        }
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initialize, { once: true });
+        } else {
+            initialize();
+        }
     </script>
 </head>
 <body>

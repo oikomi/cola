@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -50,6 +51,10 @@ type ClusterConfig = {
 type ClusterNode = {
   ip?: string;
 };
+
+function generateGatewayToken() {
+  return randomBytes(32).toString("base64url");
+}
 
 function readClusterConfig() {
   if (!existsSync(CLUSTER_CONFIG_PATH)) return null;
@@ -199,7 +204,19 @@ function rewriteDashboardUrlForPublicHost(
   return rewritten.toString();
 }
 
-function appendDashboardToken(dashboardUrl: string, token?: string | null) {
+function appendDashboardToken(
+  dashboardUrl: string,
+  token?: string | null,
+): string;
+function appendDashboardToken(
+  dashboardUrl: string | null,
+  token?: string | null,
+): string | null;
+function appendDashboardToken(
+  dashboardUrl: string | null,
+  token?: string | null,
+) {
+  if (!dashboardUrl) return null;
   const trimmedToken = token?.trim();
   if (!trimmedToken) return dashboardUrl;
 
@@ -652,7 +669,10 @@ function buildOpenClawCommand(nodePort: number) {
     });
   }
 
-  return `openclaw config set --batch-json '${JSON.stringify(configPatches)}' --strict-json >/tmp/openclaw-config.log 2>&1 && (if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 && ((if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 &) && exec env OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw gateway --allow-unconfigured --bind lan --port ${OPENCLAW_DASHBOARD_PORT}`;
+  const gatewayConfigCommand = `openclaw config set --batch-json '${JSON.stringify(configPatches)}' --strict-json >/tmp/openclaw-config.log 2>&1`;
+  const gatewayAuthCommand = `if [ -n "\${OPENCLAW_GATEWAY_TOKEN:-}" ]; then openclaw config set gateway.auth.mode token >/tmp/openclaw-auth-mode.log 2>&1 && openclaw config set gateway.auth.token "$OPENCLAW_GATEWAY_TOKEN" >/tmp/openclaw-auth-token.log 2>&1; fi`;
+
+  return `${gatewayConfigCommand} && ${gatewayAuthCommand} && (if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 && ((if command -v node >/dev/null 2>&1; then node /runner-scripts/openclaw-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/openclaw-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/openclaw-bootstrap.log 2>&1 &) && exec env OPENCLAW_CONFIG_PATH=/tmp/openclaw.generated.json openclaw gateway --allow-unconfigured --bind lan --port ${OPENCLAW_DASHBOARD_PORT}`;
 }
 
 function buildHermesCommand() {
@@ -704,6 +724,7 @@ export function buildNativeDashboardUrl(
 
 export async function resolveKubernetesRunnerDashboardUrl(options: {
   engine: DockerRunnerEngine;
+  gatewayToken?: string | null;
   namespace?: string | null;
   deploymentName?: string | null;
   nodePort?: number | null;
@@ -711,7 +732,10 @@ export async function resolveKubernetesRunnerDashboardUrl(options: {
   const nodePort = options.nodePort ?? null;
   if (!nodePort) return null;
 
-  const fallbackUrl = buildNativeDashboardUrl(options.engine, nodePort);
+  const fallbackUrl = appendDashboardToken(
+    buildNativeDashboardUrl(options.engine, nodePort),
+    options.gatewayToken,
+  );
   if (!fallbackUrl) return null;
 
   if (options.engine !== "openclaw") {
@@ -724,11 +748,13 @@ export async function resolveKubernetesRunnerDashboardUrl(options: {
   }
 
   try {
-    return await execOpenClawDashboardUrl({
+    const dashboardUrl = await execOpenClawDashboardUrl({
       namespace: options.namespace?.trim() ?? runnerNamespace(),
       deploymentName,
       nodePort,
     });
+
+    return appendDashboardToken(dashboardUrl, options.gatewayToken);
   } catch {
     return fallbackUrl;
   }
@@ -739,6 +765,7 @@ function buildRunnerResources(
   deploymentName: string,
   serviceName: string,
   nodePort: number,
+  gatewayToken: string | null,
 ) {
   const image = runnerImage(input.engine);
   const { name: codexSecretName, manifest: codexSecretManifest } =
@@ -867,6 +894,22 @@ function buildRunnerResources(
                 },
                 ...(input.engine === "openclaw"
                   ? [
+                      ...(gatewayToken
+                        ? [
+                            {
+                              name: "OPENCLAW_GATEWAY_TOKEN",
+                              value: gatewayToken,
+                            },
+                          ]
+                        : []),
+                      {
+                        name: "OPENCLAW_GATEWAY_ALLOWED_ORIGINS",
+                        value: JSON.stringify(openClawAllowedOrigins(nodePort)),
+                      },
+                      {
+                        name: "OPENCLAW_GATEWAY_DISABLE_DEVICE_AUTH",
+                        value: openClawDisableDeviceIdentity() ? "1" : "0",
+                      },
                       {
                         name: "OPENCLAW_STATE_DIR",
                         value: "/home/node/.openclaw",
@@ -1111,12 +1154,15 @@ export async function provisionKubernetesRunner(
         ? NODE_PORT_RANGES.hermes
         : NODE_PORT_RANGES.openclaw,
     );
+    const gatewayToken =
+      input.engine === "openclaw" ? generateGatewayToken() : null;
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);
     const resources = buildRunnerResources(
       input,
       deploymentName,
       serviceName,
       nodePort,
+      gatewayToken,
     );
 
     if (resources.codexSecretManifest) {
@@ -1139,6 +1185,7 @@ export async function provisionKubernetesRunner(
         serviceName,
         namespace,
         nodePort: String(nodePort),
+        ...(gatewayToken ? { gatewayToken } : {}),
         configMapName: `${deploymentName}-scripts`,
         codexSecretName: resources.codexSecretName,
         codexSecretManaged: resources.codexSecretManaged ? "true" : "false",

@@ -22,6 +22,7 @@ export type RunnerMetadata = {
   containerName: string | null;
   deploymentName: string | null;
   engine: DockerRunnerEngine | null;
+  gatewayToken: string | null;
   namespace: string | null;
   nativeDashboardUrl: string | null;
   nodePort: number | null;
@@ -108,6 +109,32 @@ function nodePortFromValue(value: unknown) {
   return Number.isInteger(nodePort) && nodePort > 0 ? nodePort : null;
 }
 
+function appendDashboardToken(
+  dashboardUrl: string,
+  token?: string | null,
+): string;
+function appendDashboardToken(
+  dashboardUrl: string | null,
+  token?: string | null,
+): string | null;
+function appendDashboardToken(
+  dashboardUrl: string | null,
+  token?: string | null,
+) {
+  if (!dashboardUrl) return null;
+  const trimmedToken = token?.trim();
+  if (!trimmedToken) return dashboardUrl;
+
+  const url = new URL(dashboardUrl);
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  if (!hashParams.has("token")) {
+    hashParams.set("token", trimmedToken);
+  }
+  url.hash = hashParams.toString();
+
+  return url.toString();
+}
+
 export function parseRunnerMetadata(metadata: unknown): RunnerMetadata {
   const record = isPlainRecord(metadata) ? metadata : {};
   const rawEngine = record.engine;
@@ -123,6 +150,7 @@ export function parseRunnerMetadata(metadata: unknown): RunnerMetadata {
       dockerRunnerEngineValues.includes(rawEngine as DockerRunnerEngine)
         ? (rawEngine as DockerRunnerEngine)
         : null,
+    gatewayToken: optionalString(record, "gatewayToken"),
     namespace: optionalString(record, "namespace"),
     nativeDashboardUrl: optionalString(record, "nativeDashboardUrl"),
     nodePort: nodePortFromValue(record.nodePort),
@@ -193,6 +221,7 @@ export async function resolveRunnerDashboardUrl(metadataInput: unknown) {
     if (metadata.nodePort && metadata.engine) {
       const directUrl = await resolveKubernetesRunnerDashboardUrl({
         engine: metadata.engine,
+        gatewayToken: metadata.gatewayToken,
         namespace: metadata.namespace,
         deploymentName: metadata.deploymentName,
         nodePort: metadata.nodePort,
@@ -210,7 +239,10 @@ export async function resolveRunnerDashboardUrl(metadataInput: unknown) {
 
   try {
     return (
-      (await refreshDockerOpenClawDashboardUrl(metadata)) ??
+      appendDashboardToken(
+        await refreshDockerOpenClawDashboardUrl(metadata),
+        metadata.gatewayToken,
+      ) ??
       metadata.nativeDashboardUrl ??
       fallbackUrl
     );

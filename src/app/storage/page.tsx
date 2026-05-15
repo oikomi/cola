@@ -36,7 +36,7 @@ const SEAWEEDFS_FILER_PORT = "8888";
 const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
 const SEAWEEDFS_S3_NODE_PORT = "32247";
 const SEAWEEDFS_FUSE_IMAGE = "chrislusf/seaweedfs:4.23";
-const DEFAULT_BUCKET = "cola-training";
+const DEFAULT_BUCKET = "xdream";
 const SEAWEEDFS_DATA_ROOT = "/var/lib/cola/seaweedfs";
 const SEAWEEDFS_VOLUME_ROOT = `${SEAWEEDFS_DATA_ROOT}/volume`;
 const INTERNAL_ENDPOINT = `http://${SEAWEEDFS_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_PORT}`;
@@ -217,7 +217,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             <FlowCard
               icon={NetworkIcon}
               title="入口路径"
-              description="可信局域网应用 -> Kubernetes NodePort -> SeaweedFS S3 gateway -> cola-training bucket。"
+              description="可信局域网应用 -> Kubernetes NodePort -> SeaweedFS S3 gateway -> xdream bucket。"
               facts={[
                 ["LAN endpoint", lanS3Endpoint],
                 ["Bucket", DEFAULT_BUCKET],

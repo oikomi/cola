@@ -72,7 +72,7 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SEAWEEDFS_FILER_PATH",
     )?.value,
-    "/buckets/cola-training",
+    "/buckets/xdream",
   );
   assert.equal(buildWorkVolumeSecurityContext(workVolume)?.privileged, true);
   assert.deepEqual(

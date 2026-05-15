@@ -528,6 +528,64 @@ apply_service() {
   log "Harbor NodePort Service 由 harbor-helm chart 原生管理: ${HARBOR_NODEPORT_SERVICE_NAME}:${HARBOR_HTTP_NODE_PORT}"
 }
 
+print_harbor_progress() {
+  echo
+  echo "--- ${HARBOR_NAMESPACE} pods ---"
+  kubectl_cmd -n "$HARBOR_NAMESPACE" get pods -l release="$HARBOR_RELEASE" -o wide || true
+  echo
+  echo "--- ${HARBOR_NAMESPACE} pvc ---"
+  kubectl_cmd -n "$HARBOR_NAMESPACE" get pvc -o wide || true
+  echo
+  echo "--- ${HARBOR_NAMESPACE} recent events ---"
+  kubectl_cmd -n "$HARBOR_NAMESPACE" get events --sort-by=.lastTimestamp | tail -n 30 || true
+}
+
+preflight_storage() {
+  if ! is_true "$HARBOR_PERSISTENCE_ENABLED"; then
+    return 0
+  fi
+
+  log "检查 Harbor PVC StorageClass"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    if [[ -n "$HARBOR_STORAGE_CLASS" ]]; then
+      kubectl_cmd get storageclass "$HARBOR_STORAGE_CLASS"
+    else
+      kubectl_cmd get storageclass
+    fi
+    return 0
+  fi
+
+  if [[ -n "$HARBOR_STORAGE_CLASS" ]]; then
+    kubectl_cmd get storageclass "$HARBOR_STORAGE_CLASS" >/dev/null || die "找不到 StorageClass: ${HARBOR_STORAGE_CLASS}。请先部署可用 CSI，或修改 HARBOR_STORAGE_CLASS。"
+    return 0
+  fi
+
+  if ! kubectl_cmd get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' | grep -q .; then
+    die "HARBOR_PERSISTENCE_ENABLED=true 但 HARBOR_STORAGE_CLASS 为空，且集群没有默认 StorageClass。请先部署可用 CSI，或在 harbor.env 设置 HARBOR_STORAGE_CLASS，例如 juicefs-sc/cola-rbd。"
+  fi
+}
+
+run_helm_with_progress() {
+  local interval="${COLA_HELM_PROGRESS_INTERVAL_SECONDS:-30}"
+  local helm_pid
+  local status
+
+  echo "等待 Harbor 就绪；每 ${interval}s 输出一次 Pod/PVC/Event 状态。"
+  helm_cmd "$@" &
+  helm_pid=$!
+
+  while kill -0 "$helm_pid" >/dev/null 2>&1; do
+    sleep "$interval"
+    if kill -0 "$helm_pid" >/dev/null 2>&1; then
+      print_harbor_progress
+    fi
+  done
+
+  status=0
+  wait "$helm_pid" || status=$?
+  return "$status"
+}
+
 connectivity_check() {
   log "检查集群连通性"
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -580,7 +638,7 @@ install_chart() {
   fi
 
   local helm_status=0
-  helm_cmd "${args[@]}" || helm_status=$?
+  run_helm_with_progress "${args[@]}" || helm_status=$?
   rm -f "$values_file"
   return "$helm_status"
 }
@@ -670,6 +728,7 @@ main() {
   case "$ACTION" in
     install)
       connectivity_check
+      preflight_storage
       install_chart
       apply_service
       status

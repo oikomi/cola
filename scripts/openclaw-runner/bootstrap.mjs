@@ -9,11 +9,12 @@ const apiBaseUrl =
 const runnerName = process.env.COLA_RUNNER_NAME ?? "OpenClaw Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
 const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "kubernetes";
-const runtimeLabel =
-  runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
+const runtimeLabel = runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "kubernetes";
 const image =
-  process.env.COLA_RUNNER_IMAGE ?? process.env.OPENCLAW_IMAGE ?? "unknown-image";
+  process.env.COLA_RUNNER_IMAGE ??
+  process.env.OPENCLAW_IMAGE ??
+  "unknown-image";
 const containerName =
   process.env.HOSTNAME ?? process.env.COLA_CONTAINER_NAME ?? runnerName;
 const configPath =
@@ -39,6 +40,11 @@ const taskPollIntervalMs = Number(
   process.env.COLA_TASK_POLL_INTERVAL_MS ?? "10000",
 );
 const openClawThinking = process.env.OPENCLAW_AGENT_THINKING ?? "high";
+const openClawGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN?.trim() ?? "";
+const openClawGatewayAllowedOrigins =
+  process.env.OPENCLAW_GATEWAY_ALLOWED_ORIGINS?.trim() ?? "";
+const openClawGatewayDisableDeviceAuth =
+  process.env.OPENCLAW_GATEWAY_DISABLE_DEVICE_AUTH === "1";
 const taskCommand = process.env.OPENCLAW_TASK_COMMAND;
 const workdir = process.env.OPENCLAW_WORKDIR ?? "/workspace";
 const logDir = process.env.OPENCLAW_LOG_DIR ?? "/workspace/.openclaw-runner";
@@ -51,8 +57,14 @@ const openClawDefaultConfigPath =
   process.env.OPENCLAW_DEFAULT_CONFIG_PATH ??
   path.join(openClawStateDir, "openclaw.json");
 const openClawWorkspaceDir =
-  process.env.OPENCLAW_WORKSPACE_DIR ?? path.join(openClawStateDir, "workspace");
-const openClawMainAgentDir = path.join(openClawStateDir, "agents", "main", "agent");
+  process.env.OPENCLAW_WORKSPACE_DIR ??
+  path.join(openClawStateDir, "workspace");
+const openClawMainAgentDir = path.join(
+  openClawStateDir,
+  "agents",
+  "main",
+  "agent",
+);
 const openClawMainSessionsDir = path.join(
   openClawStateDir,
   "agents",
@@ -194,7 +206,8 @@ async function ensureOpenClawAuthProfiles(modelConfig) {
       if (parsed && typeof parsed === "object") {
         authProfiles = {
           version:
-            typeof parsed.version === "number" && Number.isFinite(parsed.version)
+            typeof parsed.version === "number" &&
+            Number.isFinite(parsed.version)
               ? parsed.version
               : 1,
           profiles:
@@ -259,6 +272,50 @@ async function prepareOpenClawConfig() {
       : {}),
     models: modelConfig.config.models,
     env: modelConfig.config.env,
+    ...(openClawGatewayToken
+      ? {
+          gateway: {
+            ...(existingConfig &&
+            typeof existingConfig === "object" &&
+            existingConfig.gateway &&
+            typeof existingConfig.gateway === "object"
+              ? existingConfig.gateway
+              : {}),
+            mode: "local",
+            bind: "lan",
+            auth: {
+              ...(existingConfig &&
+              typeof existingConfig === "object" &&
+              existingConfig.gateway &&
+              typeof existingConfig.gateway === "object" &&
+              existingConfig.gateway.auth &&
+              typeof existingConfig.gateway.auth === "object"
+                ? existingConfig.gateway.auth
+                : {}),
+              mode: "token",
+              token: openClawGatewayToken,
+            },
+            controlUi: {
+              ...(existingConfig &&
+              typeof existingConfig === "object" &&
+              existingConfig.gateway &&
+              typeof existingConfig.gateway === "object" &&
+              existingConfig.gateway.controlUi &&
+              typeof existingConfig.gateway.controlUi === "object"
+                ? existingConfig.gateway.controlUi
+                : {}),
+              ...(openClawGatewayAllowedOrigins
+                ? {
+                    allowedOrigins: JSON.parse(openClawGatewayAllowedOrigins),
+                  }
+                : {}),
+              ...(openClawGatewayDisableDeviceAuth
+                ? { dangerouslyDisableDeviceAuth: true }
+                : {}),
+            },
+          },
+        }
+      : {}),
   };
 
   await writeFile(
@@ -317,9 +374,7 @@ async function completeWorkspaceBootstrapIfNeeded() {
   await writeFile(openClawUserPath, buildUserMarkdown());
   await rm(openClawBootstrapPath, { force: true });
   await resetMainSessionsAfterBootstrap();
-  await logLine(
-    `completed OpenClaw workspace bootstrap for ${colaAgentName}`,
-  );
+  await logLine(`completed OpenClaw workspace bootstrap for ${colaAgentName}`);
   return true;
 }
 
@@ -530,7 +585,9 @@ async function startHeartbeatLoop() {
         error.message.includes("未找到目标 runner。")
       ) {
         try {
-          await logLine("runner record is missing, re-registering before next heartbeat");
+          await logLine(
+            "runner record is missing, re-registering before next heartbeat",
+          );
           await registerRunner(
             `${runtimeLabel} OpenClaw runner 已重新注册，恢复心跳`,
             currentStatus,
@@ -538,7 +595,9 @@ async function startHeartbeatLoop() {
         } catch (registerError) {
           await logLine(
             `runner re-register failed: ${
-              registerError instanceof Error ? registerError.message : "unknown error"
+              registerError instanceof Error
+                ? registerError.message
+                : "unknown error"
             }`,
           );
         }

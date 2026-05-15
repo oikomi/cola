@@ -16,13 +16,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV HOME=/home/worker
-ENV PATH=/opt/websockify-venv/bin:$PATH
 
 COPY debs/ /opt/remote-work-debs/
 
 RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     command -v websockify >/dev/null \
     && test -d /opt/novnc \
+    && command -v gnome-session >/dev/null \
+    && command -v gnome-shell >/dev/null \
     && id -u worker >/dev/null; \
   else \
     printf '%s\n' \
@@ -32,56 +33,75 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     >/etc/apt/apt.conf.d/80-retries \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
-    arc-theme \
+    adwaita-icon-theme \
     ca-certificates \
     curl \
-    dnsutils \
+    dbus-user-session \
     dbus-x11 \
+    dconf-cli \
+    dnsutils \
     fonts-jetbrains-mono \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     fonts-noto-core \
     git \
+    gnome-control-center \
+    gnome-session \
+    gnome-shell \
+    gnome-shell-extension-appindicator \
+    gnome-shell-extension-desktop-icons-ng \
+    gnome-shell-extension-ubuntu-dock \
+    gnome-terminal \
     gnupg \
+    gsettings-desktop-schemas \
+    gvfs-backends \
     iproute2 \
     iputils-ping \
     jq \
     less \
+    libegl1 \
+    libgl1-mesa-dri \
     locales \
+    mesa-utils \
+    mutter \
     nano \
+    nautilus \
     net-tools \
     netcat-openbsd \
-    papirus-icon-theme \
     procps \
     python3 \
     python3-pip \
-    python3-venv \
     sudo \
     supervisor \
     tini \
     traceroute \
+    ubuntu-session \
+    ubuntu-wallpapers-noble \
     vim-tiny \
+    websockify \
     wget \
     xdg-utils \
     x11-utils \
     x11vnc \
-    xfce4 \
-    xfce4-terminal \
     xterm \
     xvfb \
+    yaru-theme-gtk \
+    yaru-theme-icon \
+    yaru-theme-sound \
   && locale-gen en_US.UTF-8 \
   && if ! id -u worker >/dev/null 2>&1; then useradd -m -s /bin/bash worker; fi \
   && echo "worker ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/worker \
   && chmod 0440 /etc/sudoers.d/worker \
-  && python3 -m venv /opt/websockify-venv \
-  && /opt/websockify-venv/bin/pip install --no-cache-dir websockify==0.12.0 \
-  && ln -sf /opt/websockify-venv/bin/websockify /usr/local/bin/websockify \
   && if [ ! -d /opt/novnc/.git ]; then rm -rf /opt/novnc && git clone --depth 1 --branch "${NOVNC_VERSION}" https://github.com/novnc/noVNC.git /opt/novnc; fi \
   && ln -sf /opt/novnc/vnc_lite.html /opt/novnc/index.html \
   && rm -rf /var/lib/apt/lists/* /opt/remote-work-debs; \
   fi
 
-RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
+ARG SKIP_BROWSER_INSTALL=0
+
+RUN if [ "$SKIP_BROWSER_INSTALL" = "1" ]; then \
+    true; \
+  elif [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     if command -v firefox >/dev/null; then exit 0; fi; \
     printf '%s\n' \
       'Acquire::Retries "5";' \
@@ -157,16 +177,6 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     && apt-get install -y --no-install-recommends firefox firefox-l10n-zh-cn ubuntu-wallpapers-noble xdg-utils; \
   fi
 
-RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
-    dpkg -s yaru-theme-gtk yaru-theme-icon yaru-theme-sound >/dev/null; \
-  else \
-    apt-get update && apt-get install -y --no-install-recommends \
-    yaru-theme-gtk \
-    yaru-theme-icon \
-    yaru-theme-sound \
-    && rm -rf /var/lib/apt/lists/*; \
-  fi
-
 COPY scripts/ /opt/remote-work/
 COPY config/ /opt/remote-work/config/
 COPY assets/ /opt/remote-work/assets/
@@ -180,7 +190,6 @@ RUN cp /opt/remote-work/novnc/vnc_lite.html /opt/novnc/vnc_lite.html \
     /opt/remote-work/bin/google-chrome-workspace \
     /opt/remote-work/config/.local/share/applications/google-chrome-workspace.desktop \
     "/opt/remote-work/config/Desktop/Google Chrome.desktop" \
-    /opt/remote-work/config/.local/share/xfce4/helpers/google-chrome-workspace.desktop \
   && install -m 0755 /opt/remote-work/bin/firefox-workspace /usr/local/bin/firefox-workspace \
   && chmod +x /opt/remote-work/*.sh
 
