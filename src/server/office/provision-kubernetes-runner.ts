@@ -389,6 +389,13 @@ function runnerImage(engine: DockerRunnerEngine) {
   return process.env.OPENCLAW_IMAGE ?? "ghcr.io/openclaw/openclaw:latest";
 }
 
+function runnerImagePullPolicy(image: string) {
+  const normalizedImage = image.trim();
+  if (normalizedImage.endsWith(":local")) return "Never";
+  if (normalizedImage.endsWith(":latest")) return "Always";
+  return "IfNotPresent";
+}
+
 function codexConfigPathForEngine(engine: DockerRunnerEngine) {
   if (engine === "hermes-agent") {
     return (
@@ -789,7 +796,7 @@ function buildRunnerResources(
             {
               name: "runner",
               image,
-              imagePullPolicy: "IfNotPresent",
+              imagePullPolicy: runnerImagePullPolicy(image),
               command: ["sh", "-lc", startupCommand],
               ports: [
                 {

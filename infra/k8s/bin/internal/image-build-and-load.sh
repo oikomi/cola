@@ -11,6 +11,8 @@ UBUNTU_VERSION="24.04.4"
 BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
 SKIP_PACKAGE_INSTALL="0"
+MOZILLA_APT_URL="https://packages.mozilla.org/apt"
+MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 TARGET_ARCH=""
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 WORKSPACE_IMAGE_CONTEXT_DIR="$REPO_ROOT/workloads/remote-workspace"
@@ -27,7 +29,10 @@ Options:
   --ubuntu-version <ver>  Ubuntu base image version, default 24.04.4
   --base-image <ref>      Override Docker base image, default resolved from --ubuntu-version
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
-  --skip-package-install  Reuse a base image that already contains desktop packages, Chrome, websockify and noVNC
+  --skip-package-install  Reuse a base image that already contains desktop packages, Firefox, websockify and noVNC
+  --mozilla-apt-url <url> Primary Mozilla APT repo URL, default packages.mozilla.org
+  --mozilla-apt-fallback-url <url>
+                           Fallback Mozilla APT mirror, default CERNET
   --target-arch <arch>    Target node arch, default first configured node arch
   --novnc-version <ver>   noVNC git tag, default v1.6.0
   -h, --help              Show help
@@ -56,6 +61,8 @@ build_workspace_image() {
     --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
     --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
     --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
+    --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
+    --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
     -t "$image_ref" \
     "$WORKSPACE_IMAGE_CONTEXT_DIR" 2>&1 | tee "$build_log"
   status=${PIPESTATUS[0]}
@@ -76,6 +83,8 @@ build_workspace_image() {
       --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
       --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
       --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
+      --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
+      --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
       -t "$image_ref" \
       "$WORKSPACE_IMAGE_CONTEXT_DIR"
     return 0
@@ -127,6 +136,14 @@ while [[ $# -gt 0 ]]; do
     --skip-package-install)
       SKIP_PACKAGE_INSTALL="1"
       shift
+      ;;
+    --mozilla-apt-url)
+      MOZILLA_APT_URL="$2"
+      shift 2
+      ;;
+    --mozilla-apt-fallback-url)
+      MOZILLA_APT_FALLBACK_URL="$2"
+      shift 2
       ;;
     --target-arch)
       TARGET_ARCH="$2"

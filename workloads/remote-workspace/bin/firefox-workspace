@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+export HOME="${HOME:-/home/worker}"
+export DISPLAY="${DISPLAY:-:1}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export MOZ_DISABLE_CONTENT_SANDBOX="${MOZ_DISABLE_CONTENT_SANDBOX:-1}"
+export MOZ_DISABLE_RDD_SANDBOX="${MOZ_DISABLE_RDD_SANDBOX:-1}"
+
+FIREFOX_PROFILE_ROOT="${FIREFOX_PROFILE_ROOT:-$HOME/.mozilla/firefox}"
+FIREFOX_CACHE_DIR="$XDG_CACHE_HOME/mozilla/firefox"
+
+if [[ "$(id -u)" = "0" && "$HOME" = "/home/worker" ]] && id -u worker >/dev/null 2>&1; then
+  install -d -m 0755 -o worker -g worker \
+    "$HOME/Downloads" \
+    "$HOME/.mozilla" \
+    "$FIREFOX_PROFILE_ROOT" \
+    "$XDG_CONFIG_HOME" \
+    "$XDG_CACHE_HOME" \
+    "$FIREFOX_CACHE_DIR"
+
+  exec sudo -u worker \
+    HOME="$HOME" \
+    DISPLAY="$DISPLAY" \
+    XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+    XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+    MOZ_DISABLE_CONTENT_SANDBOX="$MOZ_DISABLE_CONTENT_SANDBOX" \
+    MOZ_DISABLE_RDD_SANDBOX="$MOZ_DISABLE_RDD_SANDBOX" \
+    FIREFOX_PROFILE_ROOT="$FIREFOX_PROFILE_ROOT" \
+    "$0" "$@"
+fi
+
+mkdir -p \
+  "$HOME/Downloads" \
+  "$HOME/.mozilla" \
+  "$FIREFOX_PROFILE_ROOT" \
+  "$XDG_CONFIG_HOME" \
+  "$XDG_CACHE_HOME" \
+  "$FIREFOX_CACHE_DIR"
+
+if /usr/bin/firefox "$@"; then
+  exit 0
+fi
+
+fallback_profile="$(mktemp -d "$XDG_CACHE_HOME/firefox-profile.XXXXXX")"
+exec /usr/bin/firefox --profile "$fallback_profile" "$@"

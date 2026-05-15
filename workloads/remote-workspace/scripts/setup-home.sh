@@ -25,6 +25,11 @@ if [[ -d "$CONFIG_ROOT/Desktop" ]]; then
   cp -R "$CONFIG_ROOT/Desktop/." "$HOME/Desktop/"
 fi
 
+rm -f \
+  "$HOME/Desktop/Google Chrome.desktop" \
+  "$HOME/.local/share/applications/google-chrome-workspace.desktop" \
+  "$HOME/.local/share/xfce4/helpers/google-chrome-workspace.desktop"
+
 if [[ -f "$BASHRC_PATH" ]]; then
   awk -v marker="$PROFILE_MARKER" '
     $0 == marker { skip=1; next }
@@ -51,21 +56,29 @@ mkdir -p \
   "$HOME/Desktop" \
   "$HOME/Downloads" \
   "$HOME/.config/gtk-3.0" \
+  "$HOME/.config/xfce4" \
   "$HOME/.config/xfce4/terminal" \
-  "$HOME/.local/share/applications"
+  "$HOME/.local/share/applications" \
+  "$HOME/.local/share/xfce4/helpers"
 
-if [[ -f "$HOME/Desktop/Google Chrome.desktop" ]]; then
-  chmod +x "$HOME/Desktop/Google Chrome.desktop"
+if [[ -d "$HOME/Desktop" ]]; then
+  find "$HOME/Desktop" -maxdepth 1 -type f -name "*.desktop" -exec chmod +x {} +
 fi
 
+cat >"$HOME/.config/xfce4/helpers.rc" <<'EOF'
+WebBrowser=firefox-workspace
+FileManager=Thunar
+TerminalEmulator=xfce4-terminal
+EOF
+
 if command -v xdg-settings >/dev/null 2>&1; then
-  xdg-settings set default-web-browser google-chrome-workspace.desktop >/dev/null 2>&1 || true
+  xdg-settings set default-web-browser firefox-workspace.desktop >/dev/null 2>&1 || true
 fi
 
 if command -v xdg-mime >/dev/null 2>&1; then
-  xdg-mime default google-chrome-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
-  xdg-mime default google-chrome-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
-  xdg-mime default google-chrome-workspace.desktop text/html >/dev/null 2>&1 || true
+  xdg-mime default firefox-workspace.desktop x-scheme-handler/http >/dev/null 2>&1 || true
+  xdg-mime default firefox-workspace.desktop x-scheme-handler/https >/dev/null 2>&1 || true
+  xdg-mime default firefox-workspace.desktop text/html >/dev/null 2>&1 || true
 fi
 
 if command -v xfconf-query >/dev/null 2>&1; then
