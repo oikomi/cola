@@ -410,14 +410,22 @@ if [[ ! -x $(shell_quote "$SEAWEEDFS_NAS_WEED_BIN") ]]; then
   cleanup() { rm -rf "\$tmp_dir"; }
   trap cleanup EXIT
   archive="\$tmp_dir/seaweedfs.tar.gz"
+  download_ok=0
   if command -v curl >/dev/null 2>&1; then
-    curl -fL $(shell_quote "$url") -o "\$archive"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -O "\$archive" $(shell_quote "$url")
-  else
+    if curl --http1.1 --retry 5 --retry-delay 2 --retry-all-errors -fL $(shell_quote "$url") -o "\$archive"; then
+      download_ok=1
+    fi
+  fi
+  if [[ "\$download_ok" -ne 1 ]] && command -v wget >/dev/null 2>&1; then
+    if wget --tries=5 --waitretry=2 -O "\$archive" $(shell_quote "$url"); then
+      download_ok=1
+    fi
+  fi
+  if [[ "\$download_ok" -ne 1 ]]; then
     echo "NAS 缺少 curl/wget，无法下载 SeaweedFS: $url" >&2
     exit 1
   fi
+  [[ -s "\$archive" ]] || { echo "SeaweedFS 下载文件为空: $url" >&2; exit 1; }
   tar -xzf "\$archive" -C "\$tmp_dir"
   weed_path="\$(find "\$tmp_dir" -type f -name weed | head -n 1)"
   [[ -n "\$weed_path" ]] || { echo "SeaweedFS archive 中没有找到 weed 二进制" >&2; exit 1; }
@@ -438,6 +446,8 @@ set -euo pipefail
 pid_file=$(shell_quote "$SEAWEEDFS_NAS_PID_FILE")
 log_file=$(shell_quote "$SEAWEEDFS_NAS_LOG_FILE")
 start_script=$(shell_quote "$SEAWEEDFS_NAS_START_SCRIPT")
+
+[[ -x "\$start_script" ]] || { echo "NAS start script not found or not executable: \$start_script" >&2; exit 1; }
 
 if [[ -f "\$pid_file" ]]; then
   old_pid="\$(cat "\$pid_file" 2>/dev/null || true)"
@@ -500,8 +510,8 @@ deploy_nas() {
   if [[ "$DRY_RUN" -ne 1 ]]; then
     require_ssh_tools
   fi
-  run_or_print_remote_sudo "prepare weed binary and start script" "$(prepare_nas_script)"
-  run_or_print_remote_sudo "start weed volume" "$(start_nas_script)"
+  run_or_print_remote_sudo "prepare weed binary and start script" "$(prepare_nas_script)" || return
+  run_or_print_remote_sudo "start weed volume" "$(start_nas_script)" || return
 }
 
 status_nas() {
