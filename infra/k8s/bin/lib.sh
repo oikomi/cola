@@ -253,6 +253,33 @@ PY
   fi
 }
 
+ansible_pip_install() {
+  local pip_index_url
+  local pip_extra_index_url
+  local pip_trusted_host
+  local -a pip_args
+
+  pip_index_url="${K8S_PIP_INDEX_URL:-${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}}"
+  pip_extra_index_url="${K8S_PIP_EXTRA_INDEX_URL:-${PIP_EXTRA_INDEX_URL:-}}"
+  pip_trusted_host="${K8S_PIP_TRUSTED_HOST:-${PIP_TRUSTED_HOST:-}}"
+
+  pip_args=(install --timeout 60 --retries 5)
+
+  if [[ -n "$pip_index_url" ]]; then
+    pip_args+=(--index-url "$pip_index_url")
+  fi
+
+  if [[ -n "$pip_extra_index_url" ]]; then
+    pip_args+=(--extra-index-url "$pip_extra_index_url")
+  fi
+
+  if [[ -n "$pip_trusted_host" ]]; then
+    pip_args+=(--trusted-host "$pip_trusted_host")
+  fi
+
+  PIP_DISABLE_PIP_VERSION_CHECK=1 "$ANSIBLE_BIN_DIR/python" -m pip "${pip_args[@]}" "$@"
+}
+
 ensure_ansible_available() {
   require_cmd python3
   require_cmd sudo
@@ -287,8 +314,9 @@ PY
       die "创建虚拟环境失败，请先确认本机 Python 支持 venv 和 ensurepip。"
   fi
 
-  "$ANSIBLE_BIN_DIR/pip" install --upgrade pip setuptools wheel
-  "$ANSIBLE_BIN_DIR/pip" install "ansible>=9,<11" netaddr jmespath packaging
+  echo "使用 Python 包镜像: ${K8S_PIP_INDEX_URL:-${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}}"
+  ansible_pip_install --upgrade pip setuptools wheel
+  ansible_pip_install "ansible>=9,<11" netaddr jmespath packaging
 
   [[ -x "$ANSIBLE_BIN_DIR/ansible-playbook" ]] || \
     die "独立 Ansible 运行时准备失败，未找到 $ANSIBLE_BIN_DIR/ansible-playbook"

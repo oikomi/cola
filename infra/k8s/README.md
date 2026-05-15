@@ -39,6 +39,26 @@ runtime/workspace            # 工作区业务运行时产物
 - GPU 节点已经安装 NVIDIA 驱动，`nvidia-smi` 可正常执行
 - SSH 用户具备 `sudo` 权限
 
+`cluster install` 准备 Ansible 运行时时会安装 Python 包。脚本默认使用清华 PyPI 镜像：
+
+```text
+https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+如果当前网络访问这个源不稳定，可以临时切换其他国内镜像：
+
+```bash
+K8S_PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple ./bin/cluster.sh cluster install
+```
+
+需要使用 HTTP 源或内网源时，可以补充：
+
+```bash
+K8S_PIP_INDEX_URL=http://your-pypi-mirror/simple \
+K8S_PIP_TRUSTED_HOST=your-pypi-mirror \
+./bin/cluster.sh cluster install
+```
+
 ## 用户入口
 
 用户侧只需要记一个入口：
