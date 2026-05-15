@@ -10,7 +10,9 @@ PROM_NAMESPACE="monitoring"
 PROM_RELEASE="prometheus"
 PROM_REPO_NAME="prometheus-community"
 PROM_REPO_URL="${COLA_PROMETHEUS_HELM_REPO_URL:-https://prometheus-community.github.io/helm-charts}"
-PROM_CHART_REF="${PROM_REPO_NAME}/kube-prometheus-stack"
+PROM_REPO_URL_EXPLICIT=0
+PROM_CHART_REF="${COLA_PROMETHEUS_CHART_REF:-${PROM_REPO_NAME}/kube-prometheus-stack}"
+PROM_CHART_REF_EXPLICIT=0
 PROM_CHART_VERSION="${COLA_PROMETHEUS_CHART_VERSION:-79.1.1}"
 PROM_SERVICE_NAME=""
 
@@ -25,6 +27,13 @@ ENABLE_GRAFANA=0
 ENABLE_ALERTMANAGER=0
 WAIT_TIMEOUT_SECONDS=600
 
+if [[ -n "${COLA_PROMETHEUS_HELM_REPO_URL:-}" ]]; then
+  PROM_REPO_URL_EXPLICIT=1
+fi
+if [[ -n "${COLA_PROMETHEUS_CHART_REF:-}" ]]; then
+  PROM_CHART_REF_EXPLICIT=1
+fi
+
 usage() {
   cat <<'EOF'
 Usage: ./bin/cluster.sh monitoring deploy [options]
@@ -35,6 +44,7 @@ Options:
   --prom-namespace <name>        Prometheus namespace, default monitoring
   --prom-release <name>          Prometheus release name, default prometheus
   --prom-chart-version <ver>     kube-prometheus-stack chart version, default 79.1.1
+  --prom-chart-ref <ref>         Prometheus chart ref, URL, or local .tgz path
   --prom-service <name>          Prometheus service name; default derives from release
   --prom-repo-url <url>          Prometheus Helm repo URL
   --webui-namespace <name>       HAMi-WebUI namespace, default kube-system
@@ -62,8 +72,14 @@ while [[ $# -gt 0 ]]; do
       PROM_CHART_VERSION="$2"
       shift 2
       ;;
+    --prom-chart-ref)
+      PROM_CHART_REF="$2"
+      PROM_CHART_REF_EXPLICIT=1
+      shift 2
+      ;;
     --prom-repo-url)
       PROM_REPO_URL="$2"
+      PROM_REPO_URL_EXPLICIT=1
       shift 2
       ;;
     --prom-service)
@@ -213,16 +229,23 @@ if ! run_cluster_kubectl -n kube-system get deployment hami-scheduler >/dev/null
   die "未检测到 hami-scheduler。请先执行 ./bin/cluster.sh gpu enable。"
 fi
 
-print_step "添加 Helm 仓库"
-if ensure_helm_repo_available "$PROM_REPO_NAME" "$PROM_REPO_URL"; then
-  PROM_REPO_READY=1
+print_step "准备 Helm chart 来源"
+if [[ "$PROM_CHART_REF_EXPLICIT" -eq 1 ]]; then
+  echo "Using Prometheus chart ref: $PROM_CHART_REF"
+elif [[ "$PROM_REPO_URL_EXPLICIT" -eq 0 && -n "$PROM_CHART_VERSION" ]]; then
+  PROM_CHART_REF="$(prometheus_chart_release_url)"
+  echo "Using Prometheus chart release package: $PROM_CHART_REF"
 else
-  if [[ -n "$PROM_CHART_VERSION" ]]; then
-    PROM_CHART_REF="$(prometheus_chart_release_url)"
-    echo "WARN: Helm 仓库 $PROM_REPO_URL 不可用，回退到 Prometheus chart release 包:"
-    echo "WARN: $PROM_CHART_REF"
+  if ensure_helm_repo_available "$PROM_REPO_NAME" "$PROM_REPO_URL"; then
+    PROM_REPO_READY=1
   else
-    die "无法添加 Prometheus Helm 仓库：$PROM_REPO_URL"
+    if [[ -n "$PROM_CHART_VERSION" ]]; then
+      PROM_CHART_REF="$(prometheus_chart_release_url)"
+      echo "WARN: Helm 仓库 $PROM_REPO_URL 不可用，回退到 Prometheus chart release 包:"
+      echo "WARN: $PROM_CHART_REF"
+    else
+      die "无法添加 Prometheus Helm 仓库：$PROM_REPO_URL"
+    fi
   fi
 fi
 
