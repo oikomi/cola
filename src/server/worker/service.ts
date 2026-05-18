@@ -68,7 +68,14 @@ async function syncLinkedAgentReadiness(
     .where(eq(agents.id, agentId))
     .limit(1);
 
-  if (!agent || !["waiting_device", "blocked"].includes(agent.status)) {
+  if (
+    !agent ||
+    (deviceStatus === "online"
+      ? !["waiting_device", "blocked", "error"].includes(agent.status)
+      : ["executing", "waiting_handoff", "waiting_approval"].includes(
+          agent.status,
+        ))
+  ) {
     return;
   }
 
@@ -102,7 +109,7 @@ async function syncLinkedAgentReadiness(
     await database
       .update(agents)
       .set({
-        status: "blocked",
+        status: deviceStatus === "unhealthy" ? "error" : "blocked",
         focus:
           healthSummary ||
           `${displayName} runner 就绪检查失败，需要处理 ${runtimeLabel} / ${engineLabel} 配置`,

@@ -50,6 +50,7 @@ import { cn, optionLabel } from "@/lib/utils";
 import {
   agentRoleValues,
   agentStatusLabels,
+  deviceStatusLabels,
   dockerRunnerEngineValues,
   roleLabels,
   zoneLabels,
@@ -1281,6 +1282,25 @@ function buildStatusPill(status: OfficeAgent["status"]) {
   }
 }
 
+function buildDeviceStatusPill(
+  status: OfficeSnapshot["devices"][number]["status"],
+) {
+  switch (status) {
+    case "online":
+      return "bg-[#dff4e8] text-[#145c38]";
+    case "busy":
+      return "bg-[#e3f2ff] text-[#17517b]";
+    case "maintenance":
+      return "bg-[#fff0d6] text-[#8a4a09]";
+    case "offline":
+      return "bg-[#ece7df] text-[#66574b]";
+    case "unhealthy":
+      return "bg-[#ffe5e8] text-[#9f1239]";
+    default:
+      return "bg-[#f2eee8] text-[#5f5347]";
+  }
+}
+
 function getAgentWorldPosition(
   agent: OfficeAgent,
   index: number,
@@ -2294,7 +2314,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
       origin: window.location.origin,
     };
 
-    openedWindow.location.replace(resolveBrowserNativeWorkspaceHref(baseTarget));
+    openedWindow.location.replace(
+      resolveBrowserNativeWorkspaceHref(baseTarget),
+    );
 
     try {
       const refreshed = await getNativeDashboardUrl.mutateAsync({
@@ -2626,9 +2648,23 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       设备状态
                     </p>
-                    <p className="mt-1 font-medium text-[#24170d]">
-                      {selectedDevice?.status ?? "未绑定"}
-                    </p>
+                    {selectedDevice ? (
+                      <div className="mt-1 min-w-0">
+                        <span
+                          className={cn(
+                            "inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                            buildDeviceStatusPill(selectedDevice.status),
+                          )}
+                        >
+                          {deviceStatusLabels[selectedDevice.status]}
+                        </span>
+                        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[#6d5544]">
+                          {selectedDevice.healthSummary}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 font-medium text-[#24170d]">未绑定</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">

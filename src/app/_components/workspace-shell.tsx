@@ -111,30 +111,32 @@ function WorkspaceMetric({
   const styles = METRIC_TONE_STYLES[tone];
 
   return (
-    <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+    <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-slate-200/90 bg-white/90 px-3.5 py-2.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <div
         className={cn(
-          "absolute inset-y-3 left-0 w-1 rounded-r-full",
+          "absolute inset-y-2.5 left-0 w-1 rounded-r-full",
           styles.accent,
         )}
       />
 
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="relative flex min-h-[46px] items-center justify-between gap-3 pl-1.5">
+        <div className="grid min-w-0 gap-1">
           <p className="text-[10px] font-medium tracking-[0.2em] text-slate-600 uppercase">
             {label}
           </p>
-          <p className="mt-1.5 text-[1.85rem] leading-none font-semibold tracking-normal text-slate-950">
-            {value}
-          </p>
-          <p className="mt-2 text-[12px] leading-[1.2rem] text-slate-600">
-            {caption}
-          </p>
+          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-2.5">
+            <p className="text-[1.55rem] leading-none font-semibold tracking-normal text-slate-950">
+              {value}
+            </p>
+            <p className="min-w-0 text-[12px] leading-[1.15rem] text-slate-600">
+              {caption}
+            </p>
+          </div>
         </div>
 
         <span
           className={cn(
-            "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1",
+            "hidden size-7 shrink-0 items-center justify-center rounded-[var(--radius-card)] ring-1 sm:flex",
             styles.dotRing,
           )}
         >
@@ -414,7 +416,7 @@ export function WorkspaceShell() {
     <ModulePageShell className="gap-5 xl:gap-6">
       <ModuleHero
         size="compact"
-        density="dense"
+        density="tight"
         eyebrow="Workspace Control"
         title="远程工作区"
         description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
@@ -498,7 +500,7 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-2.5 md:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-3">
           <WorkspaceMetric
             label="工作区总数"
             value={String(rows.length)}

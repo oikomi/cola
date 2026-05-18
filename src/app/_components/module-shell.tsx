@@ -42,23 +42,24 @@ export function ModuleHero({
   children?: ReactNode;
   size?: "default" | "compact";
   surfaceHeader?: ReactNode;
-  density?: "default" | "dense";
+  density?: "default" | "dense" | "tight";
 }) {
-  const isDense = density === "dense";
+  const isTight = density === "tight";
+  const isDense = density === "dense" || isTight;
 
   if (size === "compact") {
     return (
       <section
         className={cn(
           "border-border bg-card relative overflow-hidden rounded-[var(--radius-shell)] border shadow-[0_1px_0_rgba(15,23,42,0.04)]",
-          isDense ? "px-5 py-4" : "px-6 py-5",
+          isTight ? "px-4 py-3" : isDense ? "px-5 py-4" : "px-6 py-5",
         )}
       >
         {surfaceHeader ? (
           <div
             className={cn(
               "relative border-b border-slate-200/80",
-              isDense ? "pb-4" : "pb-5",
+              isTight ? "pb-3" : isDense ? "pb-4" : "pb-5",
             )}
           >
             {surfaceHeader}
@@ -69,22 +70,24 @@ export function ModuleHero({
           className={cn(
             "relative flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start",
             isDense ? "gap-3 lg:gap-3" : "gap-4 lg:gap-4",
-            surfaceHeader ? (isDense ? "pt-4" : "pt-5") : "",
+            surfaceHeader ? (isTight ? "pt-3" : isDense ? "pt-4" : "pt-5") : "",
           )}
         >
           <div className="min-w-0">
             <div
               className={cn(
                 "flex min-w-0 items-start",
-                isDense ? "gap-2.5" : "gap-3",
+                isTight ? "gap-2" : isDense ? "gap-2.5" : "gap-3",
               )}
             >
               <div
                 className={cn(
                   "bg-accent text-accent-foreground ring-border flex shrink-0 items-center justify-center ring-1",
-                  isDense
-                    ? "size-10 rounded-[10px]"
-                    : "size-11 rounded-[var(--radius-card)]",
+                  isTight
+                    ? "size-9 rounded-[9px]"
+                    : isDense
+                      ? "size-10 rounded-[10px]"
+                      : "size-11 rounded-[var(--radius-card)]",
                 )}
               >
                 <Icon className={cn(isDense ? "size-[15px]" : "size-4")} />
@@ -105,9 +108,11 @@ export function ModuleHero({
                 <h1
                   className={cn(
                     "text-foreground font-semibold tracking-normal break-words",
-                    isDense
-                      ? "mt-1.5 text-[1.34rem] leading-tight md:text-[1.48rem]"
-                      : "mt-2 text-[1.5rem] leading-tight md:text-[1.7rem]",
+                    isTight
+                      ? "mt-1 text-[1.24rem] leading-tight md:text-[1.32rem]"
+                      : isDense
+                        ? "mt-1.5 text-[1.34rem] leading-tight md:text-[1.48rem]"
+                        : "mt-2 text-[1.5rem] leading-tight md:text-[1.7rem]",
                   )}
                 >
                   {title}
@@ -115,9 +120,11 @@ export function ModuleHero({
                 <p
                   className={cn(
                     "max-w-[44rem] text-slate-600",
-                    isDense
-                      ? "mt-1.5 text-[13px] leading-5"
-                      : "mt-2 text-sm leading-6",
+                    isTight
+                      ? "mt-1 text-[12px] leading-[1.15rem]"
+                      : isDense
+                        ? "mt-1.5 text-[13px] leading-5"
+                        : "mt-2 text-sm leading-6",
                   )}
                 >
                   {description}
@@ -130,9 +137,11 @@ export function ModuleHero({
             <div
               className={cn(
                 "flex shrink-0 flex-wrap gap-2 lg:justify-end [&_[data-slot=button]]:rounded-[var(--radius-card)] [&_[data-slot=button]]:text-[13px]",
-                isDense
-                  ? "[&_[data-slot=button]]:h-9 [&_[data-slot=button]]:px-3.5"
-                  : "[&_[data-slot=button]]:h-10 [&_[data-slot=button]]:px-4",
+                isTight
+                  ? "[&_[data-slot=button]]:h-8 [&_[data-slot=button]]:px-3"
+                  : isDense
+                    ? "[&_[data-slot=button]]:h-9 [&_[data-slot=button]]:px-3.5"
+                    : "[&_[data-slot=button]]:h-10 [&_[data-slot=button]]:px-4",
               )}
             >
               {actions}
@@ -144,7 +153,7 @@ export function ModuleHero({
           <div
             className={cn(
               "relative border-t border-slate-200/80",
-              isDense ? "mt-4 pt-4" : "mt-5 pt-5",
+              isTight ? "mt-3 pt-3" : isDense ? "mt-4 pt-4" : "mt-5 pt-5",
             )}
           >
             {children}
