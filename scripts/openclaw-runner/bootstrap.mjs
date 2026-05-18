@@ -747,7 +747,6 @@ async function startTaskLoop() {
         }
       }
     } catch (error) {
-      currentStatus = "unhealthy";
       await logLine(
         `task loop failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
