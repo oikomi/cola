@@ -8,23 +8,17 @@ import {
   FilesIcon,
   HardDriveIcon,
   KeyRoundIcon,
-  NetworkIcon,
   PackageIcon,
-  RouteIcon,
   Settings2Icon,
   TerminalIcon,
   UploadCloudIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import clusterConfig from "../../../infra/k8s/cluster/config.json";
 import clusterNodes from "../../../infra/k8s/cluster/nodes.json";
-import {
-  ModuleHero,
-  ModulePageShell,
-  ModuleSection,
-} from "@/app/_components/module-shell";
-import { Badge } from "@/components/ui/badge";
+import { ModulePageShell } from "@/app/_components/module-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -54,20 +48,29 @@ const clusterNodeNames = clusterNodes
     (name): name is string => typeof name === "string" && name.length > 0,
   );
 
-type StepItem = {
-  title: string;
-  description: string;
-};
-
 type FactItem = {
   label: string;
   value: string;
 };
 
-type RouteNode = {
+type MatrixRow = {
   label: string;
-  value: string;
+  description: string;
   icon: LucideIcon;
+  tone: "emerald" | "sky";
+  source: string;
+  entry: string;
+  service: string;
+  result: string;
+};
+
+type WorkloadItem = {
+  name: string;
+  description: string;
+  icon: LucideIcon;
+  enable: string;
+  mount: string;
+  detail: string;
 };
 
 export default function StoragePage() {
@@ -147,238 +150,209 @@ COLA_TRAINING_WORKDIR_MOUNT_PATH=${TRAINING_WORKDIR}
 # 方案 B：已有可用 PVC。只部署 infra/seaweedfs 不会创建 PVC。
 COLA_TRAINING_PVC_NAME=cola-training-workspace
 COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
+  const matrixRows: MatrixRow[] = [
+    {
+      label: "外部上传",
+      description: "局域网应用通过 S3 API 写入对象",
+      icon: UploadCloudIcon,
+      tone: "emerald",
+      source: "可信局域网应用",
+      entry: lanS3Endpoint,
+      service: `${SEAWEEDFS_SERVICE}:${SEAWEEDFS_PORT}`,
+      result: `s3://${DEFAULT_BUCKET}/datasets/...`,
+    },
+    {
+      label: "内部挂载",
+      description: "Pod 启动时挂载成普通目录",
+      icon: HardDriveIcon,
+      tone: "sky",
+      source: "训练 / 桌面 / Notebook",
+      entry: INTERNAL_FILER_ENDPOINT,
+      service: SEAWEEDFS_FUSE_IMAGE,
+      result: TRAINING_WORKDIR,
+    },
+  ];
+  const workloads: WorkloadItem[] = [
+    {
+      name: "远程工作区",
+      description: "桌面容器启动时挂载共享目录",
+      icon: FilesIcon,
+      enable: "REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED",
+      mount: TRAINING_WORKDIR,
+      detail: "REMOTE_WORKSPACE_WORKDIR_HOST_PATH / REMOTE_WORKSPACE_PVC_NAME",
+    },
+    {
+      name: "训练任务",
+      description: "训练脚本按本地文件路径读写",
+      icon: CheckCircle2Icon,
+      enable: "COLA_TRAINING_SEAWEEDFS_MOUNT_ENABLED",
+      mount: TRAINING_DATASET_DIR,
+      detail: `${TRAINING_CHECKPOINT_DIR} / ${TRAINING_MODEL_DIR} / ${TRAINING_OUTPUT_ROOT}`,
+    },
+    {
+      name: "JupyterLab",
+      description: "Notebook 里看到同一个共享目录",
+      icon: PackageIcon,
+      enable: "COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED",
+      mount: "COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH",
+      detail: "上传数据、调试脚本、查看训练产物",
+    },
+    {
+      name: "Unsloth Studio",
+      description: "模型导出和调试产物写入共享目录",
+      icon: Settings2Icon,
+      enable: "COLA_UNSLOTH_STUDIO_SEAWEEDFS_MOUNT_ENABLED",
+      mount: "COLA_UNSLOTH_STUDIO_WORKDIR_MOUNT_PATH",
+      detail: "COLA_UNSLOTH_STUDIO_PVC_NAME / COLA_TRAINING_PVC_NAME",
+    },
+  ];
 
   return (
-    <ModulePageShell className="gap-4">
-      <ModuleHero
-        eyebrow="Storage Ops"
-        title="存储管理"
-        description="外部应用通过 SeaweedFS S3 NodePort 上传数据；集群内部工作负载通过 Filer/FUSE 把同一份 bucket 挂成本地目录。"
-        icon={DatabaseIcon}
-        badges={
-          <>
-            <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-700">
-              SeaweedFS S3
-            </Badge>
-            <Badge className="border border-slate-200 bg-white text-slate-700">
-              {clusterName}
-            </Badge>
-            <Badge className="border border-slate-200 bg-white text-slate-700">
-              {STORAGE_NAMESPACE}
-            </Badge>
-          </>
-        }
-        actions={
+    <ModulePageShell className="gap-3">
+      <section className="overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+        <header className="flex flex-col gap-4 border-b border-slate-200/80 px-5 py-4 md:px-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-medium text-emerald-700">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+                SeaweedFS S3
+              </span>
+              <MetaPill>{clusterName}</MetaPill>
+              <MetaPill>{STORAGE_NAMESPACE}</MetaPill>
+              <MetaPill>Kubernetes {kubernetesVersion}</MetaPill>
+            </div>
+            <h1 className="mt-2 text-[1.55rem] leading-tight font-semibold tracking-normal text-slate-950 md:text-[1.72rem]">
+              存储管理
+            </h1>
+            <p className="mt-1 max-w-3xl text-[13px] leading-6 text-slate-600">
+              管理对象上传入口、容器挂载路径和训练数据目录约定。
+            </p>
+          </div>
+
           <a
             href={adminUiUrl}
             target="_blank"
             rel="noreferrer"
-            className={cn(buttonVariants({ size: "sm" }), "h-8 gap-1.5")}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "h-9 shrink-0 gap-1.5 rounded-[10px] border-slate-300 bg-white px-3.5 text-[13px] text-slate-800 hover:bg-slate-50",
+            )}
           >
             <ExternalLinkIcon className="size-3.5" />
             打开 Admin UI
           </a>
-        }
-        density="dense"
-        size="compact"
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
-          <StorageRouteMap
-            external={[
-              { label: "外部应用", value: "S3 API", icon: UploadCloudIcon },
-              {
-                label: "NodePort",
-                value: `:${SEAWEEDFS_S3_NODE_PORT}`,
-                icon: NetworkIcon,
-              },
-              {
-                label: "S3 gateway",
-                value: SEAWEEDFS_SERVICE,
-                icon: RouteIcon,
-              },
-              { label: "Bucket", value: DEFAULT_BUCKET, icon: ArchiveIcon },
-            ]}
-            internal={[
-              { label: "业务 Pod", value: "训练 / 桌面", icon: PackageIcon },
-              {
-                label: "Filer",
-                value: `:${SEAWEEDFS_FILER_PORT}`,
-                icon: DatabaseIcon,
-              },
-              { label: "FUSE", value: "自动挂载", icon: Settings2Icon },
-              {
-                label: "本地目录",
-                value: TRAINING_WORKDIR,
-                icon: HardDriveIcon,
-              },
-            ]}
-          />
-          <StorageSummaryPanel
-            title="当前参数"
-            facts={[
-              ["LAN S3", lanS3Endpoint],
-              ["Pod S3", INTERNAL_ENDPOINT],
-              ["Filer", INTERNAL_FILER_ENDPOINT],
-              ["Mount", TRAINING_WORKDIR],
-            ]}
-          />
-        </div>
-      </ModuleHero>
+        </header>
 
-      <ModuleSection
-        title="外部上传"
-        description="局域网应用只关心 S3 endpoint、bucket、凭据和对象前缀。"
-        density="compact"
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
-            <FlowCard
-              icon={NetworkIcon}
-              title="入口约定"
-              description="可信局域网应用 -> Kubernetes NodePort -> SeaweedFS S3 gateway -> xdream bucket。"
-              facts={[
-                ["LAN endpoint", lanS3Endpoint],
-                ["Bucket", DEFAULT_BUCKET],
-                [
-                  "推荐前缀",
-                  "datasets/<source>/..., checkpoints/..., models/...",
-                ],
-                ["凭据来源", "infra/seaweedfs/seaweedfs.env"],
-              ]}
-            />
-            <StepList
-              label="Upload Runbook"
-              steps={[
-                {
-                  title: "打通网络",
-                  description: `外部机器先确认能访问 ${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}。不通时优先查节点防火墙、交换机 ACL 和 seaweedfs-s3-nodeport Service。`,
-                },
-                {
-                  title: "配置 S3 凭据",
-                  description:
-                    "从 infra/seaweedfs/seaweedfs.env 读取 SEAWEEDFS_S3_ACCESS_KEY 和 SEAWEEDFS_S3_SECRET_KEY，不把凭据写进前端页面或代码仓库。",
-                },
-                {
-                  title: "写入约定前缀",
-                  description: `数据集放 s3://${DEFAULT_BUCKET}/datasets/...，模型放 models/...，训练归档和 checkpoint 放 checkpoints/...。`,
-                },
-              ]}
-            />
+        <div className="grid gap-px bg-slate-200/80 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <ConnectionMatrix rows={matrixRows} />
+          <div className="grid content-start gap-px bg-slate-200/80">
+            <CompactFact label="LAN S3" value={lanS3Endpoint} />
+            <CompactFact label="Bucket" value={DEFAULT_BUCKET} />
+            <CompactFact label="Mount" value={TRAINING_WORKDIR} />
+            <CompactFact label="Controller" value={controllerIp} />
+            <CompactFact label="Nodes" value={nodeSummary} />
           </div>
-          <div className="grid min-w-0 content-start gap-3">
-            <StorageExampleCard
+        </div>
+      </section>
+
+      <section className="grid gap-3 xl:grid-cols-2">
+        <OperationPanel
+          title="上传数据"
+          description="局域网机器或业务服务只需要 S3 endpoint、bucket、凭据和对象前缀。"
+          icon={UploadCloudIcon}
+        >
+          <FactTable
+            facts={[
+              ["Endpoint", lanS3Endpoint],
+              ["Bucket", DEFAULT_BUCKET],
+              [
+                "推荐前缀",
+                "datasets/<source>/..., checkpoints/..., models/...",
+              ],
+              ["凭据来源", "infra/seaweedfs/seaweedfs.env"],
+            ]}
+          />
+          <div className="mt-3 grid gap-2">
+            <CodeDetails
               title="命令行导入"
-              status="局域网机器直接通过 S3 NodePort 上传数据集。"
+              description="aws cli 通过 NodePort 写入数据集。"
               icon={TerminalIcon}
               code={lanUploadExample}
             />
-            <StorageExampleCard
+            <CodeDetails
               title="应用代码导入"
-              status="外部服务按 S3 SDK 写入 SeaweedFS。"
+              description="外部服务按 S3 SDK 写入 SeaweedFS。"
               icon={Code2Icon}
               code={appUploadExample}
             />
           </div>
-        </div>
-      </ModuleSection>
+        </OperationPanel>
 
-      <ModuleSection
-        title="内部挂载"
-        description="平台在 Pod 启动时完成 SeaweedFS Filer/FUSE 挂载，业务容器按本地文件路径读写。"
-        density="compact"
-      >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-          <div className="grid gap-3 md:grid-cols-2">
-            <StorageBindingCard
-              title="远程工作区"
-              status="桌面容器启动时挂载共享目录"
-              icon={FilesIcon}
-              rows={[
-                ["启用变量", "REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
-                ["默认目录", TRAINING_WORKDIR],
-                [
-                  "回退配置",
-                  "REMOTE_WORKSPACE_WORKDIR_HOST_PATH / REMOTE_WORKSPACE_PVC_NAME",
-                ],
-              ]}
-            />
-            <StorageBindingCard
-              title="训练任务"
-              status="训练脚本按本地文件路径读写"
-              icon={CheckCircle2Icon}
-              rows={[
-                ["启用变量", "COLA_TRAINING_SEAWEEDFS_MOUNT_ENABLED"],
-                ["数据集", TRAINING_DATASET_DIR],
-                ["checkpoint", TRAINING_CHECKPOINT_DIR],
-                ["模型目录", TRAINING_MODEL_DIR],
-                ["产物根目录", TRAINING_OUTPUT_ROOT],
-              ]}
-            />
-            <StorageBindingCard
-              title="JupyterLab"
-              status="Notebook 里看到同一个共享目录"
-              icon={PackageIcon}
-              rows={[
-                ["启用变量", "COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED"],
-                ["目录覆盖", "COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH"],
-                ["用途", "上传数据、调试脚本、查看训练产物"],
-              ]}
-            />
-            <StorageBindingCard
-              title="Unsloth Studio"
-              status="模型导出和调试产物写入共享目录"
-              icon={Settings2Icon}
-              rows={[
-                ["启用变量", "COLA_UNSLOTH_STUDIO_SEAWEEDFS_MOUNT_ENABLED"],
-                ["目录覆盖", "COLA_UNSLOTH_STUDIO_WORKDIR_MOUNT_PATH"],
-                [
-                  "PVC 回退",
-                  "COLA_UNSLOTH_STUDIO_PVC_NAME / COLA_TRAINING_PVC_NAME",
-                ],
-              ]}
-            />
-          </div>
-          <div className="grid min-w-0 content-start gap-3">
-            <FlowCard
-              icon={HardDriveIcon}
-              title="挂载机制"
-              description="平台给业务 Pod 注入 init container、/dev/fuse、fusermount 和挂载脚本；业务命令执行前先完成挂载。"
-              facts={[
-                ["ClusterIP S3", INTERNAL_ENDPOINT],
-                ["Filer", INTERNAL_FILER_ENDPOINT],
-                ["Filer path", DEFAULT_BUCKET_FILER_PATH],
-                ["FUSE image", SEAWEEDFS_FUSE_IMAGE],
-                ["默认缓存", "/var/cache/seaweedfs"],
-                ["默认权限", "root + SYS_ADMIN + /dev/fuse"],
-              ]}
-            />
-            <StorageExampleCard
-              title="容器内看到的路径"
-              status="业务代码只依赖本地路径，不需要拼 S3 URL。"
+        <OperationPanel
+          title="挂载使用"
+          description="平台在 Pod 启动时完成 Filer/FUSE 挂载，业务代码按普通本地路径读写。"
+          icon={HardDriveIcon}
+        >
+          <FactTable
+            facts={[
+              ["ClusterIP S3", INTERNAL_ENDPOINT],
+              ["Filer", INTERNAL_FILER_ENDPOINT],
+              ["Filer path", DEFAULT_BUCKET_FILER_PATH],
+              ["默认缓存", "/var/cache/seaweedfs"],
+              ["默认权限", "root + SYS_ADMIN + /dev/fuse"],
+            ]}
+          />
+          <div className="mt-3 grid gap-2">
+            <CodeDetails
+              title="容器内路径"
+              description="训练、Notebook 和远程桌面看到同一份目录。"
               icon={HardDriveIcon}
               code={internalMountExample}
             />
-            <StorageExampleCard
+            <CodeDetails
               title="临时回退方式"
-              status="关闭自动 FUSE 后，才会使用节点 hostPath 或 PVC。"
+              description="关闭自动 FUSE 后才会使用 hostPath 或 PVC。"
               icon={TerminalIcon}
               code={fallbackExample}
             />
           </div>
-        </div>
-      </ModuleSection>
+        </OperationPanel>
+      </section>
 
-      <ModuleSection
-        title="运维边界"
-        description="这些信息用于判断当前存储能不能稳定承载训练数据，不是业务侧上传或挂载的主流程。"
-        density="compact"
-      >
-        <div className="grid gap-3 xl:grid-cols-3">
-          <StorageBindingCard
-            title="当前集群"
-            status="页面信息来自 infra/k8s/cluster"
+      <section className="overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+        <SectionTitle
+          title="工作负载挂载策略"
+          description="不同入口使用同一套 SeaweedFS 目录约定，只有环境变量名称不同。"
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[880px] border-collapse text-left">
+            <thead className="border-b border-slate-200/90 bg-slate-50/70">
+              <tr>
+                <TableHead>入口</TableHead>
+                <TableHead>启用变量</TableHead>
+                <TableHead>目录</TableHead>
+                <TableHead>补充</TableHead>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/80">
+              {workloads.map((workload) => (
+                <WorkloadRow key={workload.name} workload={workload} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+        <SectionTitle
+          title="运维边界"
+          description="页面数据以 infra/k8s/cluster 为准；对象存储、PVC 和公网暴露不要混在一起。"
+        />
+        <div className="grid gap-px bg-slate-200/80 md:grid-cols-3">
+          <BoundaryColumn
             icon={DatabaseIcon}
-            rows={[
+            title="集群来源"
+            facts={[
               ["集群", clusterName],
               ["Kubernetes", kubernetesVersion],
               ["工作 namespace", namespace],
@@ -386,11 +360,10 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
               ["节点", nodeSummary],
             ]}
           />
-          <StorageBindingCard
-            title="SeaweedFS 部署"
-            status="infra/seaweedfs 只部署对象存储"
+          <BoundaryColumn
             icon={ArchiveIcon}
-            rows={[
+            title="SeaweedFS 部署"
+            facts={[
               ["Namespace", STORAGE_NAMESPACE],
               ["S3 Service", `${SEAWEEDFS_SERVICE}:${SEAWEEDFS_PORT}`],
               ["Admin UI", adminUiUrl],
@@ -398,11 +371,10 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
               ["Volume hostPath", SEAWEEDFS_VOLUME_ROOT],
             ]}
           />
-          <StorageBindingCard
-            title="边界说明"
-            status="避免把对象存储和 PVC 混在一起"
+          <BoundaryColumn
             icon={KeyRoundIcon}
-            rows={[
+            title="边界说明"
+            facts={[
               ["默认模式", "SeaweedFS FUSE 本地挂载"],
               ["PVC", "infra/seaweedfs 不创建 PVC"],
               ["独立数据盘", "当前节点信息未声明独立数据盘"],
@@ -410,265 +382,272 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             ]}
           />
         </div>
-      </ModuleSection>
+      </section>
     </ModulePageShell>
   );
 }
 
-function StorageRouteMap({
-  external,
-  internal,
-}: {
-  external: RouteNode[];
-  internal: RouteNode[];
-}) {
+function MetaPill({ children }: { children: ReactNode }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-slate-50/75 p-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <div className="grid gap-3 lg:grid-cols-2">
-        <StoragePathLine title="外部上传路径" tone="emerald" nodes={external} />
-        <StoragePathLine title="内部挂载路径" tone="sky" nodes={internal} />
-      </div>
-    </div>
+    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-[12px] text-slate-600">
+      {children}
+    </span>
   );
 }
 
-function StoragePathLine({
-  title,
-  tone,
-  nodes,
-}: {
-  title: string;
-  tone: "emerald" | "sky";
-  nodes: RouteNode[];
-}) {
-  const toneClass =
-    tone === "emerald"
-      ? "border-emerald-200/80 bg-emerald-50/60 text-emerald-700 ring-emerald-100"
-      : "border-sky-200/80 bg-sky-50/60 text-sky-700 ring-sky-100";
-
+function ConnectionMatrix({ rows }: { rows: MatrixRow[] }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-3.5">
-      <p className="text-[12px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-        {title}
-      </p>
-      <div className="mt-3 grid gap-2">
-        {nodes.map((node, index) => (
-          <div
-            key={`${node.label}-${node.value}`}
-            className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2"
-          >
-            <div
-              className={cn(
-                "flex size-7 items-center justify-center rounded-[8px] border ring-1",
-                toneClass,
-              )}
-            >
-              <node.icon className="size-3.5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[12px] leading-4 font-medium text-slate-500">
-                {node.label}
-              </p>
-              <p className="truncate font-mono text-[12px] leading-5 font-semibold text-slate-900">
-                {node.value}
-              </p>
-            </div>
-            {index < nodes.length - 1 ? (
-              <span className="text-[13px] text-slate-300">{"->"}</span>
-            ) : null}
-          </div>
+    <div className="min-w-0 bg-white">
+      <div className="hidden grid-cols-[13rem_repeat(4,minmax(0,1fr))] border-b border-slate-200/90 bg-slate-50/70 xl:grid">
+        <MatrixHead>路径</MatrixHead>
+        <MatrixHead>来源</MatrixHead>
+        <MatrixHead>入口</MatrixHead>
+        <MatrixHead>服务</MatrixHead>
+        <MatrixHead>结果</MatrixHead>
+      </div>
+      <div className="divide-y divide-slate-200/90">
+        {rows.map((row) => (
+          <MatrixLine key={row.label} row={row} />
         ))}
       </div>
     </div>
   );
 }
 
-function StorageSummaryPanel({
-  title,
-  facts,
-}: {
-  title: string;
-  facts: Array<[string, string]>;
-}) {
+function MatrixHead({ children }: { children: ReactNode }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[12px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
-          {title}
-        </p>
-        <div className="flex size-7 items-center justify-center rounded-[8px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-          <DatabaseIcon className="size-3.5" />
+    <div className="px-4 py-2.5 text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+      {children}
+    </div>
+  );
+}
+
+function MatrixLine({ row }: { row: MatrixRow }) {
+  const Icon = row.icon;
+  const toneClass =
+    row.tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700"
+      : "bg-sky-50 text-sky-700";
+
+  return (
+    <div className="grid gap-0 xl:grid-cols-[13rem_repeat(4,minmax(0,1fr))]">
+      <div className="flex min-w-0 items-center gap-3 border-b border-slate-100 px-4 py-3 xl:border-b-0">
+        <span
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-[9px]",
+            toneClass,
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[14px] font-semibold text-slate-950">
+            {row.label}
+          </p>
+          <p className="truncate text-[12px] leading-5 text-slate-500">
+            {row.description}
+          </p>
         </div>
       </div>
-      <dl className="mt-3 grid gap-2">
-        {facts.map(([label, value]) => (
-          <StorageFact
-            key={label}
-            label={label}
-            value={value}
-            compact
-            stacked
-          />
-        ))}
-      </dl>
+      <MatrixCell label="来源" value={row.source} />
+      <MatrixCell label="入口" value={row.entry} />
+      <MatrixCell label="服务" value={row.service} />
+      <MatrixCell label="结果" value={row.result} />
     </div>
   );
 }
 
-function FlowCard({
-  icon: Icon,
+function MatrixCell({ label, value }: FactItem) {
+  return (
+    <div className="min-w-0 border-t border-slate-100 px-4 py-3 first:border-t-0 sm:grid sm:grid-cols-[6rem_minmax(0,1fr)] xl:block xl:border-t-0">
+      <p className="text-[11px] font-medium tracking-[0.12em] text-slate-400 uppercase xl:hidden">
+        {label}
+      </p>
+      <p className="min-w-0 font-mono text-[12px] leading-5 font-semibold break-all text-slate-900">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function CompactFact({ label, value }: FactItem) {
+  return (
+    <div className="min-w-0 bg-white px-4 py-2.5">
+      <p className="text-[11px] font-medium tracking-[0.14em] text-slate-400 uppercase">
+        {label}
+      </p>
+      <p className="mt-1 font-mono text-[12px] leading-5 font-semibold break-all text-slate-900">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function OperationPanel({
   title,
   description,
-  facts,
+  icon: Icon,
+  children,
 }: {
-  icon: LucideIcon;
   title: string;
   description: string;
-  facts: Array<[string, string]>;
-}) {
-  return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/45 px-4 py-4">
-      <div className="flex items-start gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-white text-emerald-700 ring-1 ring-emerald-100">
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[15px] font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-[13px] leading-5 text-slate-600">
-            {description}
-          </p>
-        </div>
-      </div>
-      <dl className="mt-3 grid gap-2">
-        {facts.map(([label, value]) => (
-          <StorageFact key={label} label={label} value={value} compact />
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-function StepList({ label, steps }: { label: string; steps: StepItem[] }) {
-  return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-        {label}
-      </p>
-      <div className="mt-3 grid gap-3">
-        {steps.map((step, index) => (
-          <div
-            key={step.title}
-            className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3"
-          >
-            <div className="flex size-7 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[12px] font-semibold text-slate-600">
-              {index + 1}
-            </div>
-            <div className="min-w-0 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
-              <p className="text-sm font-semibold text-slate-950">
-                {step.title}
-              </p>
-              <p className="mt-1 text-[13px] leading-5 text-slate-600">
-                {step.description}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StorageBindingCard({
-  title,
-  status,
-  icon: Icon,
-  rows,
-}: {
-  title: string;
-  status: string;
   icon: LucideIcon;
-  rows: Array<[string, string]>;
+  children: ReactNode;
 }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[15px] font-semibold text-slate-950">{title}</p>
-          <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
-            {status}
-          </p>
-        </div>
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+    <section className="overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+      <div className="flex items-start gap-3 border-b border-slate-200/80 px-5 py-3.5 md:px-5">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-slate-100 text-slate-700">
           <Icon className="size-4" />
         </div>
+        <div className="min-w-0">
+          <h2 className="text-[1.08rem] leading-6 font-semibold text-slate-950">
+            {title}
+          </h2>
+          <p className="text-[13px] leading-5 text-slate-600">{description}</p>
+        </div>
       </div>
-      <dl className="mt-3 grid gap-2">
-        {rows.map(([label, value]) => (
-          <StorageFact key={label} label={label} value={value} compact />
-        ))}
-      </dl>
-    </div>
+      <div className="px-5 py-4">{children}</div>
+    </section>
   );
 }
 
-function StorageFact({
-  label,
-  value,
-  compact = false,
-  stacked = false,
-}: FactItem & { compact?: boolean; stacked?: boolean }) {
+function FactTable({ facts }: { facts: Array<[string, string]> }) {
   return (
-    <div
-      className={cn(
-        "grid gap-1 rounded-[8px] bg-slate-50/85 sm:items-start",
-        stacked ? "" : "sm:grid-cols-[104px_minmax(0,1fr)]",
-        compact ? "px-2.5 py-1.5" : "px-3 py-2",
-      )}
-    >
-      <dt className="text-[12px] leading-5 font-medium text-slate-500">
-        {label}
-      </dt>
-      <dd className="min-w-0 font-mono text-[12px] leading-5 break-all text-slate-800">
-        {value}
-      </dd>
-    </div>
+    <dl className="divide-y divide-slate-200/80 overflow-hidden rounded-[10px] border border-slate-200/90">
+      {facts.map(([label, value]) => (
+        <div
+          key={label}
+          className="grid gap-1 px-3 py-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-start"
+        >
+          <dt className="text-[12px] leading-5 font-medium text-slate-500">
+            {label}
+          </dt>
+          <dd className="min-w-0 font-mono text-[12px] leading-5 break-all text-slate-900">
+            {value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
-function StorageExampleCard({
+function CodeDetails({
   title,
-  status,
+  description,
   icon: Icon,
   code,
 }: {
   title: string;
-  status: string;
+  description: string;
   icon: LucideIcon;
   code: string;
 }) {
   return (
-    <details className="group min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 transition-colors outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-slate-300 [&::-webkit-details-marker]:hidden">
-        <span className="flex min-w-0 items-start gap-3">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-            <Icon className="size-4" />
+    <details className="group rounded-[10px] border border-slate-200/90 bg-slate-50/70">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 transition-colors outline-none hover:bg-slate-100/70 focus-visible:ring-2 focus-visible:ring-slate-300 [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-white text-slate-700 ring-1 ring-slate-200">
+            <Icon className="size-3.5" />
           </span>
           <span className="min-w-0">
-            <span className="block text-[15px] font-semibold text-slate-950">
+            <span className="block text-[13px] font-semibold text-slate-950">
               {title}
             </span>
-            <span className="mt-0.5 block text-[13px] leading-5 text-slate-500">
-              {status}
+            <span className="block truncate text-[12px] leading-5 text-slate-500">
+              {description}
             </span>
           </span>
         </span>
         <ChevronDownIcon className="size-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="border-t border-slate-200/80 px-4 py-4">
-        <pre className="max-h-[min(38vh,360px)] w-full min-w-0 overflow-auto rounded-[10px] border border-slate-200 bg-slate-950 p-4 text-[12px] leading-5 text-slate-100 shadow-inner">
+      <div className="border-t border-slate-200/80 bg-white px-3 py-3">
+        <pre className="max-h-[min(42vh,360px)] overflow-auto rounded-[8px] bg-slate-950 p-4 text-[12px] leading-5 text-slate-100">
           <code>{code}</code>
         </pre>
       </div>
     </details>
+  );
+}
+
+function SectionTitle({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="border-b border-slate-200/80 px-5 py-3.5 md:px-5">
+      <h2 className="text-[1.08rem] leading-6 font-semibold text-slate-950">
+        {title}
+      </h2>
+      <p className="text-[13px] leading-5 text-slate-600">{description}</p>
+    </div>
+  );
+}
+
+function TableHead({ children }: { children: ReactNode }) {
+  return (
+    <th className="px-4 py-2.5 text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+      {children}
+    </th>
+  );
+}
+
+function WorkloadRow({ workload }: { workload: WorkloadItem }) {
+  const Icon = workload.icon;
+
+  return (
+    <tr>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-slate-100 text-slate-700">
+            <Icon className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-slate-950">
+              {workload.name}
+            </p>
+            <p className="truncate text-[12px] text-slate-500">
+              {workload.description}
+            </p>
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-3 font-mono text-[12px] break-all text-slate-900">
+        {workload.enable}
+      </td>
+      <td className="px-4 py-3 font-mono text-[12px] break-all text-slate-900">
+        {workload.mount}
+      </td>
+      <td className="px-4 py-3 font-mono text-[12px] break-all text-slate-700">
+        {workload.detail}
+      </td>
+    </tr>
+  );
+}
+
+function BoundaryColumn({
+  icon: Icon,
+  title,
+  facts,
+}: {
+  icon: LucideIcon;
+  title: string;
+  facts: Array<[string, string]>;
+}) {
+  return (
+    <div className="min-w-0 bg-white px-5 py-4">
+      <div className="flex items-center gap-2.5">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-slate-100 text-slate-700">
+          <Icon className="size-4" />
+        </div>
+        <h3 className="text-[14px] font-semibold text-slate-950">{title}</h3>
+      </div>
+      <div className="mt-3">
+        <FactTable facts={facts} />
+      </div>
+    </div>
   );
 }
