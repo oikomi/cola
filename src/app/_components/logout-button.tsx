@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/button";
 import { notifyError } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
-export function LogoutButton({ compact = false }: { compact?: boolean }) {
+export function LogoutButton({
+  compact = false,
+  inert = false,
+}: {
+  compact?: boolean;
+  inert?: boolean;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -39,9 +45,12 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
       className={cn(
         "h-9 rounded-[var(--radius-card)] border border-white/10 bg-slate-950/20 px-2.5 text-[12px] text-slate-200/86 hover:bg-white/[0.075] hover:text-white [&_svg:not([class*='size-'])]:size-4",
         compact && "size-8 px-0",
+        inert && "pointer-events-none opacity-0",
       )}
-      disabled={pending}
-      onClick={logout}
+      disabled={pending || inert}
+      onClick={inert ? undefined : logout}
+      aria-hidden={inert ? true : undefined}
+      tabIndex={inert ? -1 : undefined}
       aria-label="退出登录"
     >
       <LogOutIcon data-icon="inline-start" />

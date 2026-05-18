@@ -29,6 +29,7 @@ import type {
 } from "@/server/office/provision-types";
 import { createKubeConfig } from "@/server/kubernetes/kubeconfig";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
+import { resolveRunnerApiBaseUrl } from "@/server/office/runner-api-base-url";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -523,28 +524,6 @@ function openClawAllowedOrigins(nodePort: number) {
   ]);
 }
 
-function defaultApiBaseUrl() {
-  const configured =
-    process.env.COLA_K8S_API_BASE_URL ?? process.env.COLA_API_BASE_URL;
-
-  if (configured) {
-    return configured;
-  }
-
-  if (existsSync(CLUSTER_CONFIG_PATH)) {
-    const clusterConfig = readClusterConfig();
-    const controllerIp = clusterConfig?.controllerIp?.trim();
-
-    if (controllerIp) {
-      return `http://${controllerIp}:${process.env.PORT ?? "50038"}`;
-    }
-  }
-
-  throw new Error(
-    "Kubernetes runner 需要可被 pod 访问的 Cola API 地址。请设置 COLA_K8S_API_BASE_URL / COLA_API_BASE_URL，或补齐 infra/k8s/cluster/config.json 中的 controllerIp。",
-  );
-}
-
 async function getReservedNodePorts(coreApi: CoreV1Api) {
   try {
     const services = await coreApi.listServiceForAllNamespaces();
@@ -834,7 +813,7 @@ function buildRunnerResources(
               env: [
                 {
                   name: "COLA_API_BASE_URL",
-                  value: defaultApiBaseUrl(),
+                  value: resolveRunnerApiBaseUrl(),
                 },
                 {
                   name: "COLA_RUNNER_NAME",

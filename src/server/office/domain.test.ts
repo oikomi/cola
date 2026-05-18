@@ -11,6 +11,36 @@ import {
   zoneForRole,
 } from "./domain.ts";
 import { resolveBrowserNativeWorkspaceHref } from "../../lib/office-routing.ts";
+import { resolveRunnerApiBaseUrl } from "./runner-api-base-url.ts";
+
+function withEnv<T>(
+  patch: Record<string, string | undefined>,
+  callback: () => T,
+) {
+  const previous = new Map(
+    Object.keys(patch).map((key) => [key, process.env[key]]),
+  );
+
+  try {
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    return callback();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 void test("role helpers map roles to office zones and runner pools", () => {
   assert.equal(zoneForRole("engineering"), "engineering");
@@ -139,5 +169,29 @@ void test("browser native workspace href preserves OpenClaw dashboard token frag
       origin: "http://localhost:50038",
     }),
     "http://172.16.60.198:31180/?agentId=agent-1&deviceId=device-1&engine=openclaw#token=gateway-token",
+  );
+});
+
+void test("kubernetes runner API base URL avoids stale non-cluster IPs", () => {
+  assert.equal(
+    withEnv(
+      {
+        COLA_K8S_API_BASE_URL: "http://172.16.50.17:50038",
+        COLA_API_BASE_URL: undefined,
+      },
+      () => resolveRunnerApiBaseUrl(),
+    ),
+    "http://172.16.60.198:50038",
+  );
+
+  assert.equal(
+    withEnv(
+      {
+        COLA_K8S_API_BASE_URL: "http://cola-web.default.svc.cluster.local:3000",
+        COLA_API_BASE_URL: undefined,
+      },
+      () => resolveRunnerApiBaseUrl(),
+    ),
+    "http://cola-web.default.svc.cluster.local:3000",
   );
 });
