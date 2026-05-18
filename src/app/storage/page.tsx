@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
   Code2Icon,
   DatabaseIcon,
   ExternalLinkIcon,
@@ -20,7 +21,6 @@ import clusterConfig from "../../../infra/k8s/cluster/config.json";
 import clusterNodes from "../../../infra/k8s/cluster/nodes.json";
 import {
   ModuleHero,
-  ModuleMetricCard,
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
@@ -62,6 +62,12 @@ type StepItem = {
 type FactItem = {
   label: string;
   value: string;
+};
+
+type RouteNode = {
+  label: string;
+  value: string;
+  icon: LucideIcon;
 };
 
 export default function StoragePage() {
@@ -143,11 +149,11 @@ COLA_TRAINING_PVC_NAME=cola-training-workspace
 COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
 
   return (
-    <ModulePageShell>
+    <ModulePageShell className="gap-4">
       <ModuleHero
         eyebrow="Storage Ops"
         title="存储管理"
-        description="这页只说明两件核心事：外部局域网应用如何把数据传进 SeaweedFS；集群内部的远程桌面、训练任务和 Notebook 如何把同一份数据挂成本地目录使用。"
+        description="外部应用通过 SeaweedFS S3 NodePort 上传数据；集群内部工作负载通过 Filer/FUSE 把同一份 bucket 挂成本地目录。"
         icon={DatabaseIcon}
         badges={
           <>
@@ -173,50 +179,62 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             打开 Admin UI
           </a>
         }
+        density="dense"
         size="compact"
       >
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ModuleMetricCard
-            size="compact"
-            label="外部上传入口"
-            value={`:${SEAWEEDFS_S3_NODE_PORT}`}
-            description={`${lanS3Endpoint}，给可信局域网应用使用。`}
-            icon={UploadCloudIcon}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
+          <StorageRouteMap
+            external={[
+              { label: "外部应用", value: "S3 API", icon: UploadCloudIcon },
+              {
+                label: "NodePort",
+                value: `:${SEAWEEDFS_S3_NODE_PORT}`,
+                icon: NetworkIcon,
+              },
+              {
+                label: "S3 gateway",
+                value: SEAWEEDFS_SERVICE,
+                icon: RouteIcon,
+              },
+              { label: "Bucket", value: DEFAULT_BUCKET, icon: ArchiveIcon },
+            ]}
+            internal={[
+              { label: "业务 Pod", value: "训练 / 桌面", icon: PackageIcon },
+              {
+                label: "Filer",
+                value: `:${SEAWEEDFS_FILER_PORT}`,
+                icon: DatabaseIcon,
+              },
+              { label: "FUSE", value: "自动挂载", icon: Settings2Icon },
+              {
+                label: "本地目录",
+                value: TRAINING_WORKDIR,
+                icon: HardDriveIcon,
+              },
+            ]}
           />
-          <ModuleMetricCard
-            size="compact"
-            label="内部 S3"
-            value={`:${SEAWEEDFS_PORT}`}
-            description="Pod 内访问 ClusterIP，不绕 NodePort。"
-            icon={RouteIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="本地挂载"
-            value={TRAINING_WORKDIR}
-            description="业务容器内看到的共享文件系统路径。"
-            icon={HardDriveIcon}
-          />
-          <ModuleMetricCard
-            size="compact"
-            label="Bucket"
-            value={DEFAULT_BUCKET}
-            description="数据集、checkpoint 和模型产物的默认 bucket。"
-            icon={ArchiveIcon}
+          <StorageSummaryPanel
+            title="当前参数"
+            facts={[
+              ["LAN S3", lanS3Endpoint],
+              ["Pod S3", INTERNAL_ENDPOINT],
+              ["Filer", INTERNAL_FILER_ENDPOINT],
+              ["Mount", TRAINING_WORKDIR],
+            ]}
           />
         </div>
       </ModuleHero>
 
       <ModuleSection
-        title="外部局域网应用怎么传数据"
-        description="外部应用不需要知道 Pod、PVC 或 FUSE，只要把文件按 S3 API 上传到 NodePort endpoint，并落到约定前缀。"
+        title="外部上传"
+        description="局域网应用只关心 S3 endpoint、bucket、凭据和对象前缀。"
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)]">
-          <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-1">
             <FlowCard
               icon={NetworkIcon}
-              title="入口路径"
+              title="入口约定"
               description="可信局域网应用 -> Kubernetes NodePort -> SeaweedFS S3 gateway -> xdream bucket。"
               facts={[
                 ["LAN endpoint", lanS3Endpoint],
@@ -229,24 +247,25 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
               ]}
             />
             <StepList
+              label="Upload Runbook"
               steps={[
                 {
-                  title: "1. 打通网络",
+                  title: "打通网络",
                   description: `外部机器先确认能访问 ${controllerIp}:${SEAWEEDFS_S3_NODE_PORT}。不通时优先查节点防火墙、交换机 ACL 和 seaweedfs-s3-nodeport Service。`,
                 },
                 {
-                  title: "2. 配置 S3 凭据",
+                  title: "配置 S3 凭据",
                   description:
                     "从 infra/seaweedfs/seaweedfs.env 读取 SEAWEEDFS_S3_ACCESS_KEY 和 SEAWEEDFS_S3_SECRET_KEY，不把凭据写进前端页面或代码仓库。",
                 },
                 {
-                  title: "3. 上传到约定前缀",
+                  title: "写入约定前缀",
                   description: `数据集放 s3://${DEFAULT_BUCKET}/datasets/...，模型放 models/...，训练归档和 checkpoint 放 checkpoints/...。`,
                 },
               ]}
             />
           </div>
-          <div className="grid min-w-0 gap-4">
+          <div className="grid min-w-0 content-start gap-3">
             <StorageExampleCard
               title="命令行导入"
               status="局域网机器直接通过 S3 NodePort 上传数据集。"
@@ -264,12 +283,12 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       </ModuleSection>
 
       <ModuleSection
-        title="系统内部怎么本地挂载使用"
-        description="内部工作负载默认不直接处理 S3 对象路径。平台在 Pod 启动时用 SeaweedFS Filer/FUSE 挂载，同一份 bucket 内容在容器内表现为普通目录。"
+        title="内部挂载"
+        description="平台在 Pod 启动时完成 SeaweedFS Filer/FUSE 挂载，业务容器按本地文件路径读写。"
         density="compact"
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)]">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div className="grid gap-3 md:grid-cols-2">
             <StorageBindingCard
               title="远程工作区"
               status="桌面容器启动时挂载共享目录"
@@ -319,11 +338,11 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
               ]}
             />
           </div>
-          <div className="grid min-w-0 gap-4">
+          <div className="grid min-w-0 content-start gap-3">
             <FlowCard
               icon={HardDriveIcon}
               title="挂载机制"
-              description="平台会给业务 Pod 注入 init container、/dev/fuse、fusermount 和挂载脚本。业务容器启动命令前先挂载 SeaweedFS，再执行真正的训练、桌面或 Studio 命令。"
+              description="平台给业务 Pod 注入 init container、/dev/fuse、fusermount 和挂载脚本；业务命令执行前先完成挂载。"
               facts={[
                 ["ClusterIP S3", INTERNAL_ENDPOINT],
                 ["Filer", INTERNAL_FILER_ENDPOINT],
@@ -341,7 +360,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             />
             <StorageExampleCard
               title="临时回退方式"
-              status="只有在关闭自动 FUSE 后，才会使用节点 hostPath 或 PVC。"
+              status="关闭自动 FUSE 后，才会使用节点 hostPath 或 PVC。"
               icon={TerminalIcon}
               code={fallbackExample}
             />
@@ -350,11 +369,11 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       </ModuleSection>
 
       <ModuleSection
-        title="运维补充"
+        title="运维边界"
         description="这些信息用于判断当前存储能不能稳定承载训练数据，不是业务侧上传或挂载的主流程。"
         density="compact"
       >
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-3 xl:grid-cols-3">
           <StorageBindingCard
             title="当前集群"
             status="页面信息来自 infra/k8s/cluster"
@@ -396,6 +415,106 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
   );
 }
 
+function StorageRouteMap({
+  external,
+  internal,
+}: {
+  external: RouteNode[];
+  internal: RouteNode[];
+}) {
+  return (
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-slate-50/75 p-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+      <div className="grid gap-3 lg:grid-cols-2">
+        <StoragePathLine title="外部上传路径" tone="emerald" nodes={external} />
+        <StoragePathLine title="内部挂载路径" tone="sky" nodes={internal} />
+      </div>
+    </div>
+  );
+}
+
+function StoragePathLine({
+  title,
+  tone,
+  nodes,
+}: {
+  title: string;
+  tone: "emerald" | "sky";
+  nodes: RouteNode[];
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200/80 bg-emerald-50/60 text-emerald-700 ring-emerald-100"
+      : "border-sky-200/80 bg-sky-50/60 text-sky-700 ring-sky-100";
+
+  return (
+    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white p-3.5">
+      <p className="text-[12px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+        {title}
+      </p>
+      <div className="mt-3 grid gap-2">
+        {nodes.map((node, index) => (
+          <div
+            key={`${node.label}-${node.value}`}
+            className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2"
+          >
+            <div
+              className={cn(
+                "flex size-7 items-center justify-center rounded-[8px] border ring-1",
+                toneClass,
+              )}
+            >
+              <node.icon className="size-3.5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[12px] leading-4 font-medium text-slate-500">
+                {node.label}
+              </p>
+              <p className="truncate font-mono text-[12px] leading-5 font-semibold text-slate-900">
+                {node.value}
+              </p>
+            </div>
+            {index < nodes.length - 1 ? (
+              <span className="text-[13px] text-slate-300">{"->"}</span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StorageSummaryPanel({
+  title,
+  facts,
+}: {
+  title: string;
+  facts: Array<[string, string]>;
+}) {
+  return (
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[12px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+          {title}
+        </p>
+        <div className="flex size-7 items-center justify-center rounded-[8px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+          <DatabaseIcon className="size-3.5" />
+        </div>
+      </div>
+      <dl className="mt-3 grid gap-2">
+        {facts.map(([label, value]) => (
+          <StorageFact
+            key={label}
+            label={label}
+            value={value}
+            compact
+            stacked
+          />
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function FlowCard({
   icon: Icon,
   title,
@@ -408,41 +527,50 @@ function FlowCard({
   facts: Array<[string, string]>;
 }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/50 px-5 py-5">
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50/45 px-4 py-4">
       <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-white text-emerald-700 ring-1 ring-emerald-100">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-white text-emerald-700 ring-1 ring-emerald-100">
           <Icon className="size-4" />
         </div>
         <div className="min-w-0">
-          <p className="font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+          <p className="text-[15px] font-semibold text-slate-950">{title}</p>
+          <p className="mt-1 text-[13px] leading-5 text-slate-600">
+            {description}
+          </p>
         </div>
       </div>
-      <dl className="mt-4 grid gap-2">
+      <dl className="mt-3 grid gap-2">
         {facts.map(([label, value]) => (
-          <StorageFact key={label} label={label} value={value} />
+          <StorageFact key={label} label={label} value={value} compact />
         ))}
       </dl>
     </div>
   );
 }
 
-function StepList({ steps }: { steps: StepItem[] }) {
+function StepList({ label, steps }: { label: string; steps: StepItem[] }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+    <div className="rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-500 uppercase">
-        External Ingest
+        {label}
       </p>
-      <div className="mt-4 grid gap-3">
-        {steps.map((step) => (
+      <div className="mt-3 grid gap-3">
+        {steps.map((step, index) => (
           <div
             key={step.title}
-            className="rounded-[10px] border border-slate-200/80 bg-slate-50/70 px-4 py-3"
+            className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3"
           >
-            <p className="text-sm font-semibold text-slate-950">{step.title}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              {step.description}
-            </p>
+            <div className="flex size-7 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[12px] font-semibold text-slate-600">
+              {index + 1}
+            </div>
+            <div className="min-w-0 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
+              <p className="text-sm font-semibold text-slate-950">
+                {step.title}
+              </p>
+              <p className="mt-1 text-[13px] leading-5 text-slate-600">
+                {step.description}
+              </p>
+            </div>
           </div>
         ))}
       </div>
@@ -462,28 +590,41 @@ function StorageBindingCard({
   rows: Array<[string, string]>;
 }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-base font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-sm leading-5 text-slate-500">{status}</p>
+          <p className="text-[15px] font-semibold text-slate-950">{title}</p>
+          <p className="mt-0.5 text-[13px] leading-5 text-slate-500">
+            {status}
+          </p>
         </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
           <Icon className="size-4" />
         </div>
       </div>
-      <dl className="mt-4 grid gap-2">
+      <dl className="mt-3 grid gap-2">
         {rows.map(([label, value]) => (
-          <StorageFact key={label} label={label} value={value} />
+          <StorageFact key={label} label={label} value={value} compact />
         ))}
       </dl>
     </div>
   );
 }
 
-function StorageFact({ label, value }: FactItem) {
+function StorageFact({
+  label,
+  value,
+  compact = false,
+  stacked = false,
+}: FactItem & { compact?: boolean; stacked?: boolean }) {
   return (
-    <div className="grid gap-1 rounded-[10px] bg-slate-50/80 px-3 py-2 sm:grid-cols-[112px_minmax(0,1fr)] sm:items-start">
+    <div
+      className={cn(
+        "grid gap-1 rounded-[8px] bg-slate-50/85 sm:items-start",
+        stacked ? "" : "sm:grid-cols-[104px_minmax(0,1fr)]",
+        compact ? "px-2.5 py-1.5" : "px-3 py-2",
+      )}
+    >
       <dt className="text-[12px] leading-5 font-medium text-slate-500">
         {label}
       </dt>
@@ -506,19 +647,28 @@ function StorageExampleCard({
   code: string;
 }) {
   return (
-    <div className="min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-5 py-5 shadow-[0_1px_0_rgba(15,23,42,0.035)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-base font-semibold text-slate-950">{title}</p>
-          <p className="mt-1 text-sm leading-5 text-slate-500">{status}</p>
-        </div>
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-          <Icon className="size-4" />
-        </div>
+    <details className="group min-w-0 rounded-[var(--radius-card)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.035)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 transition-colors outline-none hover:bg-slate-50/80 focus-visible:ring-2 focus-visible:ring-slate-300 [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-start gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+            <Icon className="size-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-semibold text-slate-950">
+              {title}
+            </span>
+            <span className="mt-0.5 block text-[13px] leading-5 text-slate-500">
+              {status}
+            </span>
+          </span>
+        </span>
+        <ChevronDownIcon className="size-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-200/80 px-4 py-4">
+        <pre className="max-h-[min(38vh,360px)] w-full min-w-0 overflow-auto rounded-[10px] border border-slate-200 bg-slate-950 p-4 text-[12px] leading-5 text-slate-100 shadow-inner">
+          <code>{code}</code>
+        </pre>
       </div>
-      <pre className="mt-4 max-h-[360px] w-full min-w-0 overflow-auto rounded-[10px] border border-slate-200 bg-slate-950 p-4 text-[12px] leading-5 text-slate-100 shadow-inner">
-        <code>{code}</code>
-      </pre>
-    </div>
+    </details>
   );
 }
