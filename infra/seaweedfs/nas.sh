@@ -76,10 +76,7 @@ run_step() {
   shift
 
   log "$step"
-  if "$@"; then
-    return 0
-  fi
-
+  "$@" && return 0
   local status=$?
   echo "ERROR: ${step} 失败，退出码 ${status}" >&2
   print_failure_hint "$step"
@@ -173,6 +170,7 @@ set_defaults() {
   SEAWEEDFS_NAS_START_SCRIPT="${SEAWEEDFS_NAS_START_SCRIPT:-${SEAWEEDFS_NAS_BIN_DIR%/}/start-volume.sh}"
   SEAWEEDFS_NAS_PID_FILE="${SEAWEEDFS_NAS_PID_FILE:-${SEAWEEDFS_NAS_RUN_DIR%/}/weed-volume.pid}"
   SEAWEEDFS_NAS_LOG_FILE="${SEAWEEDFS_NAS_LOG_FILE:-${SEAWEEDFS_NAS_LOG_DIR%/}/weed-volume.log}"
+  SEAWEEDFS_NAS_LOG_MARKER_FILE="${SEAWEEDFS_NAS_LOG_MARKER_FILE:-${SEAWEEDFS_NAS_RUN_DIR%/}/weed-volume.log.marker}"
 
   SEAWEEDFS_DOWNLOAD_BASE_URL="${SEAWEEDFS_DOWNLOAD_BASE_URL:-https://github.com/seaweedfs/seaweedfs/releases/download}"
   SEAWEEDFS_DOWNLOAD_VERSION="${SEAWEEDFS_DOWNLOAD_VERSION:-${SEAWEEDFS_IMAGE_TAG:-4.23}}"
@@ -285,13 +283,22 @@ require_ssh_tools() {
 }
 
 ssh_base() {
+  local stderr_file
+  local status
+
+  stderr_file="$(mktemp)"
   sshpass -p "$NAS_SSH_PASSWORD" ssh \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
     -o LogLevel=ERROR \
     -p "$NAS_SSH_PORT" \
     "${NAS_SSH_USER}@${NAS_IP}" \
-    "$@"
+    "$@" \
+    2>"$stderr_file" || status=$?
+
+  sed '/^Could not chdir to home directory .*: No such file or directory$/d' "$stderr_file" >&2 || true
+  rm -f "$stderr_file"
+  return "${status:-0}"
 }
 
 remote_sudo() {
@@ -439,32 +446,95 @@ chmod 0755 $(shell_quote "$SEAWEEDFS_NAS_START_SCRIPT")
 EOF
 }
 
+current_log_script() {
+  cat <<'EOF'
+print_current_log() {
+  if [[ ! -f "$log_file" ]]; then
+    echo "weed volume log file not found: $log_file"
+    return 0
+  fi
+
+  marker=""
+  if [[ -s "$marker_file" ]]; then
+    marker="$(cat "$marker_file" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$marker" ]] && grep -Fqx "$marker" "$log_file" 2>/dev/null; then
+    awk -v marker="$marker" '
+      $0 == marker { found = 1; count = 0 }
+      found {
+        lines[++count] = $0
+        if (count > 80) delete lines[count - 80]
+      }
+      END {
+        first = count > 80 ? count - 79 : 1
+        for (i = first; i <= count; i++) {
+          if (i in lines) print lines[i]
+        }
+      }
+    ' "$log_file"
+    return 0
+  fi
+
+  awk '
+    /Start Seaweed volume server / { count = 0 }
+    {
+      lines[++count] = $0
+      if (count > 80) delete lines[count - 80]
+    }
+    END {
+      first = count > 80 ? count - 79 : 1
+      for (i = first; i <= count; i++) {
+        if (i in lines) print lines[i]
+      }
+    }
+  ' "$log_file"
+}
+EOF
+}
+
 start_nas_script() {
   cat <<EOF
 set -euo pipefail
 
 pid_file=$(shell_quote "$SEAWEEDFS_NAS_PID_FILE")
 log_file=$(shell_quote "$SEAWEEDFS_NAS_LOG_FILE")
+marker_file=$(shell_quote "$SEAWEEDFS_NAS_LOG_MARKER_FILE")
 start_script=$(shell_quote "$SEAWEEDFS_NAS_START_SCRIPT")
 
 [[ -x "\$start_script" ]] || { echo "NAS start script not found or not executable: \$start_script" >&2; exit 1; }
+mkdir -p "\$(dirname "\$pid_file")" "\$(dirname "\$log_file")" "\$(dirname "\$marker_file")"
+
+$(current_log_script)
 
 if [[ -f "\$pid_file" ]]; then
   old_pid="\$(cat "\$pid_file" 2>/dev/null || true)"
   if [[ -n "\$old_pid" ]] && kill -0 "\$old_pid" >/dev/null 2>&1; then
     kill "\$old_pid" || true
-    for _ in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
       kill -0 "\$old_pid" >/dev/null 2>&1 || break
       sleep 1
     done
+    if kill -0 "\$old_pid" >/dev/null 2>&1; then
+      echo "旧 weed volume 进程未退出，拒绝启动第二个进程: \$old_pid" >&2
+      exit 1
+    fi
   fi
 fi
 
+start_marker="===== seaweedfs volume start \$(date '+%Y-%m-%dT%H:%M:%S%z') ====="
+printf '\\n%s\\n' "\$start_marker" >>"\$log_file"
+printf '%s\\n' "\$start_marker" >"\$marker_file"
 nohup "\$start_script" >>"\$log_file" 2>&1 &
-echo \$! >"\$pid_file"
-sleep 1
+new_pid="\$!"
+echo "\$new_pid" >"\$pid_file"
+sleep 2
 cat "\$pid_file"
-tail -n 30 "\$log_file" || true
+print_current_log || true
+if ! kill -0 "\$new_pid" >/dev/null 2>&1; then
+  echo "weed volume 启动后未保持运行: \$new_pid" >&2
+  exit 1
+fi
 EOF
 }
 
@@ -474,6 +544,10 @@ set -euo pipefail
 
 pid_file=$(shell_quote "$SEAWEEDFS_NAS_PID_FILE")
 log_file=$(shell_quote "$SEAWEEDFS_NAS_LOG_FILE")
+marker_file=$(shell_quote "$SEAWEEDFS_NAS_LOG_MARKER_FILE")
+status=0
+
+$(current_log_script)
 
 if [[ -f "\$pid_file" ]]; then
   pid="\$(cat "\$pid_file" 2>/dev/null || true)"
@@ -481,13 +555,16 @@ if [[ -f "\$pid_file" ]]; then
     echo "weed volume running: \$pid"
   else
     echo "weed volume pid file exists but process is not running: \${pid:-empty}"
+    status=1
   fi
 else
   echo "weed volume pid file not found"
+  status=1
 fi
 
 df -h $(shell_quote "$SEAWEEDFS_NAS_VOLUME_DIR") || true
-tail -n 80 "\$log_file" || true
+print_current_log || true
+exit "\$status"
 EOF
 }
 
