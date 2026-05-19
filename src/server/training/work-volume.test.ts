@@ -74,10 +74,7 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     )?.value,
     "/buckets/xdream",
   );
-  assert.equal(
-    buildWorkVolumeSecurityContext(workVolume)?.privileged,
-    undefined,
-  );
+  assert.equal(buildWorkVolumeSecurityContext(workVolume)?.privileged, true);
   assert.deepEqual(buildWorkVolumeSecurityContext(workVolume)?.capabilities, {
     add: ["SYS_ADMIN"],
   });
@@ -153,6 +150,25 @@ void test("SeaweedFS FUSE work volume can opt into privileged mode", () => {
   });
 
   assert.equal(buildWorkVolumeSecurityContext(workVolume)?.privileged, true);
+});
+
+void test("SeaweedFS FUSE work volume can opt out of privileged mode", () => {
+  const workVolume = resolveKubernetesWorkVolume({
+    env: {
+      COLA_SEAWEEDFS_MOUNT_PRIVILEGED: "false",
+    },
+    volumeName: "training-workdir",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
+    hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
+    pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
+    pvcMountPathEnvNames: ["COLA_TRAINING_PVC_MOUNT_PATH"],
+  });
+
+  assert.equal(
+    buildWorkVolumeSecurityContext(workVolume)?.privileged,
+    undefined,
+  );
 });
 
 void test("work volume can use a node mounted SeaweedFS FUSE hostPath when automatic mount is disabled", () => {
