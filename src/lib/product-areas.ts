@@ -24,7 +24,7 @@ export const PRODUCT_AREAS: Array<{
   {
     key: "workspace",
     href: "/workspace",
-    title: "远程工作区",
+    title: "云桌面",
     description: "集中管理 remote workspace、浏览器桌面、入口地址与节点资源。",
   },
   {

@@ -27,7 +27,7 @@
             position: relative;
             display: grid;
             min-height: 28px;
-            grid-template-columns: auto minmax(0, 1fr) auto;
+            grid-template-columns: auto auto minmax(0, 1fr) auto;
             align-items: center;
             gap: 8px;
             border-bottom: 1px outset rgba(255, 255, 255, 0.4);
@@ -120,6 +120,8 @@
         let rfb;
         let desktopName = "workspace";
         let pasteTimer = null;
+        let remoteClipboardText = "";
+        let clipboardPanelMode = "paste";
 
         function status(text) {
             document.getElementById("status").textContent = text;
@@ -161,6 +163,14 @@
         function updateDesktopName(event) {
             desktopName = event.detail.name || desktopName;
             document.title = desktopName + " - Remote Workspace";
+        }
+
+        function updateRemoteClipboard(event) {
+            const text = event.detail?.text ?? "";
+            if (!text) return;
+
+            remoteClipboardText = text;
+            status("Clipboard received from " + desktopName + "; click Copy");
         }
 
         function sendCtrlAltDel() {
@@ -221,15 +231,39 @@
             const area = document.getElementById("paste_area");
             panel.classList.remove("open");
             area.value = "";
+            clipboardPanelMode = "paste";
             rfb?.focus();
         }
 
         function showPastePanel() {
             const panel = document.getElementById("paste_panel");
             const area = document.getElementById("paste_area");
+            const label = document.getElementById("paste_label");
+            const sendButton = document.getElementById("pasteSendButton");
+            const copyButton = document.getElementById("copyBrowserButton");
+            clipboardPanelMode = "paste";
+            label.textContent = "Paste into desktop";
+            sendButton.hidden = false;
+            copyButton.hidden = true;
             panel.classList.add("open");
             area.value = "";
             area.focus();
+        }
+
+        function showCopyPanel(text) {
+            const panel = document.getElementById("paste_panel");
+            const area = document.getElementById("paste_area");
+            const label = document.getElementById("paste_label");
+            const sendButton = document.getElementById("pasteSendButton");
+            const copyButton = document.getElementById("copyBrowserButton");
+            clipboardPanelMode = "copy";
+            label.textContent = "Copy from desktop";
+            sendButton.hidden = true;
+            copyButton.hidden = false;
+            panel.classList.add("open");
+            area.value = text;
+            area.focus();
+            area.select();
         }
 
         async function readBrowserClipboardText() {
@@ -255,6 +289,42 @@
             }
         }
 
+        async function writeBrowserClipboardText(text) {
+            if (!text) return false;
+
+            if (navigator.clipboard?.writeText && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch {
+                    // Fall back to selecting the text in the clipboard box below.
+                }
+            }
+
+            showCopyPanel(text);
+            try {
+                return document.execCommand("copy");
+            } catch {
+                return false;
+            }
+        }
+
+        async function copyRemoteClipboard() {
+            const text = remoteClipboardText || document.getElementById("paste_area").value;
+            if (!text) {
+                status("Copy text inside " + desktopName + " first");
+                rfb?.focus();
+                return;
+            }
+
+            const copied = await writeBrowserClipboardText(text);
+            status(
+                copied
+                    ? "Copied from " + desktopName + " to browser clipboard"
+                    : "Select text in the clipboard box and copy manually",
+            );
+        }
+
         function handlePaste(event) {
             const text = event.clipboardData?.getData("text/plain");
             if (!text) return;
@@ -274,9 +344,15 @@
         function initialize() {
             document.getElementById("sendCtrlAltDelButton").addEventListener("click", sendCtrlAltDel);
             document.getElementById("pasteButton").addEventListener("click", pasteFromBrowserClipboard);
+            document.getElementById("copyButton").addEventListener("click", copyRemoteClipboard);
             document.getElementById("pasteCloseButton").addEventListener("click", hidePastePanel);
+            document.getElementById("copyBrowserButton").addEventListener("click", copyRemoteClipboard);
             document.getElementById("pasteSendButton").addEventListener("click", () => {
                 const area = document.getElementById("paste_area");
+                if (clipboardPanelMode === "copy") {
+                    void copyRemoteClipboard();
+                    return;
+                }
                 if (syncClipboardText(area.value)) hidePastePanel();
             });
             document.getElementById("paste_area").addEventListener("paste", handlePaste);
@@ -304,6 +380,7 @@
             rfb.addEventListener("disconnect", disconnectedFromServer);
             rfb.addEventListener("credentialsrequired", credentialsAreRequired);
             rfb.addEventListener("desktopname", updateDesktopName);
+            rfb.addEventListener("clipboard", updateRemoteClipboard);
 
             const resizeMode = readQueryVariable("resize", "off").toLowerCase();
             rfb.viewOnly = readBooleanQuery("view_only", false);
@@ -324,14 +401,16 @@
     <div id="app">
         <div id="top_bar">
             <button id="pasteButton" class="bar_button" type="button">Paste</button>
+            <button id="copyButton" class="bar_button" type="button">Copy</button>
             <div id="status">Loading</div>
             <button id="sendCtrlAltDelButton" class="bar_button" type="button">CtrlAltDel</button>
         </div>
         <div id="paste_panel">
-            <label for="paste_area">Clipboard</label>
+            <label id="paste_label" for="paste_area">Clipboard</label>
             <textarea id="paste_area" autocomplete="off" spellcheck="false"></textarea>
             <div id="paste_actions">
                 <button id="pasteCloseButton" class="bar_button" type="button">Close</button>
+                <button id="copyBrowserButton" class="bar_button" type="button" hidden>Copy</button>
                 <button id="pasteSendButton" class="bar_button" type="button">Send</button>
             </div>
         </div>

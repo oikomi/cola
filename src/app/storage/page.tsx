@@ -174,7 +174,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
   ];
   const workloads: WorkloadItem[] = [
     {
-      name: "远程工作区",
+      name: "云桌面",
       description: "桌面容器启动时挂载共享目录",
       icon: FilesIcon,
       enable: "REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED",

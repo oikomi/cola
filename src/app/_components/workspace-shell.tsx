@@ -418,7 +418,7 @@ export function WorkspaceShell() {
         size="compact"
         density="tight"
         eyebrow="Workspace Control"
-        title="远程工作区"
+        title="云桌面"
         description="集中管理 remote workspace、浏览器桌面、入口地址与节点资源。"
         icon={MonitorSmartphoneIcon}
         badges={
@@ -826,7 +826,7 @@ export function WorkspaceShell() {
             <DialogTitle>创建远程桌面</DialogTitle>
             <DialogDescription>
               指定 CPU、内存、整卡或显存份额和分辨率后，系统会在 Kubernetes
-              中创建新的远程工作区。
+              中创建新的云桌面。
             </DialogDescription>
           </DialogHeader>
 
