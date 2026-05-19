@@ -412,7 +412,18 @@ set -euo pipefail
 
 mkdir -p $(shell_quote "$SEAWEEDFS_NAS_BIN_DIR") $(shell_quote "$SEAWEEDFS_NAS_RUN_DIR") $(shell_quote "$SEAWEEDFS_NAS_LOG_DIR") $(shell_quote "$SEAWEEDFS_NAS_VOLUME_DIR")
 
+install_weed=0
 if [[ ! -x $(shell_quote "$SEAWEEDFS_NAS_WEED_BIN") ]]; then
+  install_weed=1
+else
+  current_version="\$($(shell_quote "$SEAWEEDFS_NAS_WEED_BIN") version 2>/dev/null | awk '{print \$3}' | head -n 1 || true)"
+  if [[ "\$current_version" != $(shell_quote "$SEAWEEDFS_DOWNLOAD_VERSION") ]]; then
+    echo "SeaweedFS weed version mismatch: current=\${current_version:-unknown}, target=$(shell_quote "$SEAWEEDFS_DOWNLOAD_VERSION")"
+    install_weed=1
+  fi
+fi
+
+if [[ "\$install_weed" -eq 1 ]]; then
   tmp_dir="\$(mktemp -d)"
   cleanup() { rm -rf "\$tmp_dir"; }
   trap cleanup EXIT

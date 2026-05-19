@@ -520,8 +520,8 @@ function DeploymentRuntimeRow(props: {
 
   return (
     <article className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/92 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
-      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
+      <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(172px,0.7fr)_minmax(210px,1fr)_minmax(205px,0.95fr)_minmax(215px,1fr)_auto] min-[1180px]:items-start">
+        <div className="flex min-w-0 items-start gap-3 min-[1180px]:pr-1">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] border border-slate-200/85 bg-slate-50/90 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
             <BlocksIcon className="size-4" />
           </span>
@@ -543,21 +543,7 @@ function DeploymentRuntimeRow(props: {
           </div>
         </div>
 
-        <DeploymentActionButtons
-          row={props.row}
-          canOpenApi={props.canOpenApi}
-          canStart={props.canStart}
-          isStarting={props.isStarting}
-          isDeleting={props.isDeleting}
-          align="start"
-          density="compact"
-          onStart={props.onStart}
-          onDelete={props.onDelete}
-        />
-      </div>
-
-      <div className="mt-4 grid min-w-0 gap-4 border-t border-slate-200/80 pt-4 lg:grid-cols-[minmax(220px,0.95fr)_minmax(230px,0.8fr)_minmax(280px,1fr)]">
-        <div className="min-w-0">
+        <div className="min-w-0 border-t border-slate-200/80 pt-3 min-[1180px]:border-t-0 min-[1180px]:border-l min-[1180px]:pt-0 min-[1180px]:pl-3">
           <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             Runtime / 模型
           </p>
@@ -577,7 +563,7 @@ function DeploymentRuntimeRow(props: {
           </p>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 border-t border-slate-200/80 pt-3 min-[1180px]:border-t-0 min-[1180px]:border-l min-[1180px]:pt-0 min-[1180px]:pl-3">
           <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             资源 / 节点
           </p>
@@ -586,7 +572,7 @@ function DeploymentRuntimeRow(props: {
           </div>
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 border-t border-slate-200/80 pt-3 min-[1180px]:border-t-0 min-[1180px]:border-l min-[1180px]:pt-0 min-[1180px]:pl-3">
           <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             入口 / 更新时间
           </p>
@@ -606,6 +592,20 @@ function DeploymentRuntimeRow(props: {
               {endpointHint.label} {endpointHint.value}
             </p>
           ) : null}
+        </div>
+
+        <div className="min-w-0 border-t border-slate-200/80 pt-3 min-[1180px]:border-t-0 min-[1180px]:pt-0">
+          <DeploymentActionButtons
+            row={props.row}
+            canOpenApi={props.canOpenApi}
+            canStart={props.canStart}
+            isStarting={props.isStarting}
+            isDeleting={props.isDeleting}
+            align="end"
+            density="compact"
+            onStart={props.onStart}
+            onDelete={props.onDelete}
+          />
         </div>
       </div>
     </article>
