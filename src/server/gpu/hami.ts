@@ -38,7 +38,9 @@ export function normalizeGpuAllocation(
   );
 
   if (gpuCount < minGpuCount || gpuCount > maxGpuCount) {
-    throw new Error(`GPU 数量必须是 ${minGpuCount} 到 ${maxGpuCount} 之间的整数。`);
+    throw new Error(
+      `GPU 数量必须是 ${minGpuCount} 到 ${maxGpuCount} 之间的整数。`,
+    );
   }
 
   if (spec.gpuAllocationMode === "whole") {
@@ -77,14 +79,13 @@ export function buildHamiGpuResources(spec: GpuAllocationSpec) {
   }
 
   resources[HAMI_GPU_RESOURCE_NAME] = `${spec.gpuCount}`;
-  resources[HAMI_GPU_MEMORY_RESOURCE_NAME] = `${(spec.gpuMemoryGi ?? 0) * GPU_MEMORY_GI_IN_MIB}`;
+  resources[HAMI_GPU_MEMORY_RESOURCE_NAME] =
+    `${(spec.gpuMemoryGi ?? 0) * GPU_MEMORY_GI_IN_MIB}`;
   return resources;
 }
 
 export function buildHamiSchedulerSpec(spec: GpuAllocationSpec) {
-  return spec.gpuAllocationMode === "memory" && spec.gpuCount > 0
-    ? { schedulerName: HAMI_SCHEDULER_NAME }
-    : {};
+  return spec.gpuCount > 0 ? { schedulerName: HAMI_SCHEDULER_NAME } : {};
 }
 
 function parseIntegerResource(

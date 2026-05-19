@@ -311,6 +311,7 @@ export function buildWorkspaceManifest({
     `        remote-work/name: ${name}`,
     `    spec:`,
     ...(normalizedGpu > 0 ? [`      runtimeClassName: nvidia`] : []),
+    ...(normalizedGpu > 0 ? [`      schedulerName: hami-scheduler`] : []),
     `      containers:`,
     `        - name: desktop`,
     `          image: ${yamlQuote(image)}`,

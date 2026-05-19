@@ -58,11 +58,24 @@ void test("memory mode uses the HAMi scheduler", () => {
   );
 });
 
-void test("whole GPU mode keeps the default scheduler", () => {
+void test("whole GPU mode uses the HAMi scheduler when GPU is requested", () => {
   assert.deepEqual(
     buildHamiSchedulerSpec({
       gpuAllocationMode: "whole",
       gpuCount: 1,
+      gpuMemoryGi: null,
+    }),
+    {
+      schedulerName: "hami-scheduler",
+    },
+  );
+});
+
+void test("whole GPU mode without GPU keeps the default scheduler", () => {
+  assert.deepEqual(
+    buildHamiSchedulerSpec({
+      gpuAllocationMode: "whole",
+      gpuCount: 0,
       gpuMemoryGi: null,
     }),
     {},

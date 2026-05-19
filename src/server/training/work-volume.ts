@@ -308,13 +308,14 @@ function resolveSeaweedfsWorkVolume(input: {
     mountPath: input.mountPath,
     cacheDir,
   });
+  const privileged = isEnabled(
+    firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_PRIVILEGED"]),
+    false,
+  );
   const containerSecurityContext = {
     runAsUser: runMountAsRoot ? 0 : undefined,
     runAsGroup: runMountAsRoot ? 0 : undefined,
-    privileged: isEnabled(
-      firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_PRIVILEGED"]),
-      true,
-    ),
+    ...(privileged ? { privileged } : {}),
     allowPrivilegeEscalation: true,
     capabilities: {
       add: ["SYS_ADMIN"],
