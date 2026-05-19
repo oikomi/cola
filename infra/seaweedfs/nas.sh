@@ -522,11 +522,14 @@ if [[ -f "\$pid_file" ]]; then
   old_pid="\$(cat "\$pid_file" 2>/dev/null || true)"
   if [[ -n "\$old_pid" ]] && kill -0 "\$old_pid" >/dev/null 2>&1; then
     kill "\$old_pid" || true
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
+    for _ in \$(seq 1 30); do
       kill -0 "\$old_pid" >/dev/null 2>&1 || break
+      if ps -o stat= -p "\$old_pid" 2>/dev/null | grep -q Z; then
+        break
+      fi
       sleep 1
     done
-    if kill -0 "\$old_pid" >/dev/null 2>&1; then
+    if kill -0 "\$old_pid" >/dev/null 2>&1 && ! ps -o stat= -p "\$old_pid" 2>/dev/null | grep -q Z; then
       echo "旧 weed volume 进程未退出，拒绝启动第二个进程: \$old_pid" >&2
       exit 1
     fi
