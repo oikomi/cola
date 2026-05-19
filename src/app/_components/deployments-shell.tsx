@@ -507,7 +507,7 @@ function DeploymentActionButtons(props: {
   );
 }
 
-function DeploymentCard(props: {
+function DeploymentRuntimeRow(props: {
   row: DeploymentRow;
   canOpenApi: boolean;
   canStart: boolean;
@@ -519,46 +519,66 @@ function DeploymentCard(props: {
   const endpointHint = apiPathHint(props.row);
 
   return (
-    <article className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-slate-50/80 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold tracking-normal text-slate-950">
-            {props.row.name}
-          </h3>
-          <p className="mt-1 text-sm text-slate-600">
-            {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
-          </p>
-          <ResourceOwnerBadge
-            value={props.row}
-            className="mt-2 max-w-full bg-white/80"
-          />
+    <article className="rounded-[var(--radius-shell)] border border-slate-200/90 bg-white/92 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.035)]">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] border border-slate-200/85 bg-slate-50/90 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
+            <BlocksIcon className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
+                {props.row.name}
+              </h3>
+              <DeploymentStatusBadge status={props.row.status} />
+            </div>
+            <p className="mt-1 text-[12px] leading-5 text-slate-500">
+              {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
+            </p>
+            <ResourceOwnerBadge
+              value={props.row}
+              compact
+              className="mt-1.5 max-w-full"
+            />
+          </div>
         </div>
-        <Badge
-          variant="outline"
-          className={cn("rounded-full", statusTone(props.row.status))}
-        >
-          {inferenceDeploymentStatusLabels[props.row.status]}
-        </Badge>
+
+        <DeploymentActionButtons
+          row={props.row}
+          canOpenApi={props.canOpenApi}
+          canStart={props.canStart}
+          isStarting={props.isStarting}
+          isDeleting={props.isDeleting}
+          align="start"
+          density="compact"
+          onStart={props.onStart}
+          onDelete={props.onDelete}
+        />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+      <div className="mt-4 grid min-w-0 gap-4 border-t border-slate-200/80 pt-4 lg:grid-cols-[minmax(220px,0.95fr)_minmax(230px,0.8fr)_minmax(280px,1fr)]">
+        <div className="min-w-0">
+          <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             Runtime / 模型
           </p>
-          <p className="mt-2 font-medium text-slate-900">
-            {inferenceDeploymentEngineLabels[props.row.engine]}
-          </p>
-          <p className="mt-1 text-sm leading-6 break-all text-slate-600">
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[14px] leading-5 font-semibold text-slate-950">
+              {inferenceDeploymentEngineLabels[props.row.engine]}
+            </span>
+            <span className="rounded-full border border-slate-200/80 bg-slate-50/90 px-2 py-0.5 text-[11px] leading-4 font-medium text-slate-500">
+              Runtime
+            </span>
+          </div>
+          <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-600">
             {props.row.modelRef}
           </p>
-          <p className="mt-1 text-xs leading-5 break-all text-slate-500">
+          <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
             {props.row.image}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+        <div className="min-w-0">
+          <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             资源 / 节点
           </p>
           <div className="mt-2">
@@ -566,127 +586,27 @@ function DeploymentCard(props: {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 sm:col-span-2">
-          <p className="text-[10px] font-semibold tracking-[0.16em] text-slate-500 uppercase">
+        <div className="min-w-0">
+          <p className="text-[10px] leading-4 font-semibold tracking-[0.14em] text-slate-500 uppercase">
             入口 / 更新时间
           </p>
-          <p className="mt-2 font-medium text-slate-900">
-            {props.row.nodePort ? `:${props.row.nodePort}` : "-"}
-          </p>
-          <p className="mt-1 text-sm leading-6 break-all text-slate-600">
-            {props.row.endpoint ?? "-"}
+          <div className="mt-2 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-mono text-[15px] leading-5 font-semibold text-slate-950">
+              {props.row.nodePort ? `:${props.row.nodePort}` : "-"}
+            </span>
+            <span className="text-[12px] leading-5 text-slate-500">
+              {props.row.updatedAt ?? "-"}
+            </span>
+          </div>
+          <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-500">
+            {props.row.endpoint ?? "入口地址待分配"}
           </p>
           {endpointHint.value ? (
-            <p className="mt-1 text-xs leading-5 break-all text-slate-500">
-              {endpointHint.label}：{endpointHint.value}
+            <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
+              {endpointHint.label} {endpointHint.value}
             </p>
           ) : null}
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            最近更新时间 {props.row.updatedAt ?? "-"}
-          </p>
         </div>
-      </div>
-
-      <div className="mt-4 border-t border-slate-200/80 pt-4">
-        <DeploymentActionButtons
-          row={props.row}
-          canOpenApi={props.canOpenApi}
-          canStart={props.canStart}
-          isStarting={props.isStarting}
-          isDeleting={props.isDeleting}
-          onStart={props.onStart}
-          onDelete={props.onDelete}
-        />
-      </div>
-    </article>
-  );
-}
-
-function DeploymentDesktopRow(props: {
-  row: DeploymentRow;
-  canOpenApi: boolean;
-  canStart: boolean;
-  isStarting: boolean;
-  isDeleting: boolean;
-  onStart: () => void;
-  onDelete: () => void;
-}) {
-  const endpointHint = apiPathHint(props.row);
-
-  return (
-    <article className="group grid gap-4 border-b border-slate-200/80 bg-white/92 px-4 py-4 transition-colors last:border-b-0 hover:bg-sky-50/50 2xl:grid-cols-[minmax(230px,0.88fr)_minmax(330px,1.2fr)_minmax(210px,0.72fr)_minmax(260px,0.85fr)_minmax(190px,auto)] 2xl:items-center">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] border border-slate-200/85 bg-slate-50/90 text-slate-600 shadow-[0_10px_18px_rgba(15,23,42,0.04)]">
-          <BlocksIcon className="size-4" />
-        </span>
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <p className="truncate text-[15px] font-semibold tracking-normal text-slate-950">
-              {props.row.name}
-            </p>
-            <DeploymentStatusBadge status={props.row.status} />
-          </div>
-          <p className="mt-1 text-[12px] leading-5 text-slate-500">
-            {props.row.readyReplicas}/{props.row.desiredReplicas} Ready 副本
-          </p>
-          <ResourceOwnerBadge
-            value={props.row}
-            compact
-            className="mt-1.5 max-w-full"
-          />
-        </div>
-      </div>
-
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-[14px] leading-5 font-semibold text-slate-950">
-            {inferenceDeploymentEngineLabels[props.row.engine]}
-          </span>
-          <span className="rounded-full border border-slate-200/80 bg-slate-50/90 px-2 py-0.5 text-[11px] leading-4 font-medium text-slate-500">
-            Runtime
-          </span>
-        </div>
-        <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-600">
-          {props.row.modelRef}
-        </p>
-        <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
-          {props.row.image}
-        </p>
-      </div>
-
-      <DeploymentResourceSummary row={props.row} />
-
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <span className="font-mono text-[15px] leading-5 font-semibold text-slate-950">
-            {props.row.nodePort ? `:${props.row.nodePort}` : "-"}
-          </span>
-          <span className="text-[12px] leading-5 text-slate-500">
-            {props.row.updatedAt ?? "-"}
-          </span>
-        </div>
-        <p className="mt-1 line-clamp-2 font-mono text-[12px] leading-5 break-all text-slate-500">
-          {props.row.endpoint ?? "入口地址待分配"}
-        </p>
-        {endpointHint.value ? (
-          <p className="mt-0.5 line-clamp-1 font-mono text-[11px] leading-5 break-all text-slate-400">
-            {endpointHint.label} {endpointHint.value}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="flex justify-start 2xl:justify-end">
-        <DeploymentActionButtons
-          row={props.row}
-          canOpenApi={props.canOpenApi}
-          canStart={props.canStart}
-          isStarting={props.isStarting}
-          isDeleting={props.isDeleting}
-          align="end"
-          density="compact"
-          onStart={props.onStart}
-          onDelete={props.onDelete}
-        />
       </div>
     </article>
   );
@@ -1012,74 +932,34 @@ export function DeploymentsShell() {
         ) : null}
 
         {!deploymentsQuery.isLoading && rows.length > 0 ? (
-          <>
-            <div className="grid gap-3 2xl:hidden">
-              {rows.map((row) => {
-                const isStarting =
-                  startDeployment.isPending &&
-                  startDeployment.variables?.name === row.name;
-                const isDeleting =
-                  deleteDeployment.isPending &&
-                  deleteDeployment.variables?.name === row.name;
-                const canStart = ["draft", "paused", "failed"].includes(
-                  row.status,
-                );
-                const canOpenApi =
-                  row.status === "serving" && Boolean(row.endpoint);
+          <div className="grid gap-3">
+            {rows.map((row) => {
+              const isStarting =
+                startDeployment.isPending &&
+                startDeployment.variables?.name === row.name;
+              const isDeleting =
+                deleteDeployment.isPending &&
+                deleteDeployment.variables?.name === row.name;
+              const canStart = ["draft", "paused", "failed"].includes(
+                row.status,
+              );
+              const canOpenApi =
+                row.status === "serving" && Boolean(row.endpoint);
 
-                return (
-                  <DeploymentCard
-                    key={row.id}
-                    row={row}
-                    canOpenApi={canOpenApi}
-                    canStart={canStart}
-                    isStarting={isStarting}
-                    isDeleting={isDeleting}
-                    onStart={() => handleStart(row.name)}
-                    onDelete={() => void handleDelete(row.name)}
-                  />
-                );
-              })}
-            </div>
-
-            <div className="hidden overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))] shadow-[0_18px_38px_rgba(15,23,42,0.05)] 2xl:block">
-              <div className="grid border-b border-slate-200/80 bg-slate-50/90 px-4 py-3 text-[11px] font-semibold tracking-[0.16em] text-slate-500 uppercase 2xl:grid-cols-[minmax(230px,0.88fr)_minmax(330px,1.2fr)_minmax(210px,0.72fr)_minmax(260px,0.85fr)_minmax(190px,auto)]">
-                <span>部署 / 状态</span>
-                <span>Runtime / 模型</span>
-                <span>资源 / 节点</span>
-                <span>入口 / 更新时间</span>
-                <span className="text-right">操作</span>
-              </div>
-              <div>
-                {rows.map((row) => {
-                  const isStarting =
-                    startDeployment.isPending &&
-                    startDeployment.variables?.name === row.name;
-                  const isDeleting =
-                    deleteDeployment.isPending &&
-                    deleteDeployment.variables?.name === row.name;
-                  const canStart = ["draft", "paused", "failed"].includes(
-                    row.status,
-                  );
-                  const canOpenApi =
-                    row.status === "serving" && Boolean(row.endpoint);
-
-                  return (
-                    <DeploymentDesktopRow
-                      key={row.id}
-                      row={row}
-                      canOpenApi={canOpenApi}
-                      canStart={canStart}
-                      isStarting={isStarting}
-                      isDeleting={isDeleting}
-                      onStart={() => handleStart(row.name)}
-                      onDelete={() => void handleDelete(row.name)}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </>
+              return (
+                <DeploymentRuntimeRow
+                  key={row.id}
+                  row={row}
+                  canOpenApi={canOpenApi}
+                  canStart={canStart}
+                  isStarting={isStarting}
+                  isDeleting={isDeleting}
+                  onStart={() => handleStart(row.name)}
+                  onDelete={() => void handleDelete(row.name)}
+                />
+              );
+            })}
+          </div>
         ) : null}
       </ModuleSection>
 
