@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ClipboardIcon,
+  KeyboardIcon,
   LoaderCircleIcon,
   MonitorSmartphoneIcon,
   PlusIcon,
@@ -500,25 +502,48 @@ export function WorkspaceShell() {
           </Button>
         }
       >
-        <div className="grid gap-2 md:grid-cols-3">
-          <WorkspaceMetric
-            label="工作区总数"
-            value={String(rows.length)}
-            caption="当前已登记的远程桌面数量。"
-            tone="sky"
-          />
-          <WorkspaceMetric
-            label="运行中"
-            value={String(runningCount)}
-            caption={`可直接登录 ${readyCount} 个，优先关注已就绪入口。`}
-            tone="emerald"
-          />
-          <WorkspaceMetric
-            label="待就绪"
-            value={String(startingCount)}
-            caption="仍在等待容器、节点或地址分配。"
-            tone="amber"
-          />
+        <div className="grid gap-3">
+          <div className="grid gap-2 md:grid-cols-3">
+            <WorkspaceMetric
+              label="工作区总数"
+              value={String(rows.length)}
+              caption="当前已登记的远程桌面数量。"
+              tone="sky"
+            />
+            <WorkspaceMetric
+              label="运行中"
+              value={String(runningCount)}
+              caption={`可直接登录 ${readyCount} 个，优先关注已就绪入口。`}
+              tone="emerald"
+            />
+            <WorkspaceMetric
+              label="待就绪"
+              value={String(startingCount)}
+              caption="仍在等待容器、节点或地址分配。"
+              tone="amber"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-slate-200/90 bg-slate-50/88 px-3.5 py-3 text-[12px] leading-5 text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.03)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius-card)] border border-emerald-200/80 bg-emerald-50 text-emerald-700">
+                <ClipboardIcon className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] leading-5 font-semibold text-slate-900">
+                  文本剪贴板已开启
+                </p>
+                <p className="text-[12px] leading-5 text-slate-600">
+                  Chrome / Edge 可直接在本机和云桌面之间复制粘贴文本；浏览器拦截时用
+                  KasmVNC Clipboard 面板中转。
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-[var(--radius-card)] border border-slate-200/90 bg-white px-2.5 py-1 font-mono text-[11px] leading-5 text-slate-700 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+              <KeyboardIcon className="size-3.5" />
+              Ctrl+Shift+1
+            </span>
+          </div>
         </div>
       </ModuleHero>
 

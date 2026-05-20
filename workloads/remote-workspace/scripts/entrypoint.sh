@@ -11,6 +11,10 @@ export KASMVNC_USER="${KASMVNC_USER:-worker}"
 export WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
 export COLA_SHARED_STORAGE_DIR="${COLA_SHARED_STORAGE_DIR:-/shared-dist-storage}"
 
+chown_home() {
+  find "$HOME" -xdev -exec chown -h worker:worker {} +
+}
+
 if [[ "$RESOLUTION" =~ ^([0-9]+x[0-9]+)(x([0-9]+))?$ ]]; then
   KASMVNC_GEOMETRY="${BASH_REMATCH[1]}"
   KASMVNC_DEPTH="${BASH_REMATCH[3]:-24}"
@@ -46,11 +50,11 @@ if [[ ! -d /run/systemd/system ]]; then
   rm -rf /run/systemd/seats
 fi
 
-chown -R worker:worker "$HOME"
+chown_home
 chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 
 /opt/remote-work/setup-home.sh
-chown -R worker:worker "$HOME"
+chown_home
 chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 
 if [[ "$VNC_DISABLE_PASSWORD" != "1" ]]; then

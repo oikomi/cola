@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   buildWorkspaceAccessUrl,
   buildWorkspaceManifest,
@@ -114,6 +117,7 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
     allowGpuNode: false,
     ingressHost: "alice.example.com",
     tlsSecret: "alice-tls",
+    codexSecretName: "shared-codex",
   });
 
   assert.equal(normalizedNodePort, 31490);
@@ -124,12 +128,53 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
   assert.match(manifest, /host: alice\.example\.com/);
   assert.match(manifest, /secretName: alice-tls/);
   assert.match(manifest, /name: KASMVNC_PORT/);
+  assert.match(manifest, /name: KASMVNC_SEND_CUT_TEXT/);
+  assert.match(manifest, /name: KASMVNC_ACCEPT_CUT_TEXT/);
   assert.match(manifest, /tcpSocket:\n\s+port: 6080/);
   assert.doesNotMatch(manifest, /vnc_lite\.html/);
   assert.doesNotMatch(manifest, /path: \/vnc\.html/);
 });
 
+test("buildWorkspaceManifest mounts host Codex config as a read-only secret", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cola-codex-test-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const authPath = path.join(tmpDir, "auth.json");
+  fs.writeFileSync(configPath, 'model = "gpt-5.4"\n', "utf8");
+  fs.writeFileSync(authPath, '{"OPENAI_API_KEY":"sk-test"}\n', "utf8");
+
+  try {
+    const { manifest } = buildWorkspaceManifest({
+      config,
+      nodes,
+      name: "codex",
+      nodeName: "worker-a",
+      image: "remote-workspace:test",
+      nodePort: 31491,
+      disablePassword: true,
+      codexConfigPath: configPath,
+      codexAuthPath: authPath,
+    });
+
+    assert.match(manifest, /name: workspace-codex-codex/);
+    assert.match(manifest, /config\.toml: \|-/);
+    assert.match(manifest, /model = "gpt-5\.4"/);
+    assert.match(manifest, /auth\.json: \|-/);
+    assert.match(manifest, /OPENAI_API_KEY/);
+    assert.match(manifest, /mountPath: \/opt\/remote-work\/codex/);
+    assert.match(manifest, /readOnly: true/);
+    assert.match(manifest, /secretName: workspace-codex-codex/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("prepareWorkspace returns manifest path and access url", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cola-codex-test-"));
+  const configPath = path.join(tmpDir, "config.toml");
+  const authPath = path.join(tmpDir, "auth.json");
+  fs.writeFileSync(configPath, 'model = "gpt-5.4"\n', "utf8");
+  fs.writeFileSync(authPath, '{"OPENAI_API_KEY":"sk-test"}\n', "utf8");
+
   const plan = prepareWorkspace({
     config,
     nodes,
@@ -166,6 +211,8 @@ test("prepareWorkspace returns manifest path and access url", () => {
       workspaceRoot: "/var/lib/remote-work/workspaces",
       ingressHost: "",
       tlsSecret: "",
+      codexConfigPath: configPath,
+      codexAuthPath: authPath,
       out: "/tmp/bob-workspace-test.yaml",
     },
   });
@@ -183,4 +230,5 @@ test("prepareWorkspace returns manifest path and access url", () => {
     }),
   );
   assert.equal(plan.manifestPath, "/tmp/bob-workspace-test.yaml");
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });

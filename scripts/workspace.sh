@@ -33,6 +33,9 @@ Options:
   --resolution <WxHxD>          Default 1600x900x24
   --ingress-host <host>         Create an Ingress for the workspace
   --tls-secret <name>           TLS secret for Ingress
+  --codex-config-path <path>    Codex config.toml path, default ~/.codex/config.toml
+  --codex-auth-path <path>      Codex auth.json path, default ~/.codex/auth.json
+  --codex-secret-name <name>    Reuse an existing Secret containing config.toml/auth.json
   --cpu-request <value>         Default 2
   --cpu-limit <value>           Default 4
   --memory-request <value>      Default 4Gi
@@ -109,6 +112,9 @@ workspace_create() {
   local resolution="1600x900x24"
   local ingress_host=""
   local tls_secret=""
+  local codex_config_path="${REMOTE_WORKSPACE_CODEX_CONFIG_PATH:-$HOME/.codex/config.toml}"
+  local codex_auth_path="${REMOTE_WORKSPACE_CODEX_AUTH_PATH:-$HOME/.codex/auth.json}"
+  local codex_secret_name="${REMOTE_WORKSPACE_CODEX_SECRET_NAME:-}"
   local cpu_request="2"
   local cpu_limit="4"
   local memory_request="4Gi"
@@ -153,6 +159,18 @@ workspace_create() {
         ;;
       --tls-secret)
         tls_secret="$2"
+        shift 2
+        ;;
+      --codex-config-path)
+        codex_config_path="$2"
+        shift 2
+        ;;
+      --codex-auth-path)
+        codex_auth_path="$2"
+        shift 2
+        ;;
+      --codex-secret-name)
+        codex_secret_name="$2"
         shift 2
         ;;
       --cpu-request)
@@ -243,7 +261,13 @@ cleanup_selection_temp() {
     --memory-limit "$memory_limit"
     --timezone "$timezone"
     --workspace-root "$workspace_root"
+    --codex-config-path "$codex_config_path"
+    --codex-auth-path "$codex_auth_path"
   )
+
+  if [[ -n "$codex_secret_name" ]]; then
+    prepare_cmd+=(--codex-secret-name "$codex_secret_name")
+  fi
 
   if [[ -n "$node_name" ]]; then
     prepare_cmd+=(--requested-node "$node_name")
@@ -355,6 +379,7 @@ workspace_delete() {
   run_cluster_kubectl -n "$(workspace_namespace)" delete deployment "workspace-$name" --ignore-not-found
   run_cluster_kubectl -n "$(workspace_namespace)" delete service "workspace-$name-svc" --ignore-not-found
   run_cluster_kubectl -n "$(workspace_namespace)" delete secret "workspace-$name-secret" --ignore-not-found
+  run_cluster_kubectl -n "$(workspace_namespace)" delete secret "workspace-$name-codex" --ignore-not-found
   run_cluster_kubectl -n "$(workspace_namespace)" delete ingress "workspace-$name-ing" --ignore-not-found
 
   if [[ "$purge_data" -eq 1 ]]; then

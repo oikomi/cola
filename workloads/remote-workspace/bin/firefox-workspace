@@ -8,6 +8,7 @@ export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export MOZ_DISABLE_CONTENT_SANDBOX="${MOZ_DISABLE_CONTENT_SANDBOX:-1}"
 export MOZ_DISABLE_RDD_SANDBOX="${MOZ_DISABLE_RDD_SANDBOX:-1}"
+export FIREFOX_WORKSPACE_MANAGE_PROXY="${FIREFOX_WORKSPACE_MANAGE_PROXY:-1}"
 
 FIREFOX_PROFILE_ROOT="${FIREFOX_PROFILE_ROOT:-$HOME/.mozilla/firefox}"
 FIREFOX_CACHE_DIR="$XDG_CACHE_HOME/mozilla/firefox"
@@ -28,6 +29,7 @@ if [[ "$(id -u)" = "0" && "$HOME" = "/home/worker" ]] && id -u worker >/dev/null
     XDG_CACHE_HOME="$XDG_CACHE_HOME" \
     MOZ_DISABLE_CONTENT_SANDBOX="$MOZ_DISABLE_CONTENT_SANDBOX" \
     MOZ_DISABLE_RDD_SANDBOX="$MOZ_DISABLE_RDD_SANDBOX" \
+    FIREFOX_WORKSPACE_MANAGE_PROXY="$FIREFOX_WORKSPACE_MANAGE_PROXY" \
     FIREFOX_PROFILE_ROOT="$FIREFOX_PROFILE_ROOT" \
     "$0" "$@"
 fi
@@ -39,6 +41,158 @@ mkdir -p \
   "$XDG_CONFIG_HOME" \
   "$XDG_CACHE_HOME" \
   "$FIREFOX_CACHE_DIR"
+
+write_direct_proxy_user_js() {
+  local profile_dir="$1"
+  local user_js="$profile_dir/user.js"
+  local tmp_file="$user_js.tmp.$$"
+
+  [[ -d "$profile_dir" ]] || return 0
+
+  write_user_js_without_managed_proxy_block "$user_js" "$tmp_file"
+
+  cat >>"$tmp_file" <<'EOF'
+// cola-workspace-proxy-start
+// Keep the workspace browser on direct networking by default.
+user_pref("network.proxy.type", 0);
+user_pref("network.proxy.autoconfig_url", "");
+user_pref("network.proxy.http", "");
+user_pref("network.proxy.http_port", 0);
+user_pref("network.proxy.ssl", "");
+user_pref("network.proxy.ssl_port", 0);
+user_pref("network.proxy.socks", "");
+user_pref("network.proxy.socks_port", 0);
+user_pref("network.proxy.share_proxy_settings", false);
+// cola-workspace-proxy-end
+EOF
+
+  mv "$tmp_file" "$user_js"
+}
+
+write_user_js_without_managed_proxy_block() {
+  local user_js="$1"
+  local tmp_file="$2"
+
+  if [[ -f "$user_js" ]]; then
+    awk '
+      $0 == "// cola-workspace-proxy-start" { skip=1; next }
+      $0 == "// cola-workspace-proxy-end" { skip=0; next }
+      !skip { print }
+    ' "$user_js" >"$tmp_file"
+  else
+    : >"$tmp_file"
+  fi
+}
+
+remove_direct_proxy_user_js() {
+  local profile_dir="$1"
+  local user_js="$profile_dir/user.js"
+  local tmp_file="$user_js.tmp.$$"
+
+  [[ -f "$user_js" ]] || return 0
+
+  write_user_js_without_managed_proxy_block "$user_js" "$tmp_file"
+
+  if [[ -s "$tmp_file" ]]; then
+    mv "$tmp_file" "$user_js"
+  else
+    rm -f "$user_js" "$tmp_file"
+  fi
+}
+
+for_configured_profiles() {
+  local callback="$1"
+  local profiles_ini="$FIREFOX_PROFILE_ROOT/profiles.ini"
+  local line
+  local path=""
+  local is_relative="1"
+  local profile_dir
+
+  [[ -f "$profiles_ini" ]] || return 0
+
+  flush_profile() {
+    [[ -n "$path" ]] || return 0
+
+    if [[ "$is_relative" = "1" ]]; then
+      profile_dir="$FIREFOX_PROFILE_ROOT/$path"
+    else
+      profile_dir="$path"
+    fi
+
+    "$callback" "$profile_dir"
+  }
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "["*)
+        flush_profile
+        path=""
+        is_relative="1"
+        ;;
+      IsRelative=*)
+        is_relative="${line#IsRelative=}"
+        ;;
+      Path=*)
+        path="${line#Path=}"
+        ;;
+    esac
+  done <"$profiles_ini"
+
+  flush_profile
+}
+
+for_existing_profiles() {
+  local callback="$1"
+  local profile_dir
+
+  shopt -s nullglob
+  for profile_dir in "$FIREFOX_PROFILE_ROOT"/*; do
+    if [[ ! -d "$profile_dir" ]]; then
+      continue
+    fi
+
+    case "$(basename "$profile_dir")" in
+      *default*|*release*|*esr*)
+        "$callback" "$profile_dir"
+        ;;
+      *)
+        if [[ -f "$profile_dir/prefs.js" || -f "$profile_dir/compatibility.ini" || -f "$profile_dir/times.json" ]]; then
+          "$callback" "$profile_dir"
+        fi
+        ;;
+    esac
+  done
+  shopt -u nullglob
+}
+
+reset_gnome_proxy() {
+  if ! command -v gsettings >/dev/null 2>&1; then
+    return 0
+  fi
+
+  gsettings set org.gnome.system.proxy mode none >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy autoconfig-url "" >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.http host "" >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.http port 0 >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.https host "" >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.https port 0 >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.socks host "" >/dev/null 2>&1 || true
+  gsettings set org.gnome.system.proxy.socks port 0 >/dev/null 2>&1 || true
+}
+
+reset_workspace_proxy() {
+  if [[ "$FIREFOX_WORKSPACE_MANAGE_PROXY" = "0" ]]; then
+    for_configured_profiles remove_direct_proxy_user_js
+    for_existing_profiles remove_direct_proxy_user_js
+    return 0
+  fi
+
+  reset_gnome_proxy
+  for_configured_profiles write_direct_proxy_user_js
+  for_existing_profiles write_direct_proxy_user_js
+}
+
+reset_workspace_proxy
 
 if /usr/bin/firefox "$@"; then
   exit 0

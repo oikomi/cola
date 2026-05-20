@@ -11,6 +11,7 @@
 镜像仍由 `infra/k8s/bin/internal/image-build-and-load.sh` 构建并分发到集群节点。
 默认基础镜像为 Ubuntu 24.04.4 对应的 Noble 官方容器 tag `ubuntu:noble-20260410`，桌面会话使用 Ubuntu 24.04 的 GNOME/ubuntu-session，并通过 KasmVNC 内置 Web 客户端暴露到浏览器。基础镜像可通过 `./scripts/workspace-image.sh build-and-load --ubuntu-version <ver>` 切换。
 KasmVNC 容器内 Web 端口固定为 `6080`，避免使用默认 `8443 + display` 端口。
+KasmVNC 启动时会显式开启双向文本剪贴板：外部浏览器和内部桌面之间可通过常规复制/粘贴快捷键同步文本；如浏览器拦截剪贴板权限，可在 KasmVNC 控制面板的 Clipboard 面板中手动中转。
 如果外部 registry 网络不稳定，也可以用 `--base-image remote-workspace:ubuntu24` 复用本地已经构建好的 Ubuntu 24.04.4 工作区镜像层。
 默认浏览器使用 Mozilla APT 仓库安装的 Firefox deb 包，避免 Ubuntu 容器内 apt 安装 Firefox 时落到 snap。构建时可通过
 `--mozilla-apt-url` 和 `--mozilla-apt-fallback-url` 切换 Mozilla APT 源，默认 fallback 使用 CERNET 镜像。

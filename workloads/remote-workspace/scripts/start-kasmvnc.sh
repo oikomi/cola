@@ -8,6 +8,8 @@ export KASMVNC_PORT="${KASMVNC_PORT:-6080}"
 export KASMVNC_GEOMETRY="${KASMVNC_GEOMETRY:-1600x900}"
 export KASMVNC_DEPTH="${KASMVNC_DEPTH:-24}"
 export VNC_DISABLE_PASSWORD="${VNC_DISABLE_PASSWORD:-0}"
+export KASMVNC_SEND_CUT_TEXT="${KASMVNC_SEND_CUT_TEXT:-1}"
+export KASMVNC_ACCEPT_CUT_TEXT="${KASMVNC_ACCEPT_CUT_TEXT:-1}"
 
 display_number="${DISPLAY#:}"
 session_pid=""
@@ -49,6 +51,10 @@ Xvnc "$DISPLAY" \
   -websocketPort "$KASMVNC_PORT" \
   -httpd /usr/share/kasmvnc/www \
   -AcceptSetDesktopSize \
+  -SendCutText="$KASMVNC_SEND_CUT_TEXT" \
+  -AcceptCutText="$KASMVNC_ACCEPT_CUT_TEXT" \
+  -NeverShared \
+  -DisconnectClients=0 \
   "${auth_args[@]}" &
 vnc_pid=$!
 

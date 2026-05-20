@@ -2,6 +2,7 @@ import "server-only";
 
 import fs from "node:fs";
 import net from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import {
@@ -12,6 +13,7 @@ import {
   type V1Ingress,
   type V1Node,
   type V1Pod,
+  type V1Secret,
   type V1Service,
 } from "@kubernetes/client-node";
 
@@ -58,6 +60,7 @@ const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.WORKSPACE_K8S_API_CONNECT_TIMEOUT_MS ?? 2500,
 );
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
+const WORKSPACE_CODEX_MOUNT_PATH = "/opt/remote-work/codex";
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
   return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
@@ -151,6 +154,68 @@ function resolveWorkspaceImage() {
   throw new Error(
     `未找到 workspace 镜像配置。请设置 REMOTE_WORKSPACE_IMAGE，或先生成 ${RUNTIME_IMAGE_PATH}。`,
   );
+}
+
+function resolveWorkspaceCodexConfigPath() {
+  return (
+    process.env.REMOTE_WORKSPACE_CODEX_CONFIG_PATH ??
+    path.join(homedir(), ".codex", "config.toml")
+  );
+}
+
+function resolveWorkspaceCodexAuthPath() {
+  return (
+    process.env.REMOTE_WORKSPACE_CODEX_AUTH_PATH ??
+    path.join(homedir(), ".codex", "auth.json")
+  );
+}
+
+function buildWorkspaceCodexSecret(input: {
+  name: string;
+  namespace: string;
+  ownerUserId?: string;
+}) {
+  const existingSecret = process.env.REMOTE_WORKSPACE_CODEX_SECRET_NAME?.trim();
+  if (existingSecret) {
+    return { name: existingSecret, manifest: null };
+  }
+
+  const configPath = resolveWorkspaceCodexConfigPath();
+  const authPath = resolveWorkspaceCodexAuthPath();
+
+  if (!fs.existsSync(configPath) || !fs.existsSync(authPath)) {
+    throw new Error(
+      `缺少 Codex 配置或认证文件，无法创建云桌面 Codex Secret。请确认宿主机存在 ${configPath} 和 ${authPath}，或设置 REMOTE_WORKSPACE_CODEX_SECRET_NAME 使用已有 Secret。`,
+    );
+  }
+
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+  const name = `workspace-${input.name}-codex`;
+
+  return {
+    name,
+    manifest: {
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: {
+        name,
+        namespace: input.namespace,
+        labels: {
+          "app.kubernetes.io/name": "remote-workspace",
+          "remote-work/name": input.name,
+          ...ownerLabels,
+        },
+        annotations: {
+          ...ownerLabels,
+        },
+      },
+      type: "Opaque",
+      stringData: {
+        "config.toml": fs.readFileSync(configPath, "utf8"),
+        "auth.json": fs.readFileSync(authPath, "utf8"),
+      },
+    } satisfies V1Secret,
+  };
 }
 
 function buildWorkspaceCapabilityError(kubeconfigPath: string) {
@@ -556,6 +621,7 @@ function buildWorkspaceDeployment(input: {
   gpuCount: number;
   gpuMemoryGi: number | null;
   resolution: string;
+  codexSecretName: string;
   ownerUserId?: string;
 }) {
   const workspaceRoot =
@@ -652,6 +718,8 @@ function buildWorkspaceDeployment(input: {
                   value: input.name,
                 },
                 { name: "KASMVNC_PORT", value: "6080" },
+                { name: "KASMVNC_SEND_CUT_TEXT", value: "1" },
+                { name: "KASMVNC_ACCEPT_CUT_TEXT", value: "1" },
                 { name: "VNC_DISABLE_PASSWORD", value: "1" },
                 ...buildWorkVolumeEnv(workVolume),
               ],
@@ -686,6 +754,11 @@ function buildWorkspaceDeployment(input: {
               },
               volumeMounts: [
                 { name: "home", mountPath: "/home/worker" },
+                {
+                  name: "codex",
+                  mountPath: WORKSPACE_CODEX_MOUNT_PATH,
+                  readOnly: true,
+                },
                 ...buildWorkVolumeMounts(workVolume),
               ],
               ...(buildWorkVolumeSecurityContext(workVolume)
@@ -701,6 +774,12 @@ function buildWorkspaceDeployment(input: {
               hostPath: {
                 path: path.posix.join(workspaceRoot, input.name, "home"),
                 type: "DirectoryOrCreate",
+              },
+            },
+            {
+              name: "codex",
+              secret: {
+                secretName: input.codexSecretName,
               },
             },
             ...buildWorkVolumes(workVolume),
@@ -947,23 +1026,33 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
   });
   const nodePort = resolveWorkspaceNodePort(allServices);
   const image = resolveWorkspaceImage();
-
-  await ctx.appsApi.createNamespacedDeployment({
+  const codexSecret = buildWorkspaceCodexSecret({
+    name: input.name,
     namespace,
-    body: buildWorkspaceDeployment({
-      name: input.name,
-      image,
-      cpu,
-      memory,
-      gpuAllocationMode: gpuSpec.gpuAllocationMode,
-      gpuCount: gpuSpec.gpuCount,
-      gpuMemoryGi: gpuSpec.gpuMemoryGi,
-      resolution,
-      ownerUserId: input.ownerUserId,
-    }),
+    ownerUserId: input.ownerUserId,
   });
 
+  if (codexSecret.manifest) {
+    await upsertSecret(ctx.coreApi, namespace, codexSecret.manifest);
+  }
+
   try {
+    await ctx.appsApi.createNamespacedDeployment({
+      namespace,
+      body: buildWorkspaceDeployment({
+        name: input.name,
+        image,
+        cpu,
+        memory,
+        gpuAllocationMode: gpuSpec.gpuAllocationMode,
+        gpuCount: gpuSpec.gpuCount,
+        gpuMemoryGi: gpuSpec.gpuMemoryGi,
+        resolution,
+        codexSecretName: codexSecret.name,
+        ownerUserId: input.ownerUserId,
+      }),
+    });
+
     await ctx.coreApi.createNamespacedService({
       namespace,
       body: buildWorkspaceService({
@@ -973,11 +1062,23 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
       }),
     });
   } catch (error) {
-    await ctx.appsApi.deleteNamespacedDeployment({
-      name: `workspace-${input.name}`,
-      namespace,
-      propagationPolicy: "Foreground",
+    await deleteResource({
+      action: () =>
+        ctx.appsApi.deleteNamespacedDeployment({
+          name: `workspace-${input.name}`,
+          namespace,
+          propagationPolicy: "Foreground",
+        }),
     });
+    if (codexSecret.manifest) {
+      await deleteResource({
+        action: () =>
+          ctx.coreApi.deleteNamespacedSecret({
+            name: codexSecret.name,
+            namespace,
+          }),
+      });
+    }
     throw error;
   }
 
@@ -1003,6 +1104,33 @@ async function deleteResource(options: { action: () => Promise<unknown> }) {
   } catch (error) {
     if (isNotFoundError(error)) return;
     throw error;
+  }
+}
+
+async function upsertSecret(
+  coreApi: CoreV1Api,
+  namespace: string,
+  body: V1Secret,
+) {
+  const name = body.metadata?.name;
+  if (!name) throw new Error("Secret 缺少 metadata.name");
+
+  try {
+    const existing = await coreApi.readNamespacedSecret({ name, namespace });
+    await coreApi.replaceNamespacedSecret({
+      name,
+      namespace,
+      body: {
+        ...body,
+        metadata: {
+          ...(body.metadata ?? {}),
+          resourceVersion: existing.metadata?.resourceVersion,
+        },
+      },
+    });
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+    await coreApi.createNamespacedSecret({ namespace, body });
   }
 }
 
@@ -1032,6 +1160,13 @@ export async function deleteWorkspace(name: string) {
       action: () =>
         ctx.coreApi.deleteNamespacedSecret({
           name: `workspace-${name}-secret`,
+          namespace,
+        }),
+    }),
+    deleteResource({
+      action: () =>
+        ctx.coreApi.deleteNamespacedSecret({
+          name: `workspace-${name}-codex`,
           namespace,
         }),
     }),

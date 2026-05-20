@@ -82,6 +82,8 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     nautilus \
     net-tools \
     netcat-openbsd \
+    nodejs \
+    npm \
     procps \
     python3 \
     python3-pip \
@@ -194,6 +196,14 @@ RUN if [ "$SKIP_BROWSER_INSTALL" = "1" ]; then \
       >/etc/apt/preferences.d/mozilla \
     && apt-get update \
     && apt-get install -y --no-install-recommends firefox firefox-l10n-zh-cn ubuntu-wallpapers-noble xdg-utils; \
+  fi
+
+RUN if command -v npm >/dev/null 2>&1; then \
+    npm install -g @openai/codex \
+    && command -v codex >/dev/null; \
+  else \
+    echo "npm is required to install @openai/codex." >&2; \
+    exit 1; \
   fi
 
 COPY scripts/ /opt/remote-work/

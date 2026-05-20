@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   WORKSPACE_MANIFEST_DIR,
@@ -18,6 +19,55 @@ const WORKSPACE_NODE_PORT_END = Number(
 
 function yamlQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function indentBlock(value, spaces) {
+  const prefix = " ".repeat(spaces);
+  return String(value)
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
+}
+
+function defaultCodexConfigPath() {
+  return path.join(os.homedir(), ".codex", "config.toml");
+}
+
+function defaultCodexAuthPath() {
+  return path.join(os.homedir(), ".codex", "auth.json");
+}
+
+function buildCodexSecretData({
+  codexConfigPath = "",
+  codexAuthPath = "",
+  codexSecretName = "",
+}) {
+  if (codexSecretName) {
+    return {
+      codexSecretName,
+      codexSecretManifest: [],
+    };
+  }
+
+  const configPath = codexConfigPath || defaultCodexConfigPath();
+  const authPath = codexAuthPath || defaultCodexAuthPath();
+
+  if (!fs.existsSync(configPath) || !fs.existsSync(authPath)) {
+    throw new Error(
+      `缺少 Codex 配置或认证文件：${configPath} / ${authPath}。请确认宿主机 ~/.codex/config.toml 和 ~/.codex/auth.json 存在，或传 --codex-secret-name 使用已有 Secret。`,
+    );
+  }
+
+  return {
+    codexSecretName: "",
+    codexSecretManifest: [
+      `stringData:`,
+      `  config.toml: |-`,
+      indentBlock(fs.readFileSync(configPath, "utf8"), 4),
+      `  auth.json: |-`,
+      indentBlock(fs.readFileSync(authPath, "utf8"), 4),
+    ],
+  };
 }
 
 export function validateWorkspaceName(name) {
@@ -238,6 +288,9 @@ export function buildWorkspaceManifest({
   allowGpuNode = false,
   ingressHost = "",
   tlsSecret = "",
+  codexConfigPath = "",
+  codexAuthPath = "",
+  codexSecretName = "",
 }) {
   validateWorkspaceName(name);
 
@@ -270,11 +323,32 @@ export function buildWorkspaceManifest({
 
   const deploymentName = `workspace-${name}`;
   const secretName = `${deploymentName}-secret`;
+  const workspaceCodexSecretName = codexSecretName || `${deploymentName}-codex`;
   const serviceName = `${deploymentName}-svc`;
   const ingressName = `${deploymentName}-ing`;
   const basePath = path.posix.join(workspaceRoot, name);
+  const codexSecret = buildCodexSecretData({
+    codexConfigPath,
+    codexAuthPath,
+    codexSecretName,
+  });
 
   const manifest = [
+    ...(codexSecret.codexSecretManifest.length > 0
+      ? [
+          `apiVersion: v1`,
+          `kind: Secret`,
+          `metadata:`,
+          `  name: ${workspaceCodexSecretName}`,
+          `  namespace: ${config.workspaceNamespace}`,
+          `  labels:`,
+          `    app.kubernetes.io/name: remote-workspace`,
+          `    remote-work/name: ${name}`,
+          `type: Opaque`,
+          ...codexSecret.codexSecretManifest,
+          `---`,
+        ]
+      : []),
     ...(!disablePassword
       ? [
           `apiVersion: v1`,
@@ -328,8 +402,16 @@ export function buildWorkspaceManifest({
     `              value: ${yamlQuote(resolution)}`,
     `            - name: KASMVNC_PORT`,
     `              value: '6080'`,
+    `            - name: KASMVNC_SEND_CUT_TEXT`,
+    `              value: '1'`,
+    `            - name: KASMVNC_ACCEPT_CUT_TEXT`,
+    `              value: '1'`,
     `            - name: VNC_DISABLE_PASSWORD`,
     `              value: ${disablePassword ? "'1'" : "'0'"}`,
+    `            - name: COLA_CODEX_CONFIG_SOURCE`,
+    `              value: /opt/remote-work/codex/config.toml`,
+    `            - name: COLA_CODEX_AUTH_SOURCE`,
+    `              value: /opt/remote-work/codex/auth.json`,
     ...(!disablePassword
       ? [
           `            - name: VNC_PASSWORD`,
@@ -362,6 +444,9 @@ export function buildWorkspaceManifest({
     `          volumeMounts:`,
     `            - name: home`,
     `              mountPath: /home/worker`,
+    `            - name: codex`,
+    `              mountPath: /opt/remote-work/codex`,
+    `              readOnly: true`,
     `            - name: workspace`,
     `              mountPath: /workspace`,
     `      volumes:`,
@@ -369,6 +454,9 @@ export function buildWorkspaceManifest({
     `          hostPath:`,
     `            path: ${yamlQuote(path.posix.join(basePath, "home"))}`,
     `            type: DirectoryOrCreate`,
+    `        - name: codex`,
+    `          secret:`,
+    `            secretName: ${workspaceCodexSecretName}`,
     `        - name: workspace`,
     `          hostPath:`,
     `            path: ${yamlQuote(path.posix.join(basePath, "workspace"))}`,
@@ -491,6 +579,9 @@ export function prepareWorkspace({
     allowGpuNode: selection.allowGpuNode,
     ingressHost: request.ingressHost,
     tlsSecret: request.tlsSecret,
+    codexConfigPath: request.codexConfigPath,
+    codexAuthPath: request.codexAuthPath,
+    codexSecretName: request.codexSecretName,
   });
 
   ensureWorkspaceManifestDir();

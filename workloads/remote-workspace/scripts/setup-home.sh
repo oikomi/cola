@@ -4,6 +4,8 @@ set -euo pipefail
 
 export HOME="${HOME:-/home/worker}"
 export COLA_SHARED_STORAGE_DIR="${COLA_SHARED_STORAGE_DIR:-/shared-dist-storage}"
+export COLA_CODEX_CONFIG_SOURCE="${COLA_CODEX_CONFIG_SOURCE:-/opt/remote-work/codex/config.toml}"
+export COLA_CODEX_AUTH_SOURCE="${COLA_CODEX_AUTH_SOURCE:-/opt/remote-work/codex/auth.json}"
 
 CONFIG_ROOT="/opt/remote-work/config"
 BASHRC_PATH="$HOME/.bashrc"
@@ -59,7 +61,13 @@ mkdir -p \
   "$HOME/Desktop" \
   "$HOME/Downloads" \
   "$HOME/.config/gtk-3.0" \
+  "$HOME/.codex" \
   "$HOME/.local/share/applications"
+
+if [[ -f "$COLA_CODEX_CONFIG_SOURCE" && -f "$COLA_CODEX_AUTH_SOURCE" ]]; then
+  ln -sfn "$COLA_CODEX_CONFIG_SOURCE" "$HOME/.codex/config.toml"
+  ln -sfn "$COLA_CODEX_AUTH_SOURCE" "$HOME/.codex/auth.json"
+fi
 
 if [[ -d "$HOME/Desktop" ]]; then
   find "$HOME/Desktop" -maxdepth 1 -type f -name "*.desktop" -exec chmod +x {} +
