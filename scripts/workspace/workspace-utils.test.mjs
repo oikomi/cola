@@ -123,6 +123,10 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
   assert.doesNotMatch(manifest, /nodeSelector:/);
   assert.match(manifest, /host: alice\.example\.com/);
   assert.match(manifest, /secretName: alice-tls/);
+  assert.match(manifest, /name: KASMVNC_PORT/);
+  assert.match(manifest, /tcpSocket:\n\s+port: 6080/);
+  assert.doesNotMatch(manifest, /vnc_lite\.html/);
+  assert.doesNotMatch(manifest, /path: \/vnc\.html/);
 });
 
 test("prepareWorkspace returns manifest path and access url", () => {
@@ -168,6 +172,7 @@ test("prepareWorkspace returns manifest path and access url", () => {
 
   assert.equal(plan.nodeName, "worker-a");
   assert.equal(plan.nodePort, 31480);
+  assert.equal(plan.accessUrl, "http://10.0.0.10:31480/");
   assert.equal(
     plan.accessUrl,
     buildWorkspaceAccessUrl({

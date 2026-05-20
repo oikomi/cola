@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib.sh"
 
 IMAGE_NAME="remote-workspace"
 IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
-NOVNC_VERSION="v1.6.0"
+KASMVNC_VERSION="1.4.0"
 UBUNTU_VERSION="24.04.4"
 BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
@@ -30,13 +30,13 @@ Options:
   --ubuntu-version <ver>  Ubuntu base image version, default 24.04.4
   --base-image <ref>      Override Docker base image, default resolved from --ubuntu-version
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
-  --skip-package-install  Reuse a base image that already contains desktop packages, Firefox, websockify and noVNC
+  --skip-package-install  Reuse a base image that already contains desktop packages, Firefox and KasmVNC
   --skip-browser-install  Skip Firefox installation; intended for local desktop smoke tests only
   --mozilla-apt-url <url> Primary Mozilla APT repo URL, default packages.mozilla.org
   --mozilla-apt-fallback-url <url>
                            Fallback Mozilla APT mirror, default CERNET
   --target-arch <arch>    Target node arch, default first configured node arch
-  --novnc-version <ver>   noVNC git tag, default v1.6.0
+  --kasmvnc-version <ver> KasmVNC release version, default 1.4.0
   -h, --help              Show help
 EOF
 }
@@ -60,7 +60,8 @@ build_workspace_image() {
     --platform "$LOCAL_PLATFORM" \
     --build-arg BASE_IMAGE="$base_image" \
     --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
-    --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+    --build-arg KASMVNC_VERSION="$KASMVNC_VERSION" \
+    --build-arg TARGETARCH="$LOCAL_ARCH" \
     --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
     --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
     --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
@@ -83,7 +84,8 @@ build_workspace_image() {
       --platform "$LOCAL_PLATFORM" \
       --build-arg BASE_IMAGE="$base_image" \
       --build-arg UBUNTU_VERSION="$UBUNTU_VERSION" \
-      --build-arg NOVNC_VERSION="$NOVNC_VERSION" \
+      --build-arg KASMVNC_VERSION="$KASMVNC_VERSION" \
+      --build-arg TARGETARCH="$LOCAL_ARCH" \
       --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
       --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
       --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
@@ -121,9 +123,13 @@ while [[ $# -gt 0 ]]; do
       IMAGE_TAG="$2"
       shift 2
       ;;
-    --novnc-version)
-      NOVNC_VERSION="$2"
+    --kasmvnc-version)
+      KASMVNC_VERSION="${2#v}"
       shift 2
+      ;;
+    --novnc-version)
+      echo "ERROR: --novnc-version 已废弃；当前工作区镜像使用 KasmVNC，请改用 --kasmvnc-version。" >&2
+      exit 1
       ;;
     --ubuntu-version)
       UBUNTU_VERSION="$2"

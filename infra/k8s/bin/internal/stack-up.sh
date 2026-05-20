@@ -29,7 +29,7 @@ Options:
   --image-tag <tag>          Pass through to 'workspace-image.sh build-and-load'
   --ubuntu-version <ver>     Pass through to 'workspace-image.sh build-and-load'
   --target-arch <arch>       Pass through to 'workspace-image.sh build-and-load'
-  --novnc-version <ver>      Pass through to 'workspace-image.sh build-and-load'
+  --kasmvnc-version <ver>    Pass through to 'workspace-image.sh build-and-load'
   -h, --help                 Show help
 EOF
 }
@@ -69,7 +69,7 @@ IMAGE_NAME=""
 IMAGE_TAG=""
 UBUNTU_VERSION=""
 TARGET_ARCH=""
-NOVNC_VERSION=""
+KASMVNC_VERSION=""
 WORKSPACE_IMAGE_ENTRYPOINT="$BIN_DIR/../../../scripts/workspace-image.sh"
 
 case "${1:-}" in
@@ -121,9 +121,13 @@ while [[ $# -gt 0 ]]; do
       TARGET_ARCH="$2"
       shift 2
       ;;
-    --novnc-version)
-      NOVNC_VERSION="$2"
+    --kasmvnc-version)
+      KASMVNC_VERSION="$2"
       shift 2
+      ;;
+    --novnc-version)
+      echo "ERROR: --novnc-version 已废弃；当前工作区镜像使用 KasmVNC，请改用 --kasmvnc-version。" >&2
+      exit 1
       ;;
     -h|--help)
       usage
@@ -163,12 +167,12 @@ if [[ -n "$TARGET_ARCH" ]]; then
   image_args+=(--target-arch "$TARGET_ARCH")
 fi
 
-if [[ -n "$NOVNC_VERSION" ]]; then
-  image_args+=(--novnc-version "$NOVNC_VERSION")
+if [[ -n "$KASMVNC_VERSION" ]]; then
+  image_args+=(--kasmvnc-version "$KASMVNC_VERSION")
 fi
 
 if [[ "$WITH_WORKSPACE_IMAGE" -ne 1 ]] && [[ "${#image_args[@]}" -gt 1 ]]; then
-  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--target-arch/--novnc-version 只能与 --with-workspace-image 一起使用。" >&2
+  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--target-arch/--kasmvnc-version 只能与 --with-workspace-image 一起使用。" >&2
   exit 1
 fi
 

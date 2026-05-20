@@ -326,10 +326,8 @@ export function buildWorkspaceManifest({
     `              value: ':1'`,
     `            - name: RESOLUTION`,
     `              value: ${yamlQuote(resolution)}`,
-    `            - name: NOVNC_PORT`,
+    `            - name: KASMVNC_PORT`,
     `              value: '6080'`,
-    `            - name: VNC_PORT`,
-    `              value: '5901'`,
     `            - name: VNC_DISABLE_PASSWORD`,
     `              value: ${disablePassword ? "'1'" : "'0'"}`,
     ...(!disablePassword
@@ -342,14 +340,12 @@ export function buildWorkspaceManifest({
         ]
       : []),
     `          readinessProbe:`,
-    `            httpGet:`,
-    `              path: /vnc.html`,
+    `            tcpSocket:`,
     `              port: 6080`,
     `            initialDelaySeconds: 10`,
     `            periodSeconds: 10`,
     `          livenessProbe:`,
-    `            httpGet:`,
-    `              path: /vnc.html`,
+    `            tcpSocket:`,
     `              port: 6080`,
     `            initialDelaySeconds: 30`,
     `            periodSeconds: 15`,
@@ -445,15 +441,11 @@ export function buildWorkspaceAccessUrl({
   nodeIp,
   nodePort,
 }) {
-  const quality = process.env.REMOTE_WORKSPACE_NOVNC_QUALITY ?? "9";
-  const compression = process.env.REMOTE_WORKSPACE_NOVNC_COMPRESSION ?? "0";
-  const query = `vnc_lite.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
-
   if (ingressHost) {
-    return `${tlsSecret ? "https" : "http"}://${ingressHost}/${query}`;
+    return `${tlsSecret ? "https" : "http"}://${ingressHost}/`;
   }
 
-  return `http://${nodeIp}:${nodePort}/${query}`;
+  return `http://${nodeIp}:${nodePort}/`;
 }
 
 export function prepareWorkspace({

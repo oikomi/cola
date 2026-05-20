@@ -417,14 +417,10 @@ function buildLoginUrl(params: {
   service?: V1Service | null;
   nodeIp?: string | null;
 }) {
-  const quality = process.env.REMOTE_WORKSPACE_NOVNC_QUALITY ?? "9";
-  const compression = process.env.REMOTE_WORKSPACE_NOVNC_COMPRESSION ?? "0";
-  const query = `vnc_lite.html?autoconnect=1&resize=remote&quality=${quality}&compression=${compression}`;
-
   const host = params.ingress?.spec?.rules?.[0]?.host;
   if (host) {
     const secure = (params.ingress?.spec?.tls?.length ?? 0) > 0;
-    return `${secure ? "https" : "http"}://${host}/${query}`;
+    return `${secure ? "https" : "http"}://${host}/`;
   }
 
   const nodePort = params.service?.spec?.ports?.find(
@@ -433,7 +429,7 @@ function buildLoginUrl(params: {
 
   if (!params.nodeIp || typeof nodePort !== "number") return null;
 
-  return `http://${params.nodeIp}:${nodePort}/${query}`;
+  return `http://${params.nodeIp}:${nodePort}/`;
 }
 
 function workspaceStatus(deployment: V1Deployment) {
@@ -655,8 +651,7 @@ function buildWorkspaceDeployment(input: {
                   name: "WORKSPACE_NAME",
                   value: input.name,
                 },
-                { name: "NOVNC_PORT", value: "6080" },
-                { name: "VNC_PORT", value: "5901" },
+                { name: "KASMVNC_PORT", value: "6080" },
                 { name: "VNC_DISABLE_PASSWORD", value: "1" },
                 ...buildWorkVolumeEnv(workVolume),
               ],
@@ -668,12 +663,12 @@ function buildWorkspaceDeployment(input: {
                 ),
               ],
               readinessProbe: {
-                httpGet: { path: "/vnc.html", port: 6080 },
+                tcpSocket: { port: 6080 },
                 initialDelaySeconds: 10,
                 periodSeconds: 10,
               },
               livenessProbe: {
-                httpGet: { path: "/vnc.html", port: 6080 },
+                tcpSocket: { port: 6080 },
                 initialDelaySeconds: 30,
                 periodSeconds: 15,
               },
