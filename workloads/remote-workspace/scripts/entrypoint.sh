@@ -12,6 +12,11 @@ export WORKSPACE_NAME="${WORKSPACE_NAME:-workspace}"
 export COLA_SHARED_STORAGE_DIR="${COLA_SHARED_STORAGE_DIR:-/shared-dist-storage}"
 
 VNC_PASSWORD="${VNC_PASSWORD:-ChangeMe-123!}"
+if [[ "${#VNC_PASSWORD}" -lt 6 ]]; then
+  echo "VNC_PASSWORD must be at least 6 characters for KasmVNC." >&2
+  exit 1
+fi
+
 if [[ "$RESOLUTION" =~ ^([0-9]+x[0-9]+)(x([0-9]+))?$ ]]; then
   KASMVNC_GEOMETRY="${BASH_REMATCH[1]}"
   KASMVNC_DEPTH="${BASH_REMATCH[3]:-24}"
@@ -54,11 +59,12 @@ chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 chown -R worker:worker "$HOME"
 chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 
+printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" \
+  | sudo -H -u worker vncpasswd -u "$KASMVNC_USER" -w >/dev/null
+
 if [[ "$VNC_DISABLE_PASSWORD" = "1" ]]; then
   export KASMVNC_AUTH_ARGS="-disableBasicAuth -SecurityTypes None"
 else
-  printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" \
-    | sudo -u worker vncpasswd -u "$KASMVNC_USER" -w >/dev/null
   export KASMVNC_AUTH_ARGS="-KasmPasswordFile $HOME/.kasmpasswd"
 fi
 
