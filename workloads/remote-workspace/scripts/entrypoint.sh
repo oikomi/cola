@@ -62,10 +62,4 @@ chown worker:worker "$COLA_SHARED_STORAGE_DIR" 2>/dev/null || true
 printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" \
   | sudo -H -u worker vncpasswd -u "$KASMVNC_USER" -w >/dev/null
 
-if [[ "$VNC_DISABLE_PASSWORD" = "1" ]]; then
-  export KASMVNC_AUTH_ARGS="-disableBasicAuth -SecurityTypes None"
-else
-  export KASMVNC_AUTH_ARGS="-KasmPasswordFile $HOME/.kasmpasswd"
-fi
-
 exec /usr/bin/supervisord -c /opt/remote-work/supervisord.conf

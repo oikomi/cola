@@ -22,6 +22,7 @@ COPY debs/ /opt/remote-work-debs/
 
 RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     command -v vncserver >/dev/null \
+    && command -v Xvnc >/dev/null \
     && command -v vncpasswd >/dev/null \
     && test -d /usr/share/kasmvnc/www \
     && command -v gnome-session >/dev/null \
@@ -74,6 +75,7 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     procps \
     python3 \
     python3-pip \
+    ssl-cert \
     sudo \
     supervisor \
     tini \
@@ -95,6 +97,8 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     "https://github.com/kasmtech/KasmVNC/releases/download/v${KASMVNC_VERSION}/kasmvncserver_noble_${KASMVNC_VERSION}_${kasmvnc_arch}.deb" \
     -o /tmp/kasmvncserver.deb \
   && apt-get install -y --no-install-recommends /tmp/kasmvncserver.deb \
+  && command -v Xvnc >/dev/null \
+  && command -v vncpasswd >/dev/null \
   && if ! id -u worker >/dev/null 2>&1; then useradd -m -s /bin/bash worker; fi \
   && echo "worker ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/worker \
   && chmod 0440 /etc/sudoers.d/worker \
