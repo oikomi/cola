@@ -33,7 +33,25 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+cleanup_desktop_session() {
+  local patterns=(
+    "gnome-session"
+    "gnome-shell"
+    "mutter"
+    "gjs"
+    "xdg-desktop-portal"
+    "ibus-daemon"
+    "dbus-daemon"
+    "dbus-run-session"
+  )
+
+  for pattern in "${patterns[@]}"; do
+    pkill -u "$(id -u)" -f "$pattern" 2>/dev/null || true
+  done
+}
+
 rm -f "/tmp/.X${display_number}-lock" "/tmp/.X11-unix/X${display_number}" 2>/dev/null || true
+cleanup_desktop_session
 mkdir -p "$HOME/.vnc" /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix 2>/dev/null || true
 

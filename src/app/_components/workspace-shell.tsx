@@ -18,7 +18,7 @@ import {
 } from "@/app/_components/module-shell";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -264,6 +264,9 @@ export function WorkspaceShell() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [pendingDeletedWorkspaceNames, setPendingDeletedWorkspaceNames] =
     useState<string[]>([]);
+  const [openingWorkspaceName, setOpeningWorkspaceName] = useState<
+    string | null
+  >(null);
   const [draft, setDraft] = useState<WorkspaceDraft>({
     name: "",
     cpu: "4",
@@ -297,6 +300,12 @@ export function WorkspaceShell() {
       });
     },
     onError: (error) => notifyError(error.message),
+  });
+
+  const openWorkspace = api.workspace.open.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.list.invalidate();
+    },
   });
 
   const deleteWorkspace = api.workspace.delete.useMutation({
@@ -412,6 +421,35 @@ export function WorkspaceShell() {
     if (!confirmed) return;
 
     await deleteWorkspace.mutateAsync({ name });
+  };
+
+  const handleOpenWorkspace = async (workspace: WorkspaceRow) => {
+    if (!workspace.loginUrl || typeof window === "undefined") return;
+
+    const openedWindow = window.open("about:blank", "_blank");
+    if (!openedWindow) {
+      notifyError("浏览器阻止了新窗口，请允许弹窗后重试。");
+      return;
+    }
+    openedWindow.opener = null;
+    setOpeningWorkspaceName(workspace.name);
+
+    try {
+      const result = await openWorkspace.mutateAsync({
+        name: workspace.name,
+      });
+      openedWindow.location.replace(result.loginUrl);
+    } catch (error) {
+      openedWindow.close();
+      const message =
+        error instanceof Error ? error.message : "远程桌面当前不可打开。";
+      notifyError({
+        title: "远程桌面已禁止打开",
+        message,
+      });
+    } finally {
+      setOpeningWorkspaceName(null);
+    }
   };
 
   return (
@@ -534,8 +572,9 @@ export function WorkspaceShell() {
                   文本剪贴板已开启
                 </p>
                 <p className="text-[12px] leading-5 text-slate-600">
-                  Chrome / Edge 可直接在本机和云桌面之间复制粘贴文本；浏览器拦截时用
-                  KasmVNC Clipboard 面板中转。
+                  Chrome / Edge
+                  可直接在本机和云桌面之间复制粘贴文本；浏览器拦截时用 KasmVNC
+                  Clipboard 面板中转。
                 </p>
               </div>
             </div>
@@ -652,18 +691,27 @@ export function WorkspaceShell() {
 
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     {workspace.loginUrl ? (
-                      <a
-                        href={workspace.loginUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                      <Button
+                        size="sm"
                         className={cn(
-                          buttonVariants({ size: "sm" }),
                           PRIMARY_ACTION_CLASS,
                           "h-9 justify-center px-4 text-[12px]",
                         )}
+                        disabled={
+                          openWorkspace.isPending &&
+                          openingWorkspaceName === workspace.name
+                        }
+                        onClick={() => void handleOpenWorkspace(workspace)}
                       >
+                        {openWorkspace.isPending &&
+                        openingWorkspaceName === workspace.name ? (
+                          <LoaderCircleIcon
+                            className="animate-spin"
+                            data-icon="inline-start"
+                          />
+                        ) : null}
                         登录
-                      </a>
+                      </Button>
                     ) : (
                       <Button
                         variant="outline"
@@ -792,18 +840,29 @@ export function WorkspaceShell() {
                       <TableCell className="px-4 py-4 align-middle">
                         <div className="flex items-center justify-end gap-2">
                           {workspace.loginUrl ? (
-                            <a
-                              href={workspace.loginUrl}
-                              target="_blank"
-                              rel="noreferrer"
+                            <Button
+                              size="sm"
                               className={cn(
-                                buttonVariants({ size: "sm" }),
                                 PRIMARY_ACTION_CLASS,
                                 "h-9 px-4 text-[12px]",
                               )}
+                              disabled={
+                                openWorkspace.isPending &&
+                                openingWorkspaceName === workspace.name
+                              }
+                              onClick={() =>
+                                void handleOpenWorkspace(workspace)
+                              }
                             >
+                              {openWorkspace.isPending &&
+                              openingWorkspaceName === workspace.name ? (
+                                <LoaderCircleIcon
+                                  className="animate-spin"
+                                  data-icon="inline-start"
+                                />
+                              ) : null}
                               登录
-                            </a>
+                            </Button>
                           ) : (
                             <Button
                               variant="outline"

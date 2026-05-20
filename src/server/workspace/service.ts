@@ -4,17 +4,21 @@ import fs from "node:fs";
 import net from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 
 import {
   AppsV1Api,
   CoreV1Api,
+  Exec,
   NetworkingV1Api,
+  type KubeConfig,
   type V1Deployment,
   type V1Ingress,
   type V1Node,
   type V1Pod,
   type V1Secret,
   type V1Service,
+  type V1Status,
 } from "@kubernetes/client-node";
 
 import {
@@ -49,6 +53,10 @@ import {
   resolveKubernetesWorkVolume,
   SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
+import {
+  parseEstablishedTcpConnections,
+  parseKasmVncActiveConnections,
+} from "@/server/workspace-occupancy";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
@@ -59,8 +67,19 @@ const RUNTIME_IMAGE_PATH = path.join(WORKSPACE_RUNTIME_DIR, "latest-image.txt");
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.WORKSPACE_K8S_API_CONNECT_TIMEOUT_MS ?? 2500,
 );
+const WORKSPACE_OCCUPANCY_EXEC_TIMEOUT_MS = Number(
+  process.env.WORKSPACE_OCCUPANCY_EXEC_TIMEOUT_MS ?? 3500,
+);
+const WORKSPACE_OCCUPANCY_TCP_RESAMPLE_MS = Number(
+  process.env.WORKSPACE_OCCUPANCY_TCP_RESAMPLE_MS ?? 700,
+);
+const WORKSPACE_KASMVNC_LOG_TAIL_LINES = Number(
+  process.env.WORKSPACE_KASMVNC_LOG_TAIL_LINES ?? 10000,
+);
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
 const WORKSPACE_CODEX_MOUNT_PATH = "/opt/remote-work/codex";
+const WORKSPACE_DESKTOP_CONTAINER_NAME = "desktop";
+const WORKSPACE_KASMVNC_PORT = 6080;
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
   return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
@@ -83,6 +102,7 @@ type ClusterNode = {
 type KubeContext = {
   config: ClusterConfig;
   nodes: ClusterNode[];
+  kubeConfig: KubeConfig;
   kubeconfigPath: string;
   apiServer: string | null;
   appsApi: AppsV1Api;
@@ -113,6 +133,19 @@ export type WorkspaceListResult = {
   available: boolean;
   reason: string | null;
   items: WorkspaceItem[];
+};
+
+export type WorkspaceOccupancy = {
+  status: "idle" | "occupied" | "unknown";
+  activeConnectionCount: number | null;
+  activeTcpConnectionCount: number | null;
+  reason: string | null;
+};
+
+export type OpenWorkspaceResult = {
+  name: string;
+  loginUrl: string;
+  occupancy: WorkspaceOccupancy;
 };
 
 export type CreateWorkspaceInput = {
@@ -525,6 +558,7 @@ async function createKubeContext(): Promise<KubeContext> {
   return {
     config,
     nodes,
+    kubeConfig,
     kubeconfigPath: kubeconfigPath!,
     apiServer,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
@@ -838,6 +872,216 @@ function workspaceLabel(metadata?: {
   );
 }
 
+function compareWorkspacePods(left: V1Pod, right: V1Pod) {
+  const leftStarted =
+    left.status?.startTime?.getTime() ??
+    left.metadata?.creationTimestamp?.getTime() ??
+    0;
+  const rightStarted =
+    right.status?.startTime?.getTime() ??
+    right.metadata?.creationTimestamp?.getTime() ??
+    0;
+
+  return rightStarted - leftStarted;
+}
+
+function runningPodForWorkspace(pods: V1Pod[], name: string) {
+  return [...pods]
+    .filter((pod) => workspaceLabel(pod.metadata) === name)
+    .filter((pod) => pod.status?.phase === "Running")
+    .sort(compareWorkspacePods)[0];
+}
+
+function firstServiceNodePort(service: V1Service | null) {
+  return (
+    service?.spec?.ports?.find((port) => port.port === WORKSPACE_KASMVNC_PORT)
+      ?.nodePort ??
+    service?.spec?.ports?.find((port) => port.name === "http")?.nodePort ??
+    service?.spec?.ports?.find((port) => port.nodePort)?.nodePort ??
+    null
+  );
+}
+
+function isSuccessStatus(status?: V1Status) {
+  return !status?.status || status.status === "Success";
+}
+
+function firstNonEmptyValue(...values: Array<string | null | undefined>) {
+  return values.find((value) => value !== undefined && value !== null && value);
+}
+
+function isClosableConnection(value: unknown): value is { close: () => void } {
+  if (typeof value !== "object" || value === null || !("close" in value)) {
+    return false;
+  }
+
+  return typeof (value as { close?: unknown }).close === "function";
+}
+
+async function execWorkspaceCommand(options: {
+  ctx: KubeContext;
+  podName: string;
+  command: string;
+  timeoutMessage: string;
+}) {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let stdoutText = "";
+  let stderrText = "";
+
+  stdout.on("data", (chunk) => {
+    stdoutText += Buffer.isBuffer(chunk)
+      ? chunk.toString("utf8")
+      : String(chunk);
+  });
+  stderr.on("data", (chunk) => {
+    stderrText += Buffer.isBuffer(chunk)
+      ? chunk.toString("utf8")
+      : String(chunk);
+  });
+
+  const exec = new Exec(options.ctx.kubeConfig);
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let socket: { close: () => void } | null = null;
+    const timeout = setTimeout(() => {
+      socket?.close();
+      settle(new Error(options.timeoutMessage));
+    }, WORKSPACE_OCCUPANCY_EXEC_TIMEOUT_MS);
+
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+
+    const handleStatus = (status?: V1Status) => {
+      if (!isSuccessStatus(status)) {
+        settle(
+          new Error(
+            firstNonEmptyValue(
+              status?.message?.trim(),
+              stderrText.trim(),
+              stdoutText.trim(),
+              "远程桌面状态检查失败。",
+            ) ?? "远程桌面状态检查失败。",
+          ),
+        );
+        return;
+      }
+
+      settle();
+    };
+
+    void exec
+      .exec(
+        options.ctx.config.workspaceNamespace,
+        options.podName,
+        WORKSPACE_DESKTOP_CONTAINER_NAME,
+        ["sh", "-lc", options.command],
+        stdout,
+        stderr,
+        null,
+        false,
+        handleStatus,
+      )
+      .then((connection: unknown) => {
+        if (isClosableConnection(connection)) {
+          socket = connection;
+        }
+      })
+      .catch((error) => {
+        settle(error instanceof Error ? error : new Error(String(error)));
+      });
+  });
+
+  return stdoutText;
+}
+
+async function readWorkspaceKasmVncLog(ctx: KubeContext, podName: string) {
+  try {
+    return await ctx.coreApi.readNamespacedPodLog({
+      name: podName,
+      namespace: ctx.config.workspaceNamespace,
+      container: WORKSPACE_DESKTOP_CONTAINER_NAME,
+      tailLines: WORKSPACE_KASMVNC_LOG_TAIL_LINES,
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `读取 KasmVNC 日志失败：${error.message}`
+        : "读取 KasmVNC 日志失败。",
+    );
+  }
+}
+
+async function sampleWorkspaceTcpConnections(
+  ctx: KubeContext,
+  podName: string,
+) {
+  const command = [
+    `ss -tan 2>/dev/null | grep ':${WORKSPACE_KASMVNC_PORT} ' || true`,
+    `sleep ${Math.max(WORKSPACE_OCCUPANCY_TCP_RESAMPLE_MS, 0) / 1000}`,
+    `ss -tan 2>/dev/null | grep ':${WORKSPACE_KASMVNC_PORT} ' || true`,
+  ].join("; ");
+  const output = await execWorkspaceCommand({
+    ctx,
+    podName,
+    command,
+    timeoutMessage: "检查远程桌面连接占用超时。",
+  });
+
+  return parseEstablishedTcpConnections(output, WORKSPACE_KASMVNC_PORT);
+}
+
+async function inspectWorkspaceOccupancy(
+  ctx: KubeContext,
+  podName: string,
+): Promise<WorkspaceOccupancy> {
+  try {
+    const [logText, tcpConnections] = await Promise.all([
+      readWorkspaceKasmVncLog(ctx, podName),
+      sampleWorkspaceTcpConnections(ctx, podName),
+    ]);
+    const parsedLogConnections = parseKasmVncActiveConnections(logText);
+    const activeConnectionCount = parsedLogConnections.activeConnectionCount;
+    const activeTcpConnectionCount = tcpConnections.length;
+
+    if (activeConnectionCount > 0 || activeTcpConnectionCount > 0) {
+      return {
+        status: "occupied",
+        activeConnectionCount,
+        activeTcpConnectionCount,
+        reason:
+          "KasmVNC 仍有活动远程桌面会话。请等待对方断开，或让当前使用者在 KasmVNC 菜单里点“中断连接”。",
+      };
+    }
+
+    return {
+      status: "idle",
+      activeConnectionCount,
+      activeTcpConnectionCount,
+      reason: null,
+    };
+  } catch (error) {
+    return {
+      status: "unknown",
+      activeConnectionCount: null,
+      activeTcpConnectionCount: null,
+      reason:
+        error instanceof Error
+          ? error.message
+          : "无法确认远程桌面是否有人正在使用。",
+    };
+  }
+}
+
 export async function listWorkspaces(): Promise<WorkspaceListResult> {
   let ctx: KubeContext;
 
@@ -987,6 +1231,67 @@ export async function listWorkspaces(): Promise<WorkspaceListResult> {
     available: true,
     reason: null,
     items,
+  };
+}
+
+export async function openWorkspace(
+  name: string,
+): Promise<OpenWorkspaceResult> {
+  validateWorkspaceName(name);
+
+  const ctx = await createKubeContext();
+  const resources = await listWorkspaceResources(ctx);
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
+  const deployment = resources.deployments.find(
+    (item) => workspaceNameFromDeployment(item.metadata?.name) === name,
+  );
+
+  if (!deployment) {
+    throw new Error(`远程桌面 ${name} 不存在。`);
+  }
+
+  if (workspaceStatus(deployment) !== "running") {
+    throw new Error(`远程桌面 ${name} 尚未就绪。`);
+  }
+
+  const service =
+    resources.services.find((item) => workspaceLabel(item.metadata) === name) ??
+    null;
+  const ingress =
+    resources.ingresses.find(
+      (item) => workspaceLabel(item.metadata) === name,
+    ) ?? null;
+  const loginUrl = buildLoginUrl({
+    ingress,
+    service,
+    nodeIp: accessHost,
+  });
+
+  if (!loginUrl) {
+    throw new Error(`远程桌面 ${name} 入口地址尚未分配。`);
+  }
+
+  if (!firstServiceNodePort(service) && !ingress) {
+    throw new Error(`远程桌面 ${name} 入口服务尚未就绪。`);
+  }
+
+  const pod = runningPodForWorkspace(resources.pods, name);
+  const podName = pod?.metadata?.name?.trim();
+  if (!podName) {
+    throw new Error(`远程桌面 ${name} 没有运行中的 Pod。`);
+  }
+
+  const occupancy = await inspectWorkspaceOccupancy(ctx, podName);
+  if (occupancy.status !== "idle") {
+    throw new Error(
+      occupancy.reason ?? "远程桌面当前可能有人正在使用，已禁止打开新会话。",
+    );
+  }
+
+  return {
+    name,
+    loginUrl,
+    occupancy,
   };
 }
 

@@ -20,6 +20,7 @@ exec dbus-run-session -- bash -lc '
   apply_gnome_settings() {
     local wallpaper_uri="file:///usr/share/backgrounds/warty-final-ubuntu.png"
     local favorite_apps="['\''org.gnome.Terminal.desktop'\'', '\''org.gnome.Nautilus.desktop'\'']"
+    local enable_extensions="${REMOTE_WORKSPACE_ENABLE_GNOME_EXTENSIONS:-0}"
 
     gsettings set org.gnome.desktop.interface gtk-theme Yaru || true
     gsettings set org.gnome.desktop.interface icon-theme Yaru || true
@@ -43,12 +44,24 @@ exec dbus-run-session -- bash -lc '
     fi
 
     gsettings set org.gnome.shell favorite-apps "$favorite_apps" || true
-    gsettings set org.gnome.shell enabled-extensions \
-      "['\''ubuntu-dock@ubuntu.com'\'', '\''ubuntu-appindicators@ubuntu.com'\'', '\''ding@rastersoft.com'\'']" || true
-    gsettings set org.gnome.shell.extensions.dash-to-dock dock-position LEFT || true
-    gsettings set org.gnome.shell.extensions.dash-to-dock extend-height true || true
+    if [[ "$enable_extensions" = "1" ]]; then
+      gsettings set org.gnome.shell disable-user-extensions false || true
+      gsettings set org.gnome.shell enabled-extensions \
+        "['\''ubuntu-dock@ubuntu.com'\'', '\''ubuntu-appindicators@ubuntu.com'\'', '\''ding@rastersoft.com'\'']" || true
+      gsettings set org.gnome.shell.extensions.dash-to-dock dock-position LEFT || true
+      gsettings set org.gnome.shell.extensions.dash-to-dock extend-height true || true
+    else
+      gsettings set org.gnome.shell disable-user-extensions true || true
+      gsettings set org.gnome.shell enabled-extensions "[]" || true
+    fi
   }
 
   apply_gnome_settings
-  exec gnome-session --session=cola-ubuntu
+  export GNOME_SHELL_SESSION_MODE=ubuntu
+  export GNOME_SHELL_DISABLE_EXTENSIONS="${GNOME_SHELL_DISABLE_EXTENSIONS:-1}"
+  export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+  export XDG_SESSION_DESKTOP=ubuntu
+  export XDG_SESSION_TYPE=x11
+
+  exec gnome-session --disable-acceleration-check --session=cola-ubuntu
 '
