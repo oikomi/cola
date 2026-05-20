@@ -6,7 +6,8 @@ ARG UBUNTU_VERSION=24.04.4
 ARG KASMVNC_VERSION=1.4.0
 ARG OFFLINE_DEB_DIR=""
 ARG SKIP_PACKAGE_INSTALL=0
-ARG MOZILLA_APT_URL="https://packages.mozilla.org/apt"
+ARG UBUNTU_APT_URL="https://mirrors.cernet.edu.cn/ubuntu"
+ARG MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG TARGETARCH
 
@@ -19,6 +20,15 @@ ENV LC_ALL=C.UTF-8
 ENV HOME=/home/worker
 
 COPY debs/ /opt/remote-work-debs/
+
+RUN if [ -n "$UBUNTU_APT_URL" ]; then \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+      -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_APT_URL}|g" \
+      -e "s|https://archive.ubuntu.com/ubuntu|${UBUNTU_APT_URL}|g" \
+      -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_APT_URL}|g" \
+      -e "s|https://security.ubuntu.com/ubuntu|${UBUNTU_APT_URL}|g" \
+      {} +; \
+  fi
 
 RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     command -v vncserver >/dev/null \

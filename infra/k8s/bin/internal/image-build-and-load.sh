@@ -12,7 +12,8 @@ BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
 SKIP_PACKAGE_INSTALL="0"
 SKIP_BROWSER_INSTALL="0"
-MOZILLA_APT_URL="https://packages.mozilla.org/apt"
+UBUNTU_APT_URL="https://mirrors.cernet.edu.cn/ubuntu"
+MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 TARGET_ARCH=""
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
@@ -32,7 +33,8 @@ Options:
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
   --skip-package-install  Reuse a base image that already contains desktop packages, Firefox and KasmVNC
   --skip-browser-install  Skip Firefox installation; intended for local desktop smoke tests only
-  --mozilla-apt-url <url> Primary Mozilla APT repo URL, default packages.mozilla.org
+  --ubuntu-apt-url <url>  Ubuntu APT mirror URL, default mirrors.cernet.edu.cn/ubuntu
+  --mozilla-apt-url <url> Primary Mozilla APT repo URL, default mirrors.cernet.edu.cn/mozilla/apt
   --mozilla-apt-fallback-url <url>
                            Fallback Mozilla APT mirror, default CERNET
   --target-arch <arch>    Target node arch, default first configured node arch
@@ -65,6 +67,7 @@ build_workspace_image() {
     --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
     --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
     --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
+    --build-arg UBUNTU_APT_URL="$UBUNTU_APT_URL" \
     --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
     --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
     -t "$image_ref" \
@@ -89,6 +92,7 @@ build_workspace_image() {
       --build-arg OFFLINE_DEB_DIR="$OFFLINE_DEB_DIR" \
       --build-arg SKIP_PACKAGE_INSTALL="$SKIP_PACKAGE_INSTALL" \
       --build-arg SKIP_BROWSER_INSTALL="$SKIP_BROWSER_INSTALL" \
+      --build-arg UBUNTU_APT_URL="$UBUNTU_APT_URL" \
       --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
       --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
       -t "$image_ref" \
@@ -150,6 +154,10 @@ while [[ $# -gt 0 ]]; do
     --skip-browser-install)
       SKIP_BROWSER_INSTALL="1"
       shift
+      ;;
+    --ubuntu-apt-url)
+      UBUNTU_APT_URL="$2"
+      shift 2
       ;;
     --mozilla-apt-url)
       MOZILLA_APT_URL="$2"

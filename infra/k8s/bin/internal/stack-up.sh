@@ -28,6 +28,8 @@ Options:
   --image-name <name>        Pass through to 'workspace-image.sh build-and-load'
   --image-tag <tag>          Pass through to 'workspace-image.sh build-and-load'
   --ubuntu-version <ver>     Pass through to 'workspace-image.sh build-and-load'
+  --ubuntu-apt-url <url>     Pass through to 'workspace-image.sh build-and-load'
+  --mozilla-apt-url <url>    Pass through to 'workspace-image.sh build-and-load'
   --target-arch <arch>       Pass through to 'workspace-image.sh build-and-load'
   --kasmvnc-version <ver>    Pass through to 'workspace-image.sh build-and-load'
   -h, --help                 Show help
@@ -68,6 +70,8 @@ PORT_FORWARD_FOREGROUND=0
 IMAGE_NAME=""
 IMAGE_TAG=""
 UBUNTU_VERSION=""
+UBUNTU_APT_URL=""
+MOZILLA_APT_URL=""
 TARGET_ARCH=""
 KASMVNC_VERSION=""
 WORKSPACE_IMAGE_ENTRYPOINT="$BIN_DIR/../../../scripts/workspace-image.sh"
@@ -117,6 +121,14 @@ while [[ $# -gt 0 ]]; do
       UBUNTU_VERSION="$2"
       shift 2
       ;;
+    --ubuntu-apt-url)
+      UBUNTU_APT_URL="$2"
+      shift 2
+      ;;
+    --mozilla-apt-url)
+      MOZILLA_APT_URL="$2"
+      shift 2
+      ;;
     --target-arch)
       TARGET_ARCH="$2"
       shift 2
@@ -163,6 +175,14 @@ if [[ -n "$UBUNTU_VERSION" ]]; then
   image_args+=(--ubuntu-version "$UBUNTU_VERSION")
 fi
 
+if [[ -n "$UBUNTU_APT_URL" ]]; then
+  image_args+=(--ubuntu-apt-url "$UBUNTU_APT_URL")
+fi
+
+if [[ -n "$MOZILLA_APT_URL" ]]; then
+  image_args+=(--mozilla-apt-url "$MOZILLA_APT_URL")
+fi
+
 if [[ -n "$TARGET_ARCH" ]]; then
   image_args+=(--target-arch "$TARGET_ARCH")
 fi
@@ -172,7 +192,7 @@ if [[ -n "$KASMVNC_VERSION" ]]; then
 fi
 
 if [[ "$WITH_WORKSPACE_IMAGE" -ne 1 ]] && [[ "${#image_args[@]}" -gt 1 ]]; then
-  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--target-arch/--kasmvnc-version 只能与 --with-workspace-image 一起使用。" >&2
+  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--ubuntu-apt-url/--mozilla-apt-url/--target-arch/--kasmvnc-version 只能与 --with-workspace-image 一起使用。" >&2
   exit 1
 fi
 

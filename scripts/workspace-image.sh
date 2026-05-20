@@ -18,6 +18,7 @@ Examples:
   ./scripts/workspace-image.sh build-and-load --ubuntu-version 24.04
   ./scripts/workspace-image.sh build-and-load --target-arch amd64
   ./scripts/workspace-image.sh build-and-load --kasmvnc-version 1.4.0
+  ./scripts/workspace-image.sh build-and-load --ubuntu-apt-url https://mirrors.cernet.edu.cn/ubuntu
 EOF
 }
 
