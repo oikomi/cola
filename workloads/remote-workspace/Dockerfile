@@ -6,7 +6,7 @@ ARG UBUNTU_VERSION=24.04.4
 ARG KASMVNC_VERSION=1.4.0
 ARG OFFLINE_DEB_DIR=""
 ARG SKIP_PACKAGE_INSTALL=0
-ARG UBUNTU_APT_URL="https://mirrors.cernet.edu.cn/ubuntu"
+ARG UBUNTU_APT_URL="http://mirrors.cernet.edu.cn/ubuntu"
 ARG MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG TARGETARCH

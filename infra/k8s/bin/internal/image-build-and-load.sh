@@ -12,7 +12,7 @@ BASE_IMAGE=""
 OFFLINE_DEB_DIR=""
 SKIP_PACKAGE_INSTALL="0"
 SKIP_BROWSER_INSTALL="0"
-UBUNTU_APT_URL="https://mirrors.cernet.edu.cn/ubuntu"
+UBUNTU_APT_URL="http://mirrors.cernet.edu.cn/ubuntu"
 MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 TARGET_ARCH=""
@@ -33,7 +33,7 @@ Options:
   --offline-deb-dir <dir> Install .deb files from image context path without apt network access
   --skip-package-install  Reuse a base image that already contains desktop packages, Firefox and KasmVNC
   --skip-browser-install  Skip Firefox installation; intended for local desktop smoke tests only
-  --ubuntu-apt-url <url>  Ubuntu APT mirror URL, default mirrors.cernet.edu.cn/ubuntu
+  --ubuntu-apt-url <url>  Ubuntu APT mirror URL, default http://mirrors.cernet.edu.cn/ubuntu
   --mozilla-apt-url <url> Primary Mozilla APT repo URL, default mirrors.cernet.edu.cn/mozilla/apt
   --mozilla-apt-fallback-url <url>
                            Fallback Mozilla APT mirror, default CERNET
