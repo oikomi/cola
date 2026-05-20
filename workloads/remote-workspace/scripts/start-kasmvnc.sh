@@ -15,6 +15,7 @@ vnc_pid=""
 
 cleanup() {
   local status=$?
+  trap - EXIT INT TERM
 
   if [[ -n "$session_pid" ]] && kill -0 "$session_pid" 2>/dev/null; then
     kill "$session_pid" 2>/dev/null || true
