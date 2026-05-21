@@ -37,6 +37,7 @@ const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_DASHBOARD_PORT = 9119;
 const HERMES_API_SERVER_PORT = 8642;
+const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
@@ -58,8 +59,12 @@ function generateGatewayToken() {
   return randomBytes(32).toString("base64url");
 }
 
-function generateHermesApiServerKey() {
-  return randomBytes(32).toString("base64url");
+function configuredHermesApiServerKey() {
+  return (
+    process.env.COLA_HERMES_API_SERVER_KEY ??
+    process.env.HERMES_API_SERVER_KEY ??
+    DEFAULT_HERMES_API_SERVER_KEY
+  );
 }
 
 function readClusterConfig() {
@@ -1201,7 +1206,7 @@ export async function provisionKubernetesRunner(
     const gatewayToken =
       input.engine === "openclaw" ? generateGatewayToken() : null;
     const hermesApiServerKey =
-      input.engine === "hermes-agent" ? generateHermesApiServerKey() : null;
+      input.engine === "hermes-agent" ? configuredHermesApiServerKey() : null;
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);
     const hermesApiServerUrl = hermesApiNodePort
       ? buildHermesApiServerUrl(hermesApiNodePort)
