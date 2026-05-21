@@ -952,6 +952,10 @@ function buildRunnerResources(
                         name: "API_SERVER_PORT",
                         value: String(HERMES_API_SERVER_PORT),
                       },
+                      {
+                        name: "HERMES_ALLOW_ROOT_GATEWAY",
+                        value: "1",
+                      },
                       ...(hermesApiServerKey
                         ? [
                             {
