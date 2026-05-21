@@ -40,6 +40,7 @@ const plan = prepareWorkspace({
     codexConfigPath: args["codex-config-path"] ?? "",
     codexAuthPath: args["codex-auth-path"] ?? "",
     codexSecretName: args["codex-secret-name"] ?? "",
+    cameraDevicePath: args["camera-device-path"] ?? "",
     cpuRequest: args["cpu-request"] ?? "2",
     cpuLimit: args["cpu-limit"] ?? "4",
     memoryRequest: args["memory-request"] ?? "4Gi",

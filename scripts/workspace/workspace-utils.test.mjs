@@ -135,6 +135,48 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
   assert.doesNotMatch(manifest, /path: \/vnc\.html/);
 });
 
+test("buildWorkspaceManifest mounts host camera when requested", () => {
+  const { manifest } = buildWorkspaceManifest({
+    config,
+    nodes,
+    name: "camera",
+    nodeName: "worker-a",
+    image: "remote-workspace:test",
+    nodePort: 31492,
+    disablePassword: true,
+    codexSecretName: "shared-codex",
+    cameraDevicePath: "/dev/video0",
+  });
+
+  assert.match(
+    manifest,
+    /nodeSelector:\n\s+kubernetes\.io\/hostname: worker-a/,
+  );
+  assert.match(manifest, /name: host-camera/);
+  assert.match(manifest, /mountPath: \/dev\/video0/);
+  assert.match(manifest, /path: \/dev\/video0/);
+  assert.match(manifest, /type: CharDevice/);
+  assert.match(manifest, /privileged: true/);
+  assert.match(manifest, /allowPrivilegeEscalation: true/);
+});
+
+test("buildWorkspaceManifest rejects non-video host camera paths", () => {
+  assert.throws(
+    () =>
+      buildWorkspaceManifest({
+        config,
+        nodes,
+        name: "bad-camera",
+        nodeName: "worker-a",
+        image: "remote-workspace:test",
+        nodePort: 31493,
+        disablePassword: true,
+        cameraDevicePath: "/dev/input0",
+      }),
+    /--camera-device-path 只支持 \/dev\/videoN/,
+  );
+});
+
 test("buildWorkspaceManifest mounts host Codex config as a read-only secret", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cola-codex-test-"));
   const configPath = path.join(tmpDir, "config.toml");

@@ -94,6 +94,7 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     traceroute \
     ubuntu-session \
     ubuntu-wallpapers-noble \
+    v4l-utils \
     vim-tiny \
     wget \
     xdg-utils \

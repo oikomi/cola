@@ -65,6 +65,9 @@ type WorkspaceDraft = {
   gpuMemoryGi: string;
   resolution: string;
   resolutionPreset: string;
+  cameraEnabled: boolean;
+  cameraNodeName: string;
+  cameraDevicePath: string;
 };
 
 const WORKSPACE_STATUS_POLL_INTERVAL_MS = 5000;
@@ -276,6 +279,9 @@ export function WorkspaceShell() {
     gpuMemoryGi: "",
     resolution: "1600x900x24",
     resolutionPreset: "1600x900x24",
+    cameraEnabled: false,
+    cameraNodeName: "",
+    cameraDevicePath: "/dev/video0",
   });
 
   const workspaceQuery = api.workspace.list.useQuery(undefined, {
@@ -297,6 +303,9 @@ export function WorkspaceShell() {
         gpuMemoryGi: "",
         resolution: "1600x900x24",
         resolutionPreset: "1600x900x24",
+        cameraEnabled: false,
+        cameraNodeName: "",
+        cameraDevicePath: "/dev/video0",
       });
     },
     onError: (error) => notifyError(error.message),
@@ -361,12 +370,18 @@ export function WorkspaceShell() {
     (Number.isInteger(parsedGpuMemoryGi) &&
       parsedGpuMemoryGi >= 1 &&
       parsedGpuMemoryGi <= 1024);
+  const cameraNodeValid =
+    !draft.cameraEnabled || draft.cameraNodeName.trim().length > 0;
+  const cameraDeviceValid =
+    !draft.cameraEnabled || /^\/dev\/video\d+$/.test(draft.cameraDevicePath);
   const canSubmit =
     available &&
     workspaceNameValid &&
     memoryValid &&
     gpuCountValid &&
-    gpuMemoryValid;
+    gpuMemoryValid &&
+    cameraNodeValid &&
+    cameraDeviceValid;
   const submitDisabledReason = !available
     ? (capabilityReason ?? "K8s 当前不可用")
     : !workspaceNameValid
@@ -377,7 +392,11 @@ export function WorkspaceShell() {
           ? "GPU 数量不合法"
           : !gpuMemoryValid
             ? "显存必须是正整数"
-            : null;
+            : !cameraNodeValid
+              ? "需要填写摄像头所在节点"
+              : !cameraDeviceValid
+                ? "摄像头设备路径需为 /dev/videoN"
+                : null;
 
   useEffect(() => {
     if (!capabilityReason) return;
@@ -408,6 +427,12 @@ export function WorkspaceShell() {
       gpuMemoryGi:
         draft.gpuAllocationMode === "memory" ? parsedGpuMemoryGi : null,
       resolution: draft.resolution,
+      cameraNodeName: draft.cameraEnabled
+        ? draft.cameraNodeName.trim()
+        : undefined,
+      cameraDevicePath: draft.cameraEnabled
+        ? draft.cameraDevicePath.trim()
+        : undefined,
     });
   };
 
@@ -1099,6 +1124,81 @@ export function WorkspaceShell() {
                   ) : null}
                 </div>
               </FormField>
+
+              <FormField
+                label="主机摄像头"
+                hint={
+                  draft.cameraEnabled
+                    ? "新桌面会固定到该节点，并挂载对应 /dev/videoN。"
+                    : "不开启时不挂载物理摄像头。"
+                }
+              >
+                <Select
+                  value={draft.cameraEnabled ? "enabled" : "disabled"}
+                  onValueChange={(value) =>
+                    setDraft((current) => ({
+                      ...current,
+                      cameraEnabled: value === "enabled",
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full min-w-0 bg-white/80">
+                    <SelectValue placeholder="选择摄像头挂载方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="disabled">不挂载</SelectItem>
+                      <SelectItem value="enabled">挂载物理摄像头</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormField>
+
+              {draft.cameraEnabled ? (
+                <>
+                  <FormField
+                    label="摄像头所在节点"
+                    hint={
+                      cameraNodeValid
+                        ? "填写 Kubernetes 节点名，例如 worker-a。"
+                        : "必须填写摄像头插入的物理节点名。"
+                    }
+                    invalid={!cameraNodeValid}
+                  >
+                    <Input
+                      value={draft.cameraNodeName}
+                      placeholder="例如：worker-a"
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          cameraNodeName: event.target.value.trim(),
+                        }))
+                      }
+                    />
+                  </FormField>
+
+                  <FormField
+                    label="摄像头设备路径"
+                    hint={
+                      cameraDeviceValid
+                        ? "通常是 /dev/video0；同一摄像头也可能暴露多个 video 设备。"
+                        : "设备路径需为 /dev/videoN。"
+                    }
+                    invalid={!cameraDeviceValid}
+                  >
+                    <Input
+                      value={draft.cameraDevicePath}
+                      placeholder="/dev/video0"
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          cameraDevicePath: event.target.value.trim(),
+                        }))
+                      }
+                    />
+                  </FormField>
+                </>
+              ) : null}
             </div>
           </div>
 

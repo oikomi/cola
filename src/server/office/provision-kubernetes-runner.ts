@@ -36,6 +36,7 @@ const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
 const CLUSTER_NODES_PATH = path.join(K8S_INFRA_DIR, "cluster", "nodes.json");
 const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_DASHBOARD_PORT = 9119;
+const HERMES_API_SERVER_PORT = 8642;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
@@ -54,6 +55,10 @@ type ClusterNode = {
 };
 
 function generateGatewayToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+function generateHermesApiServerKey() {
   return randomBytes(32).toString("base64url");
 }
 
@@ -657,8 +662,13 @@ function buildOpenClawCommand(nodePort: number) {
 function buildHermesCommand() {
   const hermesBin =
     process.env.HERMES_BIN_IN_CONTAINER ?? "/opt/hermes/.venv/bin/hermes";
+  const bootstrapCommand =
+    "if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo \"Missing node/bun runtime for bootstrap\" >&2; exit 1; fi";
+  const prepareCommand =
+    "if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs --prepare-only; else echo \"Missing node/bun runtime for bootstrap\" >&2; exit 1; fi";
+  const gatewayCommand = `${hermesBin} gateway >/tmp/hermes-gateway.log 2>&1 &`;
 
-  return `((if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi) >/tmp/hermes-bootstrap.log 2>&1 &) && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
+  return `(${prepareCommand}) >/tmp/hermes-prepare.log 2>&1 && ((${bootstrapCommand}) >/tmp/hermes-bootstrap.log 2>&1 &) && (${gatewayCommand}) && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
 }
 
 function buildBootstrapConfigMap(
@@ -696,6 +706,13 @@ export function buildNativeDashboardUrl(
   nodePort: number,
 ): string | null {
   const publicHost = dashboardPublicHost(engine);
+  if (!publicHost) return null;
+
+  return `http://${publicHost}:${nodePort}/`;
+}
+
+export function buildHermesApiServerUrl(nodePort: number): string | null {
+  const publicHost = dashboardPublicHost("hermes-agent");
   if (!publicHost) return null;
 
   return `http://${publicHost}:${nodePort}/`;
@@ -744,7 +761,9 @@ function buildRunnerResources(
   deploymentName: string,
   serviceName: string,
   nodePort: number,
+  hermesApiNodePort: number | null,
   gatewayToken: string | null,
+  hermesApiServerKey: string | null,
 ) {
   const image = runnerImage(input.engine);
   const { name: codexSecretName, manifest: codexSecretManifest } =
@@ -809,6 +828,14 @@ function buildRunnerResources(
                   name: "dashboard",
                   containerPort: dashboardPort,
                 },
+                ...(input.engine === "hermes-agent"
+                  ? [
+                      {
+                        name: "api",
+                        containerPort: HERMES_API_SERVER_PORT,
+                      },
+                    ]
+                  : []),
               ],
               env: [
                 {
@@ -913,6 +940,26 @@ function buildRunnerResources(
                         name: "HERMES_CODEX_AUTH_PATH",
                         value: "/home/node/.codex/auth.json",
                       },
+                      {
+                        name: "API_SERVER_ENABLED",
+                        value: "true",
+                      },
+                      {
+                        name: "API_SERVER_HOST",
+                        value: "0.0.0.0",
+                      },
+                      {
+                        name: "API_SERVER_PORT",
+                        value: String(HERMES_API_SERVER_PORT),
+                      },
+                      ...(hermesApiServerKey
+                        ? [
+                            {
+                              name: "API_SERVER_KEY",
+                              value: hermesApiServerKey,
+                            },
+                          ]
+                        : []),
                     ]
                   : []),
               ],
@@ -977,6 +1024,16 @@ function buildRunnerResources(
           targetPort: dashboardPort,
           nodePort,
         },
+        ...(input.engine === "hermes-agent" && hermesApiNodePort
+          ? [
+              {
+                name: "api",
+                port: HERMES_API_SERVER_PORT,
+                targetPort: HERMES_API_SERVER_PORT,
+                nodePort: hermesApiNodePort,
+              },
+            ]
+          : []),
       ],
     },
   };
@@ -1133,15 +1190,26 @@ export async function provisionKubernetesRunner(
         ? NODE_PORT_RANGES.hermes
         : NODE_PORT_RANGES.openclaw,
     );
+    const hermesApiNodePort =
+      input.engine === "hermes-agent"
+        ? await findAvailableNodePort(coreApi, NODE_PORT_RANGES.hermesApi)
+        : null;
     const gatewayToken =
       input.engine === "openclaw" ? generateGatewayToken() : null;
+    const hermesApiServerKey =
+      input.engine === "hermes-agent" ? generateHermesApiServerKey() : null;
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);
+    const hermesApiServerUrl = hermesApiNodePort
+      ? buildHermesApiServerUrl(hermesApiNodePort)
+      : null;
     const resources = buildRunnerResources(
       input,
       deploymentName,
       serviceName,
       nodePort,
+      hermesApiNodePort,
       gatewayToken,
+      hermesApiServerKey,
     );
 
     if (resources.codexSecretManifest) {
@@ -1164,6 +1232,14 @@ export async function provisionKubernetesRunner(
         serviceName,
         namespace,
         nodePort: String(nodePort),
+        ...(hermesApiNodePort
+          ? {
+              hermesApiNodePort: String(hermesApiNodePort),
+              hermesApiServerPort: String(HERMES_API_SERVER_PORT),
+            }
+          : {}),
+        ...(hermesApiServerUrl ? { hermesApiServerUrl } : {}),
+        ...(hermesApiServerKey ? { hermesApiServerKey } : {}),
         ...(gatewayToken ? { gatewayToken } : {}),
         configMapName: `${deploymentName}-scripts`,
         codexSecretName: resources.codexSecretName,

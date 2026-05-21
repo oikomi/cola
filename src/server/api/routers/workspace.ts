@@ -26,6 +26,8 @@ const createWorkspaceInput = z
     gpuCount: z.number().int().nonnegative().max(16),
     gpuMemoryGi: z.number().int().positive().max(MAX_GPU_MEMORY_GI).nullable(),
     resolution: z.string().trim().min(9).max(20),
+    cameraNodeName: z.string().trim().max(63).optional(),
+    cameraDevicePath: z.string().trim().max(64).optional(),
   })
   .superRefine((input, ctx) => {
     if (input.gpuAllocationMode === "memory" && !input.gpuMemoryGi) {
@@ -33,6 +35,14 @@ const createWorkspaceInput = z
         code: z.ZodIssueCode.custom,
         path: ["gpuMemoryGi"],
         message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+      });
+    }
+
+    if (input.cameraDevicePath && !input.cameraNodeName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cameraNodeName"],
+        message: "挂载主机摄像头时必须指定摄像头所在节点。",
       });
     }
   });

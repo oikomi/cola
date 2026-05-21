@@ -33,6 +33,7 @@ const { manifest } = buildWorkspaceManifest({
   allowGpuNode: args["allow-gpu-node"] === "1",
   ingressHost: args["ingress-host"] ?? "",
   tlsSecret: args["tls-secret"] ?? "",
+  cameraDevicePath: args["camera-device-path"] ?? "",
 });
 
 ensureWorkspaceManifestDir();

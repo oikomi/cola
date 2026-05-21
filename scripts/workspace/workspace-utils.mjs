@@ -291,6 +291,7 @@ export function buildWorkspaceManifest({
   codexConfigPath = "",
   codexAuthPath = "",
   codexSecretName = "",
+  cameraDevicePath = "",
 }) {
   validateWorkspaceName(name);
 
@@ -327,6 +328,15 @@ export function buildWorkspaceManifest({
   const serviceName = `${deploymentName}-svc`;
   const ingressName = `${deploymentName}-ing`;
   const basePath = path.posix.join(workspaceRoot, name);
+  const normalizedCameraDevicePath = String(cameraDevicePath).trim();
+  if (
+    normalizedCameraDevicePath &&
+    !/^\/dev\/video\d+$/.test(normalizedCameraDevicePath)
+  ) {
+    throw new Error(
+      "--camera-device-path 只支持 /dev/videoN，例如 /dev/video0",
+    );
+  }
   const codexSecret = buildCodexSecretData({
     codexConfigPath,
     codexAuthPath,
@@ -386,6 +396,12 @@ export function buildWorkspaceManifest({
     `    spec:`,
     ...(normalizedGpu > 0 ? [`      runtimeClassName: nvidia`] : []),
     ...(normalizedGpu > 0 ? [`      schedulerName: hami-scheduler`] : []),
+    ...(normalizedCameraDevicePath
+      ? [
+          `      nodeSelector:`,
+          `        kubernetes.io/hostname: ${targetNode.name}`,
+        ]
+      : []),
     `      containers:`,
     `        - name: desktop`,
     `          image: ${yamlQuote(image)}`,
@@ -441,12 +457,25 @@ export function buildWorkspaceManifest({
     ...(normalizedGpu > 0
       ? [`              nvidia.com/gpu: ${normalizedGpu}`]
       : []),
+    ...(normalizedCameraDevicePath
+      ? [
+          `          securityContext:`,
+          `            privileged: true`,
+          `            allowPrivilegeEscalation: true`,
+        ]
+      : []),
     `          volumeMounts:`,
     `            - name: home`,
     `              mountPath: /home/worker`,
     `            - name: codex`,
     `              mountPath: /opt/remote-work/codex`,
     `              readOnly: true`,
+    ...(normalizedCameraDevicePath
+      ? [
+          `            - name: host-camera`,
+          `              mountPath: ${normalizedCameraDevicePath}`,
+        ]
+      : []),
     `            - name: workspace`,
     `              mountPath: /workspace`,
     `      volumes:`,
@@ -457,6 +486,14 @@ export function buildWorkspaceManifest({
     `        - name: codex`,
     `          secret:`,
     `            secretName: ${workspaceCodexSecretName}`,
+    ...(normalizedCameraDevicePath
+      ? [
+          `        - name: host-camera`,
+          `          hostPath:`,
+          `            path: ${normalizedCameraDevicePath}`,
+          `            type: CharDevice`,
+        ]
+      : []),
     `        - name: workspace`,
     `          hostPath:`,
     `            path: ${yamlQuote(path.posix.join(basePath, "workspace"))}`,

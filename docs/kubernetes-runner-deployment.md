@@ -50,6 +50,10 @@ COLA_K8S_WORKSPACE_HOST_PATH=/home/charles/remotework/cola
 COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST=openclaw.example.com
 COLA_HERMES_DASHBOARD_PUBLIC_HOST=hermes.example.com
 COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY=1
+COLA_HERMES_NODE_PORT_START=31280
+COLA_HERMES_NODE_PORT_END=31379
+COLA_HERMES_API_NODE_PORT_START=31380
+COLA_HERMES_API_NODE_PORT_END=31479
 ```
 
 说明：
@@ -61,6 +65,10 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY=1
   未设置时会回退到 `emptyDir`
 - `COLA_OPENCLAW_DASHBOARD_PUBLIC_HOST` / `COLA_HERMES_DASHBOARD_PUBLIC_HOST`
   为不同引擎单独指定外部访问主机名
+- `COLA_HERMES_NODE_PORT_START` / `COLA_HERMES_NODE_PORT_END`
+  Hermes dashboard NodePort 区间，默认 `31280-31379`
+- `COLA_HERMES_API_NODE_PORT_START` / `COLA_HERMES_API_NODE_PORT_END`
+  Hermes OpenAI-compatible API Server NodePort 区间，默认 `31380-31479`
 
 ## 当前实现特点
 
@@ -68,7 +76,17 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY=1
 - Codex 配置优先从已存在的 Secret 读取
 - 如果没配置 `COLA_K8S_CODEX_SECRET_NAME`，控制面会尝试从本地文件创建每个 runner 自己的 Secret
 - dashboard 通过 NodePort 暴露
+- 新创建的 Hermes runner 会默认启用 API Server，容器内端口为 `8642`，外部 NodePort 会写入设备 metadata 的 `hermesApiNodePort` / `hermesApiServerUrl`，Bearer token 写入 `hermesApiServerKey`
 - 如果前端配置了 `NEXT_PUBLIC_OPENCLAW_NATIVE_URL` / `NEXT_PUBLIC_HERMES_NATIVE_URL`，人物卡仍会优先打开 Cola 自带工作区页
+
+Hermes API Server 调用示例：
+
+```bash
+curl "${HERMES_API_SERVER_URL%/}/v1/chat/completions" \
+  -H "Authorization: Bearer ${HERMES_API_SERVER_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"hermes-agent","messages":[{"role":"user","content":"hello"}]}'
+```
 
 ## 当前限制
 

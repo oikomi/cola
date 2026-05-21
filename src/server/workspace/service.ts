@@ -157,7 +157,14 @@ export type CreateWorkspaceInput = {
   gpuCount: number;
   gpuMemoryGi: number | null;
   resolution: string;
+  cameraNodeName?: string | null;
+  cameraDevicePath?: string | null;
   ownerUserId?: string;
+};
+
+type WorkspaceHostCamera = {
+  nodeName: string;
+  devicePath: string;
 };
 
 function readJsonFile<T>(filePath: string): T {
@@ -400,6 +407,32 @@ function normalizeResolution(input: string) {
   return `${width}x${height}x${depth}`;
 }
 
+function normalizeHostCamera(input: {
+  nodeName?: string | null;
+  devicePath?: string | null;
+  configNodes: ClusterNode[];
+}) {
+  const nodeName = input.nodeName?.trim() ?? "";
+  const devicePath = input.devicePath?.trim() ?? "";
+
+  if (!nodeName && !devicePath) return null;
+
+  if (!nodeName || !devicePath) {
+    throw new Error("挂载主机摄像头时必须同时填写节点和设备路径。");
+  }
+
+  const targetNode = input.configNodes.find((node) => node.name === nodeName);
+  if (!targetNode || !targetNode.roles.includes("worker")) {
+    throw new Error(`摄像头节点 ${nodeName} 不存在或不是 worker 节点。`);
+  }
+
+  if (!/^\/dev\/video\d+$/.test(devicePath)) {
+    throw new Error("摄像头设备路径只支持 /dev/videoN，例如 /dev/video0。");
+  }
+
+  return { nodeName, devicePath } satisfies WorkspaceHostCamera;
+}
+
 function isReady(node: V1Node) {
   return (
     node.status?.conditions?.some(
@@ -433,6 +466,7 @@ function assertWorkspaceSchedulable(params: {
   requestedGpuSpec: GpuAllocationSpec;
   workspaceLabelKey: string;
   gpuLabelKey: string;
+  camera?: WorkspaceHostCamera | null;
 }) {
   const liveNodeMap = new Map(
     params.liveNodes
@@ -467,6 +501,24 @@ function assertWorkspaceSchedulable(params: {
   const preferred = candidates.some((entry) => entry.workspaceLabeled)
     ? candidates.filter((entry) => entry.workspaceLabeled)
     : candidates;
+
+  if (params.camera) {
+    const cameraNode = candidates.find(
+      (entry) => entry.node.name === params.camera?.nodeName,
+    );
+    if (!cameraNode) {
+      throw new Error(`摄像头节点 ${params.camera.nodeName} 当前不可调度。`);
+    }
+    if (
+      usesGpuAcceleration(params.requestedGpuSpec) &&
+      !cameraNode.gpuCapable
+    ) {
+      throw new Error(
+        `摄像头节点 ${params.camera.nodeName} 不满足当前 GPU 需求。`,
+      );
+    }
+    return;
+  }
 
   if (preferred.length === 0) {
     throw new Error(
@@ -657,6 +709,7 @@ function buildWorkspaceDeployment(input: {
   gpuMemoryGi: number | null;
   resolution: string;
   codexSecretName: string;
+  camera?: WorkspaceHostCamera | null;
   ownerUserId?: string;
 }) {
   const workspaceRoot =
@@ -794,15 +847,38 @@ function buildWorkspaceDeployment(input: {
                   mountPath: WORKSPACE_CODEX_MOUNT_PATH,
                   readOnly: true,
                 },
+                ...(input.camera
+                  ? [
+                      {
+                        name: "host-camera",
+                        mountPath: input.camera.devicePath,
+                      },
+                    ]
+                  : []),
                 ...buildWorkVolumeMounts(workVolume),
               ],
-              ...(buildWorkVolumeSecurityContext(workVolume)
+              ...(input.camera || buildWorkVolumeSecurityContext(workVolume)
                 ? {
-                    securityContext: buildWorkVolumeSecurityContext(workVolume),
+                    securityContext: {
+                      ...buildWorkVolumeSecurityContext(workVolume),
+                      ...(input.camera
+                        ? {
+                            privileged: true,
+                            allowPrivilegeEscalation: true,
+                          }
+                        : {}),
+                    },
                   }
                 : {}),
             },
           ],
+          ...(input.camera
+            ? {
+                nodeSelector: {
+                  "kubernetes.io/hostname": input.camera.nodeName,
+                },
+              }
+            : {}),
           volumes: [
             {
               name: "home",
@@ -817,6 +893,17 @@ function buildWorkspaceDeployment(input: {
                 secretName: input.codexSecretName,
               },
             },
+            ...(input.camera
+              ? [
+                  {
+                    name: "host-camera",
+                    hostPath: {
+                      path: input.camera.devicePath,
+                      type: "CharDevice",
+                    },
+                  },
+                ]
+              : []),
             ...buildWorkVolumes(workVolume),
           ],
         },
@@ -1309,6 +1396,11 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     gpuMemoryGi: input.gpuMemoryGi,
   });
   const resolution = normalizeResolution(input.resolution);
+  const camera = normalizeHostCamera({
+    nodeName: input.cameraNodeName,
+    devicePath: input.cameraDevicePath,
+    configNodes: ctx.nodes,
+  });
 
   await ensureNamespace(ctx.coreApi, namespace);
 
@@ -1329,6 +1421,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
     requestedGpuSpec: gpuSpec,
     workspaceLabelKey: ctx.config.workspaceLabelKey,
     gpuLabelKey: ctx.config.gpuLabelKey,
+    camera,
   });
   const nodePort = resolveWorkspaceNodePort(allServices);
   const image = resolveWorkspaceImage();
@@ -1355,6 +1448,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
         gpuMemoryGi: gpuSpec.gpuMemoryGi,
         resolution,
         codexSecretName: codexSecret.name,
+        camera,
         ownerUserId: input.ownerUserId,
       }),
     });
@@ -1399,7 +1493,7 @@ export async function createWorkspace(input: CreateWorkspaceInput) {
         ownerUserId: input.ownerUserId,
       }),
     }),
-    nodeName: null,
+    nodeName: camera?.nodeName ?? null,
     nodePort,
   };
 }

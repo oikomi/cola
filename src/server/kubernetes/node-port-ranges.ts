@@ -90,6 +90,13 @@ export const NODE_PORT_RANGES = {
     start: 31280,
     end: 31379,
   }),
+  hermesApi: createNodePortRange({
+    label: "Hermes API",
+    startEnv: ["COLA_HERMES_API_NODE_PORT_START"],
+    endEnv: ["COLA_HERMES_API_NODE_PORT_END"],
+    start: 31380,
+    end: 31479,
+  }),
   workspace: createNodePortRange({
     label: "远程桌面",
     startEnv: [

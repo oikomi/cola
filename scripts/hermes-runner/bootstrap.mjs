@@ -42,6 +42,7 @@ const workdir = process.env.HERMES_WORKDIR ?? "/workspace";
 const logDir = process.env.HERMES_LOG_DIR ?? "/workspace/.hermes-runner";
 const sessionLogPath = path.join(logDir, "bootstrap.log");
 const resultPath = path.join(logDir, "last-result.json");
+const prepareOnly = process.argv.includes("--prepare-only");
 
 let deviceId = "";
 let sessionId = "";
@@ -201,7 +202,24 @@ display:
   streaming: false
 `.trimStart();
 
-  const envText = `OPENAI_API_KEY=${apiKey}\nOPENAI_BASE_URL=${baseUrl}\n`;
+  const envLines = [
+    `OPENAI_API_KEY=${apiKey}`,
+    `OPENAI_BASE_URL=${baseUrl}`,
+  ];
+
+  for (const key of [
+    "API_SERVER_ENABLED",
+    "API_SERVER_HOST",
+    "API_SERVER_PORT",
+    "API_SERVER_KEY",
+    "API_SERVER_CORS_ORIGINS",
+    "API_SERVER_MODEL_NAME",
+  ]) {
+    const value = process.env[key];
+    if (value) envLines.push(`${key}=${value}`);
+  }
+
+  const envText = `${envLines.join("\n")}\n`;
 
   await ensureRunnerHome();
   await writeFile(configPath, configText);
@@ -535,6 +553,15 @@ async function runBootCommand() {
 async function main() {
   await ensureLogDir();
   await logLine(`starting ${runtimeLabel} Hermes Agent bootstrap`);
+
+  if (prepareOnly) {
+    await writeHermesConfig();
+    await shell(readyCommand);
+    await logLine(
+      `Hermes Agent prepared with model ${resolvedModel} for API Server startup`,
+    );
+    return;
+  }
 
   const probe = await probeHermes();
   await registerRunner(probe.summary, probe.status);

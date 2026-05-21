@@ -11,6 +11,10 @@ import {
 void test("default NodePort ranges are isolated by product area", () => {
   assert.equal(formatNodePortRange(NODE_PORT_RANGES.openclaw), "31180-31279");
   assert.equal(formatNodePortRange(NODE_PORT_RANGES.hermes), "31280-31379");
+  assert.equal(
+    formatNodePortRange(NODE_PORT_RANGES.hermesApi),
+    "31380-31479",
+  );
   assert.equal(formatNodePortRange(NODE_PORT_RANGES.workspace), "31480-31579");
   assert.equal(formatNodePortRange(NODE_PORT_RANGES.jupyterlab), "31580-31679");
   assert.equal(
