@@ -57,6 +57,7 @@ import {
   parseEstablishedTcpConnections,
   parseKasmVncActiveConnections,
 } from "@/server/workspace-occupancy";
+import { buildKasmVncClientUrl } from "@/server/workspace/kasmvnc-url";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const WORKSPACE_RUNTIME_DIR = path.join(process.cwd(), "runtime", "workspace");
@@ -518,7 +519,7 @@ function buildLoginUrl(params: {
   const host = params.ingress?.spec?.rules?.[0]?.host;
   if (host) {
     const secure = (params.ingress?.spec?.tls?.length ?? 0) > 0;
-    return `${secure ? "https" : "http"}://${host}/`;
+    return buildKasmVncClientUrl(`${secure ? "https" : "http"}://${host}/`);
   }
 
   const nodePort = params.service?.spec?.ports?.find(
@@ -527,7 +528,7 @@ function buildLoginUrl(params: {
 
   if (!params.nodeIp || typeof nodePort !== "number") return null;
 
-  return `http://${params.nodeIp}:${nodePort}/`;
+  return buildKasmVncClientUrl(`http://${params.nodeIp}:${nodePort}/`);
 }
 
 function workspaceStatus(deployment: V1Deployment) {
