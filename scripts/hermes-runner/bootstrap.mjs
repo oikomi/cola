@@ -26,6 +26,7 @@ const configPath =
   process.env.HERMES_CONFIG_PATH ?? path.join(hermesHome, "config.yaml");
 const envPath = process.env.HERMES_ENV_PATH ?? path.join(hermesHome, ".env");
 const hermesBin = process.env.HERMES_BIN ?? "/opt/hermes/.venv/bin/hermes";
+const hermesProviderId = "cola-codex";
 const heartbeatIntervalMs = Number(
   process.env.COLA_HEARTBEAT_INTERVAL_MS ?? "15000",
 );
@@ -62,6 +63,10 @@ function extractQuotedValue(source, key) {
 function normalizeHermesBaseUrl(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+function yamlString(value) {
+  return JSON.stringify(value);
 }
 
 function loadCodexModelConfig() {
@@ -147,6 +152,8 @@ async function shell(command, extraEnv = {}) {
         ...process.env,
         HERMES_HOME: hermesHome,
         HERMES_CONFIG: configPath,
+        HERMES_INFERENCE_PROVIDER: resolvedProvider,
+        HERMES_INFERENCE_MODEL: resolvedModel,
         OPENAI_API_KEY: resolvedApiKey,
         ...extraEnv,
       },
@@ -182,16 +189,29 @@ async function shell(command, extraEnv = {}) {
 async function writeHermesConfig() {
   const { model, apiKey, baseUrl, apiMode } = loadCodexModelConfig();
   resolvedModel = model;
+  resolvedProvider = `custom:${hermesProviderId}`;
   resolvedBaseUrl = baseUrl;
   resolvedApiKey = apiKey;
   resolvedApiMode = apiMode;
 
   const configText = `
 model:
-  default: "${model}"
-  provider: "custom"
-  base_url: "${baseUrl}"
-  api_mode: "${apiMode}"
+  default: ${yamlString(model)}
+  provider: ${yamlString(resolvedProvider)}
+  base_url: ${yamlString(baseUrl)}
+  api_mode: ${yamlString(apiMode)}
+
+providers:
+  ${hermesProviderId}:
+    name: "Cola Codex"
+    base_url: ${yamlString(baseUrl)}
+    key_env: "OPENAI_API_KEY"
+    default_model: ${yamlString(model)}
+    model: ${yamlString(model)}
+    api_mode: ${yamlString(apiMode)}
+    transport: ${yamlString(apiMode)}
+
+fallback_providers: []
 
 terminal:
   backend: "local"
@@ -205,6 +225,8 @@ display:
   const envLines = [
     `OPENAI_API_KEY=${apiKey}`,
     `OPENAI_BASE_URL=${baseUrl}`,
+    `HERMES_INFERENCE_PROVIDER=${resolvedProvider}`,
+    `HERMES_INFERENCE_MODEL=${model}`,
   ];
 
   for (const key of [
@@ -407,6 +429,8 @@ async function runHermesForTask(task) {
           ...process.env,
           HERMES_HOME: hermesHome,
           HERMES_CONFIG: configPath,
+          HERMES_INFERENCE_PROVIDER: resolvedProvider,
+          HERMES_INFERENCE_MODEL: resolvedModel,
           OPENAI_API_KEY: resolvedApiKey,
           OPENAI_BASE_URL: resolvedBaseUrl,
           COLA_TASK_ID: task.id,
@@ -523,6 +547,8 @@ async function runBootCommand() {
       ...process.env,
       HERMES_HOME: hermesHome,
       HERMES_CONFIG: configPath,
+      HERMES_INFERENCE_PROVIDER: resolvedProvider,
+      HERMES_INFERENCE_MODEL: resolvedModel,
       OPENAI_API_KEY: resolvedApiKey,
       OPENAI_BASE_URL: resolvedBaseUrl,
     },

@@ -667,13 +667,20 @@ function buildOpenClawCommand(nodePort: number) {
 function buildHermesCommand() {
   const hermesBin =
     process.env.HERMES_BIN_IN_CONTAINER ?? "/opt/hermes/.venv/bin/hermes";
+  const hermesHome = process.env.HERMES_HOME_IN_CONTAINER ?? "/opt/data";
+  const hermesConfigPath =
+    process.env.HERMES_CONFIG_PATH_IN_CONTAINER ?? `${hermesHome}/config.yaml`;
+  const hermesEnvPath =
+    process.env.HERMES_ENV_PATH_IN_CONTAINER ?? `${hermesHome}/.env`;
+  const exportHermesPathsCommand = `export HERMES_HOME=${hermesHome}; export HERMES_CONFIG=${hermesConfigPath}; export HERMES_CONFIG_PATH=${hermesConfigPath}; export HERMES_ENV_PATH=${hermesEnvPath}`;
   const bootstrapCommand =
-    "if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo \"Missing node/bun runtime for bootstrap\" >&2; exit 1; fi";
+    `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
   const prepareCommand =
-    "if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs --prepare-only; else echo \"Missing node/bun runtime for bootstrap\" >&2; exit 1; fi";
-  const gatewayCommand = `${hermesBin} gateway >/tmp/hermes-gateway.log 2>&1 &`;
+    `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
+  const sourceEnvCommand = `${exportHermesPathsCommand}; set -a; [ ! -f ${hermesEnvPath} ] || . ${hermesEnvPath}; set +a`;
+  const gatewayCommand = `${sourceEnvCommand}; ${hermesBin} gateway >/tmp/hermes-gateway.log 2>&1 &`;
 
-  return `(${prepareCommand}) >/tmp/hermes-prepare.log 2>&1 && ((${bootstrapCommand}) >/tmp/hermes-bootstrap.log 2>&1 &) && (${gatewayCommand}) && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
+  return `(${prepareCommand}) >/tmp/hermes-prepare.log 2>&1 && ((${bootstrapCommand}) >/tmp/hermes-bootstrap.log 2>&1 &) && (${gatewayCommand}) && ${sourceEnvCommand} && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
 }
 
 function buildBootstrapConfigMap(
