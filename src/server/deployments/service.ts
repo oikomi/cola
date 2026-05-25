@@ -23,6 +23,7 @@ import {
   type InferenceDeploymentStatus,
   inferenceDeploymentEngineValues,
   isHuggingFaceModelRef,
+  lmDeployModelRefExample,
   isLlamaCppLocalModelRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelRef,
@@ -283,7 +284,9 @@ function normalizeModelRef(engine: InferenceDeploymentEngine, input: string) {
 
   if (!isHuggingFaceModelRef(value)) {
     throw new Error(
-      "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
+      engine === "lmdeploy"
+        ? `LMDeploy 模型引用目前只支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}。`
+        : "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
     );
   }
 
@@ -483,7 +486,8 @@ function positiveIntegerEnv(name: string, fallback: number) {
 
 function buildRuntimeEnv() {
   const hfEndpoint =
-    process.env.INFERENCE_HF_ENDPOINT?.trim() ?? process.env.HF_ENDPOINT?.trim();
+    process.env.INFERENCE_HF_ENDPOINT?.trim() ??
+    process.env.HF_ENDPOINT?.trim();
 
   return [
     {
@@ -536,6 +540,23 @@ function buildRuntimeCommand(input: {
           "--port",
           "8000",
           "--tensor-parallel-size",
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
+        ],
+      };
+    case "lmdeploy":
+      return {
+        command: ["lmdeploy"],
+        args: [
+          "serve",
+          "api_server",
+          input.modelRef,
+          "--server-name",
+          "0.0.0.0",
+          "--server-port",
+          "8000",
+          "--model-name",
+          input.name,
+          "--tp",
           String(Math.max(input.gpuSpec.gpuCount, 1)),
         ],
       };

@@ -1,5 +1,6 @@
 export const inferenceDeploymentEngineValues = [
   "vllm",
+  "lmdeploy",
   "llama.cpp",
   "sglang",
   "vision-detection",
@@ -7,6 +8,7 @@ export const inferenceDeploymentEngineValues = [
 
 export const creatableInferenceDeploymentEngineValues = [
   "vllm",
+  "lmdeploy",
   "llama.cpp",
   "sglang",
   "vision-detection",
@@ -33,6 +35,7 @@ export const llamaCppModelRefExample =
 export const llamaCppRemoteModelRefExample =
   "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
+export const lmDeployModelRefExample = "internlm/internlm3-8b-instruct";
 export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
 const huggingFaceModelRefPattern =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -126,6 +129,7 @@ export function isValidInferenceModelRef(
   switch (engine) {
     case "llama.cpp":
       return isLlamaCppModelRef(modelRef);
+    case "lmdeploy":
     case "vllm":
     case "sglang":
     case "vision-detection":
@@ -140,6 +144,7 @@ export const inferenceDeploymentEngineLabels: Record<
   string
 > = {
   vllm: "vLLM",
+  lmdeploy: "LMDeploy",
   "llama.cpp": "llama.cpp",
   sglang: "SGLang",
   "vision-detection": "视觉检测",
@@ -163,6 +168,8 @@ export function defaultInferenceImage(
   switch (engine) {
     case "vllm":
       return "vllm/vllm-openai:latest";
+    case "lmdeploy":
+      return "openmmlab/lmdeploy:latest";
     case "llama.cpp":
       return gpuCount > 0
         ? "ghcr.io/ggml-org/llama.cpp:server-cuda"

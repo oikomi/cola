@@ -16,11 +16,13 @@ import {
 void test("create flow exposes all supported runtimes", () => {
   assert.deepEqual(creatableInferenceDeploymentEngineValues, [
     "vllm",
+    "lmdeploy",
     "llama.cpp",
     "sglang",
     "vision-detection",
   ]);
   assert.equal(canCreateInferenceDeploymentWithEngine("vllm"), true);
+  assert.equal(canCreateInferenceDeploymentWithEngine("lmdeploy"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("llama.cpp"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("sglang"), true);
   assert.equal(
@@ -86,6 +88,10 @@ void test("model ref validation follows runtime selection", () => {
   );
   assert.equal(
     isValidInferenceModelRef("sglang", "Qwen/Qwen3-8B-Instruct"),
+    true,
+  );
+  assert.equal(
+    isValidInferenceModelRef("lmdeploy", "internlm/internlm3-8b-instruct"),
     true,
   );
   assert.equal(

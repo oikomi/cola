@@ -52,6 +52,7 @@ import {
   inferenceDeploymentEngineLabels,
   inferenceDeploymentStatusLabels,
   isValidInferenceModelRef,
+  lmDeployModelRefExample,
   llamaCppModelRefExample,
   llamaCppModelRoot,
   llamaCppRemoteModelRefExample,
@@ -92,6 +93,8 @@ function modelRefHint(engine: DraftState["engine"]) {
       return `支持 ${llamaCppModelRoot} 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "vision-detection":
       return `支持 Hugging Face 视觉检测模型 ID，例如 RT-DETR v2-L：${visionDetectionModelRefExample}。容器会暴露 GET /health 和 POST /predict。`;
+    case "lmdeploy":
+      return `支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}。LMDeploy 会以 OpenAI 兼容 API 暴露服务。`;
     case "vllm":
     case "sglang":
       return "仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
@@ -106,6 +109,8 @@ function modelRefPlaceholder(engine: DraftState["engine"]) {
       return llamaCppRemoteModelRefExample;
     case "vision-detection":
       return visionDetectionModelRefExample;
+    case "lmdeploy":
+      return lmDeployModelRefExample;
     case "vllm":
     case "sglang":
       return "Qwen/Qwen3-8B-Instruct";
@@ -122,6 +127,8 @@ function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
       return "请输入合法的本地 GGUF 路径、hf:// 文件引用或 https:// GGUF 地址";
     case "vision-detection":
       return "请输入合法的 Hugging Face 视觉检测模型 ID";
+    case "lmdeploy":
+      return "请输入合法的 Hugging Face 模型 ID";
     case "vllm":
     case "sglang":
       return "请输入合法的 Hugging Face 模型 ID";
@@ -136,6 +143,8 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
       return `llama.cpp 既支持 ${llamaCppModelRoot} 下的本地 GGUF，也支持启动前自动下载远端 GGUF。创建后会先保存为草稿，点击上线时再拉起 Pod。`;
     case "vision-detection":
       return "视觉检测运行时用于 RT-DETR、DETR 等目标检测模型，服务上线后通过 NodePort 暴露 /health 和 /predict 远程 API。";
+    case "lmdeploy":
+      return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等 Hugging Face 模型。创建后会先保存为草稿，点击上线时再拉起 Pod。";
     case "vllm":
     case "sglang":
       return "当前运行时使用 Hugging Face 模型引用。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
@@ -167,6 +176,10 @@ function gpuRequirementCopy(
     return "视觉检测运行时默认使用 1 张 GPU；也可以用 HAMi 显存模式按份额调度。远程调用使用服务入口下的 POST /predict。";
   }
 
+  if (engine === "lmdeploy") {
+    return "LMDeploy 默认使用 1 张 GPU，并通过 --tp 与 GPU 数量对齐；也可以用 HAMi 显存模式按份额调度。";
+  }
+
   return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
 }
 
@@ -177,6 +190,7 @@ function apiPathHint(row: DeploymentRow) {
         label: "POST /predict",
         value: row.endpoint ? `${row.endpoint}/predict` : null,
       };
+    case "lmdeploy":
     case "vllm":
     case "sglang":
       return {
@@ -804,7 +818,7 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Inference Ops"
         title="推理部署"
-        description="管理 LLM 与视觉检测推理服务：vLLM、SGLang、llama.cpp 和 RT-DETR 等目标检测运行时，集中查看入口、资源和远程 API 状态。"
+        description="管理 LLM 与视觉检测推理服务：vLLM、LMDeploy、SGLang、llama.cpp 和 RT-DETR 等目标检测运行时，集中查看入口、资源和远程 API 状态。"
         icon={BlocksIcon}
         size="compact"
         density="dense"
@@ -1292,8 +1306,9 @@ export function DeploymentsShell() {
                       服务入口
                     </p>
                     <p className="mt-1">
-                      外部服务统一通过 master NodePort 暴露；视觉检测服务使用
-                      POST /predict 上传图片远程调用。
+                      外部服务统一通过 master NodePort 暴露；LLM 运行时提供
+                      OpenAI 兼容 API，视觉检测服务使用 POST /predict
+                      上传图片远程调用。
                     </p>
                   </div>
 
