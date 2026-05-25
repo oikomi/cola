@@ -56,6 +56,7 @@ import {
   llamaCppModelRefExample,
   llamaCppModelRoot,
   llamaCppRemoteModelRefExample,
+  s3ModelRefExample,
   visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
 import { api, type RouterOutputs } from "@/trpc/react";
@@ -94,10 +95,10 @@ function modelRefHint(engine: DraftState["engine"]) {
     case "vision-detection":
       return `支持 Hugging Face 视觉检测模型 ID，例如 RT-DETR v2-L：${visionDetectionModelRefExample}。容器会暴露 GET /health 和 POST /predict。`;
     case "lmdeploy":
-      return `支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}。LMDeploy 会以 OpenAI 兼容 API 暴露服务。`;
+      return `支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}；也支持 NAS/SeaweedFS 上的 S3 模型目录，例如 ${s3ModelRefExample}。`;
     case "vllm":
     case "sglang":
-      return "仅支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
+      return `支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct；也支持 S3 模型目录，例如 ${s3ModelRefExample}。`;
     default:
       return "输入模型引用。";
   }
@@ -110,7 +111,7 @@ function modelRefPlaceholder(engine: DraftState["engine"]) {
     case "vision-detection":
       return visionDetectionModelRefExample;
     case "lmdeploy":
-      return lmDeployModelRefExample;
+      return s3ModelRefExample;
     case "vllm":
     case "sglang":
       return "Qwen/Qwen3-8B-Instruct";
@@ -128,10 +129,10 @@ function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
     case "vision-detection":
       return "请输入合法的 Hugging Face 视觉检测模型 ID";
     case "lmdeploy":
-      return "请输入合法的 Hugging Face 模型 ID";
+      return "请输入合法的 Hugging Face 模型 ID 或 s3:// 模型目录";
     case "vllm":
     case "sglang":
-      return "请输入合法的 Hugging Face 模型 ID";
+      return "请输入合法的 Hugging Face 模型 ID 或 s3:// 模型目录";
     default:
       return "请输入合法的模型引用";
   }
@@ -144,10 +145,10 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
     case "vision-detection":
       return "视觉检测运行时用于 RT-DETR、DETR 等目标检测模型，服务上线后通过 NodePort 暴露 /health 和 /predict 远程 API。";
     case "lmdeploy":
-      return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等 Hugging Face 模型。创建后会先保存为草稿，点击上线时再拉起 Pod。";
+      return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等模型。模型可来自 Hugging Face，也可在启动前从 NAS S3 同步。创建后会先保存为草稿，点击上线时再拉起 Pod。";
     case "vllm":
     case "sglang":
-      return "当前运行时使用 Hugging Face 模型引用。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
+      return "当前运行时支持 Hugging Face 模型引用或 S3 模型目录。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
     default:
       return "创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
   }

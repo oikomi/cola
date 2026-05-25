@@ -279,6 +279,29 @@ s3://xdream/models/...
 
 训练代码或 Notebook 通过 S3 SDK、`awscli`、`s5cmd`、`rclone` 等工具读写对象。
 
+推理部署里的 vLLM、LMDeploy 和 SGLang 也可以直接填写模型目录前缀，例如：
+
+```text
+s3://xdream/models/qwen3-8b-instruct/
+```
+
+推理 Pod 会先通过 initContainer 从 S3 同步整个目录，再把同步后的本地目录传给运行时。应用服务默认使用集群内 endpoint `http://seaweedfs-s3.storage.svc.cluster.local:8333`；如需覆盖 endpoint 或凭据，可以设置：
+
+```bash
+INFERENCE_S3_ENDPOINT=http://seaweedfs-s3.storage.svc.cluster.local:8333
+INFERENCE_S3_ACCESS_KEY_ID=...
+INFERENCE_S3_SECRET_ACCESS_KEY=...
+INFERENCE_S3_REGION=us-east-1
+```
+
+也可以使用已有 Kubernetes Secret：
+
+```bash
+INFERENCE_S3_SECRET_NAME=seaweedfs-s3-credentials
+```
+
+Secret 里需要包含 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY` 两个 key。
+
 ## 卸载
 
 ```bash

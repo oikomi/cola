@@ -36,11 +36,15 @@ export const llamaCppRemoteModelRefExample =
   "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
 export const lmDeployModelRefExample = "internlm/internlm3-8b-instruct";
+export const s3ModelRefExample = "s3://xdream/models/qwen3-8b-instruct/";
 export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
 const huggingFaceModelRefPattern =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const llamaCppPathSegmentPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const huggingFaceRepoSegmentPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
+const s3BucketPattern =
+  /^(?!\d+\.\d+\.\d+\.\d+$)(?!.*\.\.)(?!.*\.-)(?!.*-\.)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+const s3PathSegmentPattern = /^[A-Za-z0-9][A-Za-z0-9._=+,-]{0,255}$/;
 
 export function canCreateInferenceDeploymentWithEngine(
   engine: InferenceDeploymentEngine,
@@ -50,6 +54,33 @@ export function canCreateInferenceDeploymentWithEngine(
 
 export function isHuggingFaceModelRef(modelRef: string) {
   return huggingFaceModelRefPattern.test(modelRef.trim());
+}
+
+export function isS3ModelRef(modelRef: string) {
+  const value = modelRef.trim();
+  if (!value.startsWith("s3://")) return false;
+  if (value.includes("?") || value.includes("#") || value.includes("@")) {
+    return false;
+  }
+
+  const withoutScheme = value.slice("s3://".length);
+  const slashIndex = withoutScheme.indexOf("/");
+  if (slashIndex <= 0) return false;
+
+  const bucket = withoutScheme.slice(0, slashIndex);
+  const key = withoutScheme.slice(slashIndex + 1);
+  if (!s3BucketPattern.test(bucket)) return false;
+  if (!key || key.includes("//")) return false;
+
+  const segments = key.split("/").filter(Boolean);
+  return segments.every(
+    (segment) =>
+      segment !== "." && segment !== ".." && s3PathSegmentPattern.test(segment),
+  );
+}
+
+export function supportsS3ModelRef(engine: InferenceDeploymentEngine) {
+  return engine === "vllm" || engine === "lmdeploy" || engine === "sglang";
 }
 
 function hasValidLlamaCppFilePathSegments(segments: string[]) {
@@ -132,6 +163,7 @@ export function isValidInferenceModelRef(
     case "lmdeploy":
     case "vllm":
     case "sglang":
+      return isHuggingFaceModelRef(modelRef) || isS3ModelRef(modelRef);
     case "vision-detection":
       return isHuggingFaceModelRef(modelRef);
     default:

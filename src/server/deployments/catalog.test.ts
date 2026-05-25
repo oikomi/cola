@@ -8,8 +8,10 @@ import {
   isLlamaCppHuggingFaceFileRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelUrl,
+  isS3ModelRef,
   isValidInferenceModelRef,
   llamaCppModelRefExample,
+  s3ModelRefExample,
   visionDetectionModelRefExample,
 } from "./catalog.ts";
 
@@ -81,6 +83,22 @@ void test("llama.cpp model refs accept downloadable gguf sources", () => {
   );
 });
 
+void test("S3 model refs accept bucket prefixes and reject unsafe values", () => {
+  assert.equal(isS3ModelRef(s3ModelRefExample), true);
+  assert.equal(isS3ModelRef("s3://xdream/models/qwen3-8b-instruct"), true);
+  assert.equal(isS3ModelRef("s3://xdream/models/Qwen3-8B/config.json"), true);
+  assert.equal(isS3ModelRef("s3://x/models/qwen3"), false);
+  assert.equal(isS3ModelRef("s3://xdream"), false);
+  assert.equal(isS3ModelRef("s3://xdream/@models/qwen3"), false);
+  assert.equal(isS3ModelRef("s3://xdream/../qwen3"), false);
+  assert.equal(isS3ModelRef("s3://xdream/models//qwen3"), false);
+  assert.equal(isS3ModelRef("s3://xdream/models/qwen3?versionId=1"), false);
+  assert.equal(
+    isS3ModelRef("http://172.16.60.198:32247/xdream/models/qwen3"),
+    false,
+  );
+});
+
 void test("model ref validation follows runtime selection", () => {
   assert.equal(
     isValidInferenceModelRef("vllm", "Qwen/Qwen3-8B-Instruct"),
@@ -94,6 +112,9 @@ void test("model ref validation follows runtime selection", () => {
     isValidInferenceModelRef("lmdeploy", "internlm/internlm3-8b-instruct"),
     true,
   );
+  assert.equal(isValidInferenceModelRef("lmdeploy", s3ModelRefExample), true);
+  assert.equal(isValidInferenceModelRef("vllm", s3ModelRefExample), true);
+  assert.equal(isValidInferenceModelRef("sglang", s3ModelRefExample), true);
   assert.equal(
     isValidInferenceModelRef("llama.cpp", llamaCppModelRefExample),
     true,
@@ -108,6 +129,10 @@ void test("model ref validation follows runtime selection", () => {
       visionDetectionModelRefExample,
     ),
     true,
+  );
+  assert.equal(
+    isValidInferenceModelRef("vision-detection", s3ModelRefExample),
+    false,
   );
   assert.equal(
     isValidInferenceModelRef("vision-detection", "/models/a.pt"),

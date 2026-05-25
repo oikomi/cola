@@ -18,6 +18,7 @@ import {
   lmDeployModelRefExample,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
+  s3ModelRefExample,
   visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
 import {
@@ -33,10 +34,10 @@ function modelRefValidationMessage(engine: InferenceDeploymentEngine) {
     case "llama.cpp":
       return `llama.cpp 支持 /models 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "lmdeploy":
-      return `LMDeploy 模型引用目前只支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}。`;
+      return `LMDeploy 模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 ${lmDeployModelRefExample}、${s3ModelRefExample}。`;
     case "vllm":
     case "sglang":
-      return "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。";
+      return `模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 Qwen/Qwen3-8B-Instruct、${s3ModelRefExample}。`;
     case "vision-detection":
       return `视觉检测模型引用目前只支持 Hugging Face 模型 ID，例如 ${visionDetectionModelRefExample}。`;
     default:

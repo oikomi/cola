@@ -23,12 +23,15 @@ import {
   type InferenceDeploymentStatus,
   inferenceDeploymentEngineValues,
   isHuggingFaceModelRef,
-  lmDeployModelRefExample,
   isLlamaCppLocalModelRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelRef,
+  isS3ModelRef,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
+  lmDeployModelRefExample,
+  s3ModelRefExample,
+  supportsS3ModelRef,
 } from "@/server/deployments/catalog";
 import {
   assertLlamaCppModelFileExistsOnNodes,
@@ -38,6 +41,8 @@ import {
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
   resolveLlamaRuntimeModelPath,
+  resolveS3AwareRuntimeModelPath,
+  resolveS3ModelPath,
 } from "@/server/deployments/runtime-utils";
 import {
   buildHamiGpuResources,
@@ -70,6 +75,15 @@ const MODEL_CACHE_ROOT =
   "/var/lib/remote-work/inference-cache";
 const LLAMA_CPP_DOWNLOAD_IMAGE =
   process.env.LLAMA_CPP_DOWNLOAD_IMAGE ?? "curlimages/curl:8.12.1";
+const S3_MODEL_SYNC_IMAGE =
+  process.env.INFERENCE_S3_SYNC_IMAGE ??
+  process.env.SEAWEEDFS_SMOKE_TEST_IMAGE ??
+  "amazon/aws-cli:2.17.50";
+const DEFAULT_INFERENCE_S3_ENDPOINT =
+  "http://seaweedfs-s3.storage.svc.cluster.local:8333";
+const INFERENCE_S3_SECRET_NAME =
+  process.env.INFERENCE_S3_SECRET_NAME?.trim() ??
+  process.env.SEAWEEDFS_S3_SECRET_NAME?.trim();
 
 const INFERENCE_METADATA = {
   engine: `${METADATA_PREFIX}/inference-engine`,
@@ -282,11 +296,17 @@ function normalizeModelRef(engine: InferenceDeploymentEngine, input: string) {
     return value;
   }
 
+  if (supportsS3ModelRef(engine) && isS3ModelRef(value)) {
+    return value;
+  }
+
   if (!isHuggingFaceModelRef(value)) {
     throw new Error(
       engine === "lmdeploy"
-        ? `LMDeploy 模型引用目前只支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}。`
-        : "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
+        ? `LMDeploy 模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 ${lmDeployModelRefExample}、${s3ModelRefExample}。`
+        : supportsS3ModelRef(engine)
+          ? `模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 Qwen/Qwen3-8B-Instruct、${s3ModelRefExample}。`
+          : "模型引用目前只支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct。",
     );
   }
 
@@ -506,6 +526,77 @@ function buildRuntimeEnv() {
   ];
 }
 
+function envValue(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+function s3EnvVar(name: string, key: string, fallbackNames: string[]) {
+  if (INFERENCE_S3_SECRET_NAME) {
+    return {
+      name,
+      valueFrom: {
+        secretKeyRef: {
+          name: INFERENCE_S3_SECRET_NAME,
+          key,
+          optional: false,
+        },
+      },
+    };
+  }
+
+  const fallback = envValue(...fallbackNames);
+
+  if (fallback) {
+    return {
+      name,
+      value: fallback,
+    };
+  }
+
+  return null;
+}
+
+function buildS3SyncEnv() {
+  const endpoint =
+    envValue(
+      "INFERENCE_S3_ENDPOINT",
+      "AWS_ENDPOINT_URL",
+      "SEAWEEDFS_S3_ENDPOINT",
+    ) ?? DEFAULT_INFERENCE_S3_ENDPOINT;
+  const accessKey = s3EnvVar("AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", [
+    "INFERENCE_S3_ACCESS_KEY_ID",
+    "AWS_ACCESS_KEY_ID",
+    "SEAWEEDFS_S3_ACCESS_KEY",
+  ]);
+  const secretKey = s3EnvVar("AWS_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", [
+    "INFERENCE_S3_SECRET_ACCESS_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "SEAWEEDFS_S3_SECRET_KEY",
+  ]);
+
+  return [
+    {
+      name: "AWS_ENDPOINT_URL",
+      value: endpoint,
+    },
+    accessKey,
+    secretKey,
+    {
+      name: "AWS_DEFAULT_REGION",
+      value:
+        envValue("INFERENCE_S3_REGION", "AWS_DEFAULT_REGION") ?? "us-east-1",
+    },
+    {
+      name: "AWS_EC2_METADATA_DISABLED",
+      value: "true",
+    },
+  ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+}
+
 function buildStartupProbe(engine: InferenceDeploymentEngine) {
   return {
     tcpSocket: { port: 8000 },
@@ -527,12 +618,17 @@ function buildRuntimeCommand(input: {
   modelRef: string;
   gpuSpec: GpuAllocationSpec;
 }) {
+  const runtimeModelRef = resolveS3AwareRuntimeModelPath(
+    input.name,
+    input.modelRef,
+  );
+
   switch (input.engine) {
     case "vllm":
       return {
         args: [
           "--model",
-          input.modelRef,
+          runtimeModelRef,
           "--served-model-name",
           input.name,
           "--host",
@@ -549,7 +645,7 @@ function buildRuntimeCommand(input: {
         args: [
           "serve",
           "api_server",
-          input.modelRef,
+          runtimeModelRef,
           "--server-name",
           "0.0.0.0",
           "--server-port",
@@ -581,7 +677,7 @@ function buildRuntimeCommand(input: {
         command: ["python3", "-m", "sglang.launch_server"],
         args: [
           "--model-path",
-          input.modelRef,
+          runtimeModelRef,
           "--host",
           "0.0.0.0",
           "--port",
@@ -613,6 +709,78 @@ function buildInitContainers(input: {
   engine: InferenceDeploymentEngine;
   modelRef: string;
 }) {
+  if (supportsS3ModelRef(input.engine) && isS3ModelRef(input.modelRef)) {
+    const targetPath = resolveS3ModelPath(input.name, input.modelRef);
+
+    return [
+      {
+        name: "s3-model-sync",
+        image: S3_MODEL_SYNC_IMAGE,
+        imagePullPolicy: "IfNotPresent",
+        securityContext: {
+          runAsUser: 0,
+          runAsGroup: 0,
+        },
+        command: ["/bin/sh", "-lc"],
+        args: [
+          `set -eu
+target="$COLA_MODEL_TARGET_PATH"
+source="$COLA_MODEL_S3_URI"
+endpoint="$AWS_ENDPOINT_URL"
+lock="\${target}.lock"
+mkdir -p "$(dirname "$target")"
+attempts=0
+until mkdir "$lock" 2>/dev/null; do
+  if [ -f "$target/.cola-s3-sync-complete" ]; then
+    echo "S3 model already present: $target"
+    exit 0
+  fi
+  attempts=$((attempts + 1))
+  if [ "$attempts" -ge 180 ]; then
+    echo "Timed out waiting for S3 model sync lock: $lock" >&2
+    exit 1
+  fi
+  sleep 2
+done
+trap 'rm -rf "$lock" "\${target}.part.\${HOSTNAME:-pod}"' EXIT
+mkdir -p "$target"
+if [ -f "$target/.cola-s3-sync-complete" ]; then
+  echo "S3 model already present: $target"
+  exit 0
+fi
+tmp="\${target}.part.\${HOSTNAME:-pod}"
+rm -rf "$tmp"
+mkdir -p "$tmp"
+aws --endpoint-url "$endpoint" s3 sync "$source" "$tmp" --only-show-errors
+if [ -z "$(find "$tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo "S3 model source is empty: $source" >&2
+  exit 1
+fi
+rm -rf "$target"
+mv "$tmp" "$target"
+touch "$target/.cola-s3-sync-complete"`,
+        ],
+        env: [
+          {
+            name: "COLA_MODEL_S3_URI",
+            value: input.modelRef,
+          },
+          {
+            name: "COLA_MODEL_TARGET_PATH",
+            value: targetPath,
+          },
+          ...buildS3SyncEnv(),
+        ],
+        volumeMounts: [
+          {
+            name: "hf-cache",
+            mountPath: DEFAULT_INFERENCE_CACHE_ROOT,
+          },
+        ],
+      },
+    ];
+  }
+
   if (
     input.engine !== "llama.cpp" ||
     !isLlamaCppRemoteModelRef(input.modelRef)

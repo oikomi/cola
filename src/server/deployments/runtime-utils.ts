@@ -11,12 +11,14 @@ import {
   isLlamaCppLocalModelRef,
   isLlamaCppRemoteModelRef,
   isLlamaCppRemoteModelUrl,
+  isS3ModelRef,
 } from "./catalog.ts";
 
 export const DEFAULT_INFERENCE_MODEL_ROOT =
   process.env.INFERENCE_MODEL_ROOT ?? "/var/lib/remote-work/models";
 export const DEFAULT_INFERENCE_CACHE_ROOT = "/cache/huggingface";
 export const DEFAULT_LLAMA_CPP_REMOTE_CACHE_ROOT = `${DEFAULT_INFERENCE_CACHE_ROOT}/gguf`;
+export const DEFAULT_INFERENCE_S3_MODEL_CACHE_ROOT = `${DEFAULT_INFERENCE_CACHE_ROOT}/s3`;
 
 const FAILED_POD_WAITING_REASONS = new Set([
   "CrashLoopBackOff",
@@ -315,6 +317,31 @@ export function resolveLlamaRuntimeModelPath(
   }
 
   throw new Error(`不支持的 llama.cpp 模型引用：${modelRef}`);
+}
+
+export function resolveS3ModelPath(
+  deploymentName: string,
+  modelRef: string,
+  cacheRoot = DEFAULT_INFERENCE_S3_MODEL_CACHE_ROOT,
+) {
+  if (!isS3ModelRef(modelRef)) {
+    throw new Error(`不支持的 S3 模型引用：${modelRef}`);
+  }
+
+  const digest = createHash("sha256")
+    .update(modelRef.trim())
+    .digest("hex")
+    .slice(0, 12);
+  return path.posix.join(cacheRoot, deploymentName, digest);
+}
+
+export function resolveS3AwareRuntimeModelPath(
+  deploymentName: string,
+  modelRef: string,
+) {
+  return isS3ModelRef(modelRef)
+    ? resolveS3ModelPath(deploymentName, modelRef)
+    : modelRef;
 }
 
 export function isInferencePodFailed(pod: Pick<V1Pod, "status">) {

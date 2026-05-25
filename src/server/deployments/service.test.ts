@@ -13,6 +13,8 @@ import {
   resolveLlamaHostModelPath,
   resolveLlamaRemoteModelPath,
   resolveLlamaRuntimeModelPath,
+  resolveS3AwareRuntimeModelPath,
+  resolveS3ModelPath,
 } from "./runtime-utils.ts";
 
 void test("llama.cpp model refs map into the host model root", () => {
@@ -88,6 +90,24 @@ void test("downloadable llama.cpp refs resolve to stable download URLs and cache
       "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf",
     ),
     /\/cache\/huggingface\/gguf\/eeee\/[a-f0-9]{12}-gemma-4-E2B-it-Q3_K_M\.gguf$/,
+  );
+});
+
+void test("S3 model refs resolve to stable cache directories", () => {
+  assert.match(
+    resolveS3ModelPath("qwen3", "s3://xdream/models/qwen3-8b-instruct/"),
+    /\/cache\/huggingface\/s3\/qwen3\/[a-f0-9]{12}$/,
+  );
+  assert.match(
+    resolveS3AwareRuntimeModelPath(
+      "qwen3",
+      "s3://xdream/models/qwen3-8b-instruct/",
+    ),
+    /\/cache\/huggingface\/s3\/qwen3\/[a-f0-9]{12}$/,
+  );
+  assert.equal(
+    resolveS3AwareRuntimeModelPath("qwen3", "Qwen/Qwen3-8B-Instruct"),
+    "Qwen/Qwen3-8B-Instruct",
   );
 });
 
