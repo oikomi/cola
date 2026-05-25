@@ -6,6 +6,7 @@ import {
   LoaderCircleIcon,
   NotebookTabsIcon,
   PlayIcon,
+  RadioTowerIcon,
   PlusIcon,
   RefreshCwIcon,
   SquareIcon,
@@ -57,6 +58,8 @@ type StudioImageOption =
 type StudioRun = RouterOutputs["training"]["listStudioRuns"][number];
 type JupyterLabImageOption =
   RouterOutputs["training"]["listJupyterLabs"]["imageOptions"][number];
+type JupyterLabRuntime =
+  RouterOutputs["training"]["listJupyterLabs"]["items"][number];
 type RuntimeStatus = "running" | "starting" | "error";
 type TrainingWorkspaceTabKey = "studio" | "jupyterlab";
 
@@ -267,6 +270,16 @@ function parseNonNegativeInt(value: string) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : Number.NaN;
 }
 
+function parseNotebookPublicPort(value: string) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) &&
+    parsed >= 1024 &&
+    parsed <= 65535 &&
+    parsed !== 8888
+    ? parsed
+    : Number.NaN;
+}
+
 function Field(props: {
   label: string;
   hint?: string;
@@ -432,6 +445,7 @@ function RuntimeCard(props: {
   };
   isDeleting: boolean;
   onDelete: () => void;
+  portPublisher?: ReactNode;
 }) {
   const Icon = props.kind === "studio" ? BrainCircuitIcon : NotebookTabsIcon;
 
@@ -491,6 +505,12 @@ function RuntimeCard(props: {
         </div>
       </div>
 
+      {props.portPublisher ? (
+        <div className="mt-3 border-t border-slate-200/80 pt-3">
+          {props.portPublisher}
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
         {props.openUrl ? (
           <a
@@ -534,6 +554,129 @@ function RuntimeCard(props: {
         </Button>
       </div>
     </article>
+  );
+}
+
+function JupyterLabPortPublisher(props: {
+  lab: JupyterLabRuntime;
+  draftValue: string;
+  isCreating: boolean;
+  deletingPort: number | null;
+  onDraftChange: (value: string) => void;
+  onPublish: () => void;
+  onDelete: (targetPort: number) => void;
+}) {
+  const parsedPort = parseNotebookPublicPort(props.draftValue);
+  const existingPorts = new Set(
+    props.lab.publishedPorts.map((port) => port.targetPort),
+  );
+  const canPublish =
+    Number.isInteger(parsedPort) &&
+    props.lab.status !== "error" &&
+    !existingPorts.has(parsedPort);
+
+  const disabledReason =
+    props.lab.status === "error"
+      ? "当前 Lab 异常"
+      : props.draftValue.trim() !== "" && !Number.isInteger(parsedPort)
+        ? "端口范围 1024-65535，且不能是 8888"
+        : existingPorts.has(parsedPort)
+          ? "该端口已公开"
+          : null;
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <SurfaceLabel>公开 Notebook 端口</SurfaceLabel>
+        {props.lab.publishedPorts.length > 0 ? (
+          <Badge
+            variant="outline"
+            className="rounded-[8px] border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700"
+          >
+            {props.lab.publishedPorts.length} 个入口
+          </Badge>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 gap-1.5">
+        <Input
+          inputMode="numeric"
+          value={props.draftValue}
+          placeholder="7860"
+          aria-label={`${props.lab.name} Notebook 内部端口`}
+          className="h-8 min-w-0 rounded-[8px] px-2 font-mono text-[12px]"
+          onChange={(event) => props.onDraftChange(event.target.value)}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0 rounded-[8px] px-2.5 text-[12px]"
+          disabled={!canPublish || props.isCreating}
+          title={disabledReason ?? undefined}
+          onClick={props.onPublish}
+        >
+          {props.isCreating ? (
+            <LoaderCircleIcon
+              className="animate-spin"
+              data-icon="inline-start"
+            />
+          ) : (
+            <RadioTowerIcon data-icon="inline-start" />
+          )}
+          公开
+        </Button>
+      </div>
+      {disabledReason ? (
+        <p className="text-[11px] leading-4 text-slate-500">{disabledReason}</p>
+      ) : null}
+      {props.lab.publishedPorts.length > 0 ? (
+        <div className="grid gap-1.5">
+          {props.lab.publishedPorts.map((port) => (
+            <div
+              key={port.id}
+              className="flex min-w-0 items-center gap-1.5 rounded-[8px] border border-slate-200/80 bg-slate-50/70 px-2 py-1.5"
+            >
+              <span className="shrink-0 font-mono text-[12px] font-medium text-slate-800">
+                {port.targetPort}
+              </span>
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-600"
+                title={port.url ?? `NodePort ${port.nodePort}`}
+              >
+                {port.url ?? `NodePort ${port.nodePort}`}
+              </span>
+              {port.url ? (
+                <a
+                  href={port.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(
+                    buttonVariants({ size: "sm", variant: "ghost" }),
+                    "size-7 shrink-0 rounded-[8px] p-0",
+                  )}
+                  aria-label={`打开 ${props.lab.name} 端口 ${port.targetPort}`}
+                >
+                  <ArrowUpRightIcon className="size-3.5" />
+                </a>
+              ) : null}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="size-7 shrink-0 rounded-[8px] p-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                disabled={props.deletingPort === port.targetPort}
+                aria-label={`删除 ${props.lab.name} 端口 ${port.targetPort}`}
+                onClick={() => props.onDelete(port.targetPort)}
+              >
+                {props.deletingPort === port.targetPort ? (
+                  <LoaderCircleIcon className="size-3.5 animate-spin" />
+                ) : (
+                  <Trash2Icon className="size-3.5" />
+                )}
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1477,6 +1620,9 @@ export function TrainingShell() {
   const [pendingDeletedLabNames, setPendingDeletedLabNames] = useState<
     string[]
   >([]);
+  const [labPublicPortDrafts, setLabPublicPortDrafts] = useState<
+    Record<string, string>
+  >({});
 
   const studios = (studiosQuery.data?.items ?? []).filter(
     (studio) => !pendingDeletedStudioNames.includes(studio.name),
@@ -1798,6 +1944,28 @@ export function TrainingShell() {
     },
   });
 
+  const createJupyterLabPublicPort =
+    api.training.createJupyterLabPublicPort.useMutation({
+      onSuccess: (result) => {
+        notifySuccess(result.message);
+        setLabPublicPortDrafts((current) => ({
+          ...current,
+          [result.name]: "",
+        }));
+        void utils.training.listJupyterLabs.invalidate();
+      },
+      onError: (error) => notifyError(error.message),
+    });
+
+  const deleteJupyterLabPublicPort =
+    api.training.deleteJupyterLabPublicPort.useMutation({
+      onSuccess: (result) => {
+        notifySuccess(result.message);
+        void utils.training.listJupyterLabs.invalidate();
+      },
+      onError: (error) => notifyError(error.message),
+    });
+
   function handleCreateStudio() {
     if (!studioValidation.canCreate) return;
 
@@ -1917,7 +2085,8 @@ export function TrainingShell() {
   async function handleDeleteJupyterLab(name: string) {
     const confirmed = await confirm({
       title: `确认删除 JupyterLab「${name}」？`,
-      description: "系统会删除对应的 Kubernetes Deployment 和 Service。",
+      description:
+        "系统会删除对应的 Kubernetes Deployment、Lab Service 和已公开端口 Service。",
       confirmLabel: "删除 JupyterLab",
       cancelLabel: "取消",
       confirmVariant: "destructive",
@@ -1925,6 +2094,42 @@ export function TrainingShell() {
     if (!confirmed) return;
 
     deleteJupyterLab.mutate({ name });
+  }
+
+  function handlePublishJupyterLabPort(lab: JupyterLabRuntime) {
+    const targetPort = parseNotebookPublicPort(
+      labPublicPortDrafts[lab.name] ?? "",
+    );
+
+    if (!Number.isInteger(targetPort)) {
+      notifyError("公开端口范围必须是 1024-65535，且不能是 8888。");
+      return;
+    }
+
+    createJupyterLabPublicPort.mutate({
+      name: lab.name,
+      targetPort,
+    });
+  }
+
+  async function handleDeleteJupyterLabPort(
+    lab: JupyterLabRuntime,
+    targetPort: number,
+  ) {
+    const confirmed = await confirm({
+      title: `确认删除「${lab.name}」的公开端口 ${targetPort}？`,
+      description:
+        "系统只删除该 NodePort Service，不会停止 Notebook 内的进程。",
+      confirmLabel: "删除端口",
+      cancelLabel: "取消",
+      confirmVariant: "destructive",
+    });
+    if (!confirmed) return;
+
+    deleteJupyterLabPublicPort.mutate({
+      name: lab.name,
+      targetPort,
+    });
   }
 
   return (
@@ -2267,6 +2472,34 @@ export function TrainingShell() {
                       deleteJupyterLab.variables?.name === lab.name
                     }
                     onDelete={() => void handleDeleteJupyterLab(lab.name)}
+                    portPublisher={
+                      <JupyterLabPortPublisher
+                        lab={lab}
+                        draftValue={labPublicPortDrafts[lab.name] ?? ""}
+                        isCreating={
+                          createJupyterLabPublicPort.isPending &&
+                          createJupyterLabPublicPort.variables?.name ===
+                            lab.name
+                        }
+                        deletingPort={
+                          deleteJupyterLabPublicPort.isPending &&
+                          deleteJupyterLabPublicPort.variables?.name ===
+                            lab.name
+                            ? deleteJupyterLabPublicPort.variables.targetPort
+                            : null
+                        }
+                        onDraftChange={(value) =>
+                          setLabPublicPortDrafts((current) => ({
+                            ...current,
+                            [lab.name]: value,
+                          }))
+                        }
+                        onPublish={() => handlePublishJupyterLabPort(lab)}
+                        onDelete={(targetPort) =>
+                          void handleDeleteJupyterLabPort(lab, targetPort)
+                        }
+                      />
+                    }
                   />
                 ))}
               </div>

@@ -128,6 +128,13 @@ export const NODE_PORT_RANGES = {
     start: 32080,
     end: 32179,
   }),
+  jupyterlabPublic: createNodePortRange({
+    label: "JupyterLab 公开端口",
+    startEnv: ["COLA_JUPYTERLAB_PUBLIC_NODE_PORT_START"],
+    endEnv: ["COLA_JUPYTERLAB_PUBLIC_NODE_PORT_END"],
+    start: 32180,
+    end: 32199,
+  }),
   storage: createNodePortRange({
     label: "存储管理",
     startEnv: ["COLA_STORAGE_NODE_PORT_START"],

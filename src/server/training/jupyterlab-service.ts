@@ -38,6 +38,15 @@ import {
 } from "@/server/resource-owners";
 import { buildJupyterLabCommand } from "@/server/training/jupyterlab-command";
 import { resolveJupyterLabImage } from "@/server/training/jupyterlab-images";
+import {
+  isJupyterLabPublicPortService,
+  JUPYTERLAB_PUBLIC_PORT_COMPONENT,
+  JUPYTERLAB_PUBLIC_PORT_LABEL,
+  jupyterLabPublicPortServiceName,
+  jupyterLabPublicPortTarget,
+  normalizeJupyterLabPublicPort,
+  type JupyterLabPublishedPortItem,
+} from "@/server/training/jupyterlab-public-port";
 import { resolveJupyterLabWorkVolume } from "@/server/training/jupyterlab-volume";
 import {
   buildWorkVolumeEnv,
@@ -111,6 +120,7 @@ export type JupyterLabRuntimeItem = {
   nodeIp: string | null;
   endpoint: string | null;
   labUrl: string | null;
+  publishedPorts: JupyterLabPublishedPortItem[];
   ownerUserId: string | null;
   ownerUser: ResourceOwner | null;
   updatedAt: string | null;
@@ -130,6 +140,12 @@ export type CreateJupyterLabInput = {
   gpuAllocationMode: GpuAllocationSpec["gpuAllocationMode"];
   gpuCount: number;
   gpuMemoryGi: number | null;
+  ownerUserId?: string;
+};
+
+export type CreateJupyterLabPublicPortInput = {
+  name: string;
+  targetPort: number;
   ownerUserId?: string;
 };
 
@@ -455,6 +471,15 @@ function resolveJupyterLabNodePort(services: V1Service[]) {
   });
 }
 
+function resolveJupyterLabPublicNodePort(services: V1Service[]) {
+  return resolveAvailableNodePort({
+    services,
+    start: NODE_PORT_RANGES.jupyterlabPublic.start,
+    end: NODE_PORT_RANGES.jupyterlabPublic.end,
+    errorMessage: "无法为 JupyterLab 公开端口自动分配 NodePort。",
+  });
+}
+
 function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
   const nodeName = liveNode?.metadata?.name;
   const configNode = nodeName
@@ -507,6 +532,41 @@ function buildEndpoint(params: {
 
   if (!params.nodeIp || typeof nodePort !== "number") return null;
   return `${params.nodeIp}:${nodePort}`;
+}
+
+function buildPublicPortUrl(params: {
+  service?: V1Service | null;
+  nodeIp?: string | null;
+}) {
+  const nodePort = params.service?.spec?.ports?.[0]?.nodePort;
+  if (!params.nodeIp || typeof nodePort !== "number") return null;
+  return `http://${params.nodeIp}:${nodePort}/`;
+}
+
+function publicPortItemFromService(
+  service: V1Service,
+  accessHost: string | null,
+): JupyterLabPublishedPortItem | null {
+  const targetPort = jupyterLabPublicPortTarget(service);
+  const nodePort = service.spec?.ports?.[0]?.nodePort;
+  const serviceName = service.metadata?.name;
+
+  if (
+    !serviceName ||
+    typeof targetPort !== "number" ||
+    typeof nodePort !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    id: `${serviceName}:${targetPort}`,
+    serviceName,
+    targetPort,
+    nodePort,
+    url: buildPublicPortUrl({ service, nodeIp: accessHost }),
+    createdAt: formatTimestamp(service.metadata?.creationTimestamp),
+  };
 }
 
 function resolveWorkVolume() {
@@ -768,6 +828,48 @@ function buildJupyterLabService(input: {
   } satisfies V1Service;
 }
 
+function buildJupyterLabPublicPortService(input: {
+  name: string;
+  targetPort: number;
+  nodePort: number;
+  ownerUserId?: string;
+}) {
+  const ownerLabels = ownerMetadata(input.ownerUserId);
+  const labels = {
+    ...jupyterLabSelector(input.name),
+    "app.kubernetes.io/component": JUPYTERLAB_PUBLIC_PORT_COMPONENT,
+    [JUPYTERLAB_PUBLIC_PORT_LABEL]: String(input.targetPort),
+    ...ownerLabels,
+  };
+
+  return {
+    apiVersion: "v1",
+    kind: "Service",
+    metadata: {
+      name: jupyterLabPublicPortServiceName(input.name, input.targetPort),
+      labels,
+      annotations: {
+        ...ownerLabels,
+        [JUPYTERLAB_PUBLIC_PORT_LABEL]: String(input.targetPort),
+      },
+    },
+    spec: {
+      type: "NodePort",
+      selector: {
+        "cola.training/jupyterlab-name": input.name,
+      },
+      ports: [
+        {
+          name: `http-${input.targetPort}`,
+          port: input.targetPort,
+          targetPort: input.targetPort,
+          nodePort: input.nodePort,
+        },
+      ],
+    },
+  } satisfies V1Service;
+}
+
 export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
   let ctx: JupyterLabKubeContext;
 
@@ -807,13 +909,35 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
     };
   }
 
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
+  const mainServices = resources.services.filter(
+    (service) => !isJupyterLabPublicPortService(service),
+  );
+  const publicPortServices = resources.services.filter((service) =>
+    isJupyterLabPublicPortService(service),
+  );
   const serviceByName = new Map(
-    resources.services
+    mainServices
       .map((service) => [jupyterLabLabel(service.metadata), service] as const)
       .filter((entry): entry is readonly [string, V1Service] =>
         Boolean(entry[0]),
       ),
   );
+  const publicPortsByName = new Map<string, JupyterLabPublishedPortItem[]>();
+  for (const service of publicPortServices) {
+    const name = jupyterLabLabel(service.metadata);
+    if (!name) continue;
+
+    const item = publicPortItemFromService(service, accessHost);
+    if (!item) continue;
+
+    const current = publicPortsByName.get(name) ?? [];
+    current.push(item);
+    publicPortsByName.set(name, current);
+  }
+  for (const items of publicPortsByName.values()) {
+    items.sort((left, right) => left.targetPort - right.targetPort);
+  }
   const liveNodeMap = new Map(
     resources.liveNodes
       .map((node) => [node.metadata?.name, node] as const)
@@ -827,8 +951,6 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
       podNodeByName.set(labName, nodeName);
     }
   }
-  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
-
   const itemsWithoutOwners: JupyterLabRuntimeItem[] = resources.deployments
     .map<JupyterLabRuntimeItem | null>((deployment) => {
       const name = jupyterLabLabel(deployment.metadata);
@@ -838,6 +960,7 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
       const liveNode = nodeName ? liveNodeMap.get(nodeName) : undefined;
       const nodeIp = resolveNodeIp(ctx.nodes, liveNode);
       const service = serviceByName.get(name) ?? null;
+      const publishedPorts = publicPortsByName.get(name) ?? [];
       const container = deployment.spec?.template?.spec?.containers?.[0];
       const limits =
         container?.resources?.limits ?? container?.resources?.requests ?? {};
@@ -872,6 +995,7 @@ export async function listJupyterLabRuntimes(): Promise<JupyterLabListResult> {
         nodeIp,
         endpoint: buildEndpoint({ service, nodeIp: accessHost }),
         labUrl: buildLabUrl({ service, nodeIp: accessHost, token }),
+        publishedPorts,
         ownerUserId:
           deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
           deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -977,6 +1101,79 @@ export async function createJupyterLabRuntime(input: CreateJupyterLabInput) {
   };
 }
 
+export async function createJupyterLabPublicPort(
+  input: CreateJupyterLabPublicPortInput,
+) {
+  const ctx = await createKubeContext();
+  const name = input.name.trim().toLowerCase();
+  validateJupyterLabName(name);
+  const targetPort = normalizeJupyterLabPublicPort(input.targetPort);
+
+  const resources = await listJupyterLabResources(ctx);
+  const existingLab = resources.deployments.some(
+    (deployment) => jupyterLabLabel(deployment.metadata) === name,
+  );
+  if (!existingLab) {
+    throw new Error(`JupyterLab ${name} 不存在。`);
+  }
+
+  const serviceName = jupyterLabPublicPortServiceName(name, targetPort);
+  const existingPortService = resources.services.find(
+    (service) => service.metadata?.name === serviceName,
+  );
+  if (existingPortService) {
+    throw new Error(`JupyterLab ${name} 的端口 ${targetPort} 已公开。`);
+  }
+
+  const nodePort = resolveJupyterLabPublicNodePort(resources.allServices);
+  const service = buildJupyterLabPublicPortService({
+    name,
+    targetPort,
+    nodePort,
+    ownerUserId: input.ownerUserId,
+  });
+
+  await ctx.coreApi.createNamespacedService({
+    namespace: ctx.namespace,
+    body: service,
+  });
+
+  const accessHost = controllerAccessHost(ctx.config, ctx.nodes);
+  return {
+    name,
+    namespace: ctx.namespace,
+    serviceName,
+    targetPort,
+    nodePort,
+    url: buildPublicPortUrl({ service, nodeIp: accessHost }),
+    message: `JupyterLab ${name} 已公开内部端口 ${targetPort}。`,
+  };
+}
+
+export async function deleteJupyterLabPublicPort(
+  name: string,
+  targetPortInput: number,
+) {
+  const normalizedName = name.trim().toLowerCase();
+  validateJupyterLabName(normalizedName);
+  const targetPort = normalizeJupyterLabPublicPort(targetPortInput);
+
+  const ctx = await createKubeContext();
+  await deleteResource({
+    action: () =>
+      ctx.coreApi.deleteNamespacedService({
+        name: jupyterLabPublicPortServiceName(normalizedName, targetPort),
+        namespace: ctx.namespace,
+      }),
+  });
+
+  return {
+    name: normalizedName,
+    targetPort,
+    message: `JupyterLab ${normalizedName} 的公开端口 ${targetPort} 已删除。`,
+  };
+}
+
 async function deleteResource(options: { action: () => Promise<unknown> }) {
   try {
     await options.action();
@@ -986,11 +1183,34 @@ async function deleteResource(options: { action: () => Promise<unknown> }) {
   }
 }
 
+async function listPublicPortServiceNames(
+  ctx: JupyterLabKubeContext,
+  labName: string,
+) {
+  try {
+    const namespaceServices = await ctx.coreApi.listNamespacedService({
+      namespace: ctx.namespace,
+    });
+
+    return (namespaceServices.items ?? [])
+      .filter((service) => isJupyterLabPublicPortService(service, labName))
+      .map((service) => service.metadata?.name)
+      .filter((name): name is string => Boolean(name));
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
+    throw error;
+  }
+}
+
 export async function deleteJupyterLabRuntime(name: string) {
   const normalizedName = name.trim().toLowerCase();
   validateJupyterLabName(normalizedName);
 
   const ctx = await createKubeContext();
+  const publicPortServiceNames = await listPublicPortServiceNames(
+    ctx,
+    normalizedName,
+  );
 
   await Promise.all([
     deleteResource({
@@ -1008,6 +1228,15 @@ export async function deleteJupyterLabRuntime(name: string) {
           namespace: ctx.namespace,
         }),
     }),
+    ...publicPortServiceNames.map((name) =>
+      deleteResource({
+        action: () =>
+          ctx.coreApi.deleteNamespacedService({
+            name,
+            namespace: ctx.namespace,
+          }),
+      }),
+    ),
   ]);
 
   return {

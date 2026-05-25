@@ -133,6 +133,22 @@ K8S_PIP_TRUSTED_HOST=your-pypi-mirror \
 
 这两个旧入口仍会跳转到 `./scripts/workspace.sh`，但不再作为主入口展示。
 
+## Notebook 内 HTTP 服务入口
+
+JupyterLab 只默认暴露 8888。Notebook 里启动 Gradio、Streamlit、`python -m http.server` 这类额外 HTTP 服务时，需要在训练页面的 JupyterLab 卡片里填写内部端口并点击“公开”。平台会为该端口创建独立 NodePort Service，外部访问地址使用 `infra/k8s/cluster/config.json` 里的 `controllerIp` 加自动分配的 NodePort。
+
+Notebook 内服务必须监听 `0.0.0.0`，不能只绑定 `127.0.0.1`。例如：
+
+```bash
+python -m http.server 7860 --bind 0.0.0.0
+```
+
+```python
+demo.launch(server_name="0.0.0.0", server_port=7860)
+```
+
+默认公开端口 NodePort 区间是 `32180-32199`，可通过 `COLA_JUPYTERLAB_PUBLIC_NODE_PORT_START` 和 `COLA_JUPYTERLAB_PUBLIC_NODE_PORT_END` 调整；该区间不要与其他业务 NodePort 区间重叠。
+
 ## 1. 调整机器清单
 
 编辑：

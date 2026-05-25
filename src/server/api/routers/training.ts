@@ -12,12 +12,11 @@ import {
   gpuAllocationModeValues,
   MAX_GPU_MEMORY_GI,
 } from "@/lib/gpu-allocation";
+import { loadResourceOwnerMap, ownerForUserId } from "@/server/resource-owners";
 import {
-  loadResourceOwnerMap,
-  ownerForUserId,
-} from "@/server/resource-owners";
-import {
+  createJupyterLabPublicPort,
   createJupyterLabRuntime,
+  deleteJupyterLabPublicPort,
   deleteJupyterLabRuntime,
   listJupyterLabRuntimes,
 } from "@/server/training/jupyterlab-service";
@@ -69,16 +68,17 @@ const jupyterLabActionInput = z.object({
   name: z.string().trim().min(2).max(48),
 });
 
+const jupyterLabPortInput = jupyterLabActionInput.extend({
+  targetPort: z.number().int().min(1024).max(65535),
+});
+
 const createUnslothStudioInput = createJupyterLabInput;
 
 const unslothStudioActionInput = z.object({
   name: z.string().trim().min(2).max(48),
 });
 
-const jsonObjectInput = z
-  .record(z.unknown())
-  .nullable()
-  .optional();
+const jsonObjectInput = z.record(z.unknown()).nullable().optional();
 
 const createStudioTrainingRunInput = z
   .object({
@@ -407,10 +407,13 @@ export const trainingRouter = createTRPCRouter({
       }
 
       try {
-        return await inspectTrainingJobRuntime(normalizeTrainingJobRecord(row), {
-          podName: input.podName,
-          tailLines: input.tailLines,
-        });
+        return await inspectTrainingJobRuntime(
+          normalizeTrainingJobRecord(row),
+          {
+            podName: input.podName,
+            tailLines: input.tailLines,
+          },
+        );
       } catch (error) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -484,6 +487,42 @@ export const trainingRouter = createTRPCRouter({
           code: "BAD_REQUEST",
           message:
             error instanceof Error ? error.message : "创建 JupyterLab 失败。",
+        });
+      }
+    }),
+
+  createJupyterLabPublicPort: operatorProcedure
+    .input(jupyterLabPortInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await createJupyterLabPublicPort({
+          name: input.name,
+          targetPort: input.targetPort,
+          ownerUserId: ctx.user.id,
+        });
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "公开 JupyterLab 端口失败。",
+        });
+      }
+    }),
+
+  deleteJupyterLabPublicPort: operatorProcedure
+    .input(jupyterLabPortInput)
+    .mutation(async ({ input }) => {
+      try {
+        return await deleteJupyterLabPublicPort(input.name, input.targetPort);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "删除 JupyterLab 公开端口失败。",
         });
       }
     }),
