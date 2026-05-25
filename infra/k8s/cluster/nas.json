@@ -1,6 +1,6 @@
 {
   "name": "nas",
-  "ip": "172.16.60.108",
+  "ip": "172.16.60.47",
   "sshUser": "xdream",
   "sshPassword": "NAS-a1@123",
   "sshPort": 22,

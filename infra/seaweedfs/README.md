@@ -130,8 +130,8 @@ cd infra/seaweedfs
 ```bash
 ./deploy.sh status-all --env-file seaweedfs.env
 nc -vz 172.16.60.198 32333
-nc -vz 172.16.60.108 8080
-nc -vz 172.16.60.108 18080
+nc -vz 172.16.60.47 8080
+nc -vz 172.16.60.47 18080
 ```
 
 默认 NAS 数据目录：
