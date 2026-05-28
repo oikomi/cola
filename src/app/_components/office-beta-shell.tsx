@@ -2861,9 +2861,12 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   className="mt-3 max-w-full border-[#ead8c1] bg-white/68 text-[#6d5544]"
                 />
 
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 grid grid-cols-2 gap-2">
                   <Button
-                    className="flex-1 rounded-full bg-[#1f5c46] text-white hover:bg-[#184b39]"
+                    className={cn(
+                      "min-w-0 rounded-full bg-[#1f5c46] text-white hover:bg-[#184b39]",
+                      selectedTaskCanCancel ? "" : "col-span-2",
+                    )}
                     disabled={
                       Boolean(liveSnapshot.readOnlyReason) ||
                       hermesAgents.length === 0
@@ -2885,7 +2888,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   {selectedTaskCanCancel ? (
                     <Button
                       variant="outline"
-                      className="rounded-full border-amber-200 bg-amber-50/85 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+                      className="min-w-0 rounded-full border-amber-200 bg-amber-50/85 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
                       disabled={updateTaskStatus.isPending}
                       onClick={() => void handleCancelSelectedTask()}
                     >
@@ -2899,7 +2902,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   ) : null}
                   <Button
                     variant="outline"
-                    className="rounded-full border-[#cde1d7] bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"
+                    className="min-w-0 rounded-full border-[#cde1d7] bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"
                     onClick={() => void openNativePage()}
                   >
                     <ExternalLinkIcon />
@@ -2907,7 +2910,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </Button>
                   <Button
                     variant="outline"
-                    className="rounded-full border-rose-200 bg-white/80 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                    className="min-w-0 rounded-full border-rose-200 bg-white/80 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                     disabled={deleteAgent.isPending}
                     onClick={() => void handleDeleteAgent()}
                   >
