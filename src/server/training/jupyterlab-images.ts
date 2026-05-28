@@ -15,12 +15,7 @@ const DEFAULT_JUPYTERLAB_IMAGE_OPTIONS = [
   {
     label: "PyTorch CUDA 12",
     image: "quay.io/jupyter/pytorch-notebook:cuda12-latest",
-    description: "CUDA 12 版 PyTorch，适合当前主流 NVIDIA GPU 环境。",
-  },
-  {
-    label: "PyTorch CUDA 13",
-    image: "quay.io/jupyter/pytorch-notebook:cuda13-latest",
-    description: "CUDA 13 版 PyTorch，适合较新的 NVIDIA GPU 环境。",
+    description: "CUDA 12 版 PyTorch，匹配当前 NVIDIA 驱动 CUDA 12.x 能力。",
   },
 ] satisfies JupyterLabImageOption[];
 const FALLBACK_JUPYTERLAB_IMAGE = "quay.io/jupyter/pytorch-notebook:latest";

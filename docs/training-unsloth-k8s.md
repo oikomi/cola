@@ -126,7 +126,7 @@ NodePort 默认分区：
 
 创建时可以选择：
 
-- 镜像，默认列表包含 PyTorch CPU、PyTorch CUDA 12、PyTorch CUDA 13
+- 镜像，默认列表包含 PyTorch CPU、PyTorch CUDA 12
 - CPU
 - 内存
 - 整卡 GPU，支持 `0` 表示 CPU-only

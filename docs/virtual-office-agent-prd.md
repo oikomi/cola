@@ -5,6 +5,7 @@
 - 更新时间：2026-04-17
 - 文档类型：产品愿景与范围文档
 - 与当前仓库关系：当前 `cola` 仓库已经实现其中一部分 MVP 能力，但还没有覆盖本文描述的全部角色范围、流程复杂度和治理深度；具体落地边界以 `docs/virtual-office-mvp-implementation-plan.md` 为准
+- 方向变更：Virtual Office 后续改为信息流优先设计，旧任务、审批、事件、runner 状态流不再作为核心模型；见 `docs/virtual-office-information-flow-redesign.md`。
 
 ## 1. 文档信息
 

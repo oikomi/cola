@@ -1,8 +1,8 @@
 # Cola Virtual Office
 
-`cola` 是一个基于 Next.js 15、tRPC、Drizzle 和 PostgreSQL 的 Virtual Office 控制面。仓库当前实现的是一个可运行的 MVP：用空间化办公室界面展示角色、任务、设备、审批和事件，并通过 Kubernetes 异步拉起 OpenClaw / Hermes Agent runner 执行真实任务。
+`cola` 是一个基于 Next.js 15、tRPC、Drizzle 和 PostgreSQL 的 Virtual Office 控制面。仓库当前代码仍是旧 MVP：用空间化办公室界面展示角色、任务、设备、审批和事件，并通过 Kubernetes 异步拉起 OpenClaw / Hermes Agent runner 执行真实任务。后续产品方向已调整为信息流优先，旧任务、审批、事件、runner 状态流不再作为核心模型继续扩展。
 
-## 当前实现
+## 当前旧实现
 
 - `/` 使用 `OfficeBetaShell` 渲染等距办公室主视图，支持人物创建、工位扩容、任务与审批流转、设备状态观察和执行结果回放
 - `/control` 提供偏传统的控制台视图，适合做列表式查看和操作
@@ -117,6 +117,7 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 
 ## 文档索引
 
+- [Virtual Office 信息流重设计](./docs/virtual-office-information-flow-redesign.md)
 - [Virtual Office 多角色 Agent 系统 PRD](./docs/virtual-office-agent-prd.md)
 - [Virtual Office 多角色 Agent 系统技术架构](./docs/virtual-office-agent-architecture.md)
 - [Cola Virtual Office MVP 实施计划](./docs/virtual-office-mvp-implementation-plan.md)

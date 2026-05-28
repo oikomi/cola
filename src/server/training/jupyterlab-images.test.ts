@@ -6,16 +6,15 @@ import {
   resolveJupyterLabImageOptions,
 } from "./jupyterlab-images.ts";
 
-void test("default JupyterLab image options include CPU and CUDA variants", () => {
+void test("default JupyterLab image options match the cluster CUDA 12 runtime", () => {
   const options = resolveJupyterLabImageOptions({});
 
-  assert.equal(options.length, 3);
+  assert.equal(options.length, 2);
   assert.deepEqual(
     options.map((option) => option.image),
     [
       "quay.io/jupyter/pytorch-notebook:latest",
       "quay.io/jupyter/pytorch-notebook:cuda12-latest",
-      "quay.io/jupyter/pytorch-notebook:cuda13-latest",
     ],
   );
 });

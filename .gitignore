@@ -58,3 +58,5 @@ runtime/
 /workloads/remote-workspace/debs/*.deb
 
 .codex
+
+.codex-tmp/
