@@ -74,6 +74,13 @@ export async function cleanupRunner(device: DeviceRecord) {
         ? metadata.codexSecretName
         : null,
     codexSecretManaged: Boolean(metadata?.codexSecretManaged === "true"),
+    hermesGitLabSecretName:
+      typeof metadata?.hermesGitLabSecretName === "string"
+        ? metadata.hermesGitLabSecretName
+        : null,
+    hermesGitLabSecretManaged: Boolean(
+      metadata?.hermesGitLabSecretManaged === "true",
+    ),
   });
 }
 

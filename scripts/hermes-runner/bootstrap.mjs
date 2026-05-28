@@ -1,4 +1,4 @@
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -9,8 +9,7 @@ const apiBaseUrl =
 const runnerName = process.env.COLA_RUNNER_NAME ?? "Hermes Runner";
 const resourcePool = process.env.COLA_RESOURCE_POOL ?? "docker-core";
 const runnerRuntime = process.env.COLA_RUNNER_RUNTIME ?? "kubernetes";
-const runtimeLabel =
-  runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
+const runtimeLabel = runnerRuntime === "kubernetes" ? "Kubernetes" : "Docker";
 const runnerHost = process.env.COLA_RUNNER_HOST ?? "kubernetes";
 const image = process.env.HERMES_AGENT_IMAGE ?? "unknown-image";
 const containerName =
@@ -30,7 +29,8 @@ const hermesProviderId = "cola-codex";
 const heartbeatIntervalMs = Number(
   process.env.COLA_HEARTBEAT_INTERVAL_MS ?? "15000",
 );
-const readyCommand = process.env.HERMES_READY_COMMAND ?? `${hermesBin} --version`;
+const readyCommand =
+  process.env.HERMES_READY_COMMAND ?? `${hermesBin} --version`;
 const bootCommand = process.env.HERMES_BOOT_COMMAND;
 const bootTaskId = process.env.HERMES_BOOT_TASK_ID;
 const bootAgentId = process.env.HERMES_BOOT_AGENT_ID;
@@ -44,6 +44,13 @@ const logDir = process.env.HERMES_LOG_DIR ?? "/workspace/.hermes-runner";
 const sessionLogPath = path.join(logDir, "bootstrap.log");
 const resultPath = path.join(logDir, "last-result.json");
 const prepareOnly = process.argv.includes("--prepare-only");
+const gitCredentialsDir =
+  process.env.COLA_HERMES_GIT_CREDENTIALS_DIR ??
+  path.join(hermesHome, "git-credentials");
+const gitAskpassPath = path.join(gitCredentialsDir, "git-askpass.sh");
+const gitNetrcPath = path.join(gitCredentialsDir, ".netrc");
+const gitCredentialStorePath = path.join(gitCredentialsDir, "credentials");
+const gitConfigPath = path.join(gitCredentialsDir, ".gitconfig");
 
 let deviceId = "";
 let sessionId = "";
@@ -65,6 +72,37 @@ function normalizeHermesBaseUrl(baseUrl) {
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
+function normalizeGitLabBaseUrl(baseUrl) {
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function gitLabMachineName(baseUrl) {
+  try {
+    return new URL(baseUrl).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function gitProcessEnv(extraEnv = {}) {
+  const { COLA_HERMES_GITLAB_TOKEN: _token, ...safeEnv } = process.env;
+  const gitEnv =
+    existsSync(gitConfigPath) && existsSync(gitAskpassPath)
+      ? {
+          GIT_ASKPASS: gitAskpassPath,
+          GIT_CONFIG_GLOBAL: gitConfigPath,
+          GIT_TERMINAL_PROMPT: "0",
+          NETRC: gitNetrcPath,
+        }
+      : {};
+
+  return {
+    ...safeEnv,
+    ...gitEnv,
+    ...extraEnv,
+  };
+}
+
 function yamlString(value) {
   return JSON.stringify(value);
 }
@@ -73,7 +111,8 @@ function loadCodexModelConfig() {
   const configText = readFileSync(codexConfigPath, "utf8");
   const auth = JSON.parse(readFileSync(codexAuthPath, "utf8"));
 
-  const providerName = extractQuotedValue(configText, "model_provider") ?? "OpenAI";
+  const providerName =
+    extractQuotedValue(configText, "model_provider") ?? "OpenAI";
   const model = extractQuotedValue(configText, "model") ?? "gpt-5.4";
 
   const providerSectionMatch = configText.match(
@@ -117,6 +156,63 @@ async function ensureLogDir() {
   await mkdir(logDir, { recursive: true });
 }
 
+async function writeHermesGitCredentials() {
+  const url = process.env.COLA_HERMES_GITLAB_URL;
+  const token = process.env.COLA_HERMES_GITLAB_TOKEN;
+  if (!url || !token) return false;
+
+  const username = process.env.COLA_HERMES_GITLAB_USERNAME || "oauth2";
+  const normalizedUrl = normalizeGitLabBaseUrl(url);
+  const machine = gitLabMachineName(normalizedUrl);
+  if (!machine) {
+    await logLine(
+      "Hermes GitLab credentials skipped: invalid COLA_HERMES_GITLAB_URL",
+    );
+    return false;
+  }
+
+  await mkdir(gitCredentialsDir, { recursive: true });
+  const credentialUrl = new URL(normalizedUrl);
+  credentialUrl.username = username;
+  credentialUrl.password = token;
+  credentialUrl.pathname = "/";
+  credentialUrl.search = "";
+  credentialUrl.hash = "";
+
+  await writeFile(
+    gitNetrcPath,
+    `machine ${machine}\nlogin ${username}\npassword ${token}\n`,
+    { mode: 0o600 },
+  );
+  await chmod(gitNetrcPath, 0o600);
+  await writeFile(gitCredentialStorePath, `${credentialUrl.toString()}\n`, {
+    mode: 0o600,
+  });
+  await chmod(gitCredentialStorePath, 0o600);
+  await writeFile(
+    gitConfigPath,
+    `[credential]\n\thelper = store --file ${gitCredentialStorePath}\n`,
+    { mode: 0o600 },
+  );
+  await chmod(gitConfigPath, 0o600);
+  await writeFile(
+    gitAskpassPath,
+    [
+      "#!/bin/sh",
+      'case "$1" in',
+      `*Username*) printf '%s\\n' ${JSON.stringify(username)} ;;`,
+      `*Password*) sed -n 's/^password //p' ${JSON.stringify(gitNetrcPath)} | head -n 1 ;;`,
+      "*) printf '\\n' ;;",
+      "esac",
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  await chmod(gitAskpassPath, 0o700);
+  await logLine(`Hermes GitLab credentials prepared for ${machine}`);
+  return true;
+}
+
 async function logLine(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   await appendFile(sessionLogPath, line);
@@ -149,7 +245,7 @@ async function shell(command, extraEnv = {}) {
     const child = spawn("sh", ["-lc", command], {
       cwd: workdir,
       env: {
-        ...process.env,
+        ...gitProcessEnv(),
         HERMES_HOME: hermesHome,
         HERMES_CONFIG: configPath,
         HERMES_INFERENCE_PROVIDER: resolvedProvider,
@@ -178,7 +274,9 @@ async function shell(command, extraEnv = {}) {
       } else {
         reject(
           new Error(
-            stderr.trim() || stdout.trim() || `Command exited with code ${code}`,
+            stderr.trim() ||
+              stdout.trim() ||
+              `Command exited with code ${code}`,
           ),
         );
       }
@@ -228,6 +326,15 @@ display:
     `HERMES_INFERENCE_PROVIDER=${resolvedProvider}`,
     `HERMES_INFERENCE_MODEL=${model}`,
   ];
+
+  if (process.env.COLA_HERMES_GITLAB_URL) {
+    envLines.push(
+      `COLA_HERMES_GITLAB_URL=${process.env.COLA_HERMES_GITLAB_URL}`,
+    );
+    envLines.push(`GIT_ASKPASS=${gitAskpassPath}`);
+    envLines.push(`GIT_CONFIG_GLOBAL=${gitConfigPath}`);
+    envLines.push("GIT_TERMINAL_PROMPT=0");
+  }
 
   for (const key of [
     "API_SERVER_ENABLED",
@@ -372,7 +479,9 @@ async function startHeartbeatLoop() {
         error.message.includes("未找到目标 runner。")
       ) {
         try {
-          await logLine("runner record is missing, re-registering before next heartbeat");
+          await logLine(
+            "runner record is missing, re-registering before next heartbeat",
+          );
           await registerRunner(
             `${runtimeLabel} Hermes Agent runner 已重新注册，恢复心跳`,
             currentStatus,
@@ -380,7 +489,9 @@ async function startHeartbeatLoop() {
         } catch (registerError) {
           await logLine(
             `runner re-register failed: ${
-              registerError instanceof Error ? registerError.message : "unknown error"
+              registerError instanceof Error
+                ? registerError.message
+                : "unknown error"
             }`,
           );
         }
@@ -414,19 +525,11 @@ async function runHermesForTask(task) {
   return await new Promise((resolve, reject) => {
     const child = spawn(
       hermesBin,
-      [
-        "chat",
-        "--model",
-        resolvedModel,
-        "--quiet",
-        "--yolo",
-        "-q",
-        prompt,
-      ],
+      ["chat", "--model", resolvedModel, "--quiet", "--yolo", "-q", prompt],
       {
         cwd: workdir,
         env: {
-          ...process.env,
+          ...gitProcessEnv(),
           HERMES_HOME: hermesHome,
           HERMES_CONFIG: configPath,
           HERMES_INFERENCE_PROVIDER: resolvedProvider,
@@ -440,6 +543,15 @@ async function runHermesForTask(task) {
           COLA_TASK_PRIORITY: task.priority,
           COLA_TASK_RISK_LEVEL: task.riskLevel,
           COLA_TASK_PROMPT: prompt,
+          ...(task.gitlab?.repositoryUrl
+            ? { COLA_TASK_GITLAB_REPOSITORY_URL: task.gitlab.repositoryUrl }
+            : {}),
+          ...(task.gitlab?.projectPath
+            ? { COLA_TASK_GITLAB_PROJECT_PATH: task.gitlab.projectPath }
+            : {}),
+          ...(task.gitlab?.ref
+            ? { COLA_TASK_GITLAB_REF: task.gitlab.ref }
+            : {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -544,7 +656,7 @@ async function runBootCommand() {
   const child = spawn("sh", ["-lc", bootCommand], {
     cwd: workdir,
     env: {
-      ...process.env,
+      ...gitProcessEnv(),
       HERMES_HOME: hermesHome,
       HERMES_CONFIG: configPath,
       HERMES_INFERENCE_PROVIDER: resolvedProvider,
@@ -582,6 +694,7 @@ async function main() {
 
   if (prepareOnly) {
     await writeHermesConfig();
+    await writeHermesGitCredentials();
     await shell(readyCommand);
     await logLine(
       `Hermes Agent prepared with model ${resolvedModel} for API Server startup`,
@@ -589,6 +702,7 @@ async function main() {
     return;
   }
 
+  await writeHermesGitCredentials();
   const probe = await probeHermes();
   await registerRunner(probe.summary, probe.status);
   currentStatus = probe.status;
@@ -603,7 +717,8 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  const message = error instanceof Error ? error.message : "unknown bootstrap error";
+  const message =
+    error instanceof Error ? error.message : "unknown bootstrap error";
   try {
     await ensureLogDir();
     await logLine(`bootstrap fatal: ${message}`);

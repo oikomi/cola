@@ -1901,6 +1901,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
     taskType: TaskType;
     priority: Priority;
     riskLevel: RiskLevel;
+    gitlabRepository: string;
+    gitlabRef: string;
   }>({
     ownerAgentId:
       snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
@@ -1910,6 +1912,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
     taskType: "feature",
     priority: "medium",
     riskLevel: "medium",
+    gitlabRepository: "",
+    gitlabRef: "",
   });
   const [workstationZoneId, setWorkstationZoneId] =
     useState<ZoneKey>("engineering");
@@ -2313,6 +2317,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const trimmedAgentName = agentDraft.name.trim();
   const trimmedTaskTitle = taskDraft.title.trim();
   const trimmedTaskSummary = taskDraft.summary.trim();
+  const trimmedGitLabRepository = taskDraft.gitlabRepository.trim();
+  const trimmedGitLabRef = taskDraft.gitlabRef.trim();
   const hermesAgents = liveSnapshot.agents.filter(
     (agent) => agent.engine === "hermes-agent",
   );
@@ -2370,6 +2376,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
       ...taskDraft,
       title: trimmedTaskTitle,
       summary: trimmedTaskSummary,
+      gitlabRepository: trimmedGitLabRepository || undefined,
+      gitlabRef: trimmedGitLabRef || undefined,
     });
   };
 
@@ -3199,6 +3207,36 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   />
                 </FormField>
 
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem]">
+                  <FormField label="GitLab 仓库">
+                    <Input
+                      className="bg-white"
+                      value={taskDraft.gitlabRepository}
+                      onChange={(event) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          gitlabRepository: event.target.value,
+                        }))
+                      }
+                      placeholder="group/project 或 https://code.xdreamdev.com/group/project.git"
+                    />
+                  </FormField>
+
+                  <FormField label="分支/提交">
+                    <Input
+                      className="bg-white"
+                      value={taskDraft.gitlabRef}
+                      onChange={(event) =>
+                        setTaskDraft((current) => ({
+                          ...current,
+                          gitlabRef: event.target.value,
+                        }))
+                      }
+                      placeholder="main"
+                    />
+                  </FormField>
+                </div>
+
                 <div className="grid gap-3 md:grid-cols-3">
                   <FormField label="任务类型">
                     <Select
@@ -3288,7 +3326,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 <div className="rounded-[var(--radius-shell)] border border-[#d6e4da] bg-white/86 px-4 py-3 text-sm leading-6 text-[#4f655d]">
                   {taskTargetAgents.length === 0
                     ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
-                    : "Hermes 完成或失败后，控制面会把人物、任务、状态和执行摘要发送到配置的飞书群。"}
+                    : trimmedGitLabRef.length > 0 &&
+                        trimmedGitLabRepository.length === 0
+                      ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
+                      : trimmedGitLabRepository.length > 0 &&
+                          !liveSnapshot.integrations?.hermesGitLab.configured
+                        ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
+                        : "Hermes 完成或失败后，控制面会把人物、任务、状态和执行摘要发送到配置的飞书群。"}
                 </div>
               </div>
 
@@ -3307,6 +3351,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     !taskDraft.ownerAgentId ||
                     trimmedTaskTitle.length < 3 ||
                     trimmedTaskSummary.length < 8 ||
+                    (trimmedGitLabRef.length > 0 &&
+                      trimmedGitLabRepository.length === 0) ||
                     Boolean(liveSnapshot.readOnlyReason)
                   }
                   onClick={() => void handleCreateTask()}

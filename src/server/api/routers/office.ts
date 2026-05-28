@@ -50,6 +50,8 @@ const createTaskInput = z.object({
   taskType: z.enum(taskTypeValues),
   priority: z.enum(priorityValues),
   riskLevel: z.enum(riskLevelValues),
+  gitlabRepository: z.string().trim().max(512).optional(),
+  gitlabRef: z.string().trim().max(128).optional(),
 });
 
 const updateTaskStatusInput = z.object({

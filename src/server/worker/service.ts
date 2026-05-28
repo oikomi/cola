@@ -21,6 +21,11 @@ import {
   resolveRunnerRuntime,
 } from "@/server/office/domain";
 import { notifyHermesTaskResultToFeishu } from "@/server/office/feishu-notifier";
+import {
+  hasHermesGitLabCredentials,
+  readHermesGitLabRepository,
+  type HermesGitLabRepository,
+} from "@/server/office/hermes-gitlab";
 import { readExecutionResult } from "@/server/office/snapshot";
 import type {
   HeartbeatInput,
@@ -561,6 +566,21 @@ const priorityWeight = {
   low: 1,
 } as const;
 
+function hermesGitLabPromptLines(repository: HermesGitLabRepository | null) {
+  if (!repository) return [];
+
+  return [
+    "GitLab repository context:",
+    repository.repositoryUrl
+      ? `Repository URL: ${repository.repositoryUrl}`
+      : `Project path: ${repository.projectPath ?? repository.input}`,
+    repository.ref ? `Ref: ${repository.ref}` : "Ref: default branch",
+    hasHermesGitLabCredentials()
+      ? "Git credentials are prepared in the runner environment; use normal HTTPS git commands without printing secrets."
+      : "Git credentials are not configured for Hermes; report authentication failures clearly if the repository is private.",
+  ];
+}
+
 export async function pullNextTaskForRunner(
   database: Database,
   input: PullNextTaskInput,
@@ -643,6 +663,11 @@ export async function pullNextTaskForRunner(
     occurredAt: now,
   });
 
+  const gitlabRepository =
+    engine === "hermes-agent"
+      ? readHermesGitLabRepository(nextTask.inputPayload)
+      : null;
+
   return {
     task: {
       id: nextTask.id,
@@ -659,9 +684,11 @@ export async function pullNextTaskForRunner(
         `Task type: ${nextTask.taskType}`,
         `Priority: ${nextTask.priority}`,
         `Risk level: ${nextTask.riskLevel}`,
+        ...hermesGitLabPromptLines(gitlabRepository),
         "Operate inside the mounted /shared-dist-storage directory.",
         "Return a concise completion summary and mention any files changed.",
       ].join("\n"),
+      gitlab: gitlabRepository,
       engine,
     },
   };

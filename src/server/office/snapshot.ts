@@ -25,11 +25,20 @@ import {
   agentPresentation,
   zonePresentation,
 } from "@/server/office/presentation";
+import { hasHermesGitLabCredentials } from "@/server/office/hermes-gitlab";
 import { loadResourceOwnerMap, ownerForUserId } from "@/server/resource-owners";
 import type { ResourceOwner } from "@/server/resource-owners";
 import type { OfficeSnapshot } from "@/server/office/types";
 
 type Database = typeof db;
+
+function integrationStatus() {
+  return {
+    hermesGitLab: {
+      configured: hasHermesGitLabCredentials(),
+    },
+  };
+}
 
 const activeAgentStatuses = new Set([
   "planning",
@@ -154,6 +163,7 @@ function buildEmptySnapshot(
     generatedAt: now.toISOString(),
     mode: "database",
     readOnlyReason: null,
+    integrations: integrationStatus(),
     headline: "系统已初始化基础办公区，当前还没有人物、任务或执行记录。",
     metrics: [
       {
@@ -192,6 +202,7 @@ function buildFallbackSnapshot(now: Date, reason: string): OfficeSnapshot {
     generatedAt: now.toISOString(),
     mode: "fallback",
     readOnlyReason: reason,
+    integrations: integrationStatus(),
     headline: "数据库当前不可用，页面已切换到只读回退模式。",
     metrics: [
       {
@@ -591,6 +602,7 @@ export async function getOfficeSnapshot(
       generatedAt: now.toISOString(),
       mode: "database",
       readOnlyReason: null,
+      integrations: integrationStatus(),
       headline: officeHeadline,
       metrics: [
         {

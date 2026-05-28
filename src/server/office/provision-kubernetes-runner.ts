@@ -23,6 +23,7 @@ import {
   dockerRunnerEngineLabels,
   type DockerRunnerEngine,
 } from "@/server/office/catalog";
+import { resolveHermesGitLabCredentials } from "@/server/office/hermes-gitlab";
 import type {
   ProvisionRunnerInput,
   ProvisionRunnerResult,
@@ -611,6 +612,52 @@ function buildCodexSecret(
   };
 }
 
+function buildHermesGitLabSecret(
+  input: ProvisionRunnerInput,
+  workloadName: string,
+): { name: string | null; manifest: V1Secret | null; source: string | null } {
+  if (input.engine !== "hermes-agent") {
+    return { name: null, manifest: null, source: null };
+  }
+
+  const existingSecret = process.env.COLA_HERMES_GITLAB_SECRET_NAME?.trim();
+  if (existingSecret) {
+    return {
+      name: existingSecret,
+      manifest: null,
+      source: "secret",
+    };
+  }
+
+  const credentials = resolveHermesGitLabCredentials();
+  if (!credentials) {
+    return { name: null, manifest: null, source: null };
+  }
+
+  const name = `${workloadName}-gitlab`;
+
+  return {
+    name,
+    source: credentials.source,
+    manifest: {
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: {
+        name,
+        namespace: runnerNamespace(),
+        labels: ownerMetadata(input.ownerUserId),
+        annotations: ownerMetadata(input.ownerUserId),
+      },
+      type: "Opaque",
+      stringData: {
+        COLA_HERMES_GITLAB_URL: credentials.url,
+        COLA_HERMES_GITLAB_USERNAME: credentials.username,
+        COLA_HERMES_GITLAB_TOKEN: credentials.token,
+      },
+    },
+  };
+}
+
 function buildWorkspaceMount(): MountSpec {
   const hostPath = process.env.COLA_K8S_WORKSPACE_HOST_PATH;
 
@@ -673,10 +720,8 @@ function buildHermesCommand() {
   const hermesEnvPath =
     process.env.HERMES_ENV_PATH_IN_CONTAINER ?? `${hermesHome}/.env`;
   const exportHermesPathsCommand = `export HERMES_HOME=${hermesHome}; export HERMES_CONFIG=${hermesConfigPath}; export HERMES_CONFIG_PATH=${hermesConfigPath}; export HERMES_ENV_PATH=${hermesEnvPath}`;
-  const bootstrapCommand =
-    `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
-  const prepareCommand =
-    `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
+  const bootstrapCommand = `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
+  const prepareCommand = `${exportHermesPathsCommand}; if command -v node >/dev/null 2>&1; then node /runner-scripts/hermes-bootstrap.mjs --prepare-only; elif command -v bun >/dev/null 2>&1; then bun /runner-scripts/hermes-bootstrap.mjs --prepare-only; else echo "Missing node/bun runtime for bootstrap" >&2; exit 1; fi`;
   const sourceEnvCommand = `${exportHermesPathsCommand}; set -a; [ ! -f ${hermesEnvPath} ] || . ${hermesEnvPath}; set +a`;
   const gatewayCommand = `${sourceEnvCommand}; ${hermesBin} gateway >/tmp/hermes-gateway.log 2>&1 &`;
 
@@ -780,6 +825,11 @@ function buildRunnerResources(
   const image = runnerImage(input.engine);
   const { name: codexSecretName, manifest: codexSecretManifest } =
     buildCodexSecret(input, deploymentName);
+  const {
+    name: hermesGitLabSecretName,
+    manifest: hermesGitLabSecretManifest,
+    source: hermesGitLabSecretSource,
+  } = buildHermesGitLabSecret(input, deploymentName);
   const workspaceMount = buildWorkspaceMount();
   const dashboardPort =
     input.engine === "hermes-agent"
@@ -976,6 +1026,37 @@ function buildRunnerResources(
                             },
                           ]
                         : []),
+                      ...(hermesGitLabSecretName
+                        ? [
+                            {
+                              name: "COLA_HERMES_GITLAB_URL",
+                              valueFrom: {
+                                secretKeyRef: {
+                                  name: hermesGitLabSecretName,
+                                  key: "COLA_HERMES_GITLAB_URL",
+                                },
+                              },
+                            },
+                            {
+                              name: "COLA_HERMES_GITLAB_USERNAME",
+                              valueFrom: {
+                                secretKeyRef: {
+                                  name: hermesGitLabSecretName,
+                                  key: "COLA_HERMES_GITLAB_USERNAME",
+                                },
+                              },
+                            },
+                            {
+                              name: "COLA_HERMES_GITLAB_TOKEN",
+                              valueFrom: {
+                                secretKeyRef: {
+                                  name: hermesGitLabSecretName,
+                                  key: "COLA_HERMES_GITLAB_TOKEN",
+                                },
+                              },
+                            },
+                          ]
+                        : []),
                     ]
                   : []),
               ],
@@ -1058,6 +1139,10 @@ function buildRunnerResources(
     codexSecretName,
     codexSecretManaged: Boolean(codexSecretManifest),
     codexSecretManifest,
+    hermesGitLabSecretName,
+    hermesGitLabSecretManaged: Boolean(hermesGitLabSecretManifest),
+    hermesGitLabSecretManifest,
+    hermesGitLabSecretSource,
     bootstrapConfigMap: buildBootstrapConfigMap(
       deploymentName,
       input.ownerUserId,
@@ -1231,6 +1316,13 @@ export async function provisionKubernetesRunner(
     if (resources.codexSecretManifest) {
       await upsertSecret(coreApi, namespace, resources.codexSecretManifest);
     }
+    if (resources.hermesGitLabSecretManifest) {
+      await upsertSecret(
+        coreApi,
+        namespace,
+        resources.hermesGitLabSecretManifest,
+      );
+    }
 
     await upsertConfigMap(coreApi, namespace, resources.bootstrapConfigMap);
     await upsertDeployment(appsApi, namespace, resources.deployment);
@@ -1260,6 +1352,15 @@ export async function provisionKubernetesRunner(
         configMapName: `${deploymentName}-scripts`,
         codexSecretName: resources.codexSecretName,
         codexSecretManaged: resources.codexSecretManaged ? "true" : "false",
+        ...(resources.hermesGitLabSecretName
+          ? { hermesGitLabSecretName: resources.hermesGitLabSecretName }
+          : {}),
+        hermesGitLabSecretManaged: resources.hermesGitLabSecretManaged
+          ? "true"
+          : "false",
+        ...(resources.hermesGitLabSecretSource
+          ? { hermesGitLabSecretSource: resources.hermesGitLabSecretSource }
+          : {}),
       },
     };
   } catch (error) {
@@ -1292,6 +1393,8 @@ export async function cleanupKubernetesRunner(options: {
   configMapName?: string | null;
   codexSecretName?: string | null;
   codexSecretManaged?: boolean;
+  hermesGitLabSecretName?: string | null;
+  hermesGitLabSecretManaged?: boolean;
 }) {
   const { appsApi, coreApi } = createKubeClients();
   const namespace = options.namespace?.trim() ?? runnerNamespace();
@@ -1330,6 +1433,15 @@ export async function cleanupKubernetesRunner(options: {
           action: () =>
             coreApi.deleteNamespacedSecret({
               name: options.codexSecretName!,
+              namespace,
+            }),
+        })
+      : Promise.resolve(),
+    options.hermesGitLabSecretManaged && options.hermesGitLabSecretName
+      ? deleteResource({
+          action: () =>
+            coreApi.deleteNamespacedSecret({
+              name: options.hermesGitLabSecretName!,
               namespace,
             }),
         })

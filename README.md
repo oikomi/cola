@@ -99,6 +99,16 @@ COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx
 COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
 ```
 
+Hermes 需要分析私有 GitLab 仓库时，按 CMDB 的服务端授权模式配置受限凭据。优先配置 Hermes 专用 token；未配置时服务端能力可 fallback 到 `GITLAB_API_TOKEN`，但 runner 注入建议使用专用 token 或预建 K8s Secret。
+
+```env
+COLA_HERMES_GITLAB_URL="https://code.example.com"
+COLA_HERMES_GITLAB_USERNAME="oauth2"
+COLA_HERMES_GITLAB_TOKEN="glpat-xxx"
+# 或者引用已有 Secret，Secret 里需包含同名三个 key
+COLA_HERMES_GITLAB_SECRET_NAME="cola-hermes-gitlab"
+```
+
 如果训练模块也希望跳到单独部署的 Unsloth 原生页面，可以额外配置：
 
 ```env

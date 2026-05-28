@@ -5,6 +5,7 @@ import type { db } from "@/server/db";
 import {
   agents,
   approvals,
+  devices,
   events,
   tasks,
   zoneSettings,
@@ -21,6 +22,11 @@ import {
   type TaskType,
   type ZoneId,
 } from "@/server/office/catalog";
+import { parseRunnerMetadata } from "@/server/office/domain";
+import {
+  normalizeHermesGitLabRepository,
+  type HermesGitLabRepository,
+} from "@/server/office/hermes-gitlab";
 
 type Database = typeof db;
 
@@ -36,6 +42,8 @@ export type CreateOfficeTaskInput = {
   taskType: TaskType;
   priority: Priority;
   riskLevel: RiskLevel;
+  gitlabRepository?: string;
+  gitlabRef?: string;
   ownerUserId: string;
 };
 
@@ -82,6 +90,23 @@ function nextAgentStatusForTaskStatus(status: TaskStatus) {
 
 function taskStatusLabel(status: TaskStatus) {
   return taskStatusLabels[status];
+}
+
+function taskInputPayload(gitlabRepository: HermesGitLabRepository | null) {
+  return gitlabRepository
+    ? {
+        gitlab: {
+          repository: gitlabRepository.input,
+          projectPath: gitlabRepository.projectPath,
+          repositoryUrl: gitlabRepository.repositoryUrl,
+          ref: gitlabRepository.ref,
+        },
+      }
+    : undefined;
+}
+
+function linkedAgentId(metadata: unknown) {
+  return parseRunnerMetadata(metadata).agentId;
 }
 
 export async function addOfficeWorkstation(
@@ -174,6 +199,32 @@ export async function createOfficeTask(
       });
     }
 
+    const gitlabRepository = normalizeHermesGitLabRepository(
+      input.gitlabRepository,
+      input.gitlabRef,
+    );
+
+    if (gitlabRepository) {
+      const deviceRows = await tx.select().from(devices);
+      const targetDevice = deviceRows.find(
+        (device) => linkedAgentId(device.metadata) === owner.id,
+      );
+      const targetEngine = parseRunnerMetadata(targetDevice?.metadata).engine;
+      if (targetEngine !== "hermes-agent") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "GitLab 仓库任务只能分派给已绑定 Hermes runner 的人物。",
+        });
+      }
+    }
+
+    if (input.gitlabRef?.trim() && !gitlabRepository) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "填写分支或提交时，也需要填写 GitLab 仓库。",
+      });
+    }
+
     const taskStatus = owner.status === "idle" ? "assigned" : "queued";
     const [createdTask] = await tx
       .insert(tasks)
@@ -186,6 +237,7 @@ export async function createOfficeTask(
         riskLevel: input.riskLevel,
         zoneId: owner.zoneId,
         currentAgentId: owner.id,
+        inputPayload: taskInputPayload(gitlabRepository),
         status: taskStatus,
         createdAt: now,
       })

@@ -21,6 +21,9 @@ export const env = createEnv({
     FEISHU_REDIRECT_URI: z.string().url().optional(),
     GITLAB_URL: z.string().url().optional(),
     GITLAB_API_TOKEN: z.string().optional(),
+    COLA_HERMES_GITLAB_URL: z.string().url().optional(),
+    COLA_HERMES_GITLAB_USERNAME: z.string().optional(),
+    COLA_HERMES_GITLAB_TOKEN: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -55,6 +58,9 @@ export const env = createEnv({
     FEISHU_REDIRECT_URI: process.env.FEISHU_REDIRECT_URI,
     GITLAB_URL: process.env.GITLAB_URL,
     GITLAB_API_TOKEN: process.env.GITLAB_API_TOKEN,
+    COLA_HERMES_GITLAB_URL: process.env.COLA_HERMES_GITLAB_URL,
+    COLA_HERMES_GITLAB_USERNAME: process.env.COLA_HERMES_GITLAB_USERNAME,
+    COLA_HERMES_GITLAB_TOKEN: process.env.COLA_HERMES_GITLAB_TOKEN,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_OPENCLAW_NATIVE_URL:
       process.env.NEXT_PUBLIC_OPENCLAW_NATIVE_URL,

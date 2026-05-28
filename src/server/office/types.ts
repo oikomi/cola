@@ -126,6 +126,11 @@ export type OfficeSnapshot = {
   generatedAt: string;
   mode: "database" | "fallback";
   readOnlyReason: string | null;
+  integrations?: {
+    hermesGitLab: {
+      configured: boolean;
+    };
+  };
   headline: string;
   metrics: OfficeMetric[];
   zones: OfficeZone[];
