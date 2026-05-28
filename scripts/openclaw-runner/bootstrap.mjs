@@ -724,7 +724,7 @@ async function runTask(task) {
     });
     await logLine(`task ${task.id} finished successfully`);
   } catch (error) {
-    currentStatus = "unhealthy";
+    currentStatus = "online";
     await reportTaskSession(task.id, "failed", {
       artifactPath: taskResultPath,
     });

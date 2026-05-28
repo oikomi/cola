@@ -79,7 +79,6 @@ function nextAgentStatusForTaskStatus(status: TaskStatus) {
     case "handed_off":
       return "waiting_handoff";
     case "failed":
-      return "error";
     case "completed":
     case "canceled":
       return "idle";
@@ -340,7 +339,7 @@ export async function updateOfficeTaskStatus(
       ownerUserId: task.ownerUserId,
       severity:
         input.status === "failed"
-          ? "critical"
+          ? "warning"
           : input.status === "pending_approval"
             ? "warning"
             : "info",

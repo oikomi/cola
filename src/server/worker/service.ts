@@ -458,11 +458,7 @@ export async function reportRunnerSession(
     await tx
       .update(devices)
       .set({
-        status: isRunning
-          ? "busy"
-          : input.status === "failed"
-            ? "unhealthy"
-            : "online",
+        status: isRunning ? "busy" : "online",
         lastHeartbeatAt: now,
         updatedAt: now,
       })
@@ -492,16 +488,14 @@ export async function reportRunnerSession(
       await tx
         .update(agents)
         .set({
-          status: isRunning
-            ? "executing"
-            : input.status === "failed"
-              ? "error"
-              : "idle",
+          status: isRunning ? "executing" : "idle",
           focus: isRunning
             ? `正在执行任务：${task.title}`
             : input.status === "failed"
-              ? `任务执行失败：${task.title}`
-              : `已完成任务：${task.title}`,
+              ? `上次任务执行失败：${task.title}`
+              : input.status === "canceled"
+                ? `任务已取消：${task.title}`
+                : `已完成任务：${task.title}`,
           updatedAt: now,
         })
         .where(eq(agents.id, input.agentId));
@@ -546,8 +540,11 @@ export async function reportRunnerSession(
       entityType: "execution_session",
       entityId: session.id,
       ownerUserId: session.ownerUserId ?? task.ownerUserId,
-      severity:
-        input.status === "failed" || notificationWarning ? "critical" : "info",
+      severity: notificationWarning
+        ? "critical"
+        : input.status === "failed"
+          ? "warning"
+          : "info",
       title: `Runner 已回报执行会话：${device.name}`,
       description: notificationWarning
         ? `任务「${task.title}」当前会话状态为 ${input.status}，但${notificationWarning}`

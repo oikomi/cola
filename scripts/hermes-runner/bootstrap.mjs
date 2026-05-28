@@ -612,7 +612,7 @@ async function runTask(task) {
     await reportTaskSession(task.id, "succeeded");
     await logLine(`task ${task.id} finished successfully`);
   } catch (error) {
-    currentStatus = "unhealthy";
+    currentStatus = "online";
     await reportTaskSession(task.id, "failed");
     await logLine(
       `task ${task.id} failed: ${error instanceof Error ? error.message : "unknown error"}`,

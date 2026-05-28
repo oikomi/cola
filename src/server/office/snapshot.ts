@@ -49,6 +49,14 @@ const activeAgentStatuses = new Set([
   "blocked",
   "error",
 ]);
+const currentTaskStatuses = new Set([
+  "created",
+  "queued",
+  "assigned",
+  "in_progress",
+  "pending_approval",
+  "handed_off",
+]);
 
 const canonicalPoolDeviceNamePattern =
   /^(OpenClaw Runner-\d+|HermesHub Runner|Mac mini.*)$/;
@@ -331,8 +339,13 @@ export async function getOfficeSnapshot(
     };
 
     for (const task of taskRows) {
-      if (!task.currentAgentId || currentTaskByAgentId.has(task.currentAgentId))
+      if (
+        !task.currentAgentId ||
+        currentTaskByAgentId.has(task.currentAgentId) ||
+        !currentTaskStatuses.has(task.status)
+      ) {
         continue;
+      }
       currentTaskByAgentId.set(task.currentAgentId, task.id);
     }
 
