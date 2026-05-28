@@ -20,11 +20,12 @@ import {
   type DockerRunnerEngine,
   type ZoneId,
 } from "@/server/office/catalog";
-import { officeHeadline, agentPresentation, zonePresentation } from "@/server/office/presentation";
 import {
-  loadResourceOwnerMap,
-  ownerForUserId,
-} from "@/server/resource-owners";
+  officeHeadline,
+  agentPresentation,
+  zonePresentation,
+} from "@/server/office/presentation";
+import { loadResourceOwnerMap, ownerForUserId } from "@/server/resource-owners";
 import type { ResourceOwner } from "@/server/resource-owners";
 import type { OfficeSnapshot } from "@/server/office/types";
 
@@ -68,7 +69,7 @@ function resolveWorkspacePath(inputPath: string | null | undefined) {
   return inputPath;
 }
 
-function tryReadExecutionResult(inputPath: string | null | undefined) {
+export function readExecutionResult(inputPath: string | null | undefined) {
   const resolvedPath = resolveWorkspacePath(inputPath);
   if (!resolvedPath) return null;
   if (!existsSync(resolvedPath)) return null;
@@ -90,8 +91,9 @@ function tryReadExecutionResult(inputPath: string | null | undefined) {
 
     return {
       outputText:
-        parsed.result?.outputs?.find((output) => typeof output.text === "string")?.text ??
-        null,
+        parsed.result?.outputs?.find(
+          (output) => typeof output.text === "string",
+        )?.text ?? null,
       completedAt: parsed.completedAt ?? null,
     };
   } catch {
@@ -104,12 +106,15 @@ function buildSnapshotZones(
   zoneSettingByZoneId: Map<ZoneId, typeof zoneSettings.$inferSelect>,
   ownerMap = new Map<string, ResourceOwner>(),
 ) {
-  return (Object.entries(zonePresentation) as Array<
-    [ZoneId, (typeof zonePresentation)[ZoneId]]
-  >).map(([zoneId, zone]) => {
+  return (
+    Object.entries(zonePresentation) as Array<
+      [ZoneId, (typeof zonePresentation)[ZoneId]]
+    >
+  ).map(([zoneId, zone]) => {
     const agentsInZone = agentsByZone.get(zoneId) ?? [];
     const workstationCapacity = resolveZoneWorkstationCapacity(zoneId, {
-      configuredCapacity: zoneSettingByZoneId.get(zoneId)?.workstationCapacity ?? null,
+      configuredCapacity:
+        zoneSettingByZoneId.get(zoneId)?.workstationCapacity ?? null,
       occupiedCount: agentsInZone.length,
     });
 
@@ -228,21 +233,29 @@ function buildFallbackSnapshot(now: Date, reason: string): OfficeSnapshot {
   };
 }
 
-export async function getOfficeSnapshot(database: Database): Promise<OfficeSnapshot> {
+export async function getOfficeSnapshot(
+  database: Database,
+): Promise<OfficeSnapshot> {
   try {
-    const [agentRows, taskRows, deviceRows, approvalRows, eventRows, zoneSettingRows] =
-      await Promise.all([
-        database.select().from(agents),
-        database.select().from(tasks),
-        database.select().from(devices),
-        database
-          .select()
-          .from(approvals)
-          .where(eq(approvals.status, "pending"))
-          .orderBy(desc(approvals.createdAt)),
-        database.select().from(events).orderBy(desc(events.occurredAt)).limit(32),
-        database.select().from(zoneSettings),
-      ]);
+    const [
+      agentRows,
+      taskRows,
+      deviceRows,
+      approvalRows,
+      eventRows,
+      zoneSettingRows,
+    ] = await Promise.all([
+      database.select().from(agents),
+      database.select().from(tasks),
+      database.select().from(devices),
+      database
+        .select()
+        .from(approvals)
+        .where(eq(approvals.status, "pending"))
+        .orderBy(desc(approvals.createdAt)),
+      database.select().from(events).orderBy(desc(events.occurredAt)).limit(32),
+      database.select().from(zoneSettings),
+    ]);
 
     const zoneSettingByZoneId = new Map(
       zoneSettingRows.map((setting) => [setting.zoneId, setting] as const),
@@ -274,8 +287,14 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const deviceById = new Map(deviceRows.map((device) => [device.id, device]));
     const currentTaskByAgentId = new Map<string, string>();
     const agentsByZone = new Map<ZoneId, typeof agentRows>();
-    const assignedDeviceByAgentId = new Map<string, (typeof deviceRows)[number]>();
-    const runningSessionByAgentId = new Map<string, (typeof sessionRows)[number]>();
+    const assignedDeviceByAgentId = new Map<
+      string,
+      (typeof deviceRows)[number]
+    >();
+    const runningSessionByAgentId = new Map<
+      string,
+      (typeof sessionRows)[number]
+    >();
 
     const inferEngineFromDevice = (
       device: (typeof deviceRows)[number] | undefined,
@@ -283,7 +302,9 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       if (!device) return null;
 
       const metadata =
-        device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+        device.metadata && typeof device.metadata === "object"
+          ? device.metadata
+          : null;
       if (
         metadata &&
         "engine" in metadata &&
@@ -299,7 +320,8 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     };
 
     for (const task of taskRows) {
-      if (!task.currentAgentId || currentTaskByAgentId.has(task.currentAgentId)) continue;
+      if (!task.currentAgentId || currentTaskByAgentId.has(task.currentAgentId))
+        continue;
       currentTaskByAgentId.set(task.currentAgentId, task.id);
     }
 
@@ -318,7 +340,10 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     for (const device of deviceRows) {
       if (!device.metadata || typeof device.metadata !== "object") continue;
-      if (!("agentId" in device.metadata) || typeof device.metadata.agentId !== "string") {
+      if (
+        !("agentId" in device.metadata) ||
+        typeof device.metadata.agentId !== "string"
+      ) {
         continue;
       }
 
@@ -327,10 +352,14 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
       }
     }
 
-    const latestSessionByDeviceId = new Map<string, (typeof sessionRows)[number]>();
+    const latestSessionByDeviceId = new Map<
+      string,
+      (typeof sessionRows)[number]
+    >();
 
     for (const session of sessionRows) {
-      if (!session.deviceId || latestSessionByDeviceId.has(session.deviceId)) continue;
+      if (!session.deviceId || latestSessionByDeviceId.has(session.deviceId))
+        continue;
       latestSessionByDeviceId.set(session.deviceId, session);
 
       if (
@@ -344,7 +373,9 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     const relevantDeviceRows = deviceRows.filter((device) => {
       const metadata =
-        device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+        device.metadata && typeof device.metadata === "object"
+          ? device.metadata
+          : null;
 
       if (latestSessionByDeviceId.has(device.id)) {
         return true;
@@ -360,10 +391,18 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
       return canonicalPoolDeviceNamePattern.test(device.name);
     });
-    const relevantDeviceIds = new Set(relevantDeviceRows.map((device) => device.id));
-    const relevantApprovalIds = new Set(approvalRows.map((approval) => approval.id));
+    const relevantDeviceIds = new Set(
+      relevantDeviceRows.map((device) => device.id),
+    );
+    const relevantApprovalIds = new Set(
+      approvalRows.map((approval) => approval.id),
+    );
 
-    const zones = buildSnapshotZones(agentsByZone, zoneSettingByZoneId, ownerMap);
+    const zones = buildSnapshotZones(
+      agentsByZone,
+      zoneSettingByZoneId,
+      ownerMap,
+    );
 
     const zoneAgentIndices = new Map<string, number>();
 
@@ -393,7 +432,8 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
         engine: inferEngineFromDevice(activeDevice),
         status: agent.status,
         zoneId: agent.zoneId,
-        focus: agent.focus ?? `${agentStatusLabels[agent.status]}，等待新上下文`,
+        focus:
+          agent.focus ?? `${agentStatusLabels[agent.status]}，等待新上下文`,
         currentTaskId: currentTaskByAgentId.get(agent.id) ?? null,
         deviceId: activeDevice?.id ?? null,
         energy: presentation.energy,
@@ -419,30 +459,31 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
     const snapshotDevices = relevantDeviceRows.map((device) => {
       const session = latestSessionByDeviceId.get(device.id);
       const metadata =
-        device.metadata && typeof device.metadata === "object" ? device.metadata : null;
+        device.metadata && typeof device.metadata === "object"
+          ? device.metadata
+          : null;
       const isStale =
         device.lastHeartbeatAt instanceof Date &&
-        now.getTime() - device.lastHeartbeatAt.getTime() > staleDeviceThresholdMs;
+        now.getTime() - device.lastHeartbeatAt.getTime() >
+          staleDeviceThresholdMs;
       const effectiveStatus =
         isStale && ["online", "busy", "maintenance"].includes(device.status)
           ? "offline"
           : device.status;
-      const healthSummary =
-        isStale
-          ? "Runner 心跳已超时，原生入口已暂时禁用。"
-          : metadata &&
-              "healthSummary" in metadata &&
-              typeof metadata.healthSummary === "string"
-            ? metadata.healthSummary
-            : `${deviceStatusLabels[effectiveStatus]}，等待新的执行会话`;
-      const nativeDashboardUrl =
-        isStale
-          ? null
-          : metadata &&
-              "nativeDashboardUrl" in metadata &&
-              typeof metadata.nativeDashboardUrl === "string"
-            ? metadata.nativeDashboardUrl
-            : null;
+      const healthSummary = isStale
+        ? "Runner 心跳已超时，原生入口已暂时禁用。"
+        : metadata &&
+            "healthSummary" in metadata &&
+            typeof metadata.healthSummary === "string"
+          ? metadata.healthSummary
+          : `${deviceStatusLabels[effectiveStatus]}，等待新的执行会话`;
+      const nativeDashboardUrl = isStale
+        ? null
+        : metadata &&
+            "nativeDashboardUrl" in metadata &&
+            typeof metadata.nativeDashboardUrl === "string"
+          ? metadata.nativeDashboardUrl
+          : null;
 
       return {
         id: device.id,
@@ -500,12 +541,14 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
         at: formatRelativeTime(event.occurredAt, now),
       }));
 
-    const taskTitleById = new Map(taskRows.map((task) => [task.id, task.title]));
+    const taskTitleById = new Map(
+      taskRows.map((task) => [task.id, task.title]),
+    );
     const taskSummaryById = new Map(
       taskRows.map((task) => [task.id, task.summary ?? "暂无任务摘要"]),
     );
     const latestExecutionReports = sessionRows.slice(0, 8).map((session) => {
-      const executionResult = tryReadExecutionResult(session.artifactPath);
+      const executionResult = readExecutionResult(session.artifactPath);
 
       return {
         sessionId: session.id,
@@ -529,7 +572,9 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
 
     const onlineRoleCount = snapshotAgents.length;
     const inProgressTaskCount = snapshotTasks.filter((task) =>
-      ["assigned", "in_progress", "pending_approval", "handed_off"].includes(task.status),
+      ["assigned", "in_progress", "pending_approval", "handed_off"].includes(
+        task.status,
+      ),
     ).length;
     const busyDeviceCount = snapshotDevices.filter((device) =>
       ["busy", "unhealthy"].includes(device.status),
@@ -567,7 +612,9 @@ export async function getOfficeSnapshot(database: Database): Promise<OfficeSnaps
           label: "异常事件",
           value: String(criticalEventCount),
           delta:
-            criticalEventCount > 0 ? "需要人工处理关键故障" : "当前没有关键级异常",
+            criticalEventCount > 0
+              ? "需要人工处理关键故障"
+              : "当前没有关键级异常",
         },
       ],
       zones,

@@ -2,6 +2,7 @@
 
 import {
   BriefcaseBusinessIcon,
+  ClipboardListIcon,
   CpuIcon,
   ExternalLinkIcon,
   LoaderCircleIcon,
@@ -52,10 +53,18 @@ import {
   agentStatusLabels,
   deviceStatusLabels,
   dockerRunnerEngineValues,
+  priorityLabels,
+  priorityValues,
+  riskLevelLabels,
+  riskLevelValues,
   roleLabels,
+  taskTypeValues,
   zoneLabels,
   type AgentRole,
   type DockerRunnerEngine,
+  type Priority,
+  type RiskLevel,
+  type TaskType,
 } from "@/server/office/catalog";
 import type { OfficeAgent, OfficeSnapshot } from "@/server/office/types";
 import { api } from "@/trpc/react";
@@ -175,6 +184,15 @@ const ROLE_HINTS: Record<AgentRole, string> = {
   operations: "负责活动执行、发布节奏和运营反馈。",
   hr: "负责招聘推进、候选人协同和组织动作。",
   procurement: "负责询价、比价和供应商推进。",
+};
+
+const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  feature: "功能开发",
+  bugfix: "缺陷修复",
+  campaign: "运营活动",
+  recruiting: "招聘推进",
+  procurement: "采购流转",
+  coordination: "跨部门协作",
 };
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
@@ -1866,6 +1884,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const [canvasSize, setCanvasSize] = useState({ width: 1280, height: 760 });
   const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
   const [isAddWorkstationOpen, setIsAddWorkstationOpen] = useState(false);
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [agentDraft, setAgentDraft] = useState<{
     name: string;
     role: AgentRole;
@@ -1874,6 +1893,23 @@ export function OfficeBetaShell({ snapshot }: Props) {
     name: "",
     role: "engineering",
     engine: "openclaw",
+  });
+  const [taskDraft, setTaskDraft] = useState<{
+    ownerAgentId: string;
+    title: string;
+    summary: string;
+    taskType: TaskType;
+    priority: Priority;
+    riskLevel: RiskLevel;
+  }>({
+    ownerAgentId:
+      snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
+      "",
+    title: "",
+    summary: "",
+    taskType: "feature",
+    priority: "medium",
+    riskLevel: "medium",
   });
   const [workstationZoneId, setWorkstationZoneId] =
     useState<ZoneKey>("engineering");
@@ -1898,6 +1934,21 @@ export function OfficeBetaShell({ snapshot }: Props) {
     refetchOnReconnect: true,
   });
   const getNativeDashboardUrl = api.office.getNativeDashboardUrl.useMutation();
+  const createTask = api.office.createTask.useMutation({
+    onSuccess: () => {
+      notifySuccess("任务已下发给 Hermes，执行结果会在完成后推送到飞书群。");
+      setIsCreateTaskOpen(false);
+      setTaskDraft((current) => ({
+        ...current,
+        title: "",
+        summary: "",
+      }));
+      void utils.office.getSnapshot.invalidate();
+    },
+    onError: (error) => {
+      notifyError(error.message);
+    },
+  });
   const createAgent = api.office.createAgent.useMutation({
     onSuccess: (result) => {
       notifySuccess(result.message);
@@ -1988,6 +2039,22 @@ export function OfficeBetaShell({ snapshot }: Props) {
       selectedAgent?.zoneId ?? liveSnapshot.zones[0]?.id ?? "engineering",
     );
   }, [liveSnapshot.zones, selectedAgent, workstationZoneId]);
+
+  useEffect(() => {
+    if (
+      taskDraft.ownerAgentId &&
+      liveSnapshot.agents.some((agent) => agent.id === taskDraft.ownerAgentId)
+    ) {
+      return;
+    }
+
+    setTaskDraft((current) => ({
+      ...current,
+      ownerAgentId:
+        liveSnapshot.agents.find((agent) => agent.engine === "hermes-agent")
+          ?.id ?? "",
+    }));
+  }, [liveSnapshot.agents, taskDraft.ownerAgentId]);
 
   useEffect(() => {
     const host = canvasHostRef.current;
@@ -2244,6 +2311,15 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const selectedWorkstationZone =
     liveSnapshot.zones.find((zone) => zone.id === workstationZoneId) ?? null;
   const trimmedAgentName = agentDraft.name.trim();
+  const trimmedTaskTitle = taskDraft.title.trim();
+  const trimmedTaskSummary = taskDraft.summary.trim();
+  const hermesAgents = liveSnapshot.agents.filter(
+    (agent) => agent.engine === "hermes-agent",
+  );
+  const taskTargetAgents = hermesAgents;
+  const selectedTaskTargetAgent =
+    taskTargetAgents.find((agent) => agent.id === taskDraft.ownerAgentId) ??
+    null;
 
   const handleCreateAgent = async () => {
     if (liveSnapshot.readOnlyReason) {
@@ -2271,6 +2347,29 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
     await addWorkstation.mutateAsync({
       zoneId: workstationZoneId,
+    });
+  };
+
+  const handleCreateTask = async () => {
+    if (liveSnapshot.readOnlyReason) {
+      notifyError(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      return;
+    }
+
+    if (!taskDraft.ownerAgentId) {
+      notifyError("请先选择一个 Hermes 人物。");
+      return;
+    }
+
+    if (trimmedTaskTitle.length < 3 || trimmedTaskSummary.length < 8) {
+      notifyError("任务标题至少 3 个字符，任务说明至少 8 个字符。");
+      return;
+    }
+
+    await createTask.mutateAsync({
+      ...taskDraft,
+      title: trimmedTaskTitle,
+      summary: trimmedTaskSummary,
     });
   };
 
@@ -2488,6 +2587,27 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </Badge>
                 <Button
                   variant="outline"
+                  className="h-10 rounded-full border-[#b9d7c8] bg-[#eef8f2]/90 px-4 text-sm font-medium text-[#1f5c46] shadow-[0_10px_24px_rgba(56,72,68,0.08)] hover:bg-white"
+                  disabled={
+                    Boolean(liveSnapshot.readOnlyReason) ||
+                    hermesAgents.length === 0
+                  }
+                  onClick={() => {
+                    setTaskDraft((current) => ({
+                      ...current,
+                      ownerAgentId:
+                        selectedAgent?.engine === "hermes-agent"
+                          ? selectedAgent.id
+                          : current.ownerAgentId || hermesAgents[0]?.id || "",
+                    }));
+                    setIsCreateTaskOpen(true);
+                  }}
+                >
+                  <ClipboardListIcon data-icon="inline-start" />
+                  下发任务
+                </Button>
+                <Button
+                  variant="outline"
                   className="h-10 rounded-full border-[#cbbf9f] bg-white/84 px-4 text-sm font-medium text-[#24342f] shadow-[0_10px_24px_rgba(56,72,68,0.08)] hover:bg-white"
                   disabled={Boolean(liveSnapshot.readOnlyReason)}
                   onClick={() => {
@@ -2698,11 +2818,32 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
                 <div className="mt-4 flex gap-2">
                   <Button
-                    className="flex-1 rounded-full bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"
+                    className="flex-1 rounded-full bg-[#1f5c46] text-white hover:bg-[#184b39]"
+                    disabled={
+                      Boolean(liveSnapshot.readOnlyReason) ||
+                      hermesAgents.length === 0
+                    }
+                    onClick={() => {
+                      setTaskDraft((current) => ({
+                        ...current,
+                        ownerAgentId:
+                          selectedAgent.engine === "hermes-agent"
+                            ? selectedAgent.id
+                            : current.ownerAgentId || hermesAgents[0]?.id || "",
+                      }));
+                      setIsCreateTaskOpen(true);
+                    }}
+                  >
+                    <ClipboardListIcon />
+                    下发任务
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-full border-[#cde1d7] bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"
                     onClick={() => void openNativePage()}
                   >
                     <ExternalLinkIcon />
-                    进入原生页面
+                    工作区
                   </Button>
                   <Button
                     variant="outline"
@@ -2973,6 +3114,212 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <UserRoundPlusIcon data-icon="inline-start" />
                   )}
                   {createAgent.isPending ? "正在创建人物" : "创建人物"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isCreateTaskOpen} onOpenChange={setIsCreateTaskOpen}>
+            <DialogContent className="border-[#c9d9ce] bg-[#f8fcf8] sm:max-w-xl">
+              <DialogHeader>
+                <DialogTitle>下发 Hermes 任务</DialogTitle>
+                <DialogDescription>
+                  任务会进入所选人物的队列，由对应 Hermes runner 认领执行。
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-4">
+                <FormField label="目标人物">
+                  <Select
+                    value={taskDraft.ownerAgentId}
+                    onValueChange={(value) => {
+                      setTaskDraft((current) => ({
+                        ...current,
+                        ownerAgentId: value ?? "",
+                      }));
+                    }}
+                    disabled={taskTargetAgents.length === 0}
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="选择 Hermes 人物">
+                        {() =>
+                          selectedTaskTargetAgent
+                            ? `${selectedTaskTargetAgent.name} · ${
+                                roleLabels[selectedTaskTargetAgent.role]
+                              } · ${
+                                k8sWorkspaceEngineLabels[
+                                  selectedTaskTargetAgent.engine ?? "openclaw"
+                                ]
+                              }`
+                            : "选择 Hermes 人物"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {taskTargetAgents.map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.name} · {roleLabels[agent.role]} ·{" "}
+                            {
+                              k8sWorkspaceEngineLabels[
+                                agent.engine ?? "openclaw"
+                              ]
+                            }
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
+                <FormField label="任务标题">
+                  <Input
+                    className="bg-white"
+                    value={taskDraft.title}
+                    onChange={(event) =>
+                      setTaskDraft((current) => ({
+                        ...current,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="例如：整理本周用户反馈并给出优先级"
+                  />
+                </FormField>
+
+                <FormField label="任务说明">
+                  <textarea
+                    className="min-h-28 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8]"
+                    value={taskDraft.summary}
+                    onChange={(event) =>
+                      setTaskDraft((current) => ({
+                        ...current,
+                        summary: event.target.value,
+                      }))
+                    }
+                    placeholder="写清目标、背景、输入材料、期望输出和验收标准。"
+                  />
+                </FormField>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <FormField label="任务类型">
+                    <Select
+                      value={taskDraft.taskType}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        setTaskDraft((current) => ({
+                          ...current,
+                          taskType: value as TaskType,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="任务类型">
+                          {optionLabel(TASK_TYPE_LABELS, "任务类型")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {taskTypeValues.map((taskType) => (
+                            <SelectItem key={taskType} value={taskType}>
+                              {TASK_TYPE_LABELS[taskType]}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+
+                  <FormField label="优先级">
+                    <Select
+                      value={taskDraft.priority}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        setTaskDraft((current) => ({
+                          ...current,
+                          priority: value as Priority,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="优先级">
+                          {optionLabel(priorityLabels, "优先级")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {priorityValues.map((priority) => (
+                            <SelectItem key={priority} value={priority}>
+                              {priorityLabels[priority]}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+
+                  <FormField label="风险级别">
+                    <Select
+                      value={taskDraft.riskLevel}
+                      onValueChange={(value) => {
+                        if (!value) return;
+                        setTaskDraft((current) => ({
+                          ...current,
+                          riskLevel: value as RiskLevel,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="风险级别">
+                          {optionLabel(riskLevelLabels, "风险级别")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {riskLevelValues.map((riskLevel) => (
+                            <SelectItem key={riskLevel} value={riskLevel}>
+                              {riskLevelLabels[riskLevel]}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                </div>
+
+                <div className="rounded-[var(--radius-shell)] border border-[#d6e4da] bg-white/86 px-4 py-3 text-sm leading-6 text-[#4f655d]">
+                  {taskTargetAgents.length === 0
+                    ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
+                    : "Hermes 完成或失败后，控制面会把人物、任务、状态和执行摘要发送到配置的飞书群。"}
+                </div>
+              </div>
+
+              <DialogFooter className="bg-[#edf7f0]">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsCreateTaskOpen(false)}
+                >
+                  取消
+                </Button>
+                <Button
+                  className="border border-[#589475] bg-[#1f6b4f] text-white hover:bg-[#18573f]"
+                  disabled={
+                    createTask.isPending ||
+                    taskTargetAgents.length === 0 ||
+                    !taskDraft.ownerAgentId ||
+                    trimmedTaskTitle.length < 3 ||
+                    trimmedTaskSummary.length < 8 ||
+                    Boolean(liveSnapshot.readOnlyReason)
+                  }
+                  onClick={() => void handleCreateTask()}
+                >
+                  {createTask.isPending ? (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : (
+                    <ClipboardListIcon data-icon="inline-start" />
+                  )}
+                  {createTask.isPending ? "正在下发" : "下发给 Hermes"}
                 </Button>
               </DialogFooter>
             </DialogContent>

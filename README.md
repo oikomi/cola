@@ -92,6 +92,13 @@ NEXT_PUBLIC_OPENCLAW_NATIVE_URL="https://openclaw.example.com/"
 NEXT_PUBLIC_HERMES_NATIVE_URL="https://hermes.example.com/"
 ```
 
+Hermes 任务完成或失败后可以自动推送到飞书群机器人：
+
+```env
+COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
+```
+
 如果训练模块也希望跳到单独部署的 Unsloth 原生页面，可以额外配置：
 
 ```env

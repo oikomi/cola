@@ -20,6 +20,8 @@ import {
   resolveDockerRunnerEngine,
   resolveRunnerRuntime,
 } from "@/server/office/domain";
+import { notifyHermesTaskResultToFeishu } from "@/server/office/feishu-notifier";
+import { readExecutionResult } from "@/server/office/snapshot";
 import type {
   HeartbeatInput,
   PullNextTaskInput,
@@ -500,14 +502,51 @@ export async function reportRunnerSession(
         .where(eq(agents.id, input.agentId));
     }
 
+    const [agent] = input.agentId
+      ? await tx
+          .select()
+          .from(agents)
+          .where(eq(agents.id, input.agentId))
+          .limit(1)
+      : [null];
+    const deviceMetadata = parseRunnerMetadata(device.metadata);
+    const isHermesRunner =
+      resolveDockerRunnerEngine(deviceMetadata.engine) === "hermes-agent";
+    let notificationWarning: string | null = null;
+
+    if (isFinished && isHermesRunner) {
+      const executionResult = readExecutionResult(
+        input.artifactPath ?? session.artifactPath,
+      );
+
+      try {
+        await notifyHermesTaskResultToFeishu({
+          taskTitle: task.title,
+          taskSummary: task.summary,
+          agentName: agent?.name ?? deviceMetadata.agentName ?? null,
+          deviceName: device.name,
+          status: input.status,
+          artifactPath: input.artifactPath ?? session.artifactPath,
+          logPath: input.logPath ?? session.logPath,
+          outputText: executionResult?.outputText ?? null,
+        });
+      } catch (error) {
+        notificationWarning =
+          error instanceof Error ? error.message : "飞书群通知发送失败。";
+      }
+    }
+
     await tx.insert(events).values({
       eventType: "execution_session.reported",
       entityType: "execution_session",
       entityId: session.id,
       ownerUserId: session.ownerUserId ?? task.ownerUserId,
-      severity: input.status === "failed" ? "critical" : "info",
+      severity:
+        input.status === "failed" || notificationWarning ? "critical" : "info",
       title: `Runner 已回报执行会话：${device.name}`,
-      description: `任务「${task.title}」当前会话状态为 ${input.status}。`,
+      description: notificationWarning
+        ? `任务「${task.title}」当前会话状态为 ${input.status}，但${notificationWarning}`
+        : `任务「${task.title}」当前会话状态为 ${input.status}。`,
       occurredAt: now,
     });
 
