@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import path from "node:path";
 import { desc, eq } from "drizzle-orm";
 
 import type { db } from "@/server/db";
@@ -29,6 +27,7 @@ import { hasHermesGitLabCredentials } from "@/server/office/hermes-gitlab";
 import { loadResourceOwnerMap, ownerForUserId } from "@/server/resource-owners";
 import type { ResourceOwner } from "@/server/resource-owners";
 import type { OfficeSnapshot } from "@/server/office/types";
+import { readExecutionResult } from "@/server/office/execution-result";
 
 type Database = typeof db;
 
@@ -76,46 +75,6 @@ function formatRelativeTime(occurredAt: Date, now: Date) {
 
   const diffDays = Math.round(diffHours / 24);
   return `${diffDays} 天前`;
-}
-
-function resolveWorkspacePath(inputPath: string | null | undefined) {
-  if (!inputPath) return null;
-  if (inputPath.startsWith("/workspace/")) {
-    return path.join(process.cwd(), inputPath.slice("/workspace/".length));
-  }
-  return inputPath;
-}
-
-export function readExecutionResult(inputPath: string | null | undefined) {
-  const resolvedPath = resolveWorkspacePath(inputPath);
-  if (!resolvedPath) return null;
-  if (!existsSync(resolvedPath)) return null;
-
-  try {
-    const stats = statSync(resolvedPath);
-    const filePath = stats.isDirectory()
-      ? path.join(resolvedPath, "last-result.json")
-      : resolvedPath;
-
-    if (!existsSync(filePath)) return null;
-
-    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as {
-      title?: string;
-      result?: { outputs?: Array<{ text?: string | null }> };
-      taskId?: string;
-      completedAt?: string;
-    };
-
-    return {
-      outputText:
-        parsed.result?.outputs?.find(
-          (output) => typeof output.text === "string",
-        )?.text ?? null,
-      completedAt: parsed.completedAt ?? null,
-    };
-  } catch {
-    return null;
-  }
 }
 
 function buildSnapshotZones(

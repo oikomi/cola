@@ -2,6 +2,7 @@
 
 import {
   BriefcaseBusinessIcon,
+  BanIcon,
   ClipboardListIcon,
   CpuIcon,
   ExternalLinkIcon,
@@ -58,6 +59,7 @@ import {
   riskLevelLabels,
   riskLevelValues,
   roleLabels,
+  taskStatusLabels,
   taskTypeValues,
   zoneLabels,
   type AgentRole,
@@ -1953,6 +1955,15 @@ export function OfficeBetaShell({ snapshot }: Props) {
       notifyError(error.message);
     },
   });
+  const updateTaskStatus = api.office.updateTaskStatus.useMutation({
+    onSuccess: () => {
+      notifySuccess("任务已取消。");
+      void utils.office.getSnapshot.invalidate();
+    },
+    onError: (error) => {
+      notifyError(error.message);
+    },
+  });
   const createAgent = api.office.createAgent.useMutation({
     onSuccess: (result) => {
       notifySuccess(result.message);
@@ -2306,11 +2317,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const selectedTask = selectedAgent
     ? (liveSnapshot.tasks.find(
         (task) => task.id === selectedAgent.currentTaskId,
-      ) ??
-      liveSnapshot.tasks.find(
-        (task) => task.ownerAgentId === selectedAgent.id,
-      ) ??
-      null)
+      ) ?? null)
     : null;
   const selectedWorkstationZone =
     liveSnapshot.zones.find((zone) => zone.id === workstationZoneId) ?? null;
@@ -2326,6 +2333,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const selectedTaskTargetAgent =
     taskTargetAgents.find((agent) => agent.id === taskDraft.ownerAgentId) ??
     null;
+  const selectedTaskCanCancel = Boolean(
+    selectedTask &&
+    !["completed", "failed", "canceled"].includes(selectedTask.status),
+  );
 
   const handleCreateAgent = async () => {
     if (liveSnapshot.readOnlyReason) {
@@ -2398,6 +2409,27 @@ export function OfficeBetaShell({ snapshot }: Props) {
 
     await deleteAgent.mutateAsync({
       agentId: selectedAgent.id,
+    });
+  };
+
+  const handleCancelSelectedTask = async () => {
+    if (!selectedTask || !selectedAgent) return;
+
+    if (liveSnapshot.readOnlyReason) {
+      notifyError(`当前数据源处于回退模式：${liveSnapshot.readOnlyReason}`);
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: `确认取消任务 ${selectedTask.title}？`,
+      description: "任务会标记为已取消，人物会回到空闲状态。",
+      confirmLabel: "取消任务",
+    });
+    if (!confirmed) return;
+
+    await updateTaskStatus.mutateAsync({
+      taskId: selectedTask.id,
+      status: "canceled",
     });
   };
 
@@ -2771,6 +2803,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <p className="mt-1 font-medium text-[#24170d]">
                       {selectedTask?.title ?? "空闲"}
                     </p>
+                    {selectedTask ? (
+                      <p className="mt-1 text-xs text-[#8b735f]">
+                        {taskStatusLabels[selectedTask.status]}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
@@ -2845,6 +2882,21 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <ClipboardListIcon />
                     下发任务
                   </Button>
+                  {selectedTaskCanCancel ? (
+                    <Button
+                      variant="outline"
+                      className="rounded-full border-amber-200 bg-amber-50/85 text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+                      disabled={updateTaskStatus.isPending}
+                      onClick={() => void handleCancelSelectedTask()}
+                    >
+                      {updateTaskStatus.isPending ? (
+                        <LoaderCircleIcon className="animate-spin" />
+                      ) : (
+                        <BanIcon />
+                      )}
+                      取消任务
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     className="rounded-full border-[#cde1d7] bg-[#e7f1eb] text-[#1f5c46] hover:bg-[#dcebe3]"

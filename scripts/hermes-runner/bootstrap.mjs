@@ -427,6 +427,23 @@ async function reportTaskSession(taskId, status, extra = {}) {
   }
 }
 
+function compactOutputText(value, maxLength = 12000) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function outputTextFromResult(result) {
+  return (
+    compactOutputText(result?.stdout) ??
+    compactOutputText(result?.stderr) ??
+    undefined
+  );
+}
+
 async function probeHermes() {
   if (!existsSync(codexConfigPath) || !existsSync(codexAuthPath)) {
     return {
@@ -609,11 +626,17 @@ async function runTask(task) {
       ),
     );
     currentStatus = "online";
-    await reportTaskSession(task.id, "succeeded");
+    await reportTaskSession(task.id, "succeeded", {
+      outputText: outputTextFromResult(result),
+    });
     await logLine(`task ${task.id} finished successfully`);
   } catch (error) {
     currentStatus = "online";
-    await reportTaskSession(task.id, "failed");
+    await reportTaskSession(task.id, "failed", {
+      outputText: compactOutputText(
+        error instanceof Error ? error.message : "unknown error",
+      ),
+    });
     await logLine(
       `task ${task.id} failed: ${error instanceof Error ? error.message : "unknown error"}`,
     );

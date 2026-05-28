@@ -44,6 +44,7 @@ export const reportSessionInputSchema = z.object({
   status: z.enum(sessionStatusValues),
   logPath: z.string().trim().max(500).optional(),
   artifactPath: z.string().trim().max(500).optional(),
+  outputText: z.string().trim().max(12000).optional(),
 });
 
 export type RegisterDockerRunnerInput = z.infer<

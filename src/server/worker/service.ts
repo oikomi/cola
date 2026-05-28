@@ -21,12 +21,9 @@ import {
   resolveRunnerRuntime,
 } from "@/server/office/domain";
 import { notifyHermesTaskResultToFeishu } from "@/server/office/feishu-notifier";
-import {
-  hasHermesGitLabCredentials,
-  readHermesGitLabRepository,
-  type HermesGitLabRepository,
-} from "@/server/office/hermes-gitlab";
-import { readExecutionResult } from "@/server/office/snapshot";
+import { readHermesGitLabRepository } from "@/server/office/hermes-gitlab";
+import { readExecutionResult } from "@/server/office/execution-result";
+import { buildRunnerTaskPrompt } from "@/server/worker/task-prompt";
 import type {
   HeartbeatInput,
   PullNextTaskInput,
@@ -527,7 +524,7 @@ export async function reportRunnerSession(
           status: input.status,
           artifactPath: input.artifactPath ?? session.artifactPath,
           logPath: input.logPath ?? session.logPath,
-          outputText: executionResult?.outputText ?? null,
+          outputText: input.outputText ?? executionResult?.outputText ?? null,
         });
       } catch (error) {
         notificationWarning =
@@ -562,21 +559,6 @@ const priorityWeight = {
   medium: 2,
   low: 1,
 } as const;
-
-function hermesGitLabPromptLines(repository: HermesGitLabRepository | null) {
-  if (!repository) return [];
-
-  return [
-    "GitLab repository context:",
-    repository.repositoryUrl
-      ? `Repository URL: ${repository.repositoryUrl}`
-      : `Project path: ${repository.projectPath ?? repository.input}`,
-    repository.ref ? `Ref: ${repository.ref}` : "Ref: default branch",
-    hasHermesGitLabCredentials()
-      ? "Git credentials are prepared in the runner environment; use normal HTTPS git commands without printing secrets."
-      : "Git credentials are not configured for Hermes; report authentication failures clearly if the repository is private.",
-  ];
-}
 
 export async function pullNextTaskForRunner(
   database: Database,
@@ -674,17 +656,15 @@ export async function pullNextTaskForRunner(
       taskType: nextTask.taskType,
       priority: nextTask.priority,
       riskLevel: nextTask.riskLevel,
-      prompt: [
-        `You are a ${dockerRunnerEngineLabels[engine]} execution worker inside Cola Virtual Office.`,
-        `Task title: ${nextTask.title}`,
-        `Task summary: ${nextTask.summary ?? "No summary provided."}`,
-        `Task type: ${nextTask.taskType}`,
-        `Priority: ${nextTask.priority}`,
-        `Risk level: ${nextTask.riskLevel}`,
-        ...hermesGitLabPromptLines(gitlabRepository),
-        "Operate inside the mounted /shared-dist-storage directory.",
-        "Return a concise completion summary and mention any files changed.",
-      ].join("\n"),
+      prompt: buildRunnerTaskPrompt({
+        engine,
+        title: nextTask.title,
+        summary: nextTask.summary,
+        taskType: nextTask.taskType,
+        priority: nextTask.priority,
+        riskLevel: nextTask.riskLevel,
+        gitlabRepository,
+      }),
       gitlab: gitlabRepository,
       engine,
     },
