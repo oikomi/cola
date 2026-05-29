@@ -92,11 +92,13 @@ NEXT_PUBLIC_OPENCLAW_NATIVE_URL="https://openclaw.example.com/"
 NEXT_PUBLIC_HERMES_NATIVE_URL="https://hermes.example.com/"
 ```
 
-Hermes 任务完成或失败后可以自动推送到飞书群机器人：
+Hermes 任务完成或失败后可以自动推送到飞书。群通知使用群机器人 webhook；个人私聊通知使用同一个飞书应用的机器人能力，需要在飞书开放平台开启机器人，并申请 `im:message:send_as_bot`（或 `im:message` / `im:message:send`）权限后发布版本。即使个人私聊失败，群通知仍会发送，并会在群消息里 @ 任务创建人或指定通知人。
 
 ```env
 COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
 COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
+FEISHU_APP_ID="cli_xxx"
+FEISHU_APP_SECRET="xxx"
 ```
 
 Hermes 需要分析私有 GitLab 仓库时，按 CMDB 的服务端授权模式配置受限凭据。优先配置 Hermes 专用 token；未配置时服务端能力可 fallback 到 `GITLAB_API_TOKEN`，但 runner 注入建议使用专用 token 或预建 K8s Secret。

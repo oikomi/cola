@@ -579,9 +579,15 @@ export async function reportRunnerSession(
           : taskOwner?.feishuOpenId
             ? "默认通知任务创建人"
             : "没有可用个人通知人";
+      const targetOpenIds =
+        recipientOpenIds.length > 0
+          ? recipientOpenIds
+          : taskOwner?.feishuOpenId
+            ? [taskOwner.feishuOpenId]
+            : [];
 
       try {
-        await notifyHermesTaskResultToFeishu(notificationInput);
+        await notifyHermesTaskResultToFeishu(notificationInput, targetOpenIds);
       } catch (error) {
         notificationWarnings.push(
           error instanceof Error ? error.message : "飞书群通知发送失败。",
@@ -590,9 +596,7 @@ export async function reportRunnerSession(
 
       try {
         await notifyHermesTaskResultToFeishuUser(
-          recipientOpenIds.length > 0
-            ? recipientOpenIds
-            : taskOwner?.feishuOpenId,
+          targetOpenIds,
           notificationInput,
         );
       } catch (error) {

@@ -32,7 +32,23 @@ const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
 
 function trimEnv(value: string | undefined) {
   const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  if (!trimmed) return null;
+  return trimmed;
+}
+
+function escapeFeishuAtText(value: string) {
+  return value.replace(/[<&>]/g, (char) => {
+    switch (char) {
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "&":
+        return "&amp;";
+      default:
+        return char;
+    }
+  });
 }
 
 function resolveFeishuWebhookUrl() {
@@ -65,6 +81,10 @@ function resolveFeishuAppCredentials() {
 
 function uniqueOpenIds(openIds: string[]) {
   return Array.from(new Set(openIds));
+}
+
+function normalizeOpenIds(openIds: string[]) {
+  return uniqueOpenIds(openIds.map((openId) => openId.trim())).filter(Boolean);
 }
 
 function signFeishuWebhook(timestamp: string, secret: string) {
@@ -113,6 +133,27 @@ function buildHermesTaskResultText(input: HermesTaskResultNotificationInput) {
     .join("\n");
 }
 
+function buildFeishuAtText(openIds: string[]) {
+  const recipientOpenIds = normalizeOpenIds(openIds);
+  if (recipientOpenIds.length === 0) return null;
+
+  return recipientOpenIds
+    .map((openId) => `<at user_id="${escapeFeishuAtText(openId)}">通知人</at>`)
+    .join("");
+}
+
+function enhanceFeishuMessageError(message: string) {
+  if (
+    message.includes("Bot ability is not activated") ||
+    message.includes("im:message:send") ||
+    message.includes("im:message:send_as_bot")
+  ) {
+    return `${message}。请在飞书开放平台为当前应用开启机器人能力，申请 im:message:send_as_bot（或 im:message / im:message:send）权限，并发布版本；同时确认接收人在应用机器人的可用范围内。`;
+  }
+
+  return message;
+}
+
 async function postFeishu<T>(
   path: string,
   body: unknown,
@@ -156,6 +197,7 @@ async function getTenantAccessToken() {
 
 export async function notifyHermesTaskResultToFeishu(
   input: HermesTaskResultNotificationInput,
+  mentionOpenIds: string[] = [],
 ) {
   if (!["succeeded", "failed", "canceled"].includes(input.status)) {
     return;
@@ -166,7 +208,10 @@ export async function notifyHermesTaskResultToFeishu(
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const secret = resolveFeishuWebhookSecret();
-  const content = buildHermesTaskResultText(input);
+  const mentionText = buildFeishuAtText(mentionOpenIds);
+  const content = [mentionText, buildHermesTaskResultText(input)]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 
   const response = await fetch(webhookUrl, {
     method: "POST",
@@ -240,7 +285,7 @@ export async function notifyHermesTaskResultToFeishuUsers(
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
-      failures.push(`${openId}: ${message}`);
+      failures.push(`${openId}: ${enhanceFeishuMessageError(message)}`);
     }
   }
 
