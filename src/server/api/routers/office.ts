@@ -55,6 +55,7 @@ const createTaskInput = z.object({
   gitlabRepository: z.string().trim().max(512).optional(),
   gitlabRef: z.string().trim().max(128).optional(),
   notifyUserId: z.string().uuid().optional(),
+  notifyUserIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 const updateTaskStatusInput = z.object({

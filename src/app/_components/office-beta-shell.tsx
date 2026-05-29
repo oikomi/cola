@@ -1898,7 +1898,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   });
   const [taskDraft, setTaskDraft] = useState<{
     ownerAgentId: string;
-    notifyUserId: string;
+    notifyUserIds: string[];
     title: string;
     summary: string;
     taskType: TaskType;
@@ -1910,7 +1910,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     ownerAgentId:
       snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
       "",
-    notifyUserId: "",
+    notifyUserIds: [],
     title: "",
     summary: "",
     taskType: "feature",
@@ -2343,14 +2343,15 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const selectedTaskTargetAgent =
     taskTargetAgents.find((agent) => agent.id === taskDraft.ownerAgentId) ??
     null;
-  const selectedNotificationUser =
-    notificationUsers.find((user) => user.id === taskDraft.notifyUserId) ??
-    null;
-  const notificationUserLabel = selectedNotificationUser
-    ? (selectedNotificationUser.name ??
-      selectedNotificationUser.email ??
-      selectedNotificationUser.feishuOpenId)
-    : "选择飞书通知人";
+  const selectedNotificationUsers = notificationUsers.filter((user) =>
+    taskDraft.notifyUserIds.includes(user.id),
+  );
+  const notificationUserLabel =
+    selectedNotificationUsers.length > 0
+      ? selectedNotificationUsers
+          .map((user) => user.name ?? user.email ?? user.feishuOpenId)
+          .join("、")
+      : "未选择通知人";
   const selectedTaskCanCancel = Boolean(
     selectedTask &&
     !["completed", "failed", "canceled"].includes(selectedTask.status),
@@ -2405,7 +2406,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
       ...taskDraft,
       title: trimmedTaskTitle,
       summary: trimmedTaskSummary,
-      notifyUserId: taskDraft.notifyUserId || undefined,
+      notifyUserIds:
+        taskDraft.notifyUserIds.length > 0
+          ? taskDraft.notifyUserIds
+          : undefined,
       gitlabRepository: trimmedGitLabRepository || undefined,
       gitlabRef: trimmedGitLabRef || undefined,
     });
@@ -3254,46 +3258,72 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </FormField>
 
                 <FormField label="飞书通知人">
-                  <Select
-                    value={taskDraft.notifyUserId}
-                    onValueChange={(value) => {
-                      setTaskDraft((current) => ({
-                        ...current,
-                        notifyUserId: value ?? "",
-                      }));
-                    }}
-                    disabled={
-                      notificationUsersQuery.isLoading ||
-                      notificationUsers.length === 0
-                    }
-                  >
-                    <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="选择飞书通知人">
-                        {() =>
-                          notificationUsersQuery.isLoading
-                            ? "正在读取用户"
-                            : notificationUserLabel
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
+                  <div className="grid gap-2 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white p-2">
+                    {notificationUsersQuery.isLoading ? (
+                      <div className="px-2 py-1.5 text-sm text-[#5f7169]">
+                        正在读取用户
+                      </div>
+                    ) : notificationUsers.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-[#5f7169]">
+                        暂无可通知用户
+                      </div>
+                    ) : (
+                      <div className="grid max-h-40 gap-1 overflow-y-auto">
                         {notificationUsers.map((user) => {
                           const label =
                             user.name ?? user.email ?? user.feishuOpenId;
+                          const selected = taskDraft.notifyUserIds.includes(
+                            user.id,
+                          );
 
                           return (
-                            <SelectItem key={user.id} value={user.id}>
-                              {label}
-                              {user.email && user.name
-                                ? ` · ${user.email}`
-                                : ""}
-                            </SelectItem>
+                            <button
+                              key={user.id}
+                              type="button"
+                              className={cn(
+                                "flex min-h-9 items-center justify-between gap-3 rounded-[var(--radius-control)] border px-2.5 py-1.5 text-left text-sm transition-colors",
+                                selected
+                                  ? "border-[#67a184] bg-[#edf7f0] text-[#173d2d]"
+                                  : "border-transparent bg-white text-[#32443e] hover:border-[#d6e4da] hover:bg-[#f5faf6]",
+                              )}
+                              onClick={() =>
+                                setTaskDraft((current) => ({
+                                  ...current,
+                                  notifyUserIds: selected
+                                    ? current.notifyUserIds.filter(
+                                        (userId) => userId !== user.id,
+                                      )
+                                    : [...current.notifyUserIds, user.id],
+                                }))
+                              }
+                            >
+                              <span className="min-w-0 truncate">
+                                {label}
+                                {user.email && user.name
+                                  ? ` · ${user.email}`
+                                  : ""}
+                              </span>
+                              <span
+                                className={cn(
+                                  "grid size-4 shrink-0 place-items-center rounded border text-[10px]",
+                                  selected
+                                    ? "border-[#1f6b4f] bg-[#1f6b4f] text-white"
+                                    : "border-[#9db1a7] bg-white text-transparent",
+                                )}
+                              >
+                                ✓
+                              </span>
+                            </button>
                           );
                         })}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                      </div>
+                    )}
+                    <div className="border-t border-[#e2ece5] px-2 pt-2 text-xs leading-5 text-[#5f7169]">
+                      {taskDraft.notifyUserIds.length > 0
+                        ? `已选择：${notificationUserLabel}`
+                        : "未选择时会发送给任务创建人。"}
+                    </div>
+                  </div>
                 </FormField>
 
                 <FormField label="任务标题">
@@ -3449,9 +3479,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       : trimmedGitLabRepository.length > 0 &&
                           !liveSnapshot.integrations?.hermesGitLab.configured
                         ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
-                        : selectedNotificationUser
-                          ? `Hermes 完成或失败后，控制面会把执行摘要发送给 ${notificationUserLabel}。`
-                          : "Hermes 完成或失败后，控制面会把执行摘要发送给任务创建人；也可以在上方选择指定通知人。"}
+                        : selectedNotificationUsers.length > 0
+                          ? `Hermes 完成或失败后，控制面会把执行摘要发送到飞书群，并发送给 ${notificationUserLabel}。`
+                          : "Hermes 完成或失败后，控制面会把执行摘要发送到飞书群，并发送给任务创建人；也可以在上方选择多个指定通知人。"}
                 </div>
               </div>
 

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type { db } from "@/server/db";
 import {
@@ -46,6 +46,7 @@ export type CreateOfficeTaskInput = {
   gitlabRepository?: string;
   gitlabRef?: string;
   notifyUserId?: string;
+  notifyUserIds?: string[];
   ownerUserId: string;
 };
 
@@ -95,9 +96,9 @@ function taskStatusLabel(status: TaskStatus) {
 
 function taskInputPayload(
   gitlabRepository: HermesGitLabRepository | null,
-  notifyUserId: string | null,
+  notifyUserIds: string[],
 ) {
-  if (!gitlabRepository && !notifyUserId) return undefined;
+  if (!gitlabRepository && notifyUserIds.length === 0) return undefined;
 
   return {
     ...(gitlabRepository
@@ -110,10 +111,10 @@ function taskInputPayload(
           },
         }
       : {}),
-    ...(notifyUserId
+    ...(notifyUserIds.length > 0
       ? {
           notification: {
-            userIds: [notifyUserId],
+            userIds: notifyUserIds,
           },
         }
       : {}),
@@ -240,14 +241,19 @@ export async function createOfficeTask(
       });
     }
 
-    const notifyUserId = input.notifyUserId ?? input.ownerUserId;
-    const [notifyUser] = await tx
+    const requestedNotifyUserIds =
+      input.notifyUserIds && input.notifyUserIds.length > 0
+        ? input.notifyUserIds
+        : input.notifyUserId
+          ? [input.notifyUserId]
+          : [input.ownerUserId];
+    const notifyUserIds = Array.from(new Set(requestedNotifyUserIds));
+    const notifyUsers = await tx
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, notifyUserId), eq(users.status, "active")))
-      .limit(1);
+      .where(and(eq(users.status, "active"), inArray(users.id, notifyUserIds)));
 
-    if (!notifyUser) {
+    if (notifyUsers.length !== notifyUserIds.length) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "未找到飞书通知人。",
@@ -266,7 +272,10 @@ export async function createOfficeTask(
         riskLevel: input.riskLevel,
         zoneId: owner.zoneId,
         currentAgentId: owner.id,
-        inputPayload: taskInputPayload(gitlabRepository, notifyUser.id),
+        inputPayload: taskInputPayload(
+          gitlabRepository,
+          notifyUsers.map((user) => user.id),
+        ),
         status: taskStatus,
         createdAt: now,
       })

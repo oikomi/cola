@@ -568,6 +568,10 @@ export async function reportRunnerSession(
         logPath: input.logPath ?? session.logPath,
         outputText: input.outputText ?? executionResult?.outputText ?? null,
       };
+      const recipientOpenIds =
+        notificationUsers.length > 0
+          ? notificationUsers.map((user) => user.feishuOpenId)
+          : [];
 
       try {
         await notifyHermesTaskResultToFeishu(notificationInput);
@@ -579,8 +583,8 @@ export async function reportRunnerSession(
 
       try {
         await notifyHermesTaskResultToFeishuUser(
-          notificationUsers.length > 0
-            ? notificationUsers.map((user) => user.feishuOpenId)
+          recipientOpenIds.length > 0
+            ? recipientOpenIds
             : taskOwner?.feishuOpenId,
           notificationInput,
         );
