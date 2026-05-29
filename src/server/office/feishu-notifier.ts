@@ -13,6 +13,23 @@ type HermesTaskResultNotificationInput = {
   outputText: string | null;
 };
 
+type FeishuApiResponse<T> = {
+  code?: number;
+  msg?: string;
+  data?: T;
+} & Partial<T>;
+
+type TenantAccessTokenData = {
+  tenant_access_token?: string;
+  expire?: number;
+};
+
+type SendMessageData = {
+  message_id?: string;
+};
+
+const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
+
 function trimEnv(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
@@ -30,6 +47,13 @@ function resolveFeishuWebhookSecret() {
     trimEnv(process.env.COLA_HERMES_FEISHU_WEBHOOK_SECRET) ??
     trimEnv(process.env.FEISHU_BOT_WEBHOOK_SECRET)
   );
+}
+
+function resolveFeishuAppCredentials() {
+  const appId = trimEnv(process.env.FEISHU_APP_ID);
+  const appSecret = trimEnv(process.env.FEISHU_APP_SECRET);
+  if (!appId || !appSecret) return null;
+  return { appId, appSecret };
 }
 
 function signFeishuWebhook(timestamp: string, secret: string) {
@@ -63,6 +87,63 @@ function compactText(value: string | null | undefined, maxLength: number) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
+function buildHermesTaskResultText(input: HermesTaskResultNotificationInput) {
+  return [
+    `Hermes 任务${statusText(input.status)}`,
+    `人物：${input.agentName ?? "未绑定人物"}`,
+    `设备：${input.deviceName}`,
+    `任务：${input.taskTitle}`,
+    `说明：${compactText(input.taskSummary, 240)}`,
+    `结果：${compactText(input.outputText, 900)}`,
+    input.artifactPath ? `产物：${input.artifactPath}` : null,
+    input.logPath ? `日志：${input.logPath}` : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+async function postFeishu<T>(
+  path: string,
+  body: unknown,
+  headers: HeadersInit = {},
+) {
+  const response = await fetch(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = (await response.json()) as FeishuApiResponse<T>;
+
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(payload.msg ?? `飞书接口请求失败：HTTP ${response.status}`);
+  }
+
+  return (payload.data ?? payload) as T;
+}
+
+async function getTenantAccessToken() {
+  const credentials = resolveFeishuAppCredentials();
+  if (!credentials) return null;
+
+  const data = await postFeishu<TenantAccessTokenData>(
+    "/auth/v3/tenant_access_token/internal",
+    {
+      app_id: credentials.appId,
+      app_secret: credentials.appSecret,
+    },
+  );
+
+  if (!data.tenant_access_token) {
+    throw new Error("飞书没有返回 tenant_access_token。");
+  }
+
+  return data.tenant_access_token;
+}
+
 export async function notifyHermesTaskResultToFeishu(
   input: HermesTaskResultNotificationInput,
 ) {
@@ -75,18 +156,7 @@ export async function notifyHermesTaskResultToFeishu(
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const secret = resolveFeishuWebhookSecret();
-  const content = [
-    `Hermes 任务${statusText(input.status)}`,
-    `人物：${input.agentName ?? "未绑定人物"}`,
-    `设备：${input.deviceName}`,
-    `任务：${input.taskTitle}`,
-    `说明：${compactText(input.taskSummary, 240)}`,
-    `结果：${compactText(input.outputText, 900)}`,
-    input.artifactPath ? `产物：${input.artifactPath}` : null,
-    input.logPath ? `日志：${input.logPath}` : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+  const content = buildHermesTaskResultText(input);
 
   const response = await fetch(webhookUrl, {
     method: "POST",
@@ -110,4 +180,30 @@ export async function notifyHermesTaskResultToFeishu(
   if (!response.ok) {
     throw new Error(`飞书群通知发送失败：HTTP ${response.status}`);
   }
+}
+
+export async function notifyHermesTaskResultToFeishuUser(
+  openId: string | null | undefined,
+  input: HermesTaskResultNotificationInput,
+) {
+  if (!openId || !["succeeded", "failed", "canceled"].includes(input.status)) {
+    return;
+  }
+
+  const tenantAccessToken = await getTenantAccessToken();
+  if (!tenantAccessToken) return;
+
+  await postFeishu<SendMessageData>(
+    "/im/v1/messages?receive_id_type=open_id",
+    {
+      receive_id: openId,
+      msg_type: "text",
+      content: JSON.stringify({
+        text: buildHermesTaskResultText(input),
+      }),
+    },
+    {
+      Authorization: `Bearer ${tenantAccessToken}`,
+    },
+  );
 }

@@ -8,6 +8,7 @@ import {
   events,
   executionSessions,
   tasks,
+  users,
 } from "@/server/db/schema";
 import {
   dockerRunnerDeviceTypeByEngine,
@@ -20,7 +21,10 @@ import {
   resolveDockerRunnerEngine,
   resolveRunnerRuntime,
 } from "@/server/office/domain";
-import { notifyHermesTaskResultToFeishu } from "@/server/office/feishu-notifier";
+import {
+  notifyHermesTaskResultToFeishu,
+  notifyHermesTaskResultToFeishuUser,
+} from "@/server/office/feishu-notifier";
 import { readHermesGitLabRepository } from "@/server/office/hermes-gitlab";
 import { readExecutionResult } from "@/server/office/execution-result";
 import { buildRunnerTaskPrompt } from "@/server/worker/task-prompt";
@@ -505,30 +509,50 @@ export async function reportRunnerSession(
           .where(eq(agents.id, input.agentId))
           .limit(1)
       : [null];
+    const [taskOwner] = task.ownerUserId
+      ? await tx
+          .select({ feishuOpenId: users.feishuOpenId })
+          .from(users)
+          .where(eq(users.id, task.ownerUserId))
+          .limit(1)
+      : [null];
     const deviceMetadata = parseRunnerMetadata(device.metadata);
     const isHermesRunner =
       resolveDockerRunnerEngine(deviceMetadata.engine) === "hermes-agent";
-    let notificationWarning: string | null = null;
+    const notificationWarnings: string[] = [];
 
     if (isFinished && isHermesRunner) {
       const executionResult = readExecutionResult(
         input.artifactPath ?? session.artifactPath,
       );
+      const notificationInput = {
+        taskTitle: task.title,
+        taskSummary: task.summary,
+        agentName: agent?.name ?? deviceMetadata.agentName ?? null,
+        deviceName: device.name,
+        status: input.status,
+        artifactPath: input.artifactPath ?? session.artifactPath,
+        logPath: input.logPath ?? session.logPath,
+        outputText: input.outputText ?? executionResult?.outputText ?? null,
+      };
 
       try {
-        await notifyHermesTaskResultToFeishu({
-          taskTitle: task.title,
-          taskSummary: task.summary,
-          agentName: agent?.name ?? deviceMetadata.agentName ?? null,
-          deviceName: device.name,
-          status: input.status,
-          artifactPath: input.artifactPath ?? session.artifactPath,
-          logPath: input.logPath ?? session.logPath,
-          outputText: input.outputText ?? executionResult?.outputText ?? null,
-        });
+        await notifyHermesTaskResultToFeishu(notificationInput);
       } catch (error) {
-        notificationWarning =
-          error instanceof Error ? error.message : "飞书群通知发送失败。";
+        notificationWarnings.push(
+          error instanceof Error ? error.message : "飞书群通知发送失败。",
+        );
+      }
+
+      try {
+        await notifyHermesTaskResultToFeishuUser(
+          taskOwner?.feishuOpenId,
+          notificationInput,
+        );
+      } catch (error) {
+        notificationWarnings.push(
+          error instanceof Error ? error.message : "飞书个人通知发送失败。",
+        );
       }
     }
 
@@ -537,15 +561,17 @@ export async function reportRunnerSession(
       entityType: "execution_session",
       entityId: session.id,
       ownerUserId: session.ownerUserId ?? task.ownerUserId,
-      severity: notificationWarning
-        ? "critical"
-        : input.status === "failed"
-          ? "warning"
-          : "info",
+      severity:
+        notificationWarnings.length > 0
+          ? "critical"
+          : input.status === "failed"
+            ? "warning"
+            : "info",
       title: `Runner 已回报执行会话：${device.name}`,
-      description: notificationWarning
-        ? `任务「${task.title}」当前会话状态为 ${input.status}，但${notificationWarning}`
-        : `任务「${task.title}」当前会话状态为 ${input.status}。`,
+      description:
+        notificationWarnings.length > 0
+          ? `任务「${task.title}」当前会话状态为 ${input.status}，但${notificationWarnings.join("；")}`
+          : `任务「${task.title}」当前会话状态为 ${input.status}。`,
       occurredAt: now,
     });
 
