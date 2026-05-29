@@ -553,6 +553,7 @@ export async function reportRunnerSession(
     const isHermesRunner =
       resolveDockerRunnerEngine(deviceMetadata.engine) === "hermes-agent";
     const notificationWarnings: string[] = [];
+    let recipientSummary = "未触发个人通知";
 
     if (isFinished && isHermesRunner) {
       const executionResult = readExecutionResult(
@@ -572,6 +573,12 @@ export async function reportRunnerSession(
         notificationUsers.length > 0
           ? notificationUsers.map((user) => user.feishuOpenId)
           : [];
+      recipientSummary =
+        notificationUserIds.length > 0
+          ? `指定个人通知 ${recipientOpenIds.length}/${notificationUserIds.length} 人`
+          : taskOwner?.feishuOpenId
+            ? "默认通知任务创建人"
+            : "没有可用个人通知人";
 
       try {
         await notifyHermesTaskResultToFeishu(notificationInput);
@@ -609,8 +616,8 @@ export async function reportRunnerSession(
       title: `Runner 已回报执行会话：${device.name}`,
       description:
         notificationWarnings.length > 0
-          ? `任务「${task.title}」当前会话状态为 ${input.status}，但${notificationWarnings.join("；")}`
-          : `任务「${task.title}」当前会话状态为 ${input.status}。`,
+          ? `任务「${task.title}」当前会话状态为 ${input.status}，${recipientSummary}，但${notificationWarnings.join("；")}`
+          : `任务「${task.title}」当前会话状态为 ${input.status}，${recipientSummary}。`,
       occurredAt: now,
     });
 

@@ -52,7 +52,14 @@ function resolveFeishuWebhookSecret() {
 function resolveFeishuAppCredentials() {
   const appId = trimEnv(process.env.FEISHU_APP_ID);
   const appSecret = trimEnv(process.env.FEISHU_APP_SECRET);
-  if (!appId || !appSecret) return null;
+  if (!appId || !appSecret) {
+    const missing = [
+      appId ? null : "FEISHU_APP_ID",
+      appSecret ? null : "FEISHU_APP_SECRET",
+    ].filter((key): key is string => Boolean(key));
+    throw new Error(`飞书个人通知缺少环境变量：${missing.join(", ")}。`);
+  }
+
   return { appId, appSecret };
 }
 
@@ -131,7 +138,6 @@ async function postFeishu<T>(
 
 async function getTenantAccessToken() {
   const credentials = resolveFeishuAppCredentials();
-  if (!credentials) return null;
 
   const data = await postFeishu<TenantAccessTokenData>(
     "/auth/v3/tenant_access_token/internal",
@@ -215,7 +221,6 @@ export async function notifyHermesTaskResultToFeishuUsers(
   }
 
   const tenantAccessToken = await getTenantAccessToken();
-  if (!tenantAccessToken) return;
 
   const text = buildHermesTaskResultText(input);
   const failures: string[] = [];
