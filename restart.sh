@@ -70,6 +70,18 @@ run_db_check() {
   node "$DB_CHECK_SCRIPT"
 }
 
+load_node_toolchain() {
+  if command -v node >/dev/null 2>&1 && command -v pm2 >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local nvm_script="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  if [[ -f "$nvm_script" ]]; then
+    # shellcheck disable=SC1090
+    source "$nvm_script"
+  fi
+}
+
 is_truthy() {
   case "$1" in
     1|true|TRUE|yes|YES|on|ON)
@@ -99,6 +111,7 @@ start_feishu_hermes_worker() {
   fi
 
   load_env_file
+  load_node_toolchain
 
   local forced=0
   if is_truthy "$FEISHU_HERMES_WORKER"; then

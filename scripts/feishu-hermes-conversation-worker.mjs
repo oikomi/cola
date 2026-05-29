@@ -86,6 +86,23 @@ function extractAssistantContent(payload) {
   return null;
 }
 
+function eventSummary(data) {
+  const message = data?.message ?? {};
+  const sender = data?.sender ?? {};
+  return {
+    eventId: data?.event_id ?? null,
+    chatId: message.chat_id ?? null,
+    messageId: message.message_id ?? null,
+    parentId: message.parent_id ?? null,
+    rootId: message.root_id ?? null,
+    messageType: message.message_type ?? null,
+    chatType: message.chat_type ?? null,
+    senderType: sender.sender_type ?? null,
+    senderOpenId: sender.sender_id?.open_id ?? null,
+    text: compactText(parseMessageText(message.content), 120),
+  };
+}
+
 async function postFeishu(path, body, tenantAccessToken) {
   const response = await fetch(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
     method: "POST",
@@ -201,9 +218,39 @@ async function findConversationContext(sql, message) {
 
     if (matchedMessage) {
       const metadata = parseMetadata(event.device_metadata);
-      if (metadata.engine !== "hermes-agent") return null;
-      if (!metadata.hermesApiServerUrl) return null;
+      if (metadata.engine !== "hermes-agent") {
+        console.warn(
+          "[feishu-hermes] matched notification but device is not Hermes:",
+          JSON.stringify({
+            taskId: event.task_id,
+            deviceId: event.device_id,
+            engine: metadata.engine,
+          }),
+        );
+        return null;
+      }
+      if (!metadata.hermesApiServerUrl) {
+        console.warn(
+          "[feishu-hermes] matched notification but Hermes API URL is missing:",
+          JSON.stringify({
+            taskId: event.task_id,
+            deviceId: event.device_id,
+          }),
+        );
+        return null;
+      }
 
+      console.log(
+        "[feishu-hermes] matched conversation context:",
+        JSON.stringify({
+          taskId: event.task_id,
+          sessionId: event.session_id,
+          deviceId: event.device_id,
+          chatId,
+          senderOpenId,
+          notificationMessageId: matchedMessage.messageId,
+        }),
+      );
       return {
         event,
         metadata,
@@ -318,14 +365,35 @@ async function recordConversationMessage(sql, context, input) {
 }
 
 async function handleMessage(sql, client, appConfig, data) {
-  if (data.sender?.sender_type === "app") return;
-  if (data.message.message_type !== "text") return;
+  console.log(
+    "[feishu-hermes] received im.message.receive_v1:",
+    JSON.stringify(eventSummary(data)),
+  );
+
+  if (data.sender?.sender_type === "app") {
+    console.log("[feishu-hermes] skipped app-sent message.");
+    return;
+  }
+  if (data.message.message_type !== "text") {
+    console.log(
+      "[feishu-hermes] skipped non-text message:",
+      data.message.message_type,
+    );
+    return;
+  }
 
   const userText = parseMessageText(data.message.content);
-  if (!userText) return;
+  if (!userText) {
+    console.log("[feishu-hermes] skipped empty text message.");
+    return;
+  }
 
   const context = await findConversationContext(sql, data);
   if (!context) {
+    console.warn(
+      "[feishu-hermes] no conversation context found:",
+      JSON.stringify(eventSummary(data)),
+    );
     await sendFeishuText(
       client,
       data.message.chat_id,
@@ -358,6 +426,14 @@ async function handleMessage(sql, client, appConfig, data) {
   const messages = await loadConversationMessages(sql, context, userText);
   const reply = await callHermes(context, messages);
   await sendFeishuText(client, data.message.chat_id, reply);
+  console.log(
+    "[feishu-hermes] sent Hermes reply:",
+    JSON.stringify({
+      chatId: data.message.chat_id,
+      taskId: context.event.task_id,
+      length: reply.length,
+    }),
+  );
 
   await recordConversationMessage(sql, context, {
     title: "Hermes 已回复飞书继续对话",
