@@ -104,10 +104,10 @@ FEISHU_APP_SECRET="xxx"
 如需让用户在飞书里基于任务完成通知继续追问 Hermes，需要在飞书开放平台的「事件与回调」里使用长连接订阅「接收消息 v2.0 / `im.message.receive_v1`」，并单独启动事件 worker：
 
 ```bash
-npm run feishu:hermes
+./restart.sh --with-feishu-hermes
 ```
 
-持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。
+`restart.sh` 会在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `DATABASE_URL` 配齐时用 pm2 管理 `cola-feishu-hermes` 常驻进程；也可以设置 `FEISHU_HERMES_WORKER=0` 或传 `--no-feishu-hermes` 跳过。持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。
 
 Hermes 需要分析私有 GitLab 仓库时，按 CMDB 的服务端授权模式配置受限凭据。优先配置 Hermes 专用 token；未配置时服务端能力可 fallback 到 `GITLAB_API_TOKEN`，但 runner 注入建议使用专用 token 或预建 K8s Secret。
 

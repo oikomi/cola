@@ -10,6 +10,9 @@ SCREEN_SESSION="${SCREEN_SESSION:-cola-next-dev-${PORT}}"
 NEXT_BIN="$ROOT_DIR/node_modules/.bin/next"
 DB_CHECK_SCRIPT="$ROOT_DIR/scripts/check-office-db.mjs"
 START_DB_SCRIPT="$ROOT_DIR/start-database.sh"
+FEISHU_HERMES_SCRIPT="$ROOT_DIR/scripts/feishu-hermes-conversation-worker.mjs"
+FEISHU_HERMES_WORKER="${FEISHU_HERMES_WORKER:-auto}"
+FEISHU_HERMES_PM2_NAME="${FEISHU_HERMES_PM2_NAME:-cola-feishu-hermes}"
 RUN_MODE="background"
 
 while [[ $# -gt 0 ]]; do
@@ -18,17 +21,30 @@ while [[ $# -gt 0 ]]; do
       RUN_MODE="foreground"
       shift
       ;;
+    --with-feishu-hermes)
+      FEISHU_HERMES_WORKER="1"
+      shift
+      ;;
+    --no-feishu-hermes)
+      FEISHU_HERMES_WORKER="0"
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--foreground|-f]"
+      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes]"
       echo
       echo "Restarts the local Next.js dev server for this repo."
       echo "Default: restart in background and write logs to $LOG_FILE"
       echo "Foreground: replace this shell with the Next.js dev server"
+      echo
+      echo "Feishu Hermes worker:"
+      echo "  auto: start/restart with pm2 when FEISHU_APP_ID, FEISHU_APP_SECRET, and DATABASE_URL are set"
+      echo "  --with-feishu-hermes: require the pm2 worker to start"
+      echo "  --no-feishu-hermes: skip the pm2 worker"
       exit 0
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--foreground|-f]"
+      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes]"
       exit 1
       ;;
   esac
@@ -52,6 +68,97 @@ load_env_file() {
 
 run_db_check() {
   node "$DB_CHECK_SCRIPT"
+}
+
+is_truthy() {
+  case "$1" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_falsey() {
+  case "$1" in
+    0|false|FALSE|no|NO|off|OFF)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+start_feishu_hermes_worker() {
+  if is_falsey "$FEISHU_HERMES_WORKER"; then
+    echo "Feishu Hermes conversation worker skipped."
+    return 0
+  fi
+
+  load_env_file
+
+  local forced=0
+  if is_truthy "$FEISHU_HERMES_WORKER"; then
+    forced=1
+  fi
+
+  local missing=()
+  [[ -n "${FEISHU_APP_ID:-}" ]] || missing+=("FEISHU_APP_ID")
+  [[ -n "${FEISHU_APP_SECRET:-}" ]] || missing+=("FEISHU_APP_SECRET")
+  [[ -n "${DATABASE_URL:-}" ]] || missing+=("DATABASE_URL")
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    if [[ "$forced" -eq 1 ]]; then
+      echo "Cannot start Feishu Hermes conversation worker. Missing: ${missing[*]}"
+      return 1
+    fi
+    echo "Feishu Hermes conversation worker skipped. Missing: ${missing[*]}"
+    return 0
+  fi
+
+  if ! command -v pm2 >/dev/null 2>&1; then
+    if [[ "$forced" -eq 1 ]]; then
+      echo "Cannot start Feishu Hermes conversation worker. pm2 is not available."
+      return 1
+    fi
+    echo "Feishu Hermes conversation worker skipped. pm2 is not available."
+    return 0
+  fi
+
+  if [[ ! -f "$FEISHU_HERMES_SCRIPT" ]]; then
+    echo "Cannot start Feishu Hermes conversation worker. Missing script: $FEISHU_HERMES_SCRIPT"
+    return 1
+  fi
+
+  if [[ ! -d "$ROOT_DIR/node_modules/@larksuiteoapi/node-sdk" ]]; then
+    echo "Cannot start Feishu Hermes conversation worker. Run npm install first."
+    return 1
+  fi
+
+  echo "Starting Feishu Hermes conversation worker with pm2 ($FEISHU_HERMES_PM2_NAME)..."
+  if pm2 describe "$FEISHU_HERMES_PM2_NAME" >/dev/null 2>&1; then
+    pm2 restart "$FEISHU_HERMES_PM2_NAME" --update-env
+  else
+    pm2 start npm --name "$FEISHU_HERMES_PM2_NAME" --cwd "$ROOT_DIR" --time -- run feishu:hermes
+  fi
+
+  local worker_pid=""
+  for _ in {1..10}; do
+    worker_pid="$(pm2 pid "$FEISHU_HERMES_PM2_NAME" 2>/dev/null | tail -n 1 | tr -d '[:space:]' || true)"
+    if [[ "$worker_pid" =~ ^[1-9][0-9]*$ ]]; then
+      echo "Feishu Hermes conversation worker restarted successfully."
+      echo "PM2 name: $FEISHU_HERMES_PM2_NAME"
+      echo "PID: $worker_pid"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Feishu Hermes conversation worker did not stay running. Check: pm2 logs $FEISHU_HERMES_PM2_NAME"
+  return 1
 }
 
 ensure_virtual_office_schema() {
@@ -203,6 +310,7 @@ while IFS= read -r pid; do
 done < <(find_repo_next_pids || true)
 
 ensure_virtual_office_schema
+start_feishu_hermes_worker
 
 if command -v lsof >/dev/null 2>&1; then
   while IFS= read -r pid; do
