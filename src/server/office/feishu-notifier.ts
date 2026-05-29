@@ -25,7 +25,14 @@ type TenantAccessTokenData = {
 };
 
 type SendMessageData = {
+  chat_id?: string;
   message_id?: string;
+};
+
+export type FeishuUserNotificationMessage = {
+  openId: string;
+  chatId: string | null;
+  messageId: string | null;
 };
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
@@ -244,10 +251,10 @@ export async function notifyHermesTaskResultToFeishuUser(
   const openIds = Array.isArray(openId) ? openId : openId ? [openId] : [];
 
   if (openIds.length === 0) {
-    return;
+    return [];
   }
 
-  await notifyHermesTaskResultToFeishuUsers(openIds, input);
+  return notifyHermesTaskResultToFeishuUsers(openIds, input);
 }
 
 export async function notifyHermesTaskResultToFeishuUsers(
@@ -262,17 +269,18 @@ export async function notifyHermesTaskResultToFeishuUsers(
     recipientOpenIds.length === 0 ||
     !["succeeded", "failed", "canceled"].includes(input.status)
   ) {
-    return;
+    return [];
   }
 
   const tenantAccessToken = await getTenantAccessToken();
 
   const text = buildHermesTaskResultText(input);
   const failures: string[] = [];
+  const sentMessages: FeishuUserNotificationMessage[] = [];
 
   for (const openId of recipientOpenIds) {
     try {
-      await postFeishu<SendMessageData>(
+      const sentMessage = await postFeishu<SendMessageData>(
         "/im/v1/messages?receive_id_type=open_id",
         {
           receive_id: openId,
@@ -283,6 +291,11 @@ export async function notifyHermesTaskResultToFeishuUsers(
           Authorization: `Bearer ${tenantAccessToken}`,
         },
       );
+      sentMessages.push({
+        openId,
+        chatId: sentMessage.chat_id ?? null,
+        messageId: sentMessage.message_id ?? null,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
       failures.push(`${openId}: ${enhanceFeishuMessageError(message)}`);
@@ -292,4 +305,6 @@ export async function notifyHermesTaskResultToFeishuUsers(
   if (failures.length > 0) {
     throw new Error(`飞书个人通知发送失败：${failures.join("；")}`);
   }
+
+  return sentMessages;
 }

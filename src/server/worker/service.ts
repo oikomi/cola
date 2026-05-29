@@ -24,6 +24,7 @@ import {
 import {
   notifyHermesTaskResultToFeishu,
   notifyHermesTaskResultToFeishuUser,
+  type FeishuUserNotificationMessage,
 } from "@/server/office/feishu-notifier";
 import { readHermesGitLabRepository } from "@/server/office/hermes-gitlab";
 import { readExecutionResult } from "@/server/office/execution-result";
@@ -553,6 +554,7 @@ export async function reportRunnerSession(
     const isHermesRunner =
       resolveDockerRunnerEngine(deviceMetadata.engine) === "hermes-agent";
     const notificationWarnings: string[] = [];
+    let feishuUserMessages: FeishuUserNotificationMessage[] = [];
     let recipientSummary = "未触发个人通知";
 
     if (isFinished && isHermesRunner) {
@@ -595,7 +597,7 @@ export async function reportRunnerSession(
       }
 
       try {
-        await notifyHermesTaskResultToFeishuUser(
+        feishuUserMessages = await notifyHermesTaskResultToFeishuUser(
           targetOpenIds,
           notificationInput,
         );
@@ -622,6 +624,14 @@ export async function reportRunnerSession(
         notificationWarnings.length > 0
           ? `任务「${task.title}」当前会话状态为 ${input.status}，${recipientSummary}，但${notificationWarnings.join("；")}`
           : `任务「${task.title}」当前会话状态为 ${input.status}，${recipientSummary}。`,
+      payload:
+        feishuUserMessages.length > 0
+          ? {
+              feishu: {
+                notificationMessages: feishuUserMessages,
+              },
+            }
+          : undefined,
       occurredAt: now,
     });
 

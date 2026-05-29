@@ -16,6 +16,7 @@
     "db:setup:office": "npm run db:migrate && npm run db:seed:office",
     "db:studio": "drizzle-kit studio",
     "dev": "next dev --turbo",
+    "feishu:hermes": "node --env-file=.env scripts/feishu-hermes-conversation-worker.mjs",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "lint": "next lint",
@@ -27,6 +28,7 @@
   "dependencies": {
     "@base-ui/react": "^1.4.0",
     "@kubernetes/client-node": "^1.4.0",
+    "@larksuiteoapi/node-sdk": "^1.66.0",
     "@pixi/react": "^8.0.5",
     "@t3-oss/env-nextjs": "^0.12.0",
     "@tanstack/react-query": "^5.69.0",

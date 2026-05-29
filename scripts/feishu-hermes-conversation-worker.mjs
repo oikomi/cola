@@ -1,0 +1,433 @@
+import * as lark from "@larksuiteoapi/node-sdk";
+import postgres from "postgres";
+
+const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
+const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
+const DEFAULT_MODEL = "hermes-agent";
+const MAX_HISTORY_MESSAGES = 16;
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required.`);
+  return value;
+}
+
+function optionalEnv(name) {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
+function compactText(value, maxLength) {
+  if (!value) return "";
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseMessageText(content) {
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed?.text === "string") return parsed.text.trim();
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+function parseMetadata(metadata) {
+  const record = isPlainRecord(metadata) ? metadata : {};
+  return {
+    agentId: typeof record.agentId === "string" ? record.agentId : null,
+    agentName: typeof record.agentName === "string" ? record.agentName : null,
+    engine: typeof record.engine === "string" ? record.engine : null,
+    hermesApiServerUrl:
+      typeof record.hermesApiServerUrl === "string"
+        ? record.hermesApiServerUrl
+        : null,
+    hermesApiServerKey:
+      typeof record.hermesApiServerKey === "string"
+        ? record.hermesApiServerKey
+        : null,
+  };
+}
+
+function extractNotificationMessages(payload) {
+  if (!isPlainRecord(payload)) return [];
+  const feishu = isPlainRecord(payload.feishu) ? payload.feishu : null;
+  const messages = Array.isArray(feishu?.notificationMessages)
+    ? feishu.notificationMessages
+    : [];
+
+  return messages
+    .filter((message) => isPlainRecord(message))
+    .map((message) => ({
+      openId: typeof message.openId === "string" ? message.openId : null,
+      chatId: typeof message.chatId === "string" ? message.chatId : null,
+      messageId:
+        typeof message.messageId === "string" ? message.messageId : null,
+    }));
+}
+
+function extractAssistantContent(payload) {
+  if (!isPlainRecord(payload)) return null;
+  const choices = Array.isArray(payload.choices) ? payload.choices : [];
+  for (const choice of choices) {
+    const message = isPlainRecord(choice) ? choice.message : null;
+    if (!isPlainRecord(message)) continue;
+    if (typeof message.content === "string" && message.content.trim()) {
+      return message.content.trim();
+    }
+  }
+  return null;
+}
+
+async function postFeishu(path, body, tenantAccessToken) {
+  const response = await fetch(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tenantAccessToken}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(
+      payload.msg ?? `Feishu request failed: HTTP ${response.status}`,
+    );
+  }
+
+  return payload.data ?? payload;
+}
+
+async function getTenantAccessToken(appId, appSecret) {
+  const response = await fetch(
+    `${FEISHU_OPEN_API_BASE_URL}/auth/v3/tenant_access_token/internal`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({
+        app_id: appId,
+        app_secret: appSecret,
+      }),
+    },
+  );
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(
+      payload.msg ??
+        `Feishu tenant_access_token failed: HTTP ${response.status}`,
+    );
+  }
+
+  if (!payload.tenant_access_token) {
+    throw new Error("Feishu did not return tenant_access_token.");
+  }
+
+  return payload.tenant_access_token;
+}
+
+async function sendFeishuText(client, chatId, text) {
+  await client.im.v1.message.create({
+    params: { receive_id_type: "chat_id" },
+    data: {
+      receive_id: chatId,
+      msg_type: "text",
+      content: JSON.stringify({ text }),
+    },
+  });
+}
+
+async function markFeishuMessageRead(appId, appSecret, messageId) {
+  const tenantAccessToken = await getTenantAccessToken(appId, appSecret);
+  await postFeishu(
+    `/im/v1/messages/${encodeURIComponent(messageId)}/read_users`,
+    {},
+    tenantAccessToken,
+  ).catch(() => null);
+}
+
+async function findConversationContext(sql, message) {
+  const senderOpenId = message.sender?.sender_id?.open_id ?? null;
+  const chatId = message.message.chat_id;
+  const replyIds = new Set(
+    [message.message.parent_id, message.message.root_id].filter(Boolean),
+  );
+
+  const recentEvents = await sql`
+    select
+      e.id as event_id,
+      e."entityId" as session_id,
+      e.payload,
+      e."occurredAt" as occurred_at,
+      s."taskId" as task_id,
+      s."agentId" as agent_id,
+      s."deviceId" as device_id,
+      t.title as task_title,
+      t.summary as task_summary,
+      d.name as device_name,
+      d.metadata as device_metadata
+    from cola_event e
+    left join cola_execution_session s on s.id::text = e."entityId"
+    left join cola_task t on t.id = s."taskId"
+    left join cola_device d on d.id = s."deviceId"
+    where e."eventType" = 'execution_session.reported'
+      and e.payload is not null
+    order by e."occurredAt" desc
+    limit 80
+  `;
+
+  for (const event of recentEvents) {
+    const notificationMessages = extractNotificationMessages(event.payload);
+    const matchedMessage = notificationMessages.find((notification) => {
+      if (notification.messageId && replyIds.has(notification.messageId)) {
+        return true;
+      }
+
+      return (
+        notification.chatId === chatId &&
+        (!senderOpenId || notification.openId === senderOpenId)
+      );
+    });
+
+    if (matchedMessage) {
+      const metadata = parseMetadata(event.device_metadata);
+      if (metadata.engine !== "hermes-agent") return null;
+      if (!metadata.hermesApiServerUrl) return null;
+
+      return {
+        event,
+        metadata,
+        matchedMessage,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function loadConversationMessages(sql, context, userText) {
+  const rows = await sql`
+    select payload
+    from cola_event
+    where "eventType" = 'feishu.hermes_conversation.message'
+      and "entityType" = 'task'
+      and "entityId" = ${context.event.task_id}
+    order by "occurredAt" desc
+    limit ${MAX_HISTORY_MESSAGES}
+  `;
+  const history = rows
+    .reverse()
+    .map((row) => {
+      const payload = isPlainRecord(row.payload) ? row.payload : {};
+      const role = payload.role === "assistant" ? "assistant" : "user";
+      const content =
+        typeof payload.content === "string" ? payload.content.trim() : "";
+      return content ? { role, content } : null;
+    })
+    .filter(Boolean);
+
+  return [
+    {
+      role: "system",
+      content: [
+        "你是 Cola Virtual Office 里的 Hermes Agent。",
+        "用户正在基于一个已完成任务继续追问，请结合任务上下文持续对话。",
+        "回答要直接、可执行；如果需要继续操作或查看文件，说明你能做什么和下一步。",
+      ].join("\n"),
+    },
+    {
+      role: "assistant",
+      content: [
+        `原任务：${context.event.task_title ?? "未命名任务"}`,
+        `任务说明：${compactText(context.event.task_summary, 800) || "无"}`,
+        `执行设备：${context.event.device_name ?? "Hermes Runner"}`,
+        "我已经把任务结果发给你。你可以继续追问，我会基于这个任务继续处理。",
+      ].join("\n"),
+    },
+    ...history,
+    {
+      role: "user",
+      content: userText,
+    },
+  ];
+}
+
+async function callHermes(context, messages) {
+  const apiUrl = `${context.metadata.hermesApiServerUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${
+        context.metadata.hermesApiServerKey ?? DEFAULT_HERMES_API_SERVER_KEY
+      }`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: optionalEnv("COLA_FEISHU_HERMES_MODEL") ?? DEFAULT_MODEL,
+      messages,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error?.message === "string"
+        ? payload.error.message
+        : `Hermes API failed: HTTP ${response.status}`,
+    );
+  }
+
+  return extractAssistantContent(payload) ?? "Hermes 没有返回可读文本。";
+}
+
+async function recordConversationMessage(sql, context, input) {
+  await sql`
+    insert into cola_event (
+      "eventType",
+      "entityType",
+      "entityId",
+      severity,
+      title,
+      description,
+      payload,
+      "occurredAt",
+      "createdAt"
+    )
+    values (
+      'feishu.hermes_conversation.message',
+      'task',
+      ${context.event.task_id},
+      'info',
+      ${input.title},
+      ${input.description},
+      ${sql.json(input.payload)},
+      now(),
+      now()
+    )
+  `;
+}
+
+async function handleMessage(sql, client, appConfig, data) {
+  if (data.sender?.sender_type === "app") return;
+  if (data.message.message_type !== "text") return;
+
+  const userText = parseMessageText(data.message.content);
+  if (!userText) return;
+
+  const context = await findConversationContext(sql, data);
+  if (!context) {
+    await sendFeishuText(
+      client,
+      data.message.chat_id,
+      "我收到了你的消息，但没有找到可继续处理的 Hermes 任务上下文。请从任务完成通知那条消息继续回复。",
+    );
+    return;
+  }
+
+  await recordConversationMessage(sql, context, {
+    title: "飞书用户继续追问 Hermes 任务",
+    description: compactText(userText, 240),
+    payload: {
+      role: "user",
+      content: userText,
+      feishu: {
+        chatId: data.message.chat_id,
+        messageId: data.message.message_id,
+        parentId: data.message.parent_id ?? null,
+        rootId: data.message.root_id ?? null,
+        senderOpenId: data.sender?.sender_id?.open_id ?? null,
+      },
+    },
+  });
+
+  await sendFeishuText(
+    client,
+    data.message.chat_id,
+    "Hermes 收到，正在继续处理。",
+  );
+  const messages = await loadConversationMessages(sql, context, userText);
+  const reply = await callHermes(context, messages);
+  await sendFeishuText(client, data.message.chat_id, reply);
+
+  await recordConversationMessage(sql, context, {
+    title: "Hermes 已回复飞书继续对话",
+    description: compactText(reply, 240),
+    payload: {
+      role: "assistant",
+      content: reply,
+      feishu: {
+        chatId: data.message.chat_id,
+      },
+    },
+  });
+
+  if (data.message.message_id) {
+    await markFeishuMessageRead(
+      appConfig.appId,
+      appConfig.appSecret,
+      data.message.message_id,
+    );
+  }
+}
+
+async function reportHandlingError(client, data, error) {
+  console.error(
+    "[feishu-hermes] message handling failed:",
+    error instanceof Error ? error.message : error,
+  );
+  const chatId = data?.message?.chat_id;
+  if (chatId) {
+    await sendFeishuText(
+      client,
+      chatId,
+      `Hermes 继续处理失败：${error instanceof Error ? error.message : "未知错误"}`,
+    ).catch(() => null);
+  }
+}
+
+async function main() {
+  const appConfig = {
+    appId: requiredEnv("FEISHU_APP_ID"),
+    appSecret: requiredEnv("FEISHU_APP_SECRET"),
+  };
+  const databaseUrl = requiredEnv("DATABASE_URL");
+  const sql = postgres(databaseUrl, { max: 4 });
+  const client = new lark.Client(appConfig);
+  const dispatcher = new lark.EventDispatcher({}).register({
+    "im.message.receive_v1": (data) => {
+      void handleMessage(sql, client, appConfig, data).catch((error) =>
+        reportHandlingError(client, data, error),
+      );
+    },
+  });
+
+  const wsClient = new lark.WSClient({
+    ...appConfig,
+    loggerLevel: lark.LoggerLevel.info,
+  });
+
+  await wsClient.start({ eventDispatcher: dispatcher });
+  console.log("[feishu-hermes] worker started with Feishu long connection.");
+
+  const shutdown = async () => {
+    console.log("[feishu-hermes] shutting down.");
+    wsClient.close();
+    await sql.end({ timeout: 5 });
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => void shutdown());
+  process.once("SIGTERM", () => void shutdown());
+}
+
+await main();
