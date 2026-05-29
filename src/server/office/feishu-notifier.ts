@@ -56,6 +56,10 @@ function resolveFeishuAppCredentials() {
   return { appId, appSecret };
 }
 
+function uniqueOpenIds(openIds: string[]) {
+  return Array.from(new Set(openIds));
+}
+
 function signFeishuWebhook(timestamp: string, secret: string) {
   return createHmac("sha256", `${timestamp}\n${secret}`)
     .update("")
@@ -183,27 +187,59 @@ export async function notifyHermesTaskResultToFeishu(
 }
 
 export async function notifyHermesTaskResultToFeishuUser(
-  openId: string | null | undefined,
+  openId: string | string[] | null | undefined,
   input: HermesTaskResultNotificationInput,
 ) {
-  if (!openId || !["succeeded", "failed", "canceled"].includes(input.status)) {
+  const openIds = Array.isArray(openId) ? openId : openId ? [openId] : [];
+
+  if (openIds.length === 0) {
+    return;
+  }
+
+  await notifyHermesTaskResultToFeishuUsers(openIds, input);
+}
+
+export async function notifyHermesTaskResultToFeishuUsers(
+  openIds: string[],
+  input: HermesTaskResultNotificationInput,
+) {
+  const recipientOpenIds = uniqueOpenIds(
+    openIds.map((openId) => openId.trim()),
+  ).filter(Boolean);
+
+  if (
+    recipientOpenIds.length === 0 ||
+    !["succeeded", "failed", "canceled"].includes(input.status)
+  ) {
     return;
   }
 
   const tenantAccessToken = await getTenantAccessToken();
   if (!tenantAccessToken) return;
 
-  await postFeishu<SendMessageData>(
-    "/im/v1/messages?receive_id_type=open_id",
-    {
-      receive_id: openId,
-      msg_type: "text",
-      content: JSON.stringify({
-        text: buildHermesTaskResultText(input),
-      }),
-    },
-    {
-      Authorization: `Bearer ${tenantAccessToken}`,
-    },
-  );
+  const text = buildHermesTaskResultText(input);
+  const failures: string[] = [];
+
+  for (const openId of recipientOpenIds) {
+    try {
+      await postFeishu<SendMessageData>(
+        "/im/v1/messages?receive_id_type=open_id",
+        {
+          receive_id: openId,
+          msg_type: "text",
+          content: JSON.stringify({ text }),
+        },
+        {
+          Authorization: `Bearer ${tenantAccessToken}`,
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      failures.push(`${openId}: ${message}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`飞书个人通知发送失败：${failures.join("；")}`);
+  }
 }

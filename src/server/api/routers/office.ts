@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { desc, eq } from "drizzle-orm";
 
 import {
   createTRPCRouter,
   operatorProcedure,
   viewerProcedure,
 } from "@/server/api/trpc";
+import { users } from "@/server/db/schema";
 import {
   agentRoleValues,
   approvalTypeValues,
@@ -52,6 +54,7 @@ const createTaskInput = z.object({
   riskLevel: z.enum(riskLevelValues),
   gitlabRepository: z.string().trim().max(512).optional(),
   gitlabRef: z.string().trim().max(128).optional(),
+  notifyUserId: z.string().uuid().optional(),
 });
 
 const updateTaskStatusInput = z.object({
@@ -73,6 +76,20 @@ const resolveApprovalInput = z.object({
 
 export const officeRouter = createTRPCRouter({
   getSnapshot: viewerProcedure.query(({ ctx }) => getOfficeSnapshot(ctx.db)),
+
+  listNotificationUsers: viewerProcedure.query(async ({ ctx }) => {
+    return ctx.db
+      .select({
+        id: users.id,
+        feishuOpenId: users.feishuOpenId,
+        name: users.name,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(users)
+      .where(eq(users.status, "active"))
+      .orderBy(desc(users.lastLoginAt), desc(users.createdAt));
+  }),
 
   getAgentById: viewerProcedure
     .input(z.object({ agentId: z.string().min(1) }))

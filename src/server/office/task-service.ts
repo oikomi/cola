@@ -8,6 +8,7 @@ import {
   devices,
   events,
   tasks,
+  users,
   zoneSettings,
 } from "@/server/db/schema";
 import {
@@ -44,6 +45,7 @@ export type CreateOfficeTaskInput = {
   riskLevel: RiskLevel;
   gitlabRepository?: string;
   gitlabRef?: string;
+  notifyUserId?: string;
   ownerUserId: string;
 };
 
@@ -91,17 +93,31 @@ function taskStatusLabel(status: TaskStatus) {
   return taskStatusLabels[status];
 }
 
-function taskInputPayload(gitlabRepository: HermesGitLabRepository | null) {
-  return gitlabRepository
-    ? {
-        gitlab: {
-          repository: gitlabRepository.input,
-          projectPath: gitlabRepository.projectPath,
-          repositoryUrl: gitlabRepository.repositoryUrl,
-          ref: gitlabRepository.ref,
-        },
-      }
-    : undefined;
+function taskInputPayload(
+  gitlabRepository: HermesGitLabRepository | null,
+  notifyUserId: string | null,
+) {
+  if (!gitlabRepository && !notifyUserId) return undefined;
+
+  return {
+    ...(gitlabRepository
+      ? {
+          gitlab: {
+            repository: gitlabRepository.input,
+            projectPath: gitlabRepository.projectPath,
+            repositoryUrl: gitlabRepository.repositoryUrl,
+            ref: gitlabRepository.ref,
+          },
+        }
+      : {}),
+    ...(notifyUserId
+      ? {
+          notification: {
+            userIds: [notifyUserId],
+          },
+        }
+      : {}),
+  };
 }
 
 function linkedAgentId(metadata: unknown) {
@@ -224,6 +240,20 @@ export async function createOfficeTask(
       });
     }
 
+    const notifyUserId = input.notifyUserId ?? input.ownerUserId;
+    const [notifyUser] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, notifyUserId), eq(users.status, "active")))
+      .limit(1);
+
+    if (!notifyUser) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "未找到飞书通知人。",
+      });
+    }
+
     const taskStatus = owner.status === "idle" ? "assigned" : "queued";
     const [createdTask] = await tx
       .insert(tasks)
@@ -236,7 +266,7 @@ export async function createOfficeTask(
         riskLevel: input.riskLevel,
         zoneId: owner.zoneId,
         currentAgentId: owner.id,
-        inputPayload: taskInputPayload(gitlabRepository),
+        inputPayload: taskInputPayload(gitlabRepository, notifyUser.id),
         status: taskStatus,
         createdAt: now,
       })

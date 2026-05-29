@@ -1898,6 +1898,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
   });
   const [taskDraft, setTaskDraft] = useState<{
     ownerAgentId: string;
+    notifyUserId: string;
     title: string;
     summary: string;
     taskType: TaskType;
@@ -1909,6 +1910,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     ownerAgentId:
       snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
       "",
+    notifyUserId: "",
     title: "",
     summary: "",
     taskType: "feature",
@@ -1939,10 +1941,17 @@ export function OfficeBetaShell({ snapshot }: Props) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
   });
+  const notificationUsersQuery = api.office.listNotificationUsers.useQuery(
+    undefined,
+    {
+      enabled: isCreateTaskOpen,
+      refetchOnWindowFocus: false,
+    },
+  );
   const getNativeDashboardUrl = api.office.getNativeDashboardUrl.useMutation();
   const createTask = api.office.createTask.useMutation({
     onSuccess: () => {
-      notifySuccess("任务已下发给 Hermes，执行结果会在完成后推送到飞书群。");
+      notifySuccess("任务已下发给 Hermes，执行结果会在完成后推送到飞书。");
       setIsCreateTaskOpen(false);
       setTaskDraft((current) => ({
         ...current,
@@ -2008,6 +2017,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     },
   });
   const liveSnapshot = snapshotQuery.data ?? snapshot;
+  const notificationUsers = notificationUsersQuery.data ?? [];
 
   liveSnapshotRef.current = liveSnapshot;
   selectedAgentIdRef.current = selectedAgentId;
@@ -2333,6 +2343,14 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const selectedTaskTargetAgent =
     taskTargetAgents.find((agent) => agent.id === taskDraft.ownerAgentId) ??
     null;
+  const selectedNotificationUser =
+    notificationUsers.find((user) => user.id === taskDraft.notifyUserId) ??
+    null;
+  const notificationUserLabel = selectedNotificationUser
+    ? (selectedNotificationUser.name ??
+      selectedNotificationUser.email ??
+      selectedNotificationUser.feishuOpenId)
+    : "选择飞书通知人";
   const selectedTaskCanCancel = Boolean(
     selectedTask &&
     !["completed", "failed", "canceled"].includes(selectedTask.status),
@@ -2387,6 +2405,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
       ...taskDraft,
       title: trimmedTaskTitle,
       summary: trimmedTaskSummary,
+      notifyUserId: taskDraft.notifyUserId || undefined,
       gitlabRepository: trimmedGitLabRepository || undefined,
       gitlabRef: trimmedGitLabRef || undefined,
     });
@@ -3234,6 +3253,49 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </Select>
                 </FormField>
 
+                <FormField label="飞书通知人">
+                  <Select
+                    value={taskDraft.notifyUserId}
+                    onValueChange={(value) => {
+                      setTaskDraft((current) => ({
+                        ...current,
+                        notifyUserId: value ?? "",
+                      }));
+                    }}
+                    disabled={
+                      notificationUsersQuery.isLoading ||
+                      notificationUsers.length === 0
+                    }
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="选择飞书通知人">
+                        {() =>
+                          notificationUsersQuery.isLoading
+                            ? "正在读取用户"
+                            : notificationUserLabel
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {notificationUsers.map((user) => {
+                          const label =
+                            user.name ?? user.email ?? user.feishuOpenId;
+
+                          return (
+                            <SelectItem key={user.id} value={user.id}>
+                              {label}
+                              {user.email && user.name
+                                ? ` · ${user.email}`
+                                : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+
                 <FormField label="任务标题">
                   <Input
                     className="bg-white"
@@ -3387,7 +3449,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       : trimmedGitLabRepository.length > 0 &&
                           !liveSnapshot.integrations?.hermesGitLab.configured
                         ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
-                        : "Hermes 完成或失败后，控制面会把人物、任务、状态和执行摘要发送到配置的飞书群。"}
+                        : selectedNotificationUser
+                          ? `Hermes 完成或失败后，控制面会把执行摘要发送给 ${notificationUserLabel}。`
+                          : "Hermes 完成或失败后，控制面会把执行摘要发送给任务创建人；也可以在上方选择指定通知人。"}
                 </div>
               </div>
 

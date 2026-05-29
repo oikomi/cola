@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import type { db } from "@/server/db";
 import {
@@ -36,6 +36,30 @@ import type {
 } from "@/server/worker/schemas";
 
 type Database = typeof db;
+
+function readNotificationUserIds(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+
+  const notification = "notification" in payload ? payload.notification : null;
+  if (
+    !notification ||
+    typeof notification !== "object" ||
+    Array.isArray(notification)
+  ) {
+    return [];
+  }
+
+  const userIds = "userIds" in notification ? notification.userIds : null;
+  if (!Array.isArray(userIds)) return [];
+
+  return Array.from(
+    new Set(
+      userIds.filter((userId): userId is string => typeof userId === "string"),
+    ),
+  );
+}
 
 function linkedAgentMetadata(metadata: unknown) {
   const { agentId, agentName } = parseRunnerMetadata(metadata);
@@ -509,13 +533,22 @@ export async function reportRunnerSession(
           .where(eq(agents.id, input.agentId))
           .limit(1)
       : [null];
-    const [taskOwner] = task.ownerUserId
-      ? await tx
-          .select({ feishuOpenId: users.feishuOpenId })
-          .from(users)
-          .where(eq(users.id, task.ownerUserId))
-          .limit(1)
-      : [null];
+    const notificationUserIds = readNotificationUserIds(task.inputPayload);
+    const notificationUsers =
+      notificationUserIds.length > 0
+        ? await tx
+            .select({ feishuOpenId: users.feishuOpenId })
+            .from(users)
+            .where(inArray(users.id, notificationUserIds))
+        : [];
+    const [taskOwner] =
+      notificationUsers.length === 0 && task.ownerUserId
+        ? await tx
+            .select({ feishuOpenId: users.feishuOpenId })
+            .from(users)
+            .where(eq(users.id, task.ownerUserId))
+            .limit(1)
+        : [null];
     const deviceMetadata = parseRunnerMetadata(device.metadata);
     const isHermesRunner =
       resolveDockerRunnerEngine(deviceMetadata.engine) === "hermes-agent";
@@ -546,7 +579,9 @@ export async function reportRunnerSession(
 
       try {
         await notifyHermesTaskResultToFeishuUser(
-          taskOwner?.feishuOpenId,
+          notificationUsers.length > 0
+            ? notificationUsers.map((user) => user.feishuOpenId)
+            : taskOwner?.feishuOpenId,
           notificationInput,
         );
       } catch (error) {
