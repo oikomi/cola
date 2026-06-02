@@ -2786,19 +2786,21 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </div>
 
             {selectedAgent ? (
-              <div className="absolute bottom-4 left-4 w-[min(calc(100%_-_2rem),360px)] rounded-[var(--radius-shell)] border border-white/76 bg-[#fffaf4]/92 p-4 shadow-[0_24px_60px_rgba(35,34,28,0.18)] backdrop-blur-md md:p-5">
+              <div className="absolute bottom-4 left-4 w-[min(calc(100%_-_2rem),390px)] rounded-[var(--radius-shell)] border border-white/76 bg-[#fffaf4]/92 p-4 shadow-[0_24px_60px_rgba(35,34,28,0.18)] backdrop-blur-md md:w-[min(calc(100%_-_2rem),420px)] md:p-5">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-2xl font-semibold text-[#24170d]">
+                  <div className="min-w-0">
+                    <p className="truncate text-2xl font-semibold text-[#24170d]">
                       {selectedAgent.name}
                     </p>
-                    <div className="mt-1 flex items-center gap-2 text-sm text-[#6d5544]">
+                    <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-[#6d5544]">
                       {SelectedRoleIcon ? (
                         <SelectedRoleIcon className="size-4" />
                       ) : null}
-                      <span>{roleLabels[selectedAgent.role]}</span>
+                      <span className="truncate">
+                        {roleLabels[selectedAgent.role]}
+                      </span>
                       <span className="text-[#b99b7c]">/</span>
-                      <span>
+                      <span className="truncate">
                         {
                           k8sWorkspaceEngineLabels[
                             selectedAgent.engine ?? "openclaw"
@@ -2819,11 +2821,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       当前任务
                     </p>
-                    <p className="mt-1 font-medium text-[#24170d]">
+                    <p className="mt-1 line-clamp-2 font-medium text-[#24170d] [overflow-wrap:anywhere]">
                       {selectedTask?.title ?? "空闲"}
                     </p>
                     {selectedTask ? (
@@ -2832,7 +2834,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       </p>
                     ) : null}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       设备状态
                     </p>
@@ -2854,11 +2856,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       <p className="mt-1 font-medium text-[#24170d]">未绑定</p>
                     )}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       引擎
                     </p>
-                    <p className="mt-1 font-medium text-[#24170d]">
+                    <p className="mt-1 truncate font-medium text-[#24170d]">
                       {
                         k8sWorkspaceEngineLabels[
                           selectedAgent.engine ?? "openclaw"
@@ -2866,7 +2868,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       }
                     </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       负载
                     </p>
@@ -2876,7 +2878,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </div>
                 </div>
 
-                <p className="mt-4 text-sm leading-6 text-[#6d5544]">
+                <p className="mt-4 line-clamp-3 text-sm leading-6 text-[#6d5544] [overflow-wrap:anywhere]">
                   {selectedAgent.focus}
                 </p>
                 <ResourceOwnerBadge

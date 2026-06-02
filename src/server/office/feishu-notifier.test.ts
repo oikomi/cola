@@ -84,12 +84,6 @@ function recordBody<T>(body: unknown) {
   return body as T;
 }
 
-function messageContent(body: unknown) {
-  return JSON.parse(recordBody<{ content: string }>(body).content) as {
-    text: string;
-  };
-}
-
 void test("Hermes group notification sends an interactive card", async () => {
   const requests: Array<{ url: string; body: unknown }> = [];
   const originalFetch = globalThis.fetch;
@@ -248,7 +242,7 @@ void test("Hermes user notification sends interactive card to open_id", async ()
   assert.match(card.elements[0]?.text?.content ?? "", /任务.*整理发布摘要/);
 });
 
-void test("Hermes user notification sends long result in follow-up chunks", async () => {
+void test("Hermes user notification keeps long result inside a compact card summary", async () => {
   const requests: Array<{
     url: string;
     body: unknown;
@@ -291,7 +285,7 @@ void test("Hermes user notification sends long result in follow-up chunks", asyn
     request.url.includes("/im/v1/messages"),
   );
 
-  assert.equal(messageRequests.length, 3);
+  assert.equal(messageRequests.length, 1);
 
   const firstCard = JSON.parse(
     recordBody<{ content: string }>(messageRequests[0]?.body).content,
@@ -299,16 +293,8 @@ void test("Hermes user notification sends long result in follow-up chunks", asyn
   assert.match(firstCard.elements[2]?.text?.content ?? "", /结果摘要/);
   assert.match(
     firstCard.elements[2]?.text?.content ?? "",
-    /完整结果.*2 条后续消息/,
+    /完整结果.*请查看下方产物或日志/,
   );
-
-  const secondContent = messageContent(messageRequests[1]?.body);
-  assert.match(secondContent.text, /Hermes 完整结果 1\/2/);
-  assert.match(secondContent.text, /第一部分：周报总体判断。/);
-
-  const thirdContent = messageContent(messageRequests[2]?.body);
-  assert.match(thirdContent.text, /Hermes 完整结果 2\/2/);
-  assert.match(thirdContent.text, /第二部分：风险和建议。/);
 });
 
 void test("Hermes user notification explains missing Feishu bot ability", async () => {

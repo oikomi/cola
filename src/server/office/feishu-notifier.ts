@@ -37,8 +37,7 @@ export type FeishuUserNotificationMessage = {
 };
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
-const RESULT_PREVIEW_MAX_LENGTH = 900;
-const RESULT_CHUNK_MAX_LENGTH = 3000;
+const RESULT_PREVIEW_MAX_LENGTH = 560;
 
 type FeishuCardText = {
   tag: "plain_text" | "lark_md";
@@ -178,18 +177,9 @@ function normalizeResultText(value: string | null | undefined) {
   return value.replace(/\r\n?/g, "\n").trim();
 }
 
-function splitTextChunks(value: string, maxLength: number) {
-  const chunks: string[] = [];
-  for (let index = 0; index < value.length; index += maxLength) {
-    chunks.push(value.slice(index, index + maxLength));
-  }
-  return chunks;
-}
-
-function resultChunks(input: HermesTaskResultNotificationInput) {
+function hasLongResult(input: HermesTaskResultNotificationInput) {
   const outputText = normalizeResultText(input.outputText);
-  if (outputText.length <= RESULT_PREVIEW_MAX_LENGTH) return [];
-  return splitTextChunks(outputText, RESULT_CHUNK_MAX_LENGTH);
+  return outputText.length > RESULT_PREVIEW_MAX_LENGTH;
 }
 
 function cardTemplate(status: SessionStatus): FeishuCard["header"]["template"] {
@@ -209,17 +199,6 @@ function cardTemplate(status: SessionStatus): FeishuCard["header"]["template"] {
   }
 }
 
-function buildHermesResultChunkTexts(input: HermesTaskResultNotificationInput) {
-  const chunks = resultChunks(input);
-  return chunks.map((chunk, index) =>
-    [
-      `Hermes 完整结果 ${index + 1}/${chunks.length}`,
-      `任务：${input.taskTitle}`,
-      chunk,
-    ].join("\n"),
-  );
-}
-
 function cardText(content: string, tag: FeishuCardText["tag"] = "lark_md") {
   return { tag, content } satisfies FeishuCardText;
 }
@@ -228,7 +207,7 @@ function buildHermesTaskResultCard(
   input: HermesTaskResultNotificationInput,
   mentionOpenIds: string[] = [],
 ): FeishuCard {
-  const chunks = resultChunks(input);
+  const longResult = hasLongResult(input);
   const mentionText = buildFeishuAtText(mentionOpenIds);
   const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
   const actions: FeishuCardButton[] = documentReferences.slice(0, 1).map(
@@ -240,13 +219,12 @@ function buildHermesTaskResultCard(
     }),
   );
   const summaryText = compactText(stripUrls(input.taskSummary), 260);
-  const resultText =
-    chunks.length > 0
-      ? [
-          `**结果摘要**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`,
-          `**完整结果**：已拆分为 ${chunks.length} 条后续消息。`,
-        ].join("\n")
-      : `**结果**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`;
+  const resultText = longResult
+    ? [
+        `**结果摘要**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`,
+        "**完整结果**：内容较长，飞书里只展示摘要；请查看下方产物或日志。",
+      ].join("\n")
+    : `**结果**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`;
   const metaLines = [
     `**人物**：${input.agentName ?? "未绑定人物"}`,
     `**设备**：${input.deviceName}`,
@@ -351,24 +329,6 @@ async function postFeishu<T>(
   return (payload.data ?? payload) as T;
 }
 
-async function sendFeishuUserText(
-  openId: string,
-  text: string,
-  tenantAccessToken: string,
-) {
-  return postFeishu<SendMessageData>(
-    "/im/v1/messages?receive_id_type=open_id",
-    {
-      receive_id: openId,
-      msg_type: "text",
-      content: JSON.stringify({ text }),
-    },
-    {
-      Authorization: `Bearer ${tenantAccessToken}`,
-    },
-  );
-}
-
 async function sendFeishuUserCard(
   openId: string,
   card: FeishuCard,
@@ -441,30 +401,6 @@ export async function notifyHermesTaskResultToFeishu(
     throw new Error(`飞书群通知发送失败：HTTP ${response.status}`);
   }
 
-  for (const chunkText of buildHermesResultChunkTexts(input)) {
-    const chunkResponse = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...(secret
-          ? {
-              timestamp,
-              sign: signFeishuWebhook(timestamp, secret),
-            }
-          : {}),
-        msg_type: "text",
-        content: {
-          text: chunkText,
-        },
-      }),
-    });
-
-    if (!chunkResponse.ok) {
-      throw new Error(`飞书群完整结果发送失败：HTTP ${chunkResponse.status}`);
-    }
-  }
 }
 
 export async function notifyHermesTaskResultToFeishuUser(
@@ -498,7 +434,6 @@ export async function notifyHermesTaskResultToFeishuUsers(
   const tenantAccessToken = await getTenantAccessToken();
 
   const card = buildHermesTaskResultCard(input);
-  const chunkTexts = buildHermesResultChunkTexts(input);
   const failures: string[] = [];
   const sentMessages: FeishuUserNotificationMessage[] = [];
 
@@ -514,10 +449,6 @@ export async function notifyHermesTaskResultToFeishuUsers(
         chatId: sentMessage.chat_id ?? null,
         messageId: sentMessage.message_id ?? null,
       });
-
-      for (const chunkText of chunkTexts) {
-        await sendFeishuUserText(openId, chunkText, tenantAccessToken);
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
       failures.push(`${openId}: ${enhanceFeishuMessageError(message)}`);
