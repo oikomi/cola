@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 
-import type { SessionStatus } from "@/server/office/catalog";
+import type { SessionStatus } from "./catalog.ts";
+import { extractFeishuDocumentReferences } from "./feishu-docs.ts";
 
 type HermesTaskResultNotificationInput = {
   taskTitle: string;
@@ -36,6 +37,48 @@ export type FeishuUserNotificationMessage = {
 };
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
+const RESULT_PREVIEW_MAX_LENGTH = 900;
+const RESULT_CHUNK_MAX_LENGTH = 3000;
+
+type FeishuCardText = {
+  tag: "plain_text" | "lark_md";
+  content: string;
+};
+
+type FeishuCardButton = {
+  tag: "button";
+  text: FeishuCardText;
+  type: "default" | "primary" | "danger";
+  url: string;
+};
+
+type FeishuCardElement =
+  | {
+      tag: "div";
+      text: FeishuCardText;
+    }
+  | {
+      tag: "hr";
+    }
+  | {
+      tag: "note";
+      elements: FeishuCardText[];
+    }
+  | {
+      tag: "action";
+      actions: FeishuCardButton[];
+    };
+
+type FeishuCard = {
+  config: {
+    wide_screen_mode: boolean;
+  };
+  header: {
+    template: "green" | "red" | "grey" | "orange" | "blue";
+    title: FeishuCardText;
+  };
+  elements: FeishuCardElement[];
+};
 
 function trimEnv(value: string | undefined) {
   const trimmed = value?.trim();
@@ -125,19 +168,143 @@ function compactText(value: string | null | undefined, maxLength: number) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
-function buildHermesTaskResultText(input: HermesTaskResultNotificationInput) {
-  return [
-    `Hermes 任务${statusText(input.status)}`,
-    `人物：${input.agentName ?? "未绑定人物"}`,
-    `设备：${input.deviceName}`,
-    `任务：${input.taskTitle}`,
-    `说明：${compactText(input.taskSummary, 240)}`,
-    `结果：${compactText(input.outputText, 900)}`,
+function stripUrls(value: string | null | undefined) {
+  if (!value) return value;
+  return value.replace(/https?:\/\/[^\s<>"']+/g, "[飞书文档链接]");
+}
+
+function normalizeResultText(value: string | null | undefined) {
+  if (!value) return "";
+  return value.replace(/\r\n?/g, "\n").trim();
+}
+
+function splitTextChunks(value: string, maxLength: number) {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += maxLength) {
+    chunks.push(value.slice(index, index + maxLength));
+  }
+  return chunks;
+}
+
+function resultChunks(input: HermesTaskResultNotificationInput) {
+  const outputText = normalizeResultText(input.outputText);
+  if (outputText.length <= RESULT_PREVIEW_MAX_LENGTH) return [];
+  return splitTextChunks(outputText, RESULT_CHUNK_MAX_LENGTH);
+}
+
+function cardTemplate(status: SessionStatus): FeishuCard["header"]["template"] {
+  switch (status) {
+    case "succeeded":
+      return "green";
+    case "failed":
+      return "red";
+    case "canceled":
+      return "grey";
+    case "running":
+      return "blue";
+    case "starting":
+      return "orange";
+    default:
+      return "grey";
+  }
+}
+
+function buildHermesResultChunkTexts(input: HermesTaskResultNotificationInput) {
+  const chunks = resultChunks(input);
+  return chunks.map((chunk, index) =>
+    [
+      `Hermes 完整结果 ${index + 1}/${chunks.length}`,
+      `任务：${input.taskTitle}`,
+      chunk,
+    ].join("\n"),
+  );
+}
+
+function cardText(content: string, tag: FeishuCardText["tag"] = "lark_md") {
+  return { tag, content } satisfies FeishuCardText;
+}
+
+function buildHermesTaskResultCard(
+  input: HermesTaskResultNotificationInput,
+  mentionOpenIds: string[] = [],
+): FeishuCard {
+  const chunks = resultChunks(input);
+  const mentionText = buildFeishuAtText(mentionOpenIds);
+  const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
+  const actions: FeishuCardButton[] = documentReferences.slice(0, 1).map(
+    (document) => ({
+      tag: "button",
+      text: cardText("打开飞书文档", "plain_text"),
+      type: "primary",
+      url: document.url,
+    }),
+  );
+  const summaryText = compactText(stripUrls(input.taskSummary), 260);
+  const resultText =
+    chunks.length > 0
+      ? [
+          `**结果摘要**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`,
+          `**完整结果**：已拆分为 ${chunks.length} 条后续消息。`,
+        ].join("\n")
+      : `**结果**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`;
+  const metaLines = [
+    `**人物**：${input.agentName ?? "未绑定人物"}`,
+    `**设备**：${input.deviceName}`,
+    `**任务**：${input.taskTitle}`,
+    `**说明**：${summaryText}`,
+  ];
+  const pathLines = [
     input.artifactPath ? `产物：${input.artifactPath}` : null,
     input.logPath ? `日志：${input.logPath}` : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+  ].filter((line): line is string => Boolean(line));
+  const elements: FeishuCardElement[] = [
+    ...(mentionText
+      ? [
+          {
+            tag: "div" as const,
+            text: cardText(mentionText),
+          },
+        ]
+      : []),
+    {
+      tag: "div",
+      text: cardText(metaLines.join("\n")),
+    },
+    {
+      tag: "hr",
+    },
+    {
+      tag: "div",
+      text: cardText(resultText),
+    },
+    ...(actions.length > 0
+      ? [
+          {
+            tag: "action" as const,
+            actions,
+          },
+        ]
+      : []),
+    ...(pathLines.length > 0
+      ? [
+          {
+            tag: "note" as const,
+            elements: [cardText(pathLines.join("\n"))],
+          },
+        ]
+      : []),
+  ];
+
+  return {
+    config: {
+      wide_screen_mode: true,
+    },
+    header: {
+      template: cardTemplate(input.status),
+      title: cardText(`Hermes 任务${statusText(input.status)}`, "plain_text"),
+    },
+    elements,
+  };
 }
 
 function buildFeishuAtText(openIds: string[]) {
@@ -184,6 +351,42 @@ async function postFeishu<T>(
   return (payload.data ?? payload) as T;
 }
 
+async function sendFeishuUserText(
+  openId: string,
+  text: string,
+  tenantAccessToken: string,
+) {
+  return postFeishu<SendMessageData>(
+    "/im/v1/messages?receive_id_type=open_id",
+    {
+      receive_id: openId,
+      msg_type: "text",
+      content: JSON.stringify({ text }),
+    },
+    {
+      Authorization: `Bearer ${tenantAccessToken}`,
+    },
+  );
+}
+
+async function sendFeishuUserCard(
+  openId: string,
+  card: FeishuCard,
+  tenantAccessToken: string,
+) {
+  return postFeishu<SendMessageData>(
+    "/im/v1/messages?receive_id_type=open_id",
+    {
+      receive_id: openId,
+      msg_type: "interactive",
+      content: JSON.stringify(card),
+    },
+    {
+      Authorization: `Bearer ${tenantAccessToken}`,
+    },
+  );
+}
+
 async function getTenantAccessToken() {
   const credentials = resolveFeishuAppCredentials();
 
@@ -215,10 +418,7 @@ export async function notifyHermesTaskResultToFeishu(
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const secret = resolveFeishuWebhookSecret();
-  const mentionText = buildFeishuAtText(mentionOpenIds);
-  const content = [mentionText, buildHermesTaskResultText(input)]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
+  const card = buildHermesTaskResultCard(input, mentionOpenIds);
 
   const response = await fetch(webhookUrl, {
     method: "POST",
@@ -232,15 +432,38 @@ export async function notifyHermesTaskResultToFeishu(
             sign: signFeishuWebhook(timestamp, secret),
           }
         : {}),
-      msg_type: "text",
-      content: {
-        text: content,
-      },
+      msg_type: "interactive",
+      card,
     }),
   });
 
   if (!response.ok) {
     throw new Error(`飞书群通知发送失败：HTTP ${response.status}`);
+  }
+
+  for (const chunkText of buildHermesResultChunkTexts(input)) {
+    const chunkResponse = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...(secret
+          ? {
+              timestamp,
+              sign: signFeishuWebhook(timestamp, secret),
+            }
+          : {}),
+        msg_type: "text",
+        content: {
+          text: chunkText,
+        },
+      }),
+    });
+
+    if (!chunkResponse.ok) {
+      throw new Error(`飞书群完整结果发送失败：HTTP ${chunkResponse.status}`);
+    }
   }
 }
 
@@ -274,28 +497,27 @@ export async function notifyHermesTaskResultToFeishuUsers(
 
   const tenantAccessToken = await getTenantAccessToken();
 
-  const text = buildHermesTaskResultText(input);
+  const card = buildHermesTaskResultCard(input);
+  const chunkTexts = buildHermesResultChunkTexts(input);
   const failures: string[] = [];
   const sentMessages: FeishuUserNotificationMessage[] = [];
 
   for (const openId of recipientOpenIds) {
     try {
-      const sentMessage = await postFeishu<SendMessageData>(
-        "/im/v1/messages?receive_id_type=open_id",
-        {
-          receive_id: openId,
-          msg_type: "text",
-          content: JSON.stringify({ text }),
-        },
-        {
-          Authorization: `Bearer ${tenantAccessToken}`,
-        },
+      const sentMessage = await sendFeishuUserCard(
+        openId,
+        card,
+        tenantAccessToken,
       );
       sentMessages.push({
         openId,
         chatId: sentMessage.chat_id ?? null,
         messageId: sentMessage.message_id ?? null,
       });
+
+      for (const chunkText of chunkTexts) {
+        await sendFeishuUserText(openId, chunkText, tenantAccessToken);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
       failures.push(`${openId}: ${enhanceFeishuMessageError(message)}`);
