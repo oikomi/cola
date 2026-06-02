@@ -2661,7 +2661,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       ownerAgentId:
                         selectedAgent?.engine === "hermes-agent"
                           ? selectedAgent.id
-                          : current.ownerAgentId || hermesAgents[0]?.id || "",
+                          : (current.ownerAgentId ?? hermesAgents[0]?.id ?? ""),
                     }));
                     setIsCreateTaskOpen(true);
                   }}
@@ -2902,7 +2902,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                         ownerAgentId:
                           selectedAgent.engine === "hermes-agent"
                             ? selectedAgent.id
-                            : current.ownerAgentId || hermesAgents[0]?.id || "",
+                            : (current.ownerAgentId ??
+                              hermesAgents[0]?.id ??
+                              ""),
                       }));
                       setIsCreateTaskOpen(true);
                     }}
@@ -3207,287 +3209,296 @@ export function OfficeBetaShell({ snapshot }: Props) {
             </DialogContent>
           </Dialog>
           <Dialog open={isCreateTaskOpen} onOpenChange={setIsCreateTaskOpen}>
-            <DialogContent className="border-[#c9d9ce] bg-[#f8fcf8] sm:max-w-xl">
-              <DialogHeader>
+            <DialogContent className="grid max-h-[min(760px,calc(100dvh-2rem))] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#c9d9ce] bg-[#f8fcf8] p-0 sm:max-h-[min(780px,calc(100dvh-3rem))] sm:max-w-2xl lg:max-w-3xl">
+              <DialogHeader className="border-b border-[#dce8df] px-4 py-4 sm:px-5">
                 <DialogTitle>下发 Hermes 任务</DialogTitle>
                 <DialogDescription>
                   任务会进入所选人物的队列，由对应 Hermes runner 认领执行。
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="grid gap-4">
-                <FormField label="目标人物">
-                  <Select
-                    value={taskDraft.ownerAgentId}
-                    onValueChange={(value) => {
-                      setTaskDraft((current) => ({
-                        ...current,
-                        ownerAgentId: value ?? "",
-                      }));
-                    }}
-                    disabled={taskTargetAgents.length === 0}
-                  >
-                    <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="选择 Hermes 人物">
-                        {() =>
-                          selectedTaskTargetAgent
-                            ? `${selectedTaskTargetAgent.name} · ${
-                                roleLabels[selectedTaskTargetAgent.role]
-                              } · ${
-                                k8sWorkspaceEngineLabels[
-                                  selectedTaskTargetAgent.engine ?? "openclaw"
-                                ]
-                              }`
-                            : "选择 Hermes 人物"
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {taskTargetAgents.map((agent) => (
-                          <SelectItem key={agent.id} value={agent.id}>
-                            {agent.name} · {roleLabels[agent.role]} ·{" "}
-                            {
-                              k8sWorkspaceEngineLabels[
-                                agent.engine ?? "openclaw"
-                              ]
+              <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
+                <div className="grid gap-3">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
+                    <FormField label="目标人物">
+                      <Select
+                        value={taskDraft.ownerAgentId}
+                        onValueChange={(value) => {
+                          setTaskDraft((current) => ({
+                            ...current,
+                            ownerAgentId: value ?? "",
+                          }));
+                        }}
+                        disabled={taskTargetAgents.length === 0}
+                      >
+                        <SelectTrigger className="w-full bg-white">
+                          <SelectValue placeholder="选择 Hermes 人物">
+                            {() =>
+                              selectedTaskTargetAgent
+                                ? `${selectedTaskTargetAgent.name} · ${
+                                    roleLabels[selectedTaskTargetAgent.role]
+                                  } · ${
+                                    k8sWorkspaceEngineLabels[
+                                      selectedTaskTargetAgent.engine ??
+                                        "openclaw"
+                                    ]
+                                  }`
+                                : "选择 Hermes 人物"
                             }
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </FormField>
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {taskTargetAgents.map((agent) => (
+                              <SelectItem key={agent.id} value={agent.id}>
+                                {agent.name} · {roleLabels[agent.role]} ·{" "}
+                                {
+                                  k8sWorkspaceEngineLabels[
+                                    agent.engine ?? "openclaw"
+                                  ]
+                                }
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
 
-                <FormField label="飞书通知人">
-                  <div className="grid gap-2 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white p-2">
-                    {notificationUsersQuery.isLoading ? (
-                      <div className="px-2 py-1.5 text-sm text-[#5f7169]">
-                        正在读取用户
-                      </div>
-                    ) : notificationUsers.length === 0 ? (
-                      <div className="px-2 py-1.5 text-sm text-[#5f7169]">
-                        暂无可通知用户
-                      </div>
-                    ) : (
-                      <div className="grid max-h-40 gap-1 overflow-y-auto">
-                        {notificationUsers.map((user) => {
-                          const label =
-                            user.name ?? user.email ?? user.feishuOpenId;
-                          const selected = taskDraft.notifyUserIds.includes(
-                            user.id,
-                          );
+                    <FormField label="飞书通知人">
+                      <div className="grid gap-1.5 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white p-2">
+                        {notificationUsersQuery.isLoading ? (
+                          <div className="px-2 py-1 text-xs text-[#5f7169]">
+                            正在读取用户
+                          </div>
+                        ) : notificationUsers.length === 0 ? (
+                          <div className="px-2 py-1 text-xs text-[#5f7169]">
+                            暂无可通知用户
+                          </div>
+                        ) : (
+                          <div className="grid max-h-28 grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">
+                            {notificationUsers.map((user) => {
+                              const label =
+                                user.name ?? user.email ?? user.feishuOpenId;
+                              const selected =
+                                taskDraft.notifyUserIds.includes(user.id);
 
-                          return (
-                            <button
-                              key={user.id}
-                              type="button"
-                              className={cn(
-                                "flex min-h-9 items-center justify-between gap-3 rounded-[var(--radius-control)] border px-2.5 py-1.5 text-left text-sm transition-colors",
-                                selected
-                                  ? "border-[#67a184] bg-[#edf7f0] text-[#173d2d]"
-                                  : "border-transparent bg-white text-[#32443e] hover:border-[#d6e4da] hover:bg-[#f5faf6]",
-                              )}
-                              onClick={() =>
-                                setTaskDraft((current) => ({
-                                  ...current,
-                                  notifyUserIds: selected
-                                    ? current.notifyUserIds.filter(
-                                        (userId) => userId !== user.id,
-                                      )
-                                    : [...current.notifyUserIds, user.id],
-                                }))
-                              }
-                            >
-                              <span className="min-w-0 truncate">
-                                {label}
-                                {user.email && user.name
-                                  ? ` · ${user.email}`
-                                  : ""}
-                              </span>
-                              <span
-                                className={cn(
-                                  "grid size-4 shrink-0 place-items-center rounded border text-[10px]",
-                                  selected
-                                    ? "border-[#1f6b4f] bg-[#1f6b4f] text-white"
-                                    : "border-[#9db1a7] bg-white text-transparent",
-                                )}
-                              >
-                                ✓
-                              </span>
-                            </button>
-                          );
-                        })}
+                              return (
+                                <button
+                                  key={user.id}
+                                  type="button"
+                                  className={cn(
+                                    "flex min-h-8 items-center justify-between gap-2 rounded-[var(--radius-control)] border px-2 py-1 text-left text-xs transition-colors",
+                                    selected
+                                      ? "border-[#67a184] bg-[#edf7f0] text-[#173d2d]"
+                                      : "border-transparent bg-white text-[#32443e] hover:border-[#d6e4da] hover:bg-[#f5faf6]",
+                                  )}
+                                  onClick={() =>
+                                    setTaskDraft((current) => ({
+                                      ...current,
+                                      notifyUserIds: selected
+                                        ? current.notifyUserIds.filter(
+                                            (userId) => userId !== user.id,
+                                          )
+                                        : [...current.notifyUserIds, user.id],
+                                    }))
+                                  }
+                                >
+                                  <span className="min-w-0 truncate">
+                                    {label}
+                                    {user.email && user.name
+                                      ? ` · ${user.email}`
+                                      : ""}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "grid size-4 shrink-0 place-items-center rounded border text-[10px]",
+                                      selected
+                                        ? "border-[#1f6b4f] bg-[#1f6b4f] text-white"
+                                        : "border-[#9db1a7] bg-white text-transparent",
+                                    )}
+                                  >
+                                    ✓
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="border-t border-[#e2ece5] px-2 pt-1.5 text-xs leading-5 text-[#5f7169]">
+                          {taskDraft.notifyUserIds.length > 0
+                            ? `已选：${notificationUserLabel}`
+                            : "默认发送给任务创建人。"}
+                        </div>
                       </div>
-                    )}
-                    <div className="border-t border-[#e2ece5] px-2 pt-2 text-xs leading-5 text-[#5f7169]">
-                      {taskDraft.notifyUserIds.length > 0
-                        ? `已选择：${notificationUserLabel}`
-                        : "未选择时会发送给任务创建人。"}
-                    </div>
+                    </FormField>
                   </div>
-                </FormField>
 
-                <FormField label="任务标题">
-                  <Input
-                    className="bg-white"
-                    value={taskDraft.title}
-                    onChange={(event) =>
-                      setTaskDraft((current) => ({
-                        ...current,
-                        title: event.target.value,
-                      }))
-                    }
-                    placeholder="例如：整理本周用户反馈并给出优先级"
-                  />
-                </FormField>
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                    <FormField label="任务标题">
+                      <Input
+                        className="bg-white"
+                        value={taskDraft.title}
+                        onChange={(event) =>
+                          setTaskDraft((current) => ({
+                            ...current,
+                            title: event.target.value,
+                          }))
+                        }
+                        placeholder="例如：整理本周用户反馈并给出优先级"
+                      />
+                    </FormField>
 
-                <FormField label="任务说明">
-                  <textarea
-                    className="min-h-28 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8]"
-                    value={taskDraft.summary}
-                    onChange={(event) =>
-                      setTaskDraft((current) => ({
-                        ...current,
-                        summary: event.target.value,
-                      }))
-                    }
-                    placeholder="写清目标、背景、输入材料、期望输出和验收标准。"
-                  />
-                </FormField>
+                    <FormField label="任务说明">
+                      <textarea
+                        className="min-h-24 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8] lg:min-h-20"
+                        value={taskDraft.summary}
+                        onChange={(event) =>
+                          setTaskDraft((current) => ({
+                            ...current,
+                            summary: event.target.value,
+                          }))
+                        }
+                        placeholder="写清目标、背景、输入材料、期望输出和验收标准。"
+                      />
+                    </FormField>
+                  </div>
 
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem]">
-                  <FormField label="GitLab 仓库">
-                    <Input
-                      className="bg-white"
-                      value={taskDraft.gitlabRepository}
-                      onChange={(event) =>
-                        setTaskDraft((current) => ({
-                          ...current,
-                          gitlabRepository: event.target.value,
-                        }))
-                      }
-                      placeholder="group/project 或 https://code.xdreamdev.com/group/project.git"
-                    />
-                  </FormField>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+                    <FormField label="GitLab 仓库">
+                      <Input
+                        className="bg-white"
+                        value={taskDraft.gitlabRepository}
+                        onChange={(event) =>
+                          setTaskDraft((current) => ({
+                            ...current,
+                            gitlabRepository: event.target.value,
+                          }))
+                        }
+                        placeholder="group/project 或 GitLab HTTPS 地址"
+                      />
+                    </FormField>
 
-                  <FormField label="分支/提交">
-                    <Input
-                      className="bg-white"
-                      value={taskDraft.gitlabRef}
-                      onChange={(event) =>
-                        setTaskDraft((current) => ({
-                          ...current,
-                          gitlabRef: event.target.value,
-                        }))
-                      }
-                      placeholder="main"
-                    />
-                  </FormField>
-                </div>
+                    <FormField label="分支/提交">
+                      <Input
+                        className="bg-white"
+                        value={taskDraft.gitlabRef}
+                        onChange={(event) =>
+                          setTaskDraft((current) => ({
+                            ...current,
+                            gitlabRef: event.target.value,
+                          }))
+                        }
+                        placeholder="main"
+                      />
+                    </FormField>
+                  </div>
 
-                <div className="grid gap-3 md:grid-cols-3">
-                  <FormField label="任务类型">
-                    <Select
-                      value={taskDraft.taskType}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        setTaskDraft((current) => ({
-                          ...current,
-                          taskType: value as TaskType,
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="w-full bg-white">
-                        <SelectValue placeholder="任务类型">
-                          {optionLabel(TASK_TYPE_LABELS, "任务类型")}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {taskTypeValues.map((taskType) => (
-                            <SelectItem key={taskType} value={taskType}>
-                              {TASK_TYPE_LABELS[taskType]}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FormField>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <FormField label="任务类型">
+                      <Select
+                        value={taskDraft.taskType}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          setTaskDraft((current) => ({
+                            ...current,
+                            taskType: value,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="w-full bg-white">
+                          <SelectValue placeholder="任务类型">
+                            {optionLabel(TASK_TYPE_LABELS, "任务类型")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {taskTypeValues.map((taskType) => (
+                              <SelectItem key={taskType} value={taskType}>
+                                {TASK_TYPE_LABELS[taskType]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
 
-                  <FormField label="优先级">
-                    <Select
-                      value={taskDraft.priority}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        setTaskDraft((current) => ({
-                          ...current,
-                          priority: value as Priority,
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="w-full bg-white">
-                        <SelectValue placeholder="优先级">
-                          {optionLabel(priorityLabels, "优先级")}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {priorityValues.map((priority) => (
-                            <SelectItem key={priority} value={priority}>
-                              {priorityLabels[priority]}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FormField>
+                    <FormField label="优先级">
+                      <Select
+                        value={taskDraft.priority}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          setTaskDraft((current) => ({
+                            ...current,
+                            priority: value,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="w-full bg-white">
+                          <SelectValue placeholder="优先级">
+                            {optionLabel(priorityLabels, "优先级")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {priorityValues.map((priority) => (
+                              <SelectItem key={priority} value={priority}>
+                                {priorityLabels[priority]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
 
-                  <FormField label="风险级别">
-                    <Select
-                      value={taskDraft.riskLevel}
-                      onValueChange={(value) => {
-                        if (!value) return;
-                        setTaskDraft((current) => ({
-                          ...current,
-                          riskLevel: value as RiskLevel,
-                        }));
-                      }}
-                    >
-                      <SelectTrigger className="w-full bg-white">
-                        <SelectValue placeholder="风险级别">
-                          {optionLabel(riskLevelLabels, "风险级别")}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {riskLevelValues.map((riskLevel) => (
-                            <SelectItem key={riskLevel} value={riskLevel}>
-                              {riskLevelLabels[riskLevel]}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                </div>
+                    <FormField label="风险级别">
+                      <Select
+                        value={taskDraft.riskLevel}
+                        onValueChange={(value) => {
+                          if (!value) return;
+                          setTaskDraft((current) => ({
+                            ...current,
+                            riskLevel: value,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="w-full bg-white">
+                          <SelectValue placeholder="风险级别">
+                            {optionLabel(riskLevelLabels, "风险级别")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {riskLevelValues.map((riskLevel) => (
+                              <SelectItem key={riskLevel} value={riskLevel}>
+                                {riskLevelLabels[riskLevel]}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  </div>
 
-                <div className="rounded-[var(--radius-shell)] border border-[#d6e4da] bg-white/86 px-4 py-3 text-sm leading-6 text-[#4f655d]">
-                  {taskTargetAgents.length === 0
-                    ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
-                    : trimmedGitLabRef.length > 0 &&
-                        trimmedGitLabRepository.length === 0
-                      ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
-                      : trimmedGitLabRepository.length > 0 &&
-                          !liveSnapshot.integrations?.hermesGitLab.configured
-                        ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
-                        : selectedNotificationUsers.length > 0
-                          ? `Hermes 完成或失败后，控制面会把执行摘要发送到飞书群，并发送给 ${notificationUserLabel}。`
-                          : "Hermes 完成或失败后，控制面会把执行摘要发送到飞书群，并发送给任务创建人；也可以在上方选择多个指定通知人。"}
+                  <div className="rounded-[var(--radius-card)] border border-[#d6e4da] bg-white/86 px-3 py-2 text-xs leading-5 text-[#4f655d]">
+                    {taskTargetAgents.length === 0
+                      ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
+                      : trimmedGitLabRef.length > 0 &&
+                          trimmedGitLabRepository.length === 0
+                        ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
+                        : trimmedGitLabRepository.length > 0 &&
+                            !liveSnapshot.integrations?.hermesGitLab.configured
+                          ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
+                          : selectedNotificationUsers.length > 0
+                            ? `完成后会发送到飞书群，并发送给 ${notificationUserLabel}。`
+                            : "完成后会发送到飞书群，并发送给任务创建人；也可以选择指定通知人。"}
+                  </div>
                 </div>
               </div>
 
-              <DialogFooter className="bg-[#edf7f0]">
+              <DialogFooter
+                bleed={false}
+                className="rounded-none border-[#cfe0d5] bg-[#edf7f0] px-4 py-3 sm:px-5"
+              >
                 <Button
                   variant="outline"
                   onClick={() => setIsCreateTaskOpen(false)}
