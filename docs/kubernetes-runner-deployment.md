@@ -55,6 +55,7 @@ COLA_HERMES_NODE_PORT_END=31379
 COLA_HERMES_API_NODE_PORT_START=31380
 COLA_HERMES_API_NODE_PORT_END=31479
 COLA_HERMES_API_SERVER_KEY=cola-hermes-api
+COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS=example
 ```
 
 说明：
@@ -72,6 +73,8 @@ COLA_HERMES_API_SERVER_KEY=cola-hermes-api
   Hermes OpenAI-compatible API Server NodePort 区间，默认 `31380-31479`
 - `COLA_HERMES_API_SERVER_KEY`
   Hermes API Server 固定 Bearer token，默认 `cola-hermes-api`
+- `COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS`
+  逗号分隔的 Hermes dashboard 插件隐藏列表。默认会隐藏 `example`，避免部分 Hermes 镜像里示例插件缺少 `dashboard/dist/index.js` 时出现在侧边栏。
 
 ## 当前实现特点
 

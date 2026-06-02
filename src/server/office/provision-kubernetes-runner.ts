@@ -1018,6 +1018,16 @@ function buildRunnerResources(
                         name: "HERMES_ALLOW_ROOT_GATEWAY",
                         value: "1",
                       },
+                      ...(process.env.COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS
+                        ? [
+                            {
+                              name: "COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS",
+                              value:
+                                process.env
+                                  .COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS,
+                            },
+                          ]
+                        : []),
                       ...(hermesApiServerKey
                         ? [
                             {

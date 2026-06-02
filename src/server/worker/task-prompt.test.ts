@@ -42,3 +42,27 @@ void test("Hermes GitLab task prompt keeps repository context", () => {
   );
   assert.match(prompt, /Ref: main/);
 });
+
+void test("Hermes task prompt includes fetched Feishu document context", () => {
+  const prompt = buildRunnerTaskPrompt({
+    engine: "hermes-agent",
+    title: "Summarize weekly report",
+    taskType: "coordination",
+    priority: "medium",
+    riskLevel: "low",
+    feishuDocuments: [
+      {
+        content: "本周完成 V20518 上半身控制联调，剩余视觉回归测试。",
+        documentToken: "doc-token",
+        sourceUrl: "https://example.feishu.cn/wiki/wiki-token",
+        title: "V20518 周报",
+        type: "docx",
+      },
+    ],
+  });
+
+  assert.match(prompt, /Feishu document context:/);
+  assert.match(prompt, /Do not open the Feishu web URL again/);
+  assert.match(prompt, /V20518 周报/);
+  assert.match(prompt, /本周完成 V20518 上半身控制联调/);
+});

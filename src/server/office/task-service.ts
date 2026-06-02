@@ -24,6 +24,7 @@ import {
   type ZoneId,
 } from "@/server/office/catalog";
 import { parseRunnerMetadata } from "@/server/office/domain";
+import { extractFeishuDocumentReferences } from "@/server/office/feishu-docs";
 import {
   normalizeHermesGitLabRepository,
   type HermesGitLabRepository,
@@ -96,9 +97,16 @@ function taskStatusLabel(status: TaskStatus) {
 
 function taskInputPayload(
   gitlabRepository: HermesGitLabRepository | null,
+  feishuDocuments: ReturnType<typeof extractFeishuDocumentReferences>,
   notifyUserIds: string[],
 ) {
-  if (!gitlabRepository && notifyUserIds.length === 0) return undefined;
+  if (
+    !gitlabRepository &&
+    feishuDocuments.length === 0 &&
+    notifyUserIds.length === 0
+  ) {
+    return undefined;
+  }
 
   return {
     ...(gitlabRepository
@@ -108,6 +116,13 @@ function taskInputPayload(
             projectPath: gitlabRepository.projectPath,
             repositoryUrl: gitlabRepository.repositoryUrl,
             ref: gitlabRepository.ref,
+          },
+        }
+      : {}),
+    ...(feishuDocuments.length > 0
+      ? {
+          feishu: {
+            documents: feishuDocuments,
           },
         }
       : {}),
@@ -219,6 +234,7 @@ export async function createOfficeTask(
       input.gitlabRepository,
       input.gitlabRef,
     );
+    const feishuDocuments = extractFeishuDocumentReferences(input.summary);
 
     if (gitlabRepository) {
       const deviceRows = await tx.select().from(devices);
@@ -274,6 +290,7 @@ export async function createOfficeTask(
         currentAgentId: owner.id,
         inputPayload: taskInputPayload(
           gitlabRepository,
+          feishuDocuments,
           notifyUsers.map((user) => user.id),
         ),
         status: taskStatus,

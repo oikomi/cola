@@ -1,4 +1,4 @@
-import { appendFile, chmod, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readdir, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -51,6 +51,7 @@ const gitAskpassPath = path.join(gitCredentialsDir, "git-askpass.sh");
 const gitNetrcPath = path.join(gitCredentialsDir, ".netrc");
 const gitCredentialStorePath = path.join(gitCredentialsDir, "credentials");
 const gitConfigPath = path.join(gitCredentialsDir, ".gitconfig");
+const defaultHiddenDashboardPlugins = ["example"];
 
 let deviceId = "";
 let sessionId = "";
@@ -105,6 +106,137 @@ function gitProcessEnv(extraEnv = {}) {
 
 function yamlString(value) {
   return JSON.stringify(value);
+}
+
+function parseCsv(value) {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hiddenDashboardPlugins() {
+  return [
+    ...new Set([
+      ...defaultHiddenDashboardPlugins,
+      ...parseCsv(process.env.HERMES_DASHBOARD_HIDDEN_PLUGINS),
+      ...parseCsv(process.env.COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS),
+    ]),
+  ];
+}
+
+function yamlList(values) {
+  if (values.length === 0) return "[]";
+  return values.map((value) => `    - ${yamlString(value)}`).join("\n");
+}
+
+async function directoryContainsBrowser(candidatePath, depth = 3) {
+  let entries;
+
+  try {
+    entries = await readdir(candidatePath, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(candidatePath, entry.name);
+    if (/chrom(e|ium)|headless/i.test(entry.name)) return true;
+    if (depth > 0 && entry.isDirectory()) {
+      if (await directoryContainsBrowser(entryPath, depth - 1)) return true;
+    }
+  }
+
+  return false;
+}
+
+async function findBrowserExecutable(candidatePath, depth = 4) {
+  let entries;
+
+  try {
+    entries = await readdir(candidatePath, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(candidatePath, entry.name);
+    if (
+      entry.isFile() &&
+      /^(chrome|google-chrome|chromium|chromium-browser|chrome-headless-shell)$/.test(
+        entry.name,
+      )
+    ) {
+      return entryPath;
+    }
+    if (depth > 0 && entry.isDirectory()) {
+      const found = await findBrowserExecutable(entryPath, depth - 1);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+async function commandExists(command) {
+  try {
+    await shell(`command -v ${command}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function hasKnownBrowserCache() {
+  const cacheCandidates = [
+    path.join(hermesHome, ".cache", "ms-playwright"),
+    path.join(hermesHome, ".agent-browser", "browsers"),
+    path.join(hermesHome, "node", "browsers"),
+    path.join(homedir(), ".cache", "ms-playwright"),
+    path.join(homedir(), ".agent-browser", "browsers"),
+    path.join("/opt", "hermes", ".playwright"),
+  ];
+
+  for (const candidatePath of cacheCandidates) {
+    if (await directoryContainsBrowser(candidatePath)) return true;
+  }
+
+  return false;
+}
+
+async function resolveAgentBrowserExecutablePath() {
+  if (process.env.AGENT_BROWSER_EXECUTABLE_PATH) {
+    return null;
+  }
+
+  const candidates = [
+    path.join("/opt", "hermes", ".playwright"),
+    path.join(hermesHome, ".cache", "ms-playwright"),
+    path.join(homedir(), ".cache", "ms-playwright"),
+  ];
+
+  for (const candidatePath of candidates) {
+    const executablePath = await findBrowserExecutable(candidatePath);
+    if (executablePath) return executablePath;
+  }
+
+  return null;
+}
+
+async function localBrowserSummary() {
+  const browserChecks = await Promise.all([
+    commandExists("google-chrome"),
+    commandExists("chromium"),
+    commandExists("chromium-browser"),
+    commandExists("chrome"),
+  ]);
+  const hasSystemBrowser = browserChecks.some(Boolean);
+
+  if (hasSystemBrowser || (await hasKnownBrowserCache())) {
+    return "";
+  }
+
+  return "；未检测到本地浏览器或 agent-browser 缓存，browser_* 工具可能不可用";
 }
 
 function loadCodexModelConfig() {
@@ -286,6 +418,7 @@ async function shell(command, extraEnv = {}) {
 
 async function writeHermesConfig() {
   const { model, apiKey, baseUrl, apiMode } = loadCodexModelConfig();
+  const agentBrowserExecutablePath = await resolveAgentBrowserExecutablePath();
   resolvedModel = model;
   resolvedProvider = `custom:${hermesProviderId}`;
   resolvedBaseUrl = baseUrl;
@@ -318,6 +451,10 @@ terminal:
 
 display:
   streaming: false
+
+dashboard:
+  hidden_plugins:
+${yamlList(hiddenDashboardPlugins())}
 `.trimStart();
 
   const envLines = [
@@ -336,7 +473,12 @@ display:
     envLines.push("GIT_TERMINAL_PROMPT=0");
   }
 
+  if (agentBrowserExecutablePath) {
+    envLines.push(`AGENT_BROWSER_EXECUTABLE_PATH=${agentBrowserExecutablePath}`);
+  }
+
   for (const key of [
+    "AGENT_BROWSER_EXECUTABLE_PATH",
     "API_SERVER_ENABLED",
     "API_SERVER_HOST",
     "API_SERVER_PORT",
@@ -462,9 +604,10 @@ async function probeHermes() {
   try {
     await writeHermesConfig();
     await shell(readyCommand);
+    const browserSummary = await localBrowserSummary();
     return {
       status: "online",
-      summary: `Hermes Agent 已从 Codex 配置派生完成，默认模型 ${resolvedModel}`,
+      summary: `Hermes Agent 已从 Codex 配置派生完成，默认模型 ${resolvedModel}${browserSummary}`,
     };
   } catch (error) {
     return {

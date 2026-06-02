@@ -22,6 +22,10 @@ import {
   resolveRunnerRuntime,
 } from "@/server/office/domain";
 import {
+  loadFeishuDocumentContext,
+  readFeishuDocumentReferences,
+} from "@/server/office/feishu-docs";
+import {
   notifyHermesTaskResultToFeishu,
   notifyHermesTaskResultToFeishuUser,
   type FeishuUserNotificationMessage,
@@ -732,6 +736,12 @@ export async function pullNextTaskForRunner(
     engine === "hermes-agent"
       ? readHermesGitLabRepository(nextTask.inputPayload)
       : null;
+  const feishuDocumentResult =
+    engine === "hermes-agent"
+      ? await loadFeishuDocumentContext(
+          readFeishuDocumentReferences(nextTask.inputPayload, nextTask.summary),
+        )
+      : { documents: [], warnings: [] };
 
   return {
     task: {
@@ -750,8 +760,18 @@ export async function pullNextTaskForRunner(
         priority: nextTask.priority,
         riskLevel: nextTask.riskLevel,
         gitlabRepository,
+        feishuDocuments: feishuDocumentResult.documents,
+        feishuDocumentWarnings: feishuDocumentResult.warnings,
       }),
       gitlab: gitlabRepository,
+      feishu: {
+        documents: feishuDocumentResult.documents.map((document) => ({
+          sourceUrl: document.sourceUrl,
+          title: document.title,
+          type: document.type,
+        })),
+        warnings: feishuDocumentResult.warnings,
+      },
       engine,
     },
   };
