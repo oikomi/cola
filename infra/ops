@@ -37,3 +37,7 @@ kubectl -n remote-work cp /home/tts-data/fishaudio_dataset.zip  \
 
           ./scripts/workspace-image.sh build-and-load --kasmvnc-version 1.4.0 --target-arch amd64
   ./scripts/workspace-image.sh build-and-load --image-tag kasmvnc-xvnc-20260520-fix --target-arch amd64 --kasmvnc-version 1.4.0
+
+
+
+  ./scripts/workspace-image.sh build-and-load  --image-tag nvidia570-vulkan-20260603-v2  --target-arch amd64  --nvidia-driver-version 570.211.01
