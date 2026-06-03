@@ -215,14 +215,14 @@ function buildHermesTaskResultCard(
   const longResult = hasLongResult(input);
   const mentionText = buildFeishuAtText(mentionOpenIds);
   const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
-  const actions: FeishuCardButton[] = documentReferences.slice(0, 1).map(
-    (document) => ({
+  const actions: FeishuCardButton[] = documentReferences
+    .slice(0, 1)
+    .map((document) => ({
       tag: "button",
       text: cardText("打开飞书文档", "plain_text"),
       type: "primary",
       url: document.url,
-    }),
-  );
+    }));
   const reviewActions = buildHermesTaskReviewActions(input, options);
   const summaryText = compactText(stripUrls(input.taskSummary), 260);
   const resultText = longResult
@@ -458,7 +458,6 @@ export async function notifyHermesTaskResultToFeishu(
   if (!response.ok) {
     throw new Error(`飞书群通知发送失败：HTTP ${response.status}`);
   }
-
 }
 
 export async function notifyHermesTaskResultToFeishuUser(

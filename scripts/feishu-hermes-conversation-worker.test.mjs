@@ -118,5 +118,8 @@ void test("builds archive message with task result and conversation history", ()
   assert.match(message, /执行结果摘要：\n完成。已检查仓库并生成四列灯光 CSV。/);
   assert.match(message, /1\. 用户：这次结果没问题吗？/);
   assert.match(message, /2\. Hermes：已复核，没有阻塞问题。/);
-  assert.match(message, /日志：\/workspace\/state-to-light\/.hermes-runner\/bootstrap.log/);
+  assert.match(
+    message,
+    /日志：\/workspace\/state-to-light\/.hermes-runner\/bootstrap.log/,
+  );
 });

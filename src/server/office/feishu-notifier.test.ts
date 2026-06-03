@@ -129,7 +129,10 @@ void test("Hermes group notification sends an interactive card", async () => {
     body.card.elements[0]?.text?.content ?? "",
     /https:\/\/example\.feishu\.cn\/wiki/,
   );
-  assert.equal(body.card.elements[3]?.actions?.[0]?.text.content, "打开飞书文档");
+  assert.equal(
+    body.card.elements[3]?.actions?.[0]?.text.content,
+    "打开飞书文档",
+  );
   assert.equal(
     body.card.elements[3]?.actions?.[0]?.url,
     "https://example.feishu.cn/wiki/wiki-token",
