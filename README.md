@@ -99,6 +99,10 @@ COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx
 COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
+# 可选：用户确认后，把任务多轮对话归档总结额外发送到指定群
+COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES="test1"
+# 或直接使用群 chat_id，多个值用逗号分隔
+COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS="oc_xxx"
 ```
 
 如需让用户在飞书里基于任务完成通知继续追问 Hermes，或点击任务结果卡片里的「确认 / 不认可」完成归档，需要在飞书开放平台的「事件与回调」里使用长连接订阅「接收消息 v2.0 / `im.message.receive_v1`」和「卡片行为触发 / `card.action.trigger`」，并单独启动事件 worker：
@@ -107,7 +111,7 @@ FEISHU_APP_SECRET="xxx"
 ./restart.sh --with-feishu-hermes
 ```
 
-`restart.sh` 会在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `DATABASE_URL` 配齐时用 pm2 管理 `cola-feishu-hermes` 常驻进程；也可以设置 `FEISHU_HERMES_WORKER=0` 或传 `--no-feishu-hermes` 跳过。持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。用户点击「确认」后，worker 会读取该任务的执行结果和继续对话历史，生成归档摘要并发送回原飞书群。
+`restart.sh` 会在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `DATABASE_URL` 配齐时用 pm2 管理 `cola-feishu-hermes` 常驻进程；也可以设置 `FEISHU_HERMES_WORKER=0` 或传 `--no-feishu-hermes` 跳过。持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。用户点击「确认」后，worker 会读取该任务的执行结果和同一任务下的多轮继续对话，生成归档总结并发送回原飞书群；如果配置了 `COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS` 或 `COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES`，还会额外发送到这些归档群。使用群名时，机器人需要已经在目标群内，且能通过飞书群搜索接口看到该群。
 
 飞书侧需要发布包含以下配置的新版本，否则 worker 即使在线也收不到用户回复事件：
 

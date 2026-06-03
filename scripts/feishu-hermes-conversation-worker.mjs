@@ -8,8 +8,9 @@ const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
 const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
 const DEFAULT_MODEL = "hermes-agent";
 const MAX_HISTORY_MESSAGES = 16;
-const MAX_ARCHIVE_HISTORY_MESSAGES = 24;
+const MAX_ARCHIVE_HISTORY_MESSAGES = 80;
 const ARCHIVE_MESSAGE_MAX_LENGTH = 4500;
+const ARCHIVE_TARGET_SEARCH_PAGE_SIZE = 20;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,11 +25,28 @@ function optionalEnv(name) {
   return value || null;
 }
 
+function splitConfigList(value) {
+  return String(value ?? "")
+    .split(/[,\n，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
 function compactText(value, maxLength) {
   if (!value) return "";
   const normalized = String(value).replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function limitText(value, maxLength) {
+  const text = String(value ?? "").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1)}…`;
 }
 
 function isPlainRecord(value) {
@@ -250,6 +268,113 @@ async function sendFeishuText(client, chatId, text) {
       content: JSON.stringify({ text }),
     },
   });
+}
+
+function archiveTargetConfig() {
+  return {
+    chatIds: uniqueStrings([
+      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS),
+      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_IDS),
+    ]),
+    chatNames: uniqueStrings([
+      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES),
+      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAME),
+      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_NAMES),
+      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_NAME),
+    ]),
+  };
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function searchFeishuChatIdByName(client, chatName) {
+  const response = await client.im.v1.chat.search({
+    params: {
+      query: chatName,
+      page_size: ARCHIVE_TARGET_SEARCH_PAGE_SIZE,
+    },
+  });
+  if (response?.code && response.code !== 0) {
+    throw new Error(response.msg ?? `Feishu chat search failed: ${chatName}`);
+  }
+
+  const items = Array.isArray(response?.data?.items) ? response.data.items : [];
+  const normalizedName = chatName.toLocaleLowerCase();
+  const matched =
+    items.find((item) => item.name === chatName) ??
+    items.find((item) => item.name?.toLocaleLowerCase() === normalizedName) ??
+    items.find((item) => item.name?.includes(chatName)) ??
+    items[0];
+
+  return typeof matched?.chat_id === "string" ? matched.chat_id : null;
+}
+
+async function resolveArchiveTargets(client, sourceChatId) {
+  const config = archiveTargetConfig();
+  const targetChatIds = new Set();
+  const failures = [];
+
+  for (const chatId of config.chatIds) {
+    if (chatId !== sourceChatId) targetChatIds.add(chatId);
+  }
+
+  for (const chatName of config.chatNames) {
+    try {
+      const chatId = await searchFeishuChatIdByName(client, chatName);
+      if (chatId && chatId !== sourceChatId) {
+        targetChatIds.add(chatId);
+      } else if (!chatId) {
+        failures.push(`未找到归档群：${chatName}`);
+      }
+    } catch (error) {
+      failures.push(`查找归档群 ${chatName} 失败：${errorMessage(error)}`);
+    }
+  }
+
+  return {
+    targetChatIds: [...targetChatIds],
+    failures,
+  };
+}
+
+async function sendArchiveText(client, sourceChatId, archiveText) {
+  const { targetChatIds, failures } = await resolveArchiveTargets(
+    client,
+    sourceChatId,
+  );
+  const deliveryFailures = [...failures];
+  const deliveredTargetChatIds = [];
+
+  await sendFeishuText(client, sourceChatId, archiveText);
+
+  for (const targetChatId of targetChatIds) {
+    try {
+      await sendFeishuText(client, targetChatId, archiveText);
+      deliveredTargetChatIds.push(targetChatId);
+    } catch (error) {
+      deliveryFailures.push(
+        `发送归档群 ${targetChatId} 失败：${errorMessage(error)}`,
+      );
+    }
+  }
+
+  if (deliveryFailures.length > 0) {
+    await sendFeishuText(
+      client,
+      sourceChatId,
+      [
+        "Hermes 归档已生成，但部分归档目标发送失败：",
+        ...deliveryFailures.map((failure) => `- ${failure}`),
+      ].join("\n"),
+    ).catch(() => null);
+  }
+
+  return {
+    targetChatIds: deliveredTargetChatIds,
+    failures: deliveryFailures,
+  };
 }
 
 async function markFeishuMessageRead(appId, appSecret, messageId) {
@@ -507,9 +632,123 @@ function normalizeHistoryRows(rows) {
     .filter(Boolean);
 }
 
+function latestMessages(messages, role, limit) {
+  return messages.filter((message) => message.role === role).slice(-limit);
+}
+
+function formatMessageList(messages, maxItemLength) {
+  return messages
+    .map(
+      (message, index) =>
+        `${index + 1}. ${compactText(message.content, maxItemLength)}`,
+    )
+    .join("\n");
+}
+
+function buildConversationArchiveSummary(rows, input) {
+  const messages = normalizeHistoryRows(rows);
+  if (messages.length === 0) {
+    return input.action === "confirm"
+      ? "没有继续对话；用户直接确认任务结果并归档。"
+      : "没有继续对话；用户直接标记任务结果未通过。";
+  }
+
+  const userMessages = messages.filter((message) => message.role === "user");
+  const assistantMessages = messages.filter(
+    (message) => message.role === "assistant",
+  );
+  const recentUserMessages = latestMessages(messages, "user", 5);
+  const recentAssistantMessages = latestMessages(messages, "assistant", 3);
+  const finalDecision =
+    input.action === "confirm"
+      ? "用户已确认通过，按当前任务结果归档。"
+      : "用户不认可当前结果，需要继续处理。";
+
+  return [
+    `对话规模：用户 ${userMessages.length} 条，Hermes ${assistantMessages.length} 条。`,
+    recentUserMessages.length > 0
+      ? `用户核心诉求：\n${formatMessageList(recentUserMessages, 180)}`
+      : null,
+    recentAssistantMessages.length > 0
+      ? `Hermes 处理结论：\n${formatMessageList(recentAssistantMessages, 420)}`
+      : null,
+    `最终确认：${finalDecision}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildConversationArchiveHighlights(rows) {
+  const messages = normalizeHistoryRows(rows);
+  if (messages.length === 0) return null;
+
+  return messages
+    .slice(-10)
+    .map((message, index) => {
+      const label = message.role === "assistant" ? "Hermes" : "用户";
+      return `${index + 1}. ${label}：${compactText(message.content, 260)}`;
+    })
+    .join("\n");
+}
+
+function buildArchiveSummaryPrompt(context, input) {
+  const event = context.event;
+  const messages = normalizeHistoryRows(context.history)
+    .slice(-40)
+    .map((message, index) => {
+      const label = message.role === "assistant" ? "Hermes" : "用户";
+      return `${index + 1}. ${label}: ${compactText(message.content, 600)}`;
+    });
+
+  return [
+    "请为这个 Hermes 任务生成归档总结。",
+    "要求：",
+    "1. 用中文输出，直接给结论，不要解释你的总结方法。",
+    "2. 聚焦这个任务产生的多轮对话，而不是逐字复述。",
+    "3. 包含：用户核心诉求、Hermes 实际处理/答复、最终状态、遗留问题或下一步。",
+    "4. 如果用户已经确认通过，明确写出已确认归档；如果不认可，明确写出需要继续处理。",
+    "5. 控制在 800 字以内。",
+    "",
+    `任务：${event.task_title ?? "未命名任务"}`,
+    `任务说明：${compactText(event.task_summary, 800) || "无"}`,
+    `执行结果：${compactText(context.outputText, 1200) || "无"}`,
+    `最终确认状态：${
+      input.action === "confirm" ? "确认通过" : "不认可，需要继续处理"
+    }`,
+    "",
+    messages.length > 0 ? `多轮对话：\n${messages.join("\n")}` : "多轮对话：无",
+  ].join("\n");
+}
+
+async function summarizeArchiveConversation(context, input) {
+  if (!context.metadata?.hermesApiServerUrl) {
+    return buildConversationArchiveSummary(context.history, input);
+  }
+
+  try {
+    const summary = await callHermes(context, [
+      {
+        role: "system",
+        content:
+          "你是 Cola Virtual Office 的任务归档助手，负责把任务结果和飞书多轮追问整理成可转发的归档总结。",
+      },
+      {
+        role: "user",
+        content: buildArchiveSummaryPrompt(context, input),
+      },
+    ]);
+    return limitText(summary, 1200);
+  } catch (error) {
+    console.warn(
+      "[feishu-hermes] archive summary fallback:",
+      errorMessage(error),
+    );
+    return buildConversationArchiveSummary(context.history, input);
+  }
+}
+
 function buildArchiveMessage(context, input) {
   const event = context.event;
-  const history = normalizeHistoryRows(context.history);
   const operatorName =
     input.operatorName?.trim() || input.operatorOpenId || "飞书用户";
   const decisionText =
@@ -528,18 +767,19 @@ function buildArchiveMessage(context, input) {
     `结论：${decisionText}`,
   ];
   const taskSummary = compactText(event.task_summary, 800);
-  const resultText = compactText(context.outputText, 1600);
-  const conversationLines = history.map((message, index) => {
-    const label = message.role === "assistant" ? "Hermes" : "用户";
-    return `${index + 1}. ${label}：${compactText(message.content, 700)}`;
-  });
+  const resultText = compactText(context.outputText, 1000);
+  const conversationSummary =
+    input.conversationSummary ??
+    buildConversationArchiveSummary(context.history, input);
+  const conversationHighlights = buildConversationArchiveHighlights(
+    context.history,
+  );
   const sections = [
     headerLines.join("\n"),
     taskSummary ? `任务说明：\n${taskSummary}` : null,
     resultText ? `执行结果摘要：\n${resultText}` : null,
-    conversationLines.length > 0
-      ? `本轮继续对话：\n${conversationLines.join("\n")}`
-      : "本轮继续对话：无",
+    `多轮对话总结：\n${conversationSummary}`,
+    conversationHighlights ? `关键对话摘录：\n${conversationHighlights}` : null,
     event.artifact_path || event.log_path
       ? [
           "产物与日志：",
@@ -590,6 +830,8 @@ async function recordArchiveEvent(sql, context, input, archiveText) {
         action: input.action,
         sessionId: input.sessionId,
         chatId: input.chatId,
+        archiveTargetChatIds: input.archiveTargetChatIds ?? [],
+        archiveDeliveryFailures: input.archiveDeliveryFailures ?? [],
         messageId: input.messageId,
         operatorOpenId: input.operatorOpenId,
         operatorName: input.operatorName ?? null,
@@ -651,9 +893,26 @@ async function handleCardAction(sql, client, data) {
     operatorOpenId: normalized.operator.openId,
     operatorName: normalized.operator.name,
   };
+  archiveInput.conversationSummary = await summarizeArchiveConversation(
+    context,
+    archiveInput,
+  );
   const archiveText = buildArchiveMessage(context, archiveInput);
-  await sendFeishuText(client, normalized.chatId, archiveText);
-  await recordArchiveEvent(sql, context, archiveInput, archiveText);
+  const delivery = await sendArchiveText(
+    client,
+    normalized.chatId,
+    archiveText,
+  );
+  await recordArchiveEvent(
+    sql,
+    context,
+    {
+      ...archiveInput,
+      archiveTargetChatIds: delivery.targetChatIds,
+      archiveDeliveryFailures: delivery.failures,
+    },
+    archiveText,
+  );
 }
 
 async function archiveConversationContext(sql, client, context, input) {
@@ -677,9 +936,22 @@ async function archiveConversationContext(sql, client, context, input) {
     return;
   }
 
+  archiveInput.conversationSummary = await summarizeArchiveConversation(
+    archiveContext,
+    archiveInput,
+  );
   const archiveText = buildArchiveMessage(archiveContext, archiveInput);
-  await sendFeishuText(client, input.chatId, archiveText);
-  await recordArchiveEvent(sql, archiveContext, archiveInput, archiveText);
+  const delivery = await sendArchiveText(client, input.chatId, archiveText);
+  await recordArchiveEvent(
+    sql,
+    archiveContext,
+    {
+      ...archiveInput,
+      archiveTargetChatIds: delivery.targetChatIds,
+      archiveDeliveryFailures: delivery.failures,
+    },
+    archiveText,
+  );
 }
 
 async function handleMessage(sql, client, appConfig, data) {
@@ -870,8 +1142,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
 
 export {
   buildArchiveMessage,
+  buildConversationArchiveSummary,
   normalizeHistoryRows,
   parseCardActionValue,
   parseTextReviewAction,
   readExecutionOutput,
+  resolveArchiveTargets,
+  sendArchiveText,
 };

@@ -71,8 +71,7 @@ Xvnc "$DISPLAY" \
   -AcceptSetDesktopSize \
   -SendCutText="$KASMVNC_SEND_CUT_TEXT" \
   -AcceptCutText="$KASMVNC_ACCEPT_CUT_TEXT" \
-  -NeverShared \
-  -DisconnectClients=0 \
+  -DisconnectClients=1 \
   "${auth_args[@]}" &
 vnc_pid=$!
 

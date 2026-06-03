@@ -6,10 +6,12 @@ import test from "node:test";
 
 import {
   buildArchiveMessage,
+  buildConversationArchiveSummary,
   normalizeHistoryRows,
   parseCardActionValue,
   parseTextReviewAction,
   readExecutionOutput,
+  sendArchiveText,
 } from "./feishu-hermes-conversation-worker.mjs";
 
 const taskId = "11111111-1111-4111-8111-111111111111";
@@ -126,10 +128,90 @@ void test("builds archive message with task result and conversation history", ()
   assert.match(message, /确认人：测试用户/);
   assert.match(message, /任务：定时分析代码仓库/);
   assert.match(message, /执行结果摘要：\n完成。已检查仓库并生成四列灯光 CSV。/);
+  assert.match(message, /多轮对话总结：/);
+  assert.match(message, /用户核心诉求：/);
+  assert.match(message, /Hermes 处理结论：/);
+  assert.match(message, /最终确认：用户已确认通过/);
+  assert.match(message, /关键对话摘录：/);
   assert.match(message, /1\. 用户：这次结果没问题吗？/);
   assert.match(message, /2\. Hermes：已复核，没有阻塞问题。/);
   assert.match(
     message,
     /日志：\/workspace\/state-to-light\/.hermes-runner\/bootstrap.log/,
   );
+});
+
+void test("summarizes multi-turn archive conversations", () => {
+  const summary = buildConversationArchiveSummary(
+    [
+      { payload: { role: "user", content: "不够详细" } },
+      {
+        payload: {
+          role: "assistant",
+          content: "已补充最近一个月的进度分析和关键提交。",
+        },
+      },
+      { payload: { role: "user", content: "确认" } },
+    ],
+    { action: "confirm" },
+  );
+
+  assert.match(summary, /对话规模：用户 2 条，Hermes 1 条/);
+  assert.match(summary, /用户核心诉求：/);
+  assert.match(summary, /Hermes 处理结论：/);
+  assert.match(summary, /最终确认：用户已确认通过/);
+});
+
+void test("sends archive text to source chat and configured archive chat name", async () => {
+  const previousNames = process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES;
+  const previousIds = process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
+  const sent = [];
+  const client = {
+    im: {
+      v1: {
+        chat: {
+          search: async ({ params }) => ({
+            code: 0,
+            data: {
+              items:
+                params.query === "test1"
+                  ? [{ chat_id: "oc_test1", name: "test1" }]
+                  : [],
+            },
+          }),
+        },
+        message: {
+          create: async ({ data }) => {
+            sent.push(data);
+            return { code: 0 };
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES = "test1";
+    delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
+
+    const delivery = await sendArchiveText(client, "oc_source", "归档总结");
+
+    assert.deepEqual(
+      sent.map((message) => message.receive_id),
+      ["oc_source", "oc_test1"],
+    );
+    assert.deepEqual(delivery.targetChatIds, ["oc_test1"]);
+    assert.deepEqual(delivery.failures, []);
+  } finally {
+    if (previousNames === undefined) {
+      delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES;
+    } else {
+      process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES = previousNames;
+    }
+    if (previousIds === undefined) {
+      delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
+    } else {
+      process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS = previousIds;
+    }
+  }
 });
