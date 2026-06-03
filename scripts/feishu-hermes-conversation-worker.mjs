@@ -10,7 +10,7 @@ const DEFAULT_MODEL = "hermes-agent";
 const MAX_HISTORY_MESSAGES = 16;
 const MAX_ARCHIVE_HISTORY_MESSAGES = 80;
 const ARCHIVE_MESSAGE_MAX_LENGTH = 4500;
-const ARCHIVE_TARGET_SEARCH_PAGE_SIZE = 20;
+const ARCHIVE_TARGET_LIST_PAGE_SIZE = 100;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -23,13 +23,6 @@ function requiredEnv(name) {
 function optionalEnv(name) {
   const value = process.env[name]?.trim();
   return value || null;
-}
-
-function splitConfigList(value) {
-  return String(value ?? "")
-    .split(/[,\n，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function uniqueStrings(values) {
@@ -270,73 +263,55 @@ async function sendFeishuText(client, chatId, text) {
   });
 }
 
-function archiveTargetConfig() {
-  return {
-    chatIds: uniqueStrings([
-      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS),
-      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_IDS),
-    ]),
-    chatNames: uniqueStrings([
-      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES),
-      ...splitConfigList(process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAME),
-      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_NAMES),
-      ...splitConfigList(process.env.FEISHU_HERMES_ARCHIVE_CHAT_NAME),
-    ]),
-  };
-}
-
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function searchFeishuChatIdByName(client, chatName) {
-  const response = await client.im.v1.chat.search({
-    params: {
-      query: chatName,
-      page_size: ARCHIVE_TARGET_SEARCH_PAGE_SIZE,
-    },
-  });
-  if (response?.code && response.code !== 0) {
-    throw new Error(response.msg ?? `Feishu chat search failed: ${chatName}`);
-  }
+async function listFeishuBotGroupChatIds(client) {
+  const chatIds = [];
+  let pageToken = undefined;
 
-  const items = Array.isArray(response?.data?.items) ? response.data.items : [];
-  const normalizedName = chatName.toLocaleLowerCase();
-  const matched =
-    items.find((item) => item.name === chatName) ??
-    items.find((item) => item.name?.toLocaleLowerCase() === normalizedName) ??
-    items.find((item) => item.name?.includes(chatName)) ??
-    items[0];
+  do {
+    const response = await client.im.v1.chat.list({
+      params: {
+        sort_type: "ByActiveTimeDesc",
+        page_size: ARCHIVE_TARGET_LIST_PAGE_SIZE,
+        ...(pageToken ? { page_token: pageToken } : {}),
+      },
+    });
+    if (response?.code && response.code !== 0) {
+      throw new Error(response.msg ?? "Feishu chat list failed.");
+    }
 
-  return typeof matched?.chat_id === "string" ? matched.chat_id : null;
+    const items = Array.isArray(response?.data?.items)
+      ? response.data.items
+      : [];
+    for (const item of items) {
+      if (typeof item.chat_id !== "string") continue;
+      if (item.chat_status && item.chat_status !== "normal") continue;
+      chatIds.push(item.chat_id);
+    }
+
+    pageToken = response?.data?.has_more
+      ? response.data.page_token || undefined
+      : undefined;
+  } while (pageToken);
+
+  return uniqueStrings(chatIds);
 }
 
 async function resolveArchiveTargets(client, sourceChatId) {
-  const config = archiveTargetConfig();
-  const targetChatIds = new Set();
-  const failures = [];
-
-  for (const chatId of config.chatIds) {
-    if (chatId !== sourceChatId) targetChatIds.add(chatId);
+  try {
+    return {
+      targetChatIds: await listFeishuBotGroupChatIds(client),
+      failures: [],
+    };
+  } catch (error) {
+    return {
+      targetChatIds: [],
+      failures: [`获取机器人所在群失败：${errorMessage(error)}`],
+    };
   }
-
-  for (const chatName of config.chatNames) {
-    try {
-      const chatId = await searchFeishuChatIdByName(client, chatName);
-      if (chatId && chatId !== sourceChatId) {
-        targetChatIds.add(chatId);
-      } else if (!chatId) {
-        failures.push(`未找到归档群：${chatName}`);
-      }
-    } catch (error) {
-      failures.push(`查找归档群 ${chatName} 失败：${errorMessage(error)}`);
-    }
-  }
-
-  return {
-    targetChatIds: [...targetChatIds],
-    failures,
-  };
 }
 
 async function sendArchiveText(client, sourceChatId, archiveText) {
@@ -347,7 +322,28 @@ async function sendArchiveText(client, sourceChatId, archiveText) {
   const deliveryFailures = [...failures];
   const deliveredTargetChatIds = [];
 
-  await sendFeishuText(client, sourceChatId, archiveText);
+  if (targetChatIds.length === 0) {
+    await sendFeishuText(
+      client,
+      sourceChatId,
+      [
+        "Hermes 归档已生成，但没有找到可发送的机器人所在群。",
+        deliveryFailures.length > 0
+          ? [
+              "失败明细：",
+              ...deliveryFailures.map((failure) => `- ${failure}`),
+            ].join("\n")
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ).catch(() => null);
+
+    return {
+      targetChatIds: deliveredTargetChatIds,
+      failures: deliveryFailures,
+    };
+  }
 
   for (const targetChatId of targetChatIds) {
     try {
@@ -360,14 +356,23 @@ async function sendArchiveText(client, sourceChatId, archiveText) {
     }
   }
 
-  if (deliveryFailures.length > 0) {
+  if (!deliveredTargetChatIds.includes(sourceChatId)) {
     await sendFeishuText(
       client,
       sourceChatId,
       [
-        "Hermes 归档已生成，但部分归档目标发送失败：",
-        ...deliveryFailures.map((failure) => `- ${failure}`),
-      ].join("\n"),
+        deliveredTargetChatIds.length > 0
+          ? `Hermes 任务归档已处理，归档总结已发送到 ${deliveredTargetChatIds.length} 个机器人所在群。`
+          : "Hermes 归档已生成，但没有成功发送到机器人所在群。",
+        deliveryFailures.length > 0
+          ? [
+              "发送失败明细：",
+              ...deliveryFailures.map((failure) => `- ${failure}`),
+            ].join("\n")
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     ).catch(() => null);
   }
 

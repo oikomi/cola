@@ -162,21 +162,28 @@ void test("summarizes multi-turn archive conversations", () => {
   assert.match(summary, /最终确认：用户已确认通过/);
 });
 
-void test("sends archive text to source chat and configured archive chat name", async () => {
-  const previousNames = process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES;
-  const previousIds = process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
+void test("broadcasts archive text to all bot group chats", async () => {
   const sent = [];
   const client = {
     im: {
       v1: {
         chat: {
-          search: async ({ params }) => ({
+          list: async ({ params }) => ({
             code: 0,
             data: {
               items:
-                params.query === "test1"
-                  ? [{ chat_id: "oc_test1", name: "test1" }]
-                  : [],
+                params.page_token === "next"
+                  ? [{ chat_id: "oc_group_2", name: "test2" }]
+                  : [
+                      { chat_id: "oc_group_1", name: "test1" },
+                      {
+                        chat_id: "oc_dissolved",
+                        name: "old",
+                        chat_status: "dissolved",
+                      },
+                    ],
+              has_more: !params.page_token,
+              page_token: !params.page_token ? "next" : undefined,
             },
           }),
         },
@@ -190,28 +197,14 @@ void test("sends archive text to source chat and configured archive chat name", 
     },
   };
 
-  try {
-    process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES = "test1";
-    delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
+  const delivery = await sendArchiveText(client, "oc_source", "归档总结");
 
-    const delivery = await sendArchiveText(client, "oc_source", "归档总结");
-
-    assert.deepEqual(
-      sent.map((message) => message.receive_id),
-      ["oc_source", "oc_test1"],
-    );
-    assert.deepEqual(delivery.targetChatIds, ["oc_test1"]);
-    assert.deepEqual(delivery.failures, []);
-  } finally {
-    if (previousNames === undefined) {
-      delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES;
-    } else {
-      process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_NAMES = previousNames;
-    }
-    if (previousIds === undefined) {
-      delete process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS;
-    } else {
-      process.env.COLA_HERMES_FEISHU_ARCHIVE_CHAT_IDS = previousIds;
-    }
-  }
+  assert.deepEqual(
+    sent.map((message) => message.receive_id),
+    ["oc_group_1", "oc_group_2", "oc_source"],
+  );
+  assert.deepEqual(delivery.targetChatIds, ["oc_group_1", "oc_group_2"]);
+  assert.deepEqual(delivery.failures, []);
+  assert.equal(JSON.parse(sent[0].content).text, "归档总结");
+  assert.match(JSON.parse(sent[2].content).text, /已发送到 2 个机器人所在群/);
 });
