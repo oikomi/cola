@@ -257,6 +257,10 @@ cd infra/k8s
 镜像构建上下文位于仓库根目录的 `workloads/remote-workspace/`。
 默认基础镜像为 Ubuntu 24.04，可以通过 `--ubuntu-version <ver>` 临时切换。
 脚本默认按集群首个节点架构构建镜像；在 Apple Silicon 等非集群架构机器上也可以显式使用 `--target-arch amd64`。
+amd64 镜像默认会 bake 与当前 GPU 节点匹配的 NVIDIA `570.211.01` 图形/Vulkan 用户态文件，避免新建 GPU 云桌面后
+`vulkaninfo` 或 Isaac Sim 因容器内 GLX/EGL/Vulkan 用户态缺失或版本不匹配而失败。宿主机 NVIDIA 驱动版本变化后，
+需要用匹配版本重新构建，例如 `--nvidia-driver-version 570.211.01`；如使用内网 runfile 缓存，可加
+`--nvidia-driver-runfile-url <url>`。
 默认镜像名会写入 `runtime/workspace/latest-image.txt`。后续创建工作区如果不显式传 `--image`，就会自动使用它。
 
 兼容性说明：

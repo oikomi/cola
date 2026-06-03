@@ -32,6 +32,12 @@ Options:
   --mozilla-apt-url <url>    Pass through to 'workspace-image.sh build-and-load'
   --target-arch <arch>       Pass through to 'workspace-image.sh build-and-load'
   --kasmvnc-version <ver>    Pass through to 'workspace-image.sh build-and-load'
+  --nvidia-driver-version <ver>
+                            Pass through to 'workspace-image.sh build-and-load'
+  --nvidia-driver-runfile-url <url>
+                            Pass through to 'workspace-image.sh build-and-load'
+  --skip-nvidia-graphics-userland
+                            Pass through to 'workspace-image.sh build-and-load'
   -h, --help                 Show help
 EOF
 }
@@ -74,6 +80,9 @@ UBUNTU_APT_URL=""
 MOZILLA_APT_URL=""
 TARGET_ARCH=""
 KASMVNC_VERSION=""
+NVIDIA_DRIVER_VERSION=""
+NVIDIA_DRIVER_RUNFILE_URL=""
+SKIP_NVIDIA_GRAPHICS_USERLAND=0
 WORKSPACE_IMAGE_ENTRYPOINT="$BIN_DIR/../../../scripts/workspace-image.sh"
 
 case "${1:-}" in
@@ -137,6 +146,18 @@ while [[ $# -gt 0 ]]; do
       KASMVNC_VERSION="$2"
       shift 2
       ;;
+    --nvidia-driver-version)
+      NVIDIA_DRIVER_VERSION="$2"
+      shift 2
+      ;;
+    --nvidia-driver-runfile-url)
+      NVIDIA_DRIVER_RUNFILE_URL="$2"
+      shift 2
+      ;;
+    --skip-nvidia-graphics-userland)
+      SKIP_NVIDIA_GRAPHICS_USERLAND=1
+      shift
+      ;;
     --novnc-version)
       echo "ERROR: --novnc-version 已废弃；当前工作区镜像使用 KasmVNC，请改用 --kasmvnc-version。" >&2
       exit 1
@@ -191,8 +212,20 @@ if [[ -n "$KASMVNC_VERSION" ]]; then
   image_args+=(--kasmvnc-version "$KASMVNC_VERSION")
 fi
 
+if [[ -n "$NVIDIA_DRIVER_VERSION" ]]; then
+  image_args+=(--nvidia-driver-version "$NVIDIA_DRIVER_VERSION")
+fi
+
+if [[ -n "$NVIDIA_DRIVER_RUNFILE_URL" ]]; then
+  image_args+=(--nvidia-driver-runfile-url "$NVIDIA_DRIVER_RUNFILE_URL")
+fi
+
+if [[ "$SKIP_NVIDIA_GRAPHICS_USERLAND" -eq 1 ]]; then
+  image_args+=(--skip-nvidia-graphics-userland)
+fi
+
 if [[ "$WITH_WORKSPACE_IMAGE" -ne 1 ]] && [[ "${#image_args[@]}" -gt 1 ]]; then
-  echo "ERROR: --image-name/--image-tag/--ubuntu-version/--ubuntu-apt-url/--mozilla-apt-url/--target-arch/--kasmvnc-version 只能与 --with-workspace-image 一起使用。" >&2
+  echo "ERROR: 工作区镜像参数只能与 --with-workspace-image 一起使用。" >&2
   exit 1
 fi
 

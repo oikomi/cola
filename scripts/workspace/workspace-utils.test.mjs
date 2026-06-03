@@ -132,6 +132,12 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
   assert.match(manifest, /name: KASMVNC_ACCEPT_CUT_TEXT/);
   assert.match(manifest, /name: NVIDIA_DRIVER_CAPABILITIES/);
   assert.match(manifest, /value: all/);
+  assert.match(manifest, /name: VK_ICD_FILENAMES/);
+  assert.match(
+    manifest,
+    /value: '\/opt\/nvidia-current\/icd\.d\/nvidia_icd\.json'/,
+  );
+  assert.match(manifest, /name: VK_DRIVER_FILES/);
   assert.match(manifest, /tcpSocket:\n\s+port: 6080/);
   assert.doesNotMatch(manifest, /vnc_lite\.html/);
   assert.doesNotMatch(manifest, /path: \/vnc\.html/);

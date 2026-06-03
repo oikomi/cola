@@ -20,3 +20,14 @@ KasmVNC 启动时会显式开启双向文本剪贴板：外部浏览器和内部
 如果只是基于已完整构建的 `remote-workspace` 镜像迭代 `scripts/`、`config/`、`assets/` 或 `bin/`，
 可加 `--skip-package-install` 跳过 apt 安装阶段。
 如需从 Apple Silicon 主机为 amd64 集群节点构建，可使用 `--target-arch amd64`。
+amd64 工作区镜像默认会从 NVIDIA 官方 runfile bake `570.211.01` 的 GLX/EGL/Vulkan 用户态文件、
+GLVND/EGL vendor 配置、Vulkan ICD 和 NVIDIA application profiles，避免容器内 `apt install libnvidia-gl-*`
+拉到与宿主机内核驱动不一致的用户态版本。GPU 工作区 Pod 会把 `VK_ICD_FILENAMES` 和
+`VK_DRIVER_FILES` 指向镜像内的 `/opt/nvidia-current/icd.d/nvidia_icd.json`。如果 GPU 节点宿主机驱动升级，
+需要用匹配版本重新构建并分发镜像，例如：
+
+```bash
+./scripts/workspace-image.sh build-and-load --target-arch amd64 --nvidia-driver-version 570.211.01
+```
+
+如果使用内网缓存的 NVIDIA runfile，可加 `--nvidia-driver-runfile-url <url>`。

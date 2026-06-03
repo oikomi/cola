@@ -16,6 +16,7 @@ const WORKSPACE_NODE_PORT_END = Number(
     process.env.REMOTE_WORKSPACE_NODE_PORT_END ??
     "31579",
 );
+const NVIDIA_VULKAN_ICD_PATH = "/opt/nvidia-current/icd.d/nvidia_icd.json";
 
 function yamlQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
@@ -428,6 +429,10 @@ export function buildWorkspaceManifest({
       ? [
           `            - name: NVIDIA_DRIVER_CAPABILITIES`,
           `              value: all`,
+          `            - name: VK_ICD_FILENAMES`,
+          `              value: ${yamlQuote(NVIDIA_VULKAN_ICD_PATH)}`,
+          `            - name: VK_DRIVER_FILES`,
+          `              value: ${yamlQuote(NVIDIA_VULKAN_ICD_PATH)}`,
         ]
       : []),
     `            - name: COLA_CODEX_CONFIG_SOURCE`,

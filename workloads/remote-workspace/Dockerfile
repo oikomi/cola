@@ -10,6 +10,9 @@ ARG UBUNTU_APT_URL="http://mirrors.cernet.edu.cn/ubuntu"
 ARG MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 ARG TARGETARCH
+ARG NVIDIA_DRIVER_VERSION="570.211.01"
+ARG NVIDIA_DRIVER_RUNFILE_URL=""
+ARG INSTALL_NVIDIA_GRAPHICS_USERLAND="1"
 
 LABEL org.opencontainers.image.base.name="${BASE_IMAGE}" \
   org.opencontainers.image.version="${UBUNTU_VERSION}"
@@ -75,6 +78,12 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     less \
     libegl1 \
     libgl1-mesa-dri \
+    libgles2 \
+    libglvnd0 \
+    libglx0 \
+    libgomp1 \
+    libopengl0 \
+    libvulkan1 \
     locales \
     mesa-utils \
     mutter \
@@ -96,6 +105,7 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
     ubuntu-wallpapers-noble \
     v4l-utils \
     vim-tiny \
+    vulkan-tools \
     wget \
     xdg-utils \
     x11-utils \
@@ -117,6 +127,94 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
   && chmod 0440 /etc/sudoers.d/worker \
   && rm -f /tmp/kasmvncserver.deb \
   && rm -rf /var/lib/apt/lists/* /opt/remote-work-debs; \
+  fi
+
+RUN if [ "$INSTALL_NVIDIA_GRAPHICS_USERLAND" != "1" ]; then \
+    echo "Skipping NVIDIA graphics/Vulkan userland installation."; \
+  elif [ "${TARGETARCH:-$(dpkg --print-architecture)}" != "amd64" ]; then \
+    echo "Skipping NVIDIA x86_64 userland on TARGETARCH=${TARGETARCH:-$(dpkg --print-architecture)}."; \
+  else \
+    command -v curl >/dev/null \
+    && nvidia_major="${NVIDIA_DRIVER_VERSION%%.*}" \
+    && nvidia_root="/opt/nvidia-${nvidia_major}" \
+    && nvidia_current_root="/opt/nvidia-current" \
+    && nvidia_lib_dir="${nvidia_root}/lib" \
+    && nvidia_icd_dir="${nvidia_root}/icd.d" \
+    && nvidia_runfile_url="${NVIDIA_DRIVER_RUNFILE_URL:-https://download.nvidia.com/XFree86/Linux-x86_64/${NVIDIA_DRIVER_VERSION}/NVIDIA-Linux-x86_64-${NVIDIA_DRIVER_VERSION}.run}" \
+    && install -d -m 0755 \
+      "$nvidia_lib_dir" \
+      "$nvidia_icd_dir" \
+      /usr/share/nvidia \
+      /usr/share/glvnd/egl_vendor.d \
+      /usr/share/egl/egl_external_platform.d \
+      /usr/share/vulkan/icd.d \
+      /usr/share/vulkan/implicit_layer.d \
+    && ln -sfn "$(basename "$nvidia_root")" "$nvidia_current_root" \
+    && curl -fsSL --connect-timeout 30 --retry 3 --retry-delay 2 \
+      "$nvidia_runfile_url" \
+      -o /tmp/nvidia-driver.run \
+    && mkdir -p /tmp/nvidia-driver-extract \
+    && cd /tmp/nvidia-driver-extract \
+    && sh /tmp/nvidia-driver.run --extract-only \
+    && nvidia_extract_dir="/tmp/nvidia-driver-extract/NVIDIA-Linux-x86_64-${NVIDIA_DRIVER_VERSION}" \
+    && test -d "$nvidia_extract_dir" \
+    && find "$nvidia_extract_dir" -maxdepth 1 \( -type f -o -type l \) \
+      \( -name 'lib*.so' -o -name 'lib*.so.*' \) \
+      -exec cp -P {} "$nvidia_lib_dir/" \; \
+    && cp -a "$nvidia_lib_dir"/. /usr/lib/x86_64-linux-gnu/ \
+    && for lib_dir in "$nvidia_lib_dir" /usr/lib/x86_64-linux-gnu; do \
+      find "$lib_dir" -maxdepth 1 -type f -name "*.so.${NVIDIA_DRIVER_VERSION}" \
+        -exec sh -c 'driver_version="$1"; shift; for lib_path do lib_name="$(basename "$lib_path")"; lib_dir="$(dirname "$lib_path")"; base_name="${lib_name%.so.$driver_version}"; ln -sfn "$lib_name" "$lib_dir/$base_name.so"; ln -sfn "$lib_name" "$lib_dir/$base_name.so.1"; done' sh "$NVIDIA_DRIVER_VERSION" {} +; \
+      if [ -f "$lib_dir/libGLX_nvidia.so.${NVIDIA_DRIVER_VERSION}" ]; then ln -sfn "libGLX_nvidia.so.${NVIDIA_DRIVER_VERSION}" "$lib_dir/libGLX_nvidia.so.0"; fi; \
+      if [ -f "$lib_dir/libEGL_nvidia.so.${NVIDIA_DRIVER_VERSION}" ]; then ln -sfn "libEGL_nvidia.so.${NVIDIA_DRIVER_VERSION}" "$lib_dir/libEGL_nvidia.so.0"; fi; \
+      if [ -f "$lib_dir/libGLESv1_CM_nvidia.so.${NVIDIA_DRIVER_VERSION}" ]; then ln -sfn "libGLESv1_CM_nvidia.so.${NVIDIA_DRIVER_VERSION}" "$lib_dir/libGLESv1_CM_nvidia.so.1"; fi; \
+      if [ -f "$lib_dir/libGLESv2_nvidia.so.${NVIDIA_DRIVER_VERSION}" ]; then ln -sfn "libGLESv2_nvidia.so.${NVIDIA_DRIVER_VERSION}" "$lib_dir/libGLESv2_nvidia.so.2"; fi; \
+    done \
+    && for nvidia_share_file in \
+      "nvidia-application-profiles-${NVIDIA_DRIVER_VERSION}-rc" \
+      "nvidia-application-profiles-${NVIDIA_DRIVER_VERSION}-key-documentation"; do \
+      if [ -f "$nvidia_extract_dir/$nvidia_share_file" ]; then cp "$nvidia_extract_dir/$nvidia_share_file" /usr/share/nvidia/; fi; \
+    done \
+    && if [ -f "/usr/share/nvidia/nvidia-application-profiles-${NVIDIA_DRIVER_VERSION}-rc" ]; then \
+      ln -sfn "nvidia-application-profiles-${NVIDIA_DRIVER_VERSION}-rc" /usr/share/nvidia/nvidia-application-profiles-rc; \
+    fi \
+    && for egl_vendor_file in 10_nvidia.json; do \
+      if [ -f "$nvidia_extract_dir/$egl_vendor_file" ]; then cp "$nvidia_extract_dir/$egl_vendor_file" /usr/share/glvnd/egl_vendor.d/; fi; \
+    done \
+    && if [ ! -f /usr/share/glvnd/egl_vendor.d/10_nvidia.json ]; then \
+      printf '%s\n' \
+        '{' \
+        '    "file_format_version" : "1.0.0",' \
+        '    "ICD" : {' \
+        '        "library_path" : "libEGL_nvidia.so.0"' \
+        '    }' \
+        '}' \
+        >/usr/share/glvnd/egl_vendor.d/10_nvidia.json; \
+    fi \
+    && for egl_platform_file in \
+      10_nvidia_wayland.json \
+      15_nvidia_gbm.json \
+      20_nvidia_xcb.json \
+      20_nvidia_xlib.json; do \
+      if [ -f "$nvidia_extract_dir/$egl_platform_file" ]; then cp "$nvidia_extract_dir/$egl_platform_file" /usr/share/egl/egl_external_platform.d/; fi; \
+    done \
+    && nvidia_api_version="$(sed -n 's/.*"api_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$nvidia_extract_dir/nvidia_icd.json" 2>/dev/null | head -n 1)" \
+    && nvidia_api_version="${nvidia_api_version:-1.3.280}" \
+    && printf '%s\n' \
+      '{' \
+      '    "file_format_version" : "1.0.0",' \
+      '    "ICD": {' \
+      "        \"library_path\" : \"${nvidia_current_root}/lib/libGLX_nvidia.so.0\"," \
+      "        \"api_version\" : \"${nvidia_api_version}\"" \
+      '    }' \
+      '}' \
+      >"$nvidia_icd_dir/nvidia_icd.json" \
+    && cp "$nvidia_icd_dir/nvidia_icd.json" /usr/share/vulkan/icd.d/nvidia_icd.json \
+    && if [ -f "$nvidia_extract_dir/nvidia_layers.json" ]; then \
+      cp "$nvidia_extract_dir/nvidia_layers.json" /usr/share/vulkan/implicit_layer.d/nvidia_layers.json; \
+    fi \
+    && ldconfig \
+    && rm -rf /tmp/nvidia-driver.run /tmp/nvidia-driver-extract; \
   fi
 
 ARG SKIP_BROWSER_INSTALL=0

@@ -90,7 +90,17 @@ void test("GPU desktop runtime env exposes NVIDIA graphics capabilities", () => 
       gpuCount: 1,
       gpuMemoryGi: null,
     }),
-    [{ name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" }],
+    [
+      { name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" },
+      {
+        name: "VK_ICD_FILENAMES",
+        value: "/opt/nvidia-current/icd.d/nvidia_icd.json",
+      },
+      {
+        name: "VK_DRIVER_FILES",
+        value: "/opt/nvidia-current/icd.d/nvidia_icd.json",
+      },
+    ],
   );
 });
 

@@ -11,6 +11,10 @@ export const HAMI_GPU_MEMORY_RESOURCE_NAME = "nvidia.com/gpumem";
 export const HAMI_SCHEDULER_NAME = "hami-scheduler";
 export const NVIDIA_DRIVER_CAPABILITIES_ENV_NAME = "NVIDIA_DRIVER_CAPABILITIES";
 export const NVIDIA_DRIVER_CAPABILITIES_FOR_DESKTOP = "all";
+export const NVIDIA_VULKAN_ICD_PATH =
+  "/opt/nvidia-current/icd.d/nvidia_icd.json";
+export const VULKAN_ICD_FILENAMES_ENV_NAME = "VK_ICD_FILENAMES";
+export const VULKAN_DRIVER_FILES_ENV_NAME = "VK_DRIVER_FILES";
 const GPU_MEMORY_GI_IN_MIB = 1024;
 
 type NormalizeGpuAllocationOptions = {
@@ -97,6 +101,14 @@ export function buildNvidiaDesktopRuntimeEnv(spec: GpuAllocationSpec) {
         {
           name: NVIDIA_DRIVER_CAPABILITIES_ENV_NAME,
           value: NVIDIA_DRIVER_CAPABILITIES_FOR_DESKTOP,
+        },
+        {
+          name: VULKAN_ICD_FILENAMES_ENV_NAME,
+          value: NVIDIA_VULKAN_ICD_PATH,
+        },
+        {
+          name: VULKAN_DRIVER_FILES_ENV_NAME,
+          value: NVIDIA_VULKAN_ICD_PATH,
         },
       ]
     : [];

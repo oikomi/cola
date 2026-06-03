@@ -16,6 +16,9 @@ UBUNTU_APT_URL="http://mirrors.cernet.edu.cn/ubuntu"
 MOZILLA_APT_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 MOZILLA_APT_FALLBACK_URL="https://mirrors.cernet.edu.cn/mozilla/apt"
 TARGET_ARCH=""
+NVIDIA_DRIVER_VERSION="570.211.01"
+NVIDIA_DRIVER_RUNFILE_URL=""
+INSTALL_NVIDIA_GRAPHICS_USERLAND="1"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 WORKSPACE_IMAGE_CONTEXT_DIR="$REPO_ROOT/workloads/remote-workspace"
 WORKSPACE_IMAGE_METADATA_DIR="$REPO_ROOT/runtime/workspace"
@@ -39,6 +42,12 @@ Options:
                            Fallback Mozilla APT mirror, default CERNET
   --target-arch <arch>    Target node arch, default first configured node arch
   --kasmvnc-version <ver> KasmVNC release version, default 1.4.0
+  --nvidia-driver-version <ver>
+                           NVIDIA graphics/Vulkan userland version, default 570.211.01
+  --nvidia-driver-runfile-url <url>
+                           Override NVIDIA runfile URL
+  --skip-nvidia-graphics-userland
+                           Do not bake NVIDIA graphics/Vulkan userland into the image
   -h, --help              Show help
 EOF
 }
@@ -70,6 +79,9 @@ build_workspace_image() {
     --build-arg UBUNTU_APT_URL="$UBUNTU_APT_URL" \
     --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
     --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
+    --build-arg NVIDIA_DRIVER_VERSION="$NVIDIA_DRIVER_VERSION" \
+    --build-arg NVIDIA_DRIVER_RUNFILE_URL="$NVIDIA_DRIVER_RUNFILE_URL" \
+    --build-arg INSTALL_NVIDIA_GRAPHICS_USERLAND="$INSTALL_NVIDIA_GRAPHICS_USERLAND" \
     -t "$image_ref" \
     "$WORKSPACE_IMAGE_CONTEXT_DIR" 2>&1 | tee "$build_log"
   status=${PIPESTATUS[0]}
@@ -95,6 +107,9 @@ build_workspace_image() {
       --build-arg UBUNTU_APT_URL="$UBUNTU_APT_URL" \
       --build-arg MOZILLA_APT_URL="$MOZILLA_APT_URL" \
       --build-arg MOZILLA_APT_FALLBACK_URL="$MOZILLA_APT_FALLBACK_URL" \
+      --build-arg NVIDIA_DRIVER_VERSION="$NVIDIA_DRIVER_VERSION" \
+      --build-arg NVIDIA_DRIVER_RUNFILE_URL="$NVIDIA_DRIVER_RUNFILE_URL" \
+      --build-arg INSTALL_NVIDIA_GRAPHICS_USERLAND="$INSTALL_NVIDIA_GRAPHICS_USERLAND" \
       -t "$image_ref" \
       "$WORKSPACE_IMAGE_CONTEXT_DIR"
     return 0
@@ -170,6 +185,18 @@ while [[ $# -gt 0 ]]; do
     --target-arch)
       TARGET_ARCH="$2"
       shift 2
+      ;;
+    --nvidia-driver-version)
+      NVIDIA_DRIVER_VERSION="$2"
+      shift 2
+      ;;
+    --nvidia-driver-runfile-url)
+      NVIDIA_DRIVER_RUNFILE_URL="$2"
+      shift 2
+      ;;
+    --skip-nvidia-graphics-userland)
+      INSTALL_NVIDIA_GRAPHICS_USERLAND="0"
+      shift
       ;;
     -h|--help)
       usage
