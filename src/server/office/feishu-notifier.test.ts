@@ -176,6 +176,69 @@ void test("Hermes group notification card can mention recipient open_ids", async
   );
 });
 
+void test("Hermes group notification card includes review actions for archiving", async () => {
+  const requests: Array<{ body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    requests.push({
+      body: init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null,
+    });
+    return new Response("{}", { status: 200 });
+  };
+
+  try {
+    await withEnv(
+      {
+        COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
+        COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
+      },
+      () =>
+        notifyHermesTaskResultToFeishu({
+          ...taskResultInput(),
+          taskId: "11111111-1111-4111-8111-111111111111",
+          sessionId: "22222222-2222-4222-8222-222222222222",
+        }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const body = recordBody<{
+    card: {
+      elements: Array<{
+        tag: string;
+        layout?: string;
+        actions?: Array<{
+          text: { content: string };
+          type: string;
+          value?: Record<string, unknown>;
+        }>;
+      }>;
+    };
+  }>(requests[0]?.body);
+  const reviewAction = body.card.elements.find((element) =>
+    element.actions?.some((action) => action.text.content === "确认"),
+  );
+
+  assert.equal(reviewAction?.tag, "action");
+  assert.equal(reviewAction?.layout, "bisected");
+  assert.equal(reviewAction?.actions?.[0]?.text.content, "确认");
+  assert.equal(reviewAction?.actions?.[0]?.type, "primary");
+  assert.deepEqual(reviewAction?.actions?.[0]?.value, {
+    source: "cola.hermes_task_result",
+    action: "confirm",
+    taskId: "11111111-1111-4111-8111-111111111111",
+    sessionId: "22222222-2222-4222-8222-222222222222",
+  });
+  assert.equal(reviewAction?.actions?.[1]?.text.content, "不认可");
+  assert.deepEqual(reviewAction?.actions?.[1]?.value, {
+    source: "cola.hermes_task_result",
+    action: "reject",
+    taskId: "11111111-1111-4111-8111-111111111111",
+    sessionId: "22222222-2222-4222-8222-222222222222",
+  });
+});
+
 void test("Hermes user notification sends interactive card to open_id", async () => {
   const requests: Array<{
     url: string;
