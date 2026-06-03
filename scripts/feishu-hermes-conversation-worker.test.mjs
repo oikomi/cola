@@ -8,6 +8,7 @@ import {
   buildArchiveMessage,
   normalizeHistoryRows,
   parseCardActionValue,
+  parseTextReviewAction,
   readExecutionOutput,
 } from "./feishu-hermes-conversation-worker.mjs";
 
@@ -47,6 +48,15 @@ void test("parses Hermes result review card values", () => {
     }),
     null,
   );
+});
+
+void test("parses plain text review actions sent by Feishu buttons", () => {
+  assert.equal(parseTextReviewAction("确认"), "confirm");
+  assert.equal(parseTextReviewAction(" 确认。 "), "confirm");
+  assert.equal(parseTextReviewAction("不认可"), "reject");
+  assert.equal(parseTextReviewAction("不通过！"), "reject");
+  assert.equal(parseTextReviewAction("确认一下最新状态"), null);
+  assert.equal(parseTextReviewAction("继续检查"), null);
 });
 
 void test("normalizes stored Feishu conversation messages", () => {

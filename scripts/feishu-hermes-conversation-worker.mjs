@@ -129,6 +129,21 @@ function parseCardActionValue(value) {
   return { action, taskId, sessionId };
 }
 
+function parseTextReviewAction(value) {
+  const normalized = String(value ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[。.!！]+$/g, "");
+
+  if (["确认", "同意", "认可", "通过"].includes(normalized)) {
+    return "confirm";
+  }
+  if (["不认可", "不通过", "拒绝", "驳回"].includes(normalized)) {
+    return "reject";
+  }
+
+  return null;
+}
+
 function extractNotificationMessages(payload) {
   if (!isPlainRecord(payload)) return [];
   const feishu = isPlainRecord(payload.feishu) ? payload.feishu : null;
@@ -641,6 +656,32 @@ async function handleCardAction(sql, client, data) {
   await recordArchiveEvent(sql, context, archiveInput, archiveText);
 }
 
+async function archiveConversationContext(sql, client, context, input) {
+  const archiveInput = {
+    action: input.action,
+    taskId: context.event.task_id,
+    sessionId: context.event.session_id,
+    chatId: input.chatId,
+    messageId: input.messageId,
+    operatorOpenId: input.operatorOpenId,
+    operatorName: input.operatorName,
+  };
+
+  const archiveContext = await loadArchiveContext(sql, archiveInput);
+  if (!archiveContext) {
+    await sendFeishuText(
+      client,
+      input.chatId,
+      "Hermes 归档失败：没有找到这条任务结果对应的执行会话。",
+    );
+    return;
+  }
+
+  const archiveText = buildArchiveMessage(archiveContext, archiveInput);
+  await sendFeishuText(client, input.chatId, archiveText);
+  await recordArchiveEvent(sql, archiveContext, archiveInput, archiveText);
+}
+
 async function handleMessage(sql, client, appConfig, data) {
   console.log(
     "[feishu-hermes] received im.message.receive_v1:",
@@ -676,6 +717,26 @@ async function handleMessage(sql, client, appConfig, data) {
       data.message.chat_id,
       "我收到了你的消息，但没有找到可继续处理的 Hermes 任务上下文。请从任务完成通知那条消息继续回复。",
     );
+    return;
+  }
+
+  const textReviewAction = parseTextReviewAction(userText);
+  if (textReviewAction) {
+    await archiveConversationContext(sql, client, context, {
+      action: textReviewAction,
+      chatId: data.message.chat_id,
+      messageId: data.message.message_id,
+      operatorOpenId: data.sender?.sender_id?.open_id ?? null,
+      operatorName: null,
+    });
+
+    if (data.message.message_id) {
+      await markFeishuMessageRead(
+        appConfig.appId,
+        appConfig.appSecret,
+        data.message.message_id,
+      );
+    }
     return;
   }
 
@@ -811,5 +872,6 @@ export {
   buildArchiveMessage,
   normalizeHistoryRows,
   parseCardActionValue,
+  parseTextReviewAction,
   readExecutionOutput,
 };
