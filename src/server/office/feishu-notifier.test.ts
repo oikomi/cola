@@ -139,6 +139,42 @@ void test("Hermes group notification sends an interactive card", async () => {
   );
 });
 
+void test("Hermes group notification keeps non-Feishu links visible", async () => {
+  const requests: Array<{ body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    requests.push({
+      body: init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null,
+    });
+    return new Response("{}", { status: 200 });
+  };
+
+  try {
+    await withEnv(
+      {
+        COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
+        COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
+      },
+      () =>
+        notifyHermesTaskResultToFeishu({
+          ...taskResultInput(),
+          taskSummary:
+            "从代码里面看 https://code.xdreamdev.com/xdream/robo-brain 最近一个月做了哪些",
+        }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const body = recordBody<{
+    card: { elements: Array<{ text?: { content: string } }> };
+  }>(requests[0]?.body);
+  const summary = body.card.elements[0]?.text?.content ?? "";
+
+  assert.match(summary, /https:\/\/code\.xdreamdev\.com\/xdream\/robo-brain/);
+  assert.doesNotMatch(summary, /\[飞书文档链接\]/);
+});
+
 void test("Hermes group notification card can mention recipient open_ids", async () => {
   const requests: Array<{ body: unknown }> = [];
   const originalFetch = globalThis.fetch;

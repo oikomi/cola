@@ -171,9 +171,12 @@ function compactText(value: string | null | undefined, maxLength: number) {
   return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
-function stripUrls(value: string | null | undefined) {
+function stripFeishuDocumentUrls(value: string | null | undefined) {
   if (!value) return value;
-  return value.replace(/https?:\/\/[^\s<>"']+/g, "[飞书文档链接]");
+  return extractFeishuDocumentReferences(value).reduce(
+    (current, document) => current.replaceAll(document.url, "[飞书文档链接]"),
+    value,
+  );
 }
 
 function normalizeResultText(value: string | null | undefined) {
@@ -224,7 +227,10 @@ function buildHermesTaskResultCard(
       url: document.url,
     }));
   const reviewActions = buildHermesTaskReviewActions(input, options);
-  const summaryText = compactText(stripUrls(input.taskSummary), 260);
+  const summaryText = compactText(
+    stripFeishuDocumentUrls(input.taskSummary),
+    260,
+  );
   const resultText = longResult
     ? [
         `**结果摘要**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`,
