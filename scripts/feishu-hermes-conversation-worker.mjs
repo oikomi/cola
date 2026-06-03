@@ -264,6 +264,21 @@ async function sendFeishuText(client, chatId, text) {
 }
 
 function errorMessage(error) {
+  if (isPlainRecord(error)) {
+    const response = isPlainRecord(error.response) ? error.response : null;
+    const data = isPlainRecord(response?.data) ? response.data : null;
+    const code =
+      typeof data?.code === "number" || typeof data?.code === "string"
+        ? `${data.code}: `
+        : "";
+    if (typeof data?.msg === "string" && data.msg.trim()) {
+      return `${code}${data.msg.trim()}`;
+    }
+    if (typeof data?.message === "string" && data.message.trim()) {
+      return `${code}${data.message.trim()}`;
+    }
+  }
+
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -307,6 +322,10 @@ async function resolveArchiveTargets(client, sourceChatId) {
       failures: [],
     };
   } catch (error) {
+    console.warn(
+      "[feishu-hermes] failed to list bot group chats:",
+      errorMessage(error),
+    );
     return {
       targetChatIds: [],
       failures: [`获取机器人所在群失败：${errorMessage(error)}`],
@@ -314,15 +333,99 @@ async function resolveArchiveTargets(client, sourceChatId) {
   }
 }
 
-async function sendArchiveText(client, sourceChatId, archiveText) {
+async function loadKnownFeishuGroupChatIds(sql) {
+  if (!sql) return [];
+
+  const rows = await sql`
+    select payload
+    from cola_event
+    where "eventType" in (
+      'feishu.hermes_group_chat.seen',
+      'execution_session.reported'
+    )
+      and payload is not null
+    order by "occurredAt" desc
+    limit 300
+  `;
+  const chatIds = [];
+  for (const row of rows) {
+    const payload = isPlainRecord(row.payload) ? row.payload : {};
+    if (
+      payload.chatType === "group" &&
+      typeof payload.chatId === "string" &&
+      payload.chatId
+    ) {
+      chatIds.push(payload.chatId);
+    }
+
+    const feishu = isPlainRecord(payload.feishu) ? payload.feishu : null;
+    const notifications = Array.isArray(feishu?.notificationMessages)
+      ? feishu.notificationMessages
+      : [];
+    for (const notification of notifications) {
+      if (!isPlainRecord(notification)) continue;
+      if (typeof notification.chatId === "string" && notification.chatId) {
+        chatIds.push(notification.chatId);
+      }
+    }
+  }
+
+  return uniqueStrings(chatIds);
+}
+
+async function recordSeenFeishuGroupChat(sql, data) {
+  if (data.message?.chat_type !== "group") return;
+
+  await sql`
+    insert into cola_event (
+      "eventType",
+      "entityType",
+      "entityId",
+      severity,
+      title,
+      description,
+      payload,
+      "occurredAt",
+      "createdAt"
+    )
+    values (
+      'feishu.hermes_group_chat.seen',
+      'feishu_chat',
+      ${data.message.chat_id},
+      'info',
+      '飞书 Hermes 群已记录',
+      ${data.message.chat_id},
+      ${sql.json({
+        chatId: data.message.chat_id,
+        chatType: data.message.chat_type,
+        messageId: data.message.message_id ?? null,
+        senderOpenId: data.sender?.sender_id?.open_id ?? null,
+      })},
+      now(),
+      now()
+    )
+  `;
+}
+
+async function sendArchiveText(
+  client,
+  sourceChatId,
+  archiveText,
+  options = {},
+) {
   const { targetChatIds, failures } = await resolveArchiveTargets(
     client,
     sourceChatId,
   );
+  const fallbackChatIds = await loadKnownFeishuGroupChatIds(options.sql);
+  const mergedTargetChatIds = uniqueStrings([
+    ...targetChatIds,
+    ...fallbackChatIds,
+  ]);
   const deliveryFailures = [...failures];
   const deliveredTargetChatIds = [];
 
-  if (targetChatIds.length === 0) {
+  if (mergedTargetChatIds.length === 0) {
     await sendFeishuText(
       client,
       sourceChatId,
@@ -345,7 +448,7 @@ async function sendArchiveText(client, sourceChatId, archiveText) {
     };
   }
 
-  for (const targetChatId of targetChatIds) {
+  for (const targetChatId of mergedTargetChatIds) {
     try {
       await sendFeishuText(client, targetChatId, archiveText);
       deliveredTargetChatIds.push(targetChatId);
@@ -907,6 +1010,7 @@ async function handleCardAction(sql, client, data) {
     client,
     normalized.chatId,
     archiveText,
+    { sql },
   );
   await recordArchiveEvent(
     sql,
@@ -946,7 +1050,9 @@ async function archiveConversationContext(sql, client, context, input) {
     archiveInput,
   );
   const archiveText = buildArchiveMessage(archiveContext, archiveInput);
-  const delivery = await sendArchiveText(client, input.chatId, archiveText);
+  const delivery = await sendArchiveText(client, input.chatId, archiveText, {
+    sql,
+  });
   await recordArchiveEvent(
     sql,
     archiveContext,
@@ -982,6 +1088,8 @@ async function handleMessage(sql, client, appConfig, data) {
     console.log("[feishu-hermes] skipped empty text message.");
     return;
   }
+
+  await recordSeenFeishuGroupChat(sql, data);
 
   const context = await findConversationContext(sql, data);
   if (!context) {

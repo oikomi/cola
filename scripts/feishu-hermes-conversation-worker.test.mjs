@@ -208,3 +208,59 @@ void test("broadcasts archive text to all bot group chats", async () => {
   assert.equal(JSON.parse(sent[0].content).text, "归档总结");
   assert.match(JSON.parse(sent[2].content).text, /已发送到 2 个机器人所在群/);
 });
+
+void test("falls back to known group chats when bot chat list is denied", async () => {
+  const sent = [];
+  const sql = async (strings) => {
+    assert.match(String(strings[0]), /from cola_event/);
+    return [
+      { payload: { chatType: "group", chatId: "oc_known_group" } },
+      {
+        payload: {
+          feishu: {
+            notificationMessages: [{ chatId: "oc_notified_group" }],
+          },
+        },
+      },
+    ];
+  };
+  const client = {
+    im: {
+      v1: {
+        chat: {
+          list: async () => {
+            const error = new Error("Request failed with status code 400");
+            error.response = {
+              data: {
+                code: 99991672,
+                msg: "Access denied. One of the following scopes is required: [im:chat:readonly]",
+              },
+            };
+            throw error;
+          },
+        },
+        message: {
+          create: async ({ data }) => {
+            sent.push(data);
+            return { code: 0 };
+          },
+        },
+      },
+    },
+  };
+
+  const delivery = await sendArchiveText(client, "oc_source", "归档总结", {
+    sql,
+  });
+
+  assert.deepEqual(
+    sent.map((message) => message.receive_id),
+    ["oc_known_group", "oc_notified_group", "oc_source"],
+  );
+  assert.deepEqual(delivery.targetChatIds, [
+    "oc_known_group",
+    "oc_notified_group",
+  ]);
+  assert.match(delivery.failures[0], /99991672: Access denied/);
+  assert.match(JSON.parse(sent[2].content).text, /发送失败明细/);
+});

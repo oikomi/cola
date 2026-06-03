@@ -109,10 +109,11 @@ FEISHU_APP_SECRET="xxx"
 
 `restart.sh` 会在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `DATABASE_URL` 配齐时用 pm2 管理 `cola-feishu-hermes` 常驻进程；也可以设置 `FEISHU_HERMES_WORKER=0` 或传 `--no-feishu-hermes` 跳过。持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。用户点击「确认」后，worker 会读取该任务的执行结果和同一任务下的多轮继续对话，生成归档总结，并发送到当前飞书应用机器人所在的所有群。确认来源是个人对话时，个人对话只收到处理回执；完整归档总结发送到机器人所在群。
 
-飞书侧需要发布包含以下配置的新版本，否则 worker 即使在线也收不到用户回复事件：
+飞书侧需要发布包含以下配置的新版本，否则 worker 即使在线也收不到用户回复事件，或无法获取机器人所在所有群：
 
 - 机器人能力已启用。
-- 权限管理里已开通发送消息权限，以及读取用户发给机器人的单聊消息和群聊消息权限。
+- 权限管理里已开通发送消息权限、读取用户发给机器人的单聊消息和群聊消息权限。
+- 权限管理里已开通群列表读取权限，例如 `im:chat:readonly`（也可使用飞书允许的等价权限 `im:chat` / `im:chat.group_info:readonly` / `im:chat:read`），用于把确认归档广播到机器人所在所有群。
 - 事件与回调使用长连接，并订阅「接收消息 v2.0 / `im.message.receive_v1`」和「卡片行为触发 / `card.action.trigger`」。
 
 Hermes 需要分析私有 GitLab 仓库时，按 CMDB 的服务端授权模式配置受限凭据。优先配置 Hermes 专用 token；未配置时服务端能力可 fallback 到 `GITLAB_API_TOKEN`，但 runner 注入建议使用专用 token 或预建 K8s Secret。
