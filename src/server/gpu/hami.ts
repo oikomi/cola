@@ -3,11 +3,14 @@ import {
   MAX_GPU_MEMORY_GI,
   type GpuAllocationMode,
   type GpuAllocationSpec,
+  usesGpuAcceleration,
 } from "../../lib/gpu-allocation.ts";
 
 export const HAMI_GPU_RESOURCE_NAME = "nvidia.com/gpu";
 export const HAMI_GPU_MEMORY_RESOURCE_NAME = "nvidia.com/gpumem";
 export const HAMI_SCHEDULER_NAME = "hami-scheduler";
+export const NVIDIA_DRIVER_CAPABILITIES_ENV_NAME = "NVIDIA_DRIVER_CAPABILITIES";
+export const NVIDIA_DRIVER_CAPABILITIES_FOR_DESKTOP = "all";
 const GPU_MEMORY_GI_IN_MIB = 1024;
 
 type NormalizeGpuAllocationOptions = {
@@ -86,6 +89,17 @@ export function buildHamiGpuResources(spec: GpuAllocationSpec) {
 
 export function buildHamiSchedulerSpec(spec: GpuAllocationSpec) {
   return spec.gpuCount > 0 ? { schedulerName: HAMI_SCHEDULER_NAME } : {};
+}
+
+export function buildNvidiaDesktopRuntimeEnv(spec: GpuAllocationSpec) {
+  return usesGpuAcceleration(spec)
+    ? [
+        {
+          name: NVIDIA_DRIVER_CAPABILITIES_ENV_NAME,
+          value: NVIDIA_DRIVER_CAPABILITIES_FOR_DESKTOP,
+        },
+      ]
+    : [];
 }
 
 function parseIntegerResource(

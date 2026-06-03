@@ -424,6 +424,12 @@ export function buildWorkspaceManifest({
     `              value: '1'`,
     `            - name: VNC_DISABLE_PASSWORD`,
     `              value: ${disablePassword ? "'1'" : "'0'"}`,
+    ...(normalizedGpu > 0
+      ? [
+          `            - name: NVIDIA_DRIVER_CAPABILITIES`,
+          `              value: all`,
+        ]
+      : []),
     `            - name: COLA_CODEX_CONFIG_SOURCE`,
     `              value: /opt/remote-work/codex/config.toml`,
     `            - name: COLA_CODEX_AUTH_SOURCE`,

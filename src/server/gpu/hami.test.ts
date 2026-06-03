@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildHamiGpuResources,
   buildHamiSchedulerSpec,
+  buildNvidiaDesktopRuntimeEnv,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "./hami.ts";
@@ -79,5 +80,27 @@ void test("whole GPU mode without GPU keeps the default scheduler", () => {
       gpuMemoryGi: null,
     }),
     {},
+  );
+});
+
+void test("GPU desktop runtime env exposes NVIDIA graphics capabilities", () => {
+  assert.deepEqual(
+    buildNvidiaDesktopRuntimeEnv({
+      gpuAllocationMode: "whole",
+      gpuCount: 1,
+      gpuMemoryGi: null,
+    }),
+    [{ name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" }],
+  );
+});
+
+void test("CPU desktop runtime env does not request NVIDIA capabilities", () => {
+  assert.deepEqual(
+    buildNvidiaDesktopRuntimeEnv({
+      gpuAllocationMode: "whole",
+      gpuCount: 0,
+      gpuMemoryGi: null,
+    }),
+    [],
   );
 });

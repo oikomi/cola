@@ -28,6 +28,7 @@ import {
 import {
   buildHamiGpuResources,
   buildHamiSchedulerSpec,
+  buildNvidiaDesktopRuntimeEnv,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
 } from "@/server/gpu/hami";
@@ -809,6 +810,7 @@ function buildWorkspaceDeployment(input: {
                 { name: "KASMVNC_SEND_CUT_TEXT", value: "1" },
                 { name: "KASMVNC_ACCEPT_CUT_TEXT", value: "1" },
                 { name: "VNC_DISABLE_PASSWORD", value: "1" },
+                ...buildNvidiaDesktopRuntimeEnv(gpuSpec),
                 ...buildWorkVolumeEnv(workVolume),
               ],
               command: ["/bin/bash", "-lc"],

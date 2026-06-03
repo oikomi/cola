@@ -130,6 +130,8 @@ test("buildWorkspaceManifest emits ingress and gpu runtime when requested", () =
   assert.match(manifest, /name: KASMVNC_PORT/);
   assert.match(manifest, /name: KASMVNC_SEND_CUT_TEXT/);
   assert.match(manifest, /name: KASMVNC_ACCEPT_CUT_TEXT/);
+  assert.match(manifest, /name: NVIDIA_DRIVER_CAPABILITIES/);
+  assert.match(manifest, /value: all/);
   assert.match(manifest, /tcpSocket:\n\s+port: 6080/);
   assert.doesNotMatch(manifest, /vnc_lite\.html/);
   assert.doesNotMatch(manifest, /path: \/vnc\.html/);

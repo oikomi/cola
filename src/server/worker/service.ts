@@ -566,6 +566,8 @@ export async function reportRunnerSession(
         input.artifactPath ?? session.artifactPath,
       );
       const notificationInput = {
+        taskId: task.id,
+        sessionId: session.id,
         taskTitle: task.title,
         taskSummary: task.summary,
         agentName: agent?.name ?? deviceMetadata.agentName ?? null,

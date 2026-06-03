@@ -4,6 +4,8 @@ import type { SessionStatus } from "./catalog.ts";
 import { extractFeishuDocumentReferences } from "./feishu-docs.ts";
 
 type HermesTaskResultNotificationInput = {
+  taskId?: string;
+  sessionId?: string;
   taskTitle: string;
   taskSummary: string | null;
   agentName: string | null;
@@ -48,7 +50,8 @@ type FeishuCardButton = {
   tag: "button";
   text: FeishuCardText;
   type: "default" | "primary" | "danger";
-  url: string;
+  url?: string;
+  value?: Record<string, unknown>;
 };
 
 type FeishuCardElement =
@@ -66,6 +69,7 @@ type FeishuCardElement =
   | {
       tag: "action";
       actions: FeishuCardButton[];
+      layout?: "bisected" | "trisection" | "flow";
     };
 
 type FeishuCard = {
@@ -206,6 +210,7 @@ function cardText(content: string, tag: FeishuCardText["tag"] = "lark_md") {
 function buildHermesTaskResultCard(
   input: HermesTaskResultNotificationInput,
   mentionOpenIds: string[] = [],
+  options: { includeReviewActions?: boolean } = {},
 ): FeishuCard {
   const longResult = hasLongResult(input);
   const mentionText = buildFeishuAtText(mentionOpenIds);
@@ -218,6 +223,7 @@ function buildHermesTaskResultCard(
       url: document.url,
     }),
   );
+  const reviewActions = buildHermesTaskReviewActions(input, options);
   const summaryText = compactText(stripUrls(input.taskSummary), 260);
   const resultText = longResult
     ? [
@@ -263,6 +269,15 @@ function buildHermesTaskResultCard(
           },
         ]
       : []),
+    ...(reviewActions.length > 0
+      ? [
+          {
+            tag: "action" as const,
+            layout: "bisected" as const,
+            actions: reviewActions,
+          },
+        ]
+      : []),
     ...(pathLines.length > 0
       ? [
           {
@@ -283,6 +298,47 @@ function buildHermesTaskResultCard(
     },
     elements,
   };
+}
+
+function buildHermesTaskReviewActions(
+  input: HermesTaskResultNotificationInput,
+  options: { includeReviewActions?: boolean },
+) {
+  if (
+    !options.includeReviewActions ||
+    input.status !== "succeeded" ||
+    !input.taskId ||
+    !input.sessionId
+  ) {
+    return [];
+  }
+
+  const actionValue = {
+    source: "cola.hermes_task_result",
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+  };
+
+  return [
+    {
+      tag: "button" as const,
+      text: cardText("确认", "plain_text"),
+      type: "primary" as const,
+      value: {
+        ...actionValue,
+        action: "confirm",
+      },
+    },
+    {
+      tag: "button" as const,
+      text: cardText("不认可", "plain_text"),
+      type: "default" as const,
+      value: {
+        ...actionValue,
+        action: "reject",
+      },
+    },
+  ];
 }
 
 function buildFeishuAtText(openIds: string[]) {
@@ -378,7 +434,9 @@ export async function notifyHermesTaskResultToFeishu(
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const secret = resolveFeishuWebhookSecret();
-  const card = buildHermesTaskResultCard(input, mentionOpenIds);
+  const card = buildHermesTaskResultCard(input, mentionOpenIds, {
+    includeReviewActions: true,
+  });
 
   const response = await fetch(webhookUrl, {
     method: "POST",

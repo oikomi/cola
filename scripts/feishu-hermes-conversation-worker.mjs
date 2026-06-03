@@ -1,10 +1,17 @@
 import * as lark from "@larksuiteoapi/node-sdk";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
 const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
 const DEFAULT_MODEL = "hermes-agent";
 const MAX_HISTORY_MESSAGES = 16;
+const MAX_ARCHIVE_HISTORY_MESSAGES = 24;
+const ARCHIVE_MESSAGE_MAX_LENGTH = 4500;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requiredEnv(name) {
   const value = process.env[name]?.trim();
@@ -39,6 +46,55 @@ function parseMessageText(content) {
   return "";
 }
 
+function sanitizeUuid(value) {
+  return typeof value === "string" && UUID_PATTERN.test(value) ? value : null;
+}
+
+function resolveWorkspacePath(inputPath) {
+  if (!inputPath) return null;
+  if (inputPath.startsWith("/workspace/")) {
+    return path.join(process.cwd(), inputPath.slice("/workspace/".length));
+  }
+  return inputPath;
+}
+
+function readExecutionOutput(inputPath) {
+  const resolvedPath = resolveWorkspacePath(inputPath);
+  if (!resolvedPath) return null;
+
+  try {
+    const stats = fs.statSync(resolvedPath);
+    const filePath = stats.isDirectory()
+      ? path.join(resolvedPath, "last-result.json")
+      : resolvedPath;
+    if (!fs.existsSync(filePath)) return null;
+
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!isPlainRecord(parsed)) return null;
+
+    const result = isPlainRecord(parsed.result) ? parsed.result : {};
+    const outputs = Array.isArray(result.outputs) ? result.outputs : [];
+    const firstOutput = outputs.find(
+      (output) =>
+        isPlainRecord(output) &&
+        typeof output.text === "string" &&
+        output.text.trim(),
+    );
+    if (firstOutput) return firstOutput.text.trim();
+
+    if (typeof result.stdout === "string" && result.stdout.trim()) {
+      return result.stdout.trim();
+    }
+    if (typeof result.stderr === "string" && result.stderr.trim()) {
+      return result.stderr.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function parseMetadata(metadata) {
   const record = isPlainRecord(metadata) ? metadata : {};
   return {
@@ -54,6 +110,23 @@ function parseMetadata(metadata) {
         ? record.hermesApiServerKey
         : null,
   };
+}
+
+function parseCardActionValue(value) {
+  if (!isPlainRecord(value)) return null;
+  if (value.source !== "cola.hermes_task_result") return null;
+
+  const action =
+    value.action === "confirm"
+      ? "confirm"
+      : value.action === "reject"
+        ? "reject"
+        : null;
+  const taskId = sanitizeUuid(value.taskId);
+  const sessionId = sanitizeUuid(value.sessionId);
+
+  if (!action || !taskId || !sessionId) return null;
+  return { action, taskId, sessionId };
 }
 
 function extractNotificationMessages(payload) {
@@ -364,6 +437,210 @@ async function recordConversationMessage(sql, context, input) {
   `;
 }
 
+async function loadArchiveContext(sql, input) {
+  const rows = await sql`
+    select
+      s.id as session_id,
+      s."taskId" as task_id,
+      s."agentId" as agent_id,
+      s."deviceId" as device_id,
+      s.status as session_status,
+      s."artifactPath" as artifact_path,
+      s."logPath" as log_path,
+      s."endedAt" as ended_at,
+      t.title as task_title,
+      t.summary as task_summary,
+      d.name as device_name,
+      d.metadata as device_metadata
+    from cola_execution_session s
+    left join cola_task t on t.id = s."taskId"
+    left join cola_device d on d.id = s."deviceId"
+    where s.id = ${input.sessionId}::uuid
+      and s."taskId" = ${input.taskId}::uuid
+    limit 1
+  `;
+  const event = rows[0];
+  if (!event) return null;
+
+  const historyRows = await sql`
+    select payload, "occurredAt" as occurred_at
+    from cola_event
+    where "eventType" = 'feishu.hermes_conversation.message'
+      and "entityType" = 'task'
+      and "entityId" = ${input.taskId}
+    order by "occurredAt" desc
+    limit ${MAX_ARCHIVE_HISTORY_MESSAGES}
+  `;
+
+  return {
+    event,
+    metadata: parseMetadata(event.device_metadata),
+    history: historyRows.reverse(),
+    outputText: readExecutionOutput(event.artifact_path),
+  };
+}
+
+function normalizeHistoryRows(rows) {
+  return rows
+    .map((row) => {
+      const payload = isPlainRecord(row.payload) ? row.payload : {};
+      const role = payload.role === "assistant" ? "assistant" : "user";
+      const content =
+        typeof payload.content === "string" ? payload.content.trim() : "";
+      return content ? { role, content } : null;
+    })
+    .filter(Boolean);
+}
+
+function buildArchiveMessage(context, input) {
+  const event = context.event;
+  const history = normalizeHistoryRows(context.history);
+  const operatorName =
+    input.operatorName?.trim() || input.operatorOpenId || "飞书用户";
+  const decisionText =
+    input.action === "confirm" ? "确认通过" : "不认可，需要继续处理";
+  const titlePrefix =
+    input.action === "confirm"
+      ? "Hermes 任务已确认并归档"
+      : "Hermes 任务未通过确认";
+  const headerLines = [
+    `${titlePrefix}`,
+    "",
+    `确认人：${operatorName}`,
+    `任务：${event.task_title ?? "未命名任务"}`,
+    `设备：${event.device_name ?? "Hermes Runner"}`,
+    `会话：${event.session_id}`,
+    `结论：${decisionText}`,
+  ];
+  const taskSummary = compactText(event.task_summary, 800);
+  const resultText = compactText(context.outputText, 1600);
+  const conversationLines = history.map((message, index) => {
+    const label = message.role === "assistant" ? "Hermes" : "用户";
+    return `${index + 1}. ${label}：${compactText(message.content, 700)}`;
+  });
+  const sections = [
+    headerLines.join("\n"),
+    taskSummary ? `任务说明：\n${taskSummary}` : null,
+    resultText ? `执行结果摘要：\n${resultText}` : null,
+    conversationLines.length > 0
+      ? `本轮继续对话：\n${conversationLines.join("\n")}`
+      : "本轮继续对话：无",
+    event.artifact_path || event.log_path
+      ? [
+          "产物与日志：",
+          event.artifact_path ? `产物：${event.artifact_path}` : null,
+          event.log_path ? `日志：${event.log_path}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : null,
+  ].filter(Boolean);
+  const message = sections.join("\n\n");
+
+  return message.length <= ARCHIVE_MESSAGE_MAX_LENGTH
+    ? message
+    : `${message.slice(0, ARCHIVE_MESSAGE_MAX_LENGTH - 1)}…`;
+}
+
+async function recordArchiveEvent(sql, context, input, archiveText) {
+  const severity =
+    input.action === "confirm"
+      ? sql`'info'::cola_event_severity`
+      : sql`'warning'::cola_event_severity`;
+  const title =
+    input.action === "confirm"
+      ? "Hermes 任务对话已确认归档"
+      : "Hermes 任务对话被标记为不认可";
+
+  await sql`
+    insert into cola_event (
+      "eventType",
+      "entityType",
+      "entityId",
+      severity,
+      title,
+      description,
+      payload,
+      "occurredAt",
+      "createdAt"
+    )
+    values (
+      'feishu.hermes_conversation.archived',
+      'task',
+      ${input.taskId},
+      ${severity},
+      ${title},
+      ${compactText(archiveText, 240)},
+      ${sql.json({
+        action: input.action,
+        sessionId: input.sessionId,
+        chatId: input.chatId,
+        messageId: input.messageId,
+        operatorOpenId: input.operatorOpenId,
+        operatorName: input.operatorName ?? null,
+        deviceId: context.event.device_id ?? null,
+        agentId: context.event.agent_id ?? null,
+      })},
+      now(),
+      now()
+    )
+  `;
+}
+
+async function handleCardAction(sql, client, data) {
+  const normalized = lark.normalizeCardAction(data, { includeRaw: false });
+  if (!normalized) {
+    console.warn("[feishu-hermes] skipped invalid card action.");
+    return;
+  }
+
+  const actionValue = parseCardActionValue(normalized.action.value);
+  if (!actionValue) {
+    console.log(
+      "[feishu-hermes] skipped unrelated card action:",
+      JSON.stringify({
+        chatId: normalized.chatId,
+        messageId: normalized.messageId,
+        tag: normalized.action.tag,
+      }),
+    );
+    return;
+  }
+
+  console.log(
+    "[feishu-hermes] received Hermes result review action:",
+    JSON.stringify({
+      chatId: normalized.chatId,
+      messageId: normalized.messageId,
+      operatorOpenId: normalized.operator.openId,
+      action: actionValue.action,
+      taskId: actionValue.taskId,
+      sessionId: actionValue.sessionId,
+    }),
+  );
+
+  const context = await loadArchiveContext(sql, actionValue);
+  if (!context) {
+    await sendFeishuText(
+      client,
+      normalized.chatId,
+      "Hermes 归档失败：没有找到这条任务结果对应的执行会话。",
+    );
+    return;
+  }
+
+  const archiveInput = {
+    ...actionValue,
+    chatId: normalized.chatId,
+    messageId: normalized.messageId,
+    operatorOpenId: normalized.operator.openId,
+    operatorName: normalized.operator.name,
+  };
+  const archiveText = buildArchiveMessage(context, archiveInput);
+  await sendFeishuText(client, normalized.chatId, archiveText);
+  await recordArchiveEvent(sql, context, archiveInput, archiveText);
+}
+
 async function handleMessage(sql, client, appConfig, data) {
   console.log(
     "[feishu-hermes] received im.message.receive_v1:",
@@ -471,6 +748,21 @@ async function reportHandlingError(client, data, error) {
   }
 }
 
+async function reportCardActionError(client, data, error) {
+  console.error(
+    "[feishu-hermes] card action handling failed:",
+    error instanceof Error ? error.message : error,
+  );
+  const normalized = lark.normalizeCardAction(data, { includeRaw: false });
+  if (normalized?.chatId) {
+    await sendFeishuText(
+      client,
+      normalized.chatId,
+      `Hermes 归档失败：${error instanceof Error ? error.message : "未知错误"}`,
+    ).catch(() => null);
+  }
+}
+
 async function main() {
   const appConfig = {
     appId: requiredEnv("FEISHU_APP_ID"),
@@ -483,6 +775,11 @@ async function main() {
     "im.message.receive_v1": (data) => {
       void handleMessage(sql, client, appConfig, data).catch((error) =>
         reportHandlingError(client, data, error),
+      );
+    },
+    "card.action.trigger": (data) => {
+      void handleCardAction(sql, client, data).catch((error) =>
+        reportCardActionError(client, data, error),
       );
     },
   });
@@ -506,4 +803,13 @@ async function main() {
   process.once("SIGTERM", () => void shutdown());
 }
 
-await main();
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  await main();
+}
+
+export {
+  buildArchiveMessage,
+  normalizeHistoryRows,
+  parseCardActionValue,
+  readExecutionOutput,
+};
