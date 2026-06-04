@@ -29,6 +29,7 @@
     "@base-ui/react": "^1.4.0",
     "@kubernetes/client-node": "^1.4.0",
     "@larksuiteoapi/node-sdk": "^1.66.0",
+    "@nvidia/ov-web-rtc": "https://edge.urm.nvidia.com/artifactory/api/npm/omniverse-client-npm/@nvidia/ov-web-rtc/-/@nvidia/ov-web-rtc-6.2.2.tgz",
     "@pixi/react": "^8.0.5",
     "@t3-oss/env-nextjs": "^0.12.0",
     "@tanstack/react-query": "^5.69.0",

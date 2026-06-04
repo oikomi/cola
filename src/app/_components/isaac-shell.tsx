@@ -2,7 +2,9 @@
 
 import {
   AlertTriangleIcon,
+  CopyIcon,
   CpuIcon,
+  ExternalLinkIcon,
   FlaskConicalIcon,
   LoaderCircleIcon,
   PlusIcon,
@@ -31,7 +33,7 @@ import {
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -52,7 +54,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { notifyError } from "@/components/ui/toast";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
   formatGpuAllocationLabel,
   gpuAllocationModeLabels,
@@ -281,6 +283,20 @@ function labSpecLabel(job: IsaacLabJobRow) {
     gpuCount: job.gpuCount,
     gpuMemoryGi: job.gpuMemoryGi,
   })} · ${job.cpu} CPU · ${job.memory}`;
+}
+
+function isaacViewerUrl(params: {
+  endpoint: string;
+  kind: "station" | "lab";
+  name: string;
+}) {
+  const searchParams = new URLSearchParams({
+    endpoint: params.endpoint,
+    kind: params.kind,
+    name: params.name,
+  });
+
+  return `/isaac/viewer?${searchParams.toString()}`;
 }
 
 function normalizeTerminalOutput(value: string) {
@@ -586,17 +602,34 @@ function StationCard(props: {
       </div>
 
       <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 max-w-full rounded-[8px] px-2.5 text-[12px] text-slate-500"
-          disabled
-        >
-          <RadioTowerIcon data-icon="inline-start" />
-          <span className="min-w-0 truncate">
-            客户端连接 {station.endpoint ?? "待分配"}
-          </span>
-        </Button>
+        {station.endpoint ? (
+          <a
+            href={isaacViewerUrl({
+              endpoint: station.endpoint,
+              kind: "station",
+              name: station.name,
+            })}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              buttonVariants({ size: "sm", variant: "outline" }),
+              "h-7 max-w-full rounded-[8px] border-emerald-200/90 bg-white px-2.5 text-[12px] text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800",
+            )}
+          >
+            <ExternalLinkIcon data-icon="inline-start" />
+            <span className="min-w-0 truncate">Web 画面</span>
+          </a>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 max-w-full rounded-[8px] px-2.5 text-[12px] text-slate-500"
+            disabled
+          >
+            <RadioTowerIcon data-icon="inline-start" />
+            <span className="min-w-0 truncate">入口待分配</span>
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -623,6 +656,7 @@ function LabJobCard(props: {
   job: IsaacLabJobRow;
   isDeleting: boolean;
   onDelete: () => void;
+  onCopyEndpoint: () => void;
   onOpenTerminal: () => void;
 }) {
   const { job } = props;
@@ -719,17 +753,39 @@ function LabJobCard(props: {
 
       <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
         {job.displayMode === "webrtc" ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 max-w-full rounded-[8px] border-sky-200/90 bg-white px-2.5 text-[12px] text-sky-700"
-            disabled
-          >
-            <RadioTowerIcon data-icon="inline-start" />
-            <span className="min-w-0 truncate">
-              客户端连接 {job.endpoint ?? "待分配"}
-            </span>
-          </Button>
+          <>
+            {job.endpoint ? (
+              <a
+                href={isaacViewerUrl({
+                  endpoint: job.endpoint,
+                  kind: "lab",
+                  name: job.name,
+                })}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  buttonVariants({ size: "sm", variant: "outline" }),
+                  "h-7 max-w-full rounded-[8px] border-sky-200/90 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800",
+                )}
+              >
+                <ExternalLinkIcon data-icon="inline-start" />
+                <span className="min-w-0 truncate">Web 画面</span>
+              </a>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 max-w-full rounded-[8px] border-sky-200/90 bg-white px-2.5 text-[12px] text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+              disabled={!job.endpoint}
+              title={job.endpoint ?? "入口待分配"}
+              onClick={props.onCopyEndpoint}
+            >
+              <CopyIcon data-icon="inline-start" />
+              <span className="min-w-0 truncate">
+                {job.endpoint ? "复制连接地址" : "入口待分配"}
+              </span>
+            </Button>
+          </>
         ) : null}
         <Button
           size="sm"
@@ -1922,6 +1978,34 @@ function parsePositiveInt(value: string) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : Number.NaN;
 }
 
+async function writeTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Intranet HTTP pages can reject the Clipboard API even after a click.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0 auto auto 0";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("copy command rejected");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
 export function IsaacShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
@@ -2199,6 +2283,26 @@ export function IsaacShell() {
         labDraft.gpuAllocationMode === "memory" ? parsedLabGpuMemoryGi : null,
     });
   };
+
+  const handleCopyLabEndpoint = useCallback(async (job: IsaacLabJobRow) => {
+    if (!job.endpoint) {
+      notifyError("WebRTC 入口尚未分配。");
+      return;
+    }
+
+    try {
+      await writeTextToClipboard(job.endpoint);
+      notifySuccess({
+        title: "连接地址已复制",
+        message: job.endpoint,
+      });
+    } catch {
+      notifyError({
+        title: "复制失败",
+        message: `请手动复制页面上的连接地址：${job.endpoint}`,
+      });
+    }
+  }, []);
 
   const handleDeleteStation = async (name: string) => {
     const confirmed = await confirm({
@@ -2490,6 +2594,7 @@ export function IsaacShell() {
                     (deleteLabJob.isPending &&
                       deleteLabJob.variables?.name === job.name)
                   }
+                  onCopyEndpoint={() => void handleCopyLabEndpoint(job)}
                   onOpenTerminal={() => setTerminalJob(job)}
                   onDelete={() => void handleDeleteLabJob(job.name)}
                 />

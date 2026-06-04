@@ -50,6 +50,11 @@ import {
   buildContainerImageOptions,
   type ContainerImageOption,
 } from "./image-options";
+import {
+  findHeadlessWebrtcPortConflict,
+  formatHeadlessWebrtcPortConflict,
+  isTcpPortOpen,
+} from "./port-conflicts";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -454,7 +459,12 @@ function selectStationNode(params: {
     throw new Error("没有找到满足 Isaac GPU 需求的 Ready worker 节点。");
   }
 
-  return preferred[0]?.node.name ?? null;
+  const selected = preferred[0];
+  if (!selected) {
+    throw new Error("没有找到满足 Isaac GPU 需求的 Ready worker 节点。");
+  }
+
+  return selected.node.name;
 }
 
 function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
@@ -477,6 +487,39 @@ function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
 function buildEndpoint(params: { nodeIp?: string | null; port: number }) {
   if (!params.nodeIp) return null;
   return `${params.nodeIp}:${params.port}`;
+}
+
+async function assertHeadlessWebrtcPortAvailable(params: {
+  mode: IsaacStationLaunchMode;
+  resources: IsaacStationResources;
+  requestedStationName: string;
+  nodeName: string;
+  nodeIp: string | null;
+}) {
+  if (params.mode !== "headless-webrtc") return;
+
+  const conflict = findHeadlessWebrtcPortConflict({
+    deployments: params.resources.deployments,
+    pods: params.resources.pods,
+    requestedOwnerName: params.requestedStationName,
+    nodeName: params.nodeName,
+  });
+  if (conflict) {
+    throw new Error(formatHeadlessWebrtcPortConflict(conflict));
+  }
+
+  if (!params.nodeIp) return;
+
+  const portOpen = await isTcpPortOpen({
+    host: params.nodeIp,
+    port: ISAAC_STATION_WEBRTC_PORT,
+    timeoutMs: K8S_API_CONNECT_TIMEOUT_MS,
+  });
+  if (!portOpen) return;
+
+  throw new Error(
+    `节点 ${params.nodeName} (${params.nodeIp}) 的 WebRTC 端口 ${ISAAC_STATION_WEBRTC_PORT}/TCP 已被宿主机进程占用。请先释放该端口，或改用 Headless EGL 模式。`,
+  );
 }
 
 function parseStationGpuAnnotation(
@@ -1154,6 +1197,18 @@ export async function createIsaacStation(input: CreateIsaacStationInput) {
     requestedGpuSpec: gpu,
     workspaceLabelKey: ctx.workspaceLabelKey,
     gpuLabelKey: ctx.gpuLabelKey,
+  });
+  const liveNode = resources.liveNodes.find(
+    (node) => node.metadata?.name === nodeName,
+  );
+  const nodeIp = resolveNodeIp(ctx.nodes, liveNode);
+
+  await assertHeadlessWebrtcPortAvailable({
+    mode,
+    resources,
+    requestedStationName: name,
+    nodeName,
+    nodeIp,
   });
 
   const deployment = buildStationDeployment({
