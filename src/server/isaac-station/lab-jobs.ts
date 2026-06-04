@@ -48,6 +48,7 @@ import {
   type ContainerImageOption,
 } from "./image-options";
 import { buildIsaacLabGitLabTokenEnv as buildGitLabTokenEnv } from "./gitlab-token-env.js";
+import { ISAAC_STATION_WEBRTC_PORT } from "./streaming-url";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -64,6 +65,7 @@ const ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY =
   process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY?.trim() ?? "GITLAB_TOKEN";
 const ISAAC_LAB_GITLAB_TOKEN_ENV_NAME =
   process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_ENV_NAME?.trim() ?? "GITLAB_TOKEN";
+const DEFAULT_ISAAC_LAB_ROOT_SHELL = "${ISAACLAB_PATH:-/workspace/isaaclab}";
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
@@ -102,12 +104,14 @@ type IsaacLabResources = {
 };
 
 export type IsaacLabRunner = "direct" | "rsl-rl" | "skrl" | "custom";
+export type IsaacLabDisplayMode = "headless" | "webrtc";
 
 export type IsaacLabJobItem = {
   id: string;
   name: string;
   status: "running" | "pending" | "completed" | "failed";
   runner: IsaacLabRunner;
+  displayMode: IsaacLabDisplayMode;
   task: string;
   image: string;
   cpu: string;
@@ -116,6 +120,9 @@ export type IsaacLabJobItem = {
   gpuCount: number;
   gpuMemoryGi: number | null;
   nodeName: string | null;
+  nodeIp: string | null;
+  webrtcPort: number;
+  endpoint: string | null;
   podName: string | null;
   podPhase: string | null;
   restarts: number;
@@ -138,6 +145,7 @@ export type CreateIsaacLabJobInput = {
   name: string;
   image: string;
   runner: IsaacLabRunner;
+  displayMode: IsaacLabDisplayMode;
   task: string;
   command: string | null;
   maxIterations: number;
@@ -399,6 +407,10 @@ function normalizeRunner(input: IsaacLabRunner) {
   return input;
 }
 
+function normalizeDisplayMode(input: IsaacLabDisplayMode | null | undefined) {
+  return input === "webrtc" ? "webrtc" : "headless";
+}
+
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
@@ -476,6 +488,28 @@ function assertLabSchedulable(params: {
   if (preferred.length === 0) {
     throw new Error("没有找到满足 Isaac Lab GPU 需求的 Ready worker 节点。");
   }
+}
+
+function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
+  const nodeName = liveNode?.metadata?.name;
+  const configNode = nodeName
+    ? configNodes.find((node) => node.name === nodeName)
+    : null;
+
+  if (configNode?.ip) return configNode.ip;
+
+  const external =
+    liveNode?.status?.addresses?.find((entry) => entry.type === "ExternalIP")
+      ?.address ??
+    liveNode?.status?.addresses?.find((entry) => entry.type === "InternalIP")
+      ?.address;
+
+  return external ?? null;
+}
+
+function buildEndpoint(params: { nodeIp?: string | null; port: number }) {
+  if (!params.nodeIp) return null;
+  return `${params.nodeIp}:${params.port}`;
 }
 
 async function namespaceExists(coreApi: CoreV1Api, namespace: string) {
@@ -573,6 +607,7 @@ function resolveRuntimeClassName() {
 
 function buildLabCommand(input: {
   runner: IsaacLabRunner;
+  displayMode: IsaacLabDisplayMode;
   task: string;
   maxIterations: number;
   command: string | null;
@@ -587,7 +622,12 @@ function buildLabCommand(input: {
   }
 
   const executable =
-    process.env.COLA_ISAAC_LAB_EXECUTABLE?.trim() ?? "./isaaclab.sh";
+    process.env.COLA_ISAAC_LAB_EXECUTABLE?.trim() ??
+    `${DEFAULT_ISAAC_LAB_ROOT_SHELL}/isaaclab.sh`;
+  const configuredLabRoot = process.env.COLA_ISAAC_LAB_ROOT?.trim();
+  const labRoot = configuredLabRoot
+    ? shellQuote(configuredLabRoot)
+    : `"${DEFAULT_ISAAC_LAB_ROOT_SHELL}"`;
   const runnerScript = {
     direct: "scripts/reinforcement_learning/direct/train.py",
     "rsl-rl": "scripts/reinforcement_learning/rsl_rl/train.py",
@@ -595,6 +635,8 @@ function buildLabCommand(input: {
     custom: "",
   } satisfies Record<IsaacLabRunner, string>;
   const extraArgs = process.env.COLA_ISAAC_LAB_EXTRA_ARGS?.trim() ?? "";
+  const displayArgs =
+    input.displayMode === "webrtc" ? "--livestream 2" : "--headless";
 
   return [
     "set -euo pipefail",
@@ -602,6 +644,7 @@ function buildLabCommand(input: {
     "export ACCEPT_EULA=${ACCEPT_EULA:-Y}",
     "export PRIVACY_CONSENT=${PRIVACY_CONSENT:-Y}",
     `export ISAAC_LAB_WORKDIR=${shellQuote(input.workdir)}`,
+    `cd ${labRoot}`,
     [
       "exec",
       executable,
@@ -609,7 +652,7 @@ function buildLabCommand(input: {
       runnerScript[input.runner],
       "--task",
       shellQuote(input.task),
-      "--headless",
+      displayArgs,
       "--max_iterations",
       String(input.maxIterations),
       extraArgs,
@@ -623,6 +666,7 @@ function buildLabJob(input: {
   name: string;
   image: string;
   runner: IsaacLabRunner;
+  displayMode: IsaacLabDisplayMode;
   task: string;
   command: string | null;
   maxIterations: number;
@@ -644,6 +688,8 @@ function buildLabJob(input: {
   const workVolume = resolveWorkVolume();
   const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
+  const configuredWorkingDir =
+    process.env.COLA_ISAAC_LAB_CONTAINER_WORKDIR?.trim();
 
   return {
     apiVersion: "batch/v1",
@@ -655,6 +701,7 @@ function buildLabJob(input: {
         ...ownerLabels,
         "cola.isaac/title": input.name,
         "cola.isaac/runner": input.runner,
+        "cola.isaac/display-mode": input.displayMode,
         "cola.isaac/task": input.task,
       },
     },
@@ -666,11 +713,17 @@ function buildLabJob(input: {
           annotations: {
             ...ownerLabels,
             "cola.isaac/runner": input.runner,
+            "cola.isaac/display-mode": input.displayMode,
             "cola.isaac/task": input.task,
           },
         },
         spec: {
           restartPolicy: "Never",
+          hostNetwork: input.displayMode === "webrtc",
+          dnsPolicy:
+            input.displayMode === "webrtc"
+              ? "ClusterFirstWithHostNet"
+              : "ClusterFirst",
           ...(runtimeClassName ? { runtimeClassName } : {}),
           ...buildHamiSchedulerSpec(gpuSpec),
           initContainers: buildWorkVolumeInitContainers(workVolume),
@@ -680,13 +733,16 @@ function buildLabJob(input: {
               image: input.image,
               imagePullPolicy:
                 process.env.COLA_ISAAC_LAB_IMAGE_PULL_POLICY ?? "IfNotPresent",
-              workingDir: mountPath,
+              ...(configuredWorkingDir
+                ? { workingDir: configuredWorkingDir }
+                : {}),
               command: ["bash", "-lc"],
               args: [
                 buildWorkVolumeShellCommand(
                   workVolume,
                   buildLabCommand({
                     runner: input.runner,
+                    displayMode: input.displayMode,
                     task: input.task,
                     maxIterations: input.maxIterations,
                     command: input.command,
@@ -703,6 +759,10 @@ function buildLabJob(input: {
                 { name: "PRIVACY_CONSENT", value: "Y" },
                 { name: "COLA_ISAAC_LAB_JOB_NAME", value: input.name },
                 { name: "COLA_ISAAC_LAB_RUNNER", value: input.runner },
+                {
+                  name: "COLA_ISAAC_LAB_DISPLAY_MODE",
+                  value: input.displayMode,
+                },
                 { name: "COLA_ISAAC_LAB_TASK", value: input.task },
                 { name: "COLA_ISAAC_LAB_WORKDIR", value: mountPath },
                 ...buildGitLabTokenEnv({
@@ -724,6 +784,16 @@ function buildLabJob(input: {
                   ...gpuResources,
                 },
               },
+              ports:
+                input.displayMode === "webrtc"
+                  ? [
+                      {
+                        containerPort: ISAAC_STATION_WEBRTC_PORT,
+                        name: "webrtc",
+                        protocol: "TCP",
+                      },
+                    ]
+                  : [],
               volumeMounts: buildWorkVolumeMounts(workVolume),
               securityContext: buildWorkVolumeSecurityContext(workVolume),
             },
@@ -859,6 +929,8 @@ function summaryForJob(job: V1Job, pod?: V1Pod | null) {
 function labItemFromJob(input: {
   job: V1Job;
   pods: V1Pod[];
+  liveNodes: V1Node[];
+  configNodes: ClusterNode[];
   ownerMap: Map<string, ResourceOwner>;
 }): IsaacLabJobItem | null {
   const name = labLabel(input.job.metadata);
@@ -877,13 +949,24 @@ function labItemFromJob(input: {
     (input.job.metadata?.annotations?.["cola.isaac/runner"] as
       | IsaacLabRunner
       | undefined) ?? "custom";
+  const displayMode = normalizeDisplayMode(
+    input.job.metadata?.annotations?.["cola.isaac/display-mode"] as
+      | IsaacLabDisplayMode
+      | undefined,
+  );
   const task = input.job.metadata?.annotations?.["cola.isaac/task"] ?? "";
+  const podNodeName = pod?.spec?.nodeName ?? null;
+  const liveNode = podNodeName
+    ? input.liveNodes.find((node) => node.metadata?.name === podNodeName)
+    : undefined;
+  const nodeIp = resolveNodeIp(input.configNodes, liveNode);
 
   return {
     id: name,
     name,
     status: labJobStatus(input.job, pod),
     runner,
+    displayMode,
     task,
     image: container?.image ?? "",
     cpu: String(resources?.cpu ?? ""),
@@ -891,7 +974,16 @@ function labItemFromJob(input: {
     gpuAllocationMode: gpu.gpuAllocationMode,
     gpuCount: gpu.gpuCount,
     gpuMemoryGi: gpu.gpuMemoryGi,
-    nodeName: pod?.spec?.nodeName ?? null,
+    nodeName: podNodeName,
+    nodeIp,
+    webrtcPort: ISAAC_STATION_WEBRTC_PORT,
+    endpoint:
+      displayMode === "webrtc"
+        ? buildEndpoint({
+            nodeIp,
+            port: ISAAC_STATION_WEBRTC_PORT,
+          })
+        : null,
     podName: pod?.metadata?.name ?? null,
     podPhase: pod?.status?.phase ?? null,
     restarts: restartsForPod(pod),
@@ -952,6 +1044,8 @@ export async function listIsaacLabJobs(): Promise<IsaacLabListResult> {
         labItemFromJob({
           job,
           pods: resources.pods,
+          liveNodes: resources.liveNodes,
+          configNodes: ctx.nodes,
           ownerMap,
         }),
       )
@@ -984,6 +1078,7 @@ export async function createIsaacLabJob(input: CreateIsaacLabJobInput) {
   }
 
   const runner = normalizeRunner(input.runner);
+  const displayMode = normalizeDisplayMode(input.displayMode);
   const task = normalizeTask(input.task);
   const maxIterations = normalizeMaxIterations(input.maxIterations);
   const cpu = normalizeCpu(input.cpu);
@@ -1018,6 +1113,7 @@ export async function createIsaacLabJob(input: CreateIsaacLabJobInput) {
     name,
     image,
     runner,
+    displayMode,
     task,
     command: input.command,
     maxIterations,

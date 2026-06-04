@@ -1,15 +1,27 @@
 "use client";
 
 import {
+  AlertTriangleIcon,
   CpuIcon,
   FlaskConicalIcon,
   LoaderCircleIcon,
   PlusIcon,
   RadioTowerIcon,
   RefreshCwIcon,
+  TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import type { IDisposable } from "@xterm/xterm";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   ModuleHero,
@@ -17,6 +29,7 @@ import {
   ModuleSection,
 } from "@/app/_components/module-shell";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -58,7 +71,47 @@ type IsaacLabImageOption =
 type GpuAllocationMode = (typeof gpuAllocationModeValues)[number];
 type IsaacStationMode = "headless-webrtc" | "headless-egl";
 type IsaacLabRunner = "direct" | "rsl-rl" | "skrl" | "custom";
+type IsaacLabDisplayMode = "headless" | "webrtc";
 type IsaacTab = "station" | "lab";
+type TerminalSessionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "closed"
+  | "error";
+type TerminalSessionInfo = {
+  sessionId: string;
+  jobName: string;
+  podName: string;
+  containerName: string;
+  namespace: string;
+  nodeName: string | null;
+  startedAt: string;
+};
+type TerminalSessionEvent =
+  | {
+      type: "output";
+      data: string;
+    }
+  | {
+      type: "status";
+      status: Exclude<TerminalSessionStatus, "idle" | "error">;
+      message: string;
+    }
+  | {
+      type: "error";
+      message: string;
+    }
+  | {
+      type: "exit";
+      code: number | null;
+      signal: string | null;
+      message: string;
+    };
+type TerminalDimensions = {
+  cols: number;
+  rows: number;
+};
 
 type IsaacStationDraft = {
   name: string;
@@ -75,6 +128,7 @@ type IsaacLabDraft = {
   name: string;
   image: string;
   runner: IsaacLabRunner;
+  displayMode: IsaacLabDisplayMode;
   task: string;
   command: string;
   maxIterations: string;
@@ -86,6 +140,13 @@ type IsaacLabDraft = {
 };
 
 const STATUS_POLL_INTERVAL_MS = 5000;
+const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
+const TERMINAL_INPUT_FLUSH_MS = 16;
+const TERMINAL_RESIZE_FLUSH_MS = 120;
+const TERMINAL_CONNECTING_MESSAGE =
+  "正在通过 Kubernetes exec 进入 Isaac Lab 容器...\r\n";
+const ANSI_ESCAPE_PATTERN =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 const dialogControlClassName =
   "h-9 rounded-[10px] border-slate-200/90 bg-white/92 px-2.5 text-[13px] shadow-none";
 const selectContentClassName = "max-h-72 rounded-[10px]";
@@ -106,6 +167,7 @@ const defaultLabDraft: IsaacLabDraft = {
   name: "",
   image: "",
   runner: "rsl-rl",
+  displayMode: "headless",
   task: "Isaac-Velocity-Flat-G1-v0",
   command: "",
   maxIterations: "1000",
@@ -181,6 +243,15 @@ function modeLabel(mode: IsaacStationMode) {
   }
 }
 
+function labDisplayModeLabel(mode: IsaacLabDisplayMode) {
+  switch (mode) {
+    case "headless":
+      return "Headless";
+    case "webrtc":
+      return "WebRTC";
+  }
+}
+
 function formatTime(value: Date | string | null | undefined) {
   if (!value) return "未知";
 
@@ -210,6 +281,82 @@ function labSpecLabel(job: IsaacLabJobRow) {
     gpuCount: job.gpuCount,
     gpuMemoryGi: job.gpuMemoryGi,
   })} · ${job.cpu} CPU · ${job.memory}`;
+}
+
+function normalizeTerminalOutput(value: string) {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(/\u0007/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+}
+
+function terminalStatusLabel(status: TerminalSessionStatus) {
+  switch (status) {
+    case "connecting":
+      return "连接中";
+    case "connected":
+      return "已连接";
+    case "closed":
+      return "已断开";
+    case "error":
+      return "失败";
+    case "idle":
+      return "未连接";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseTerminalSessionEvent(data: string): TerminalSessionEvent {
+  const value = JSON.parse(data) as unknown;
+
+  if (!isRecord(value) || typeof value.type !== "string") {
+    throw new Error("Invalid terminal event");
+  }
+
+  switch (value.type) {
+    case "output":
+      if (typeof value.data !== "string") {
+        throw new Error("Invalid terminal output event");
+      }
+      return { type: "output", data: value.data };
+    case "status":
+      if (
+        value.status !== "connecting" &&
+        value.status !== "connected" &&
+        value.status !== "closed"
+      ) {
+        throw new Error("Invalid terminal status event");
+      }
+      return {
+        type: "status",
+        status: value.status,
+        message: typeof value.message === "string" ? value.message : "",
+      };
+    case "error":
+      return {
+        type: "error",
+        message:
+          typeof value.message === "string"
+            ? value.message
+            : "Isaac Lab 终端错误",
+      };
+    case "exit":
+      return {
+        type: "exit",
+        code: typeof value.code === "number" ? value.code : null,
+        signal: typeof value.signal === "string" ? value.signal : null,
+        message:
+          typeof value.message === "string"
+            ? value.message
+            : "Isaac Lab 终端已退出。",
+      };
+    default:
+      throw new Error("Unknown terminal event");
+  }
 }
 
 function Field(props: {
@@ -275,6 +422,9 @@ function StatusStrip(props: {
   const streaming = props.stations.filter((station) =>
     Boolean(station.endpoint),
   ).length;
+  const streamingLabJobs = props.labJobs.filter((job) =>
+    Boolean(job.endpoint),
+  ).length;
   const activeLabJobs = props.labJobs.filter((job) =>
     ["running", "pending"].includes(job.status),
   ).length;
@@ -292,7 +442,10 @@ function StatusStrip(props: {
         label="Lab Jobs"
         value={`${activeLabJobs}/${props.labJobs.length}`}
       />
-      <StatusItem label="WebRTC" value={`${streaming}/${runningStations}`} />
+      <StatusItem
+        label="WebRTC"
+        value={`${streaming + streamingLabJobs}/${runningStations + activeLabJobs}`}
+      />
       <StatusItem label="GPU 申请" value={String(gpuCount)} />
     </div>
   );
@@ -427,8 +580,8 @@ function StationCard(props: {
           </span>
         </div>
         <p className="mt-1 text-[11px] leading-4 text-slate-500">
-          使用 Isaac Sim WebRTC Streaming Client 连接节点 IP，不经过
-          Xvnc/软件 GL。
+          使用 Isaac Sim WebRTC Streaming Client 连接节点 IP，不经过 Xvnc/软件
+          GL。
         </p>
       </div>
 
@@ -470,8 +623,10 @@ function LabJobCard(props: {
   job: IsaacLabJobRow;
   isDeleting: boolean;
   onDelete: () => void;
+  onOpenTerminal: () => void;
 }) {
   const { job } = props;
+  const terminalAvailable = job.status === "running" && Boolean(job.podName);
 
   return (
     <article className="rounded-[10px] border border-slate-200/85 bg-white/94 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
@@ -513,6 +668,12 @@ function LabJobCard(props: {
           </p>
         </div>
         <div className="min-w-0">
+          <SurfaceLabel>显示模式</SurfaceLabel>
+          <p className="mt-0.5 truncate font-medium text-slate-950">
+            {labDisplayModeLabel(job.displayMode)}
+          </p>
+        </div>
+        <div className="min-w-0">
           <SurfaceLabel>资源规格</SurfaceLabel>
           <p className="mt-0.5 truncate font-medium text-slate-950">
             {labSpecLabel(job)}
@@ -542,7 +703,45 @@ function LabJobCard(props: {
         </p>
       </div>
 
-      <div className="mt-3 flex justify-end">
+      {job.displayMode === "webrtc" ? (
+        <div className="mt-3 rounded-[9px] border border-sky-200/85 bg-sky-50/70 px-2.5 py-2 text-[12px] leading-5 text-sky-800">
+          <div className="flex items-center gap-2">
+            <RadioTowerIcon className="size-3.5 shrink-0 text-sky-600" />
+            <span className="min-w-0 truncate">
+              TCP {job.webrtcPort} · {job.endpoint ?? "入口待分配"}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] leading-4 text-sky-700/80">
+            WebRTC 客户端连接实际 GPU 节点 IP。
+          </p>
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
+        {job.displayMode === "webrtc" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 max-w-full rounded-[8px] border-sky-200/90 bg-white px-2.5 text-[12px] text-sky-700"
+            disabled
+          >
+            <RadioTowerIcon data-icon="inline-start" />
+            <span className="min-w-0 truncate">
+              客户端连接 {job.endpoint ?? "待分配"}
+            </span>
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 rounded-[8px] border-slate-200/90 bg-white px-2.5 text-[12px] text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+          disabled={!terminalAvailable}
+          title={terminalAvailable ? undefined : "Pod 运行后才能打开 Web 终端"}
+          onClick={props.onOpenTerminal}
+        >
+          <TerminalIcon data-icon="inline-start" />
+          终端
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -562,6 +761,613 @@ function LabJobCard(props: {
         </Button>
       </div>
     </article>
+  );
+}
+
+function responseErrorMessage(response: Response, fallback: string) {
+  return response
+    .json()
+    .then((payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "error" in payload &&
+        typeof payload.error === "string"
+      ) {
+        return payload.error;
+      }
+
+      return fallback;
+    })
+    .catch(() => fallback);
+}
+
+function IsaacLabTerminalDialog(props: {
+  open: boolean;
+  job: IsaacLabJobRow | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [terminalSession, setTerminalSession] =
+    useState<TerminalSessionInfo | null>(null);
+  const [terminalStatusState, setTerminalStatusState] =
+    useState<TerminalSessionStatus>("idle");
+  const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [terminalHostElement, setTerminalHostElement] =
+    useState<HTMLDivElement | null>(null);
+  const terminalEventSourceRef = useRef<EventSource | null>(null);
+  const terminalSessionIdRef = useRef<string | null>(null);
+  const terminalStatusRef = useRef<TerminalSessionStatus>("idle");
+  const terminalStartTokenRef = useRef(0);
+  const terminalWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const terminalFitAddonRef = useRef<FitAddon | null>(null);
+  const terminalInputDisposableRef = useRef<IDisposable | null>(null);
+  const terminalResizeDisposableRef = useRef<IDisposable | null>(null);
+  const terminalResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const terminalPendingOutputRef = useRef("");
+  const terminalLastResizeRef = useRef<TerminalDimensions | null>(null);
+  const terminalResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const terminalInputBufferRef = useRef("");
+  const terminalInputSendingRef = useRef(false);
+  const terminalInputFlushTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  const setTerminalHost = useCallback((element: HTMLDivElement | null) => {
+    terminalHostRef.current = element;
+    setTerminalHostElement(element);
+  }, []);
+
+  useEffect(() => {
+    terminalStatusRef.current = terminalStatusState;
+  }, [terminalStatusState]);
+
+  function setTerminalStatus(status: TerminalSessionStatus) {
+    terminalStatusRef.current = status;
+    setTerminalStatusState(status);
+  }
+
+  function closeTerminalSession(options: { reset?: boolean } = {}) {
+    terminalStartTokenRef.current += 1;
+    terminalEventSourceRef.current?.close();
+    terminalEventSourceRef.current = null;
+    terminalWriteQueueRef.current = Promise.resolve();
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = false;
+    if (terminalInputFlushTimerRef.current) {
+      clearTimeout(terminalInputFlushTimerRef.current);
+      terminalInputFlushTimerRef.current = null;
+    }
+    if (terminalResizeTimerRef.current) {
+      clearTimeout(terminalResizeTimerRef.current);
+      terminalResizeTimerRef.current = null;
+    }
+    terminalLastResizeRef.current = null;
+
+    const sessionId = terminalSessionIdRef.current;
+    terminalSessionIdRef.current = null;
+
+    if (sessionId) {
+      void fetch(`/api/isaac/terminal-session/${sessionId}`, {
+        method: "DELETE",
+      });
+    }
+
+    if (options.reset ?? true) {
+      setTerminalSession(null);
+      setTerminalStatus("idle");
+      setTerminalError(null);
+      terminalPendingOutputRef.current = "";
+      terminalRef.current?.reset();
+    }
+  }
+
+  function appendTerminalOutput(value: string) {
+    if (terminalRef.current) {
+      terminalRef.current.write(value);
+    } else {
+      terminalPendingOutputRef.current += value;
+    }
+
+    const normalized = normalizeTerminalOutput(value);
+    if (!normalized) return;
+  }
+
+  function resetTerminalOutput(value: string) {
+    const terminal = terminalRef.current;
+    terminalPendingOutputRef.current = terminal ? "" : value;
+    terminal?.reset();
+    terminal?.write(value);
+  }
+
+  function applyTerminalEvent(
+    event: TerminalSessionEvent,
+    source: EventSource,
+  ) {
+    switch (event.type) {
+      case "output":
+        appendTerminalOutput(event.data);
+        break;
+      case "status":
+        setTerminalStatus(event.status);
+        if (event.status === "connected") {
+          setTerminalError(null);
+        }
+        if (event.status === "closed") {
+          source.close();
+          terminalEventSourceRef.current = null;
+          terminalLastResizeRef.current = null;
+        }
+        break;
+      case "error":
+        setTerminalStatus("error");
+        setTerminalError(event.message);
+        appendTerminalOutput(`\r\n${event.message}\r\n`);
+        break;
+      case "exit":
+        setTerminalStatus("closed");
+        appendTerminalOutput(`\r\n${event.message}\r\n`);
+        source.close();
+        terminalEventSourceRef.current = null;
+        terminalLastResizeRef.current = null;
+        break;
+    }
+  }
+
+  async function startTerminalLogin(job: IsaacLabJobRow) {
+    closeTerminalSession();
+    const token = terminalStartTokenRef.current + 1;
+    terminalStartTokenRef.current = token;
+    setTerminalSession(null);
+    setTerminalStatus("connecting");
+    resetTerminalOutput(TERMINAL_CONNECTING_MESSAGE);
+    terminalWriteQueueRef.current = Promise.resolve();
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = false;
+    setTerminalError(null);
+
+    try {
+      const response = await fetch("/api/isaac/terminal-session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobName: job.name }),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await responseErrorMessage(response, "Isaac Lab 终端会话创建失败。"),
+        );
+      }
+
+      const session = (await response.json()) as TerminalSessionInfo;
+      if (terminalStartTokenRef.current !== token) {
+        void fetch(`/api/isaac/terminal-session/${session.sessionId}`, {
+          method: "DELETE",
+        });
+        return;
+      }
+
+      terminalSessionIdRef.current = session.sessionId;
+      setTerminalSession(session);
+      const source = new EventSource(
+        `/api/isaac/terminal-session/${session.sessionId}/stream`,
+      );
+      terminalEventSourceRef.current = source;
+
+      source.onmessage = (event) => {
+        if (terminalSessionIdRef.current !== session.sessionId) return;
+        const eventData =
+          typeof event.data === "string" ? event.data.trim() : "";
+        if (!eventData) return;
+
+        try {
+          applyTerminalEvent(parseTerminalSessionEvent(eventData), source);
+        } catch {
+          setTerminalStatus("error");
+          setTerminalError("Isaac Lab 终端返回了无法解析的数据。");
+        }
+      };
+
+      source.onerror = () => {
+        if (terminalSessionIdRef.current !== session.sessionId) return;
+        source.close();
+        terminalEventSourceRef.current = null;
+        setTerminalStatus("error");
+        setTerminalError("Isaac Lab 终端输出流已中断。");
+      };
+    } catch (error) {
+      if (terminalStartTokenRef.current !== token) return;
+      const message =
+        error instanceof Error ? error.message : "Isaac Lab 终端登录失败。";
+      setTerminalStatus("error");
+      setTerminalError(message);
+      appendTerminalOutput(`\r\n${message}\r\n`);
+    }
+  }
+
+  async function writeTerminalData(data: string) {
+    const sessionId = terminalSessionIdRef.current;
+    if (!sessionId || terminalStatusRef.current !== "connected") return;
+
+    for (
+      let index = 0;
+      index < data.length;
+      index += TERMINAL_INPUT_CHUNK_SIZE
+    ) {
+      const chunk = data.slice(index, index + TERMINAL_INPUT_CHUNK_SIZE);
+      const response = await fetch(
+        `/api/isaac/terminal-session/${sessionId}/input`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ data: chunk }),
+        },
+      );
+
+      if (!response.ok) {
+        if (terminalSessionIdRef.current !== sessionId) return;
+        const message = await responseErrorMessage(
+          response,
+          "Isaac Lab 终端输入失败。",
+        );
+        setTerminalStatus("error");
+        setTerminalError(message);
+        appendTerminalOutput(`\r\n${message}\r\n`);
+        return;
+      }
+    }
+  }
+
+  function flushTerminalInput() {
+    if (terminalInputFlushTimerRef.current) {
+      clearTimeout(terminalInputFlushTimerRef.current);
+      terminalInputFlushTimerRef.current = null;
+    }
+
+    const data = terminalInputBufferRef.current;
+    if (!data || terminalInputSendingRef.current) return;
+
+    terminalInputBufferRef.current = "";
+    terminalInputSendingRef.current = true;
+    const write = terminalWriteQueueRef.current
+      .then(() => writeTerminalData(data))
+      .finally(() => {
+        terminalInputSendingRef.current = false;
+        if (
+          terminalInputBufferRef.current &&
+          terminalStatusRef.current === "connected"
+        ) {
+          terminalInputFlushTimerRef.current = setTimeout(
+            flushTerminalInput,
+            TERMINAL_INPUT_FLUSH_MS,
+          );
+        }
+      });
+    terminalWriteQueueRef.current = write.catch(() => undefined);
+    void terminalWriteQueueRef.current;
+  }
+
+  function queueTerminalInput(data: string) {
+    if (!data || terminalStatusRef.current !== "connected") return;
+
+    terminalInputBufferRef.current += data;
+    if (terminalInputSendingRef.current || terminalInputFlushTimerRef.current) {
+      return;
+    }
+
+    terminalInputFlushTimerRef.current = setTimeout(
+      flushTerminalInput,
+      TERMINAL_INPUT_FLUSH_MS,
+    );
+  }
+
+  async function resizeTerminalSession(dimensions: TerminalDimensions) {
+    const sessionId = terminalSessionIdRef.current;
+    if (!sessionId || terminalStatusRef.current !== "connected") return;
+
+    await fetch(`/api/isaac/terminal-session/${sessionId}/resize`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(dimensions),
+    }).catch(() => undefined);
+  }
+
+  function queueTerminalResize(dimensions: TerminalDimensions) {
+    if (
+      !terminalSessionIdRef.current ||
+      terminalStatusRef.current !== "connected"
+    ) {
+      terminalLastResizeRef.current = null;
+      return;
+    }
+
+    const next = {
+      cols: Math.max(20, Math.min(400, Math.floor(dimensions.cols))),
+      rows: Math.max(5, Math.min(200, Math.floor(dimensions.rows))),
+    };
+    const previous = terminalLastResizeRef.current;
+    if (previous?.cols === next.cols && previous.rows === next.rows) return;
+
+    terminalLastResizeRef.current = next;
+
+    if (terminalResizeTimerRef.current) {
+      clearTimeout(terminalResizeTimerRef.current);
+    }
+
+    terminalResizeTimerRef.current = setTimeout(() => {
+      terminalResizeTimerRef.current = null;
+      void resizeTerminalSession(next);
+    }, TERMINAL_RESIZE_FLUSH_MS);
+  }
+
+  useEffect(() => {
+    if (!props.open || !props.job) return;
+    void startTerminalLogin(props.job);
+
+    return () => {
+      closeTerminalSession();
+    };
+    // Terminal callbacks intentionally read refs; re-running would reset the active shell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open, props.job?.id]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    if (!terminalHostElement || terminalRef.current) return;
+
+    const terminal = new Terminal({
+      convertEol: true,
+      cursorBlink: true,
+      cursorInactiveStyle: "outline",
+      cursorStyle: "block",
+      disableStdin: terminalStatusRef.current !== "connected",
+      fontFamily:
+        "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 13,
+      lineHeight: 1.4,
+      minimumContrastRatio: 4.5,
+      scrollback: 5000,
+      theme: {
+        background: "#020617",
+        foreground: "#e2e8f0",
+        cursor: "#38bdf8",
+        cursorAccent: "#020617",
+        selectionBackground: "#334155",
+        selectionInactiveBackground: "#1e293b",
+        black: "#0f172a",
+        red: "#fb7185",
+        green: "#34d399",
+        yellow: "#fbbf24",
+        blue: "#60a5fa",
+        magenta: "#c084fc",
+        cyan: "#22d3ee",
+        white: "#e2e8f0",
+        brightBlack: "#64748b",
+        brightRed: "#fda4af",
+        brightGreen: "#86efac",
+        brightYellow: "#fde68a",
+        brightBlue: "#93c5fd",
+        brightMagenta: "#d8b4fe",
+        brightCyan: "#67e8f9",
+        brightWhite: "#f8fafc",
+      },
+    });
+    const fitAddon = new FitAddon();
+
+    terminal.loadAddon(fitAddon);
+    terminal.open(terminalHostElement);
+    terminalRef.current = terminal;
+    terminalFitAddonRef.current = fitAddon;
+    terminalInputDisposableRef.current = terminal.onData(queueTerminalInput);
+    terminalResizeDisposableRef.current = terminal.onResize((dimensions) => {
+      queueTerminalResize(dimensions);
+    });
+
+    const fitTerminal = () => {
+      try {
+        fitAddon.fit();
+        queueTerminalResize({ cols: terminal.cols, rows: terminal.rows });
+      } catch {
+        // The xterm viewport can briefly have no measurable size during dialog transitions.
+      }
+    };
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      fitTerminal();
+      terminal.focus();
+      if (terminalPendingOutputRef.current) {
+        terminal.write(terminalPendingOutputRef.current);
+        terminalPendingOutputRef.current = "";
+      }
+    });
+
+    terminalResizeObserverRef.current = new ResizeObserver(() => {
+      window.requestAnimationFrame(fitTerminal);
+    });
+    terminalResizeObserverRef.current.observe(terminalHostElement);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      terminalInputDisposableRef.current?.dispose();
+      terminalInputDisposableRef.current = null;
+      terminalResizeDisposableRef.current?.dispose();
+      terminalResizeDisposableRef.current = null;
+      terminalResizeObserverRef.current?.disconnect();
+      terminalResizeObserverRef.current = null;
+      terminalFitAddonRef.current?.dispose();
+      terminalFitAddonRef.current = null;
+      terminal.dispose();
+      terminalRef.current = null;
+      terminalLastResizeRef.current = null;
+    };
+    // Terminal callbacks intentionally read refs; re-running would reset the active shell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open, terminalHostElement]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    terminal.options.disableStdin = terminalStatusState !== "connected";
+    if (terminalStatusState === "connected") {
+      terminal.focus();
+      terminalLastResizeRef.current = null;
+      queueTerminalResize({ cols: terminal.cols, rows: terminal.rows });
+    }
+    // Terminal callbacks intentionally read refs; re-running would reset the active shell.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalStatusState]);
+
+  useEffect(() => {
+    return () => {
+      terminalStartTokenRef.current += 1;
+      terminalEventSourceRef.current?.close();
+      if (terminalInputFlushTimerRef.current) {
+        clearTimeout(terminalInputFlushTimerRef.current);
+      }
+      if (terminalResizeTimerRef.current) {
+        clearTimeout(terminalResizeTimerRef.current);
+      }
+      const sessionId = terminalSessionIdRef.current;
+      if (sessionId) {
+        void fetch(`/api/isaac/terminal-session/${sessionId}`, {
+          method: "DELETE",
+        });
+      }
+    };
+  }, []);
+
+  const terminalTarget =
+    terminalSession?.podName ?? props.job?.podName ?? "等待 Pod";
+  const terminalStatusFailed = terminalStatusState === "error";
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] min-h-[min(760px,calc(100dvh-1.5rem))] flex-col overflow-hidden border-slate-200/85 bg-white p-0 shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-5xl">
+        <DialogHeader className="shrink-0 border-b border-slate-200/85 px-4 py-3 text-left">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
+                  Web Terminal
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-slate-200/90 bg-white"
+                >
+                  Kubernetes exec
+                </Badge>
+              </div>
+              <DialogTitle className="truncate">
+                Isaac Lab 终端 · {props.job?.name ?? "-"}
+              </DialogTitle>
+              <DialogDescription className="mt-1">
+                进入运行中的 Isaac Lab 容器，手动查看日志、运行命令或启动实验。
+              </DialogDescription>
+            </div>
+            <Badge
+              className={cn(
+                "shrink-0 border text-xs",
+                terminalStatusState === "connected"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : terminalStatusFailed
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : "border-slate-200 bg-slate-50 text-slate-700",
+              )}
+            >
+              {terminalStatusState === "connecting" ? (
+                <LoaderCircleIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : null}
+              {terminalStatusLabel(terminalStatusState)}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="grid shrink-0 overflow-hidden border-b border-slate-200 bg-slate-200 text-sm md:grid-cols-4">
+          <div className="bg-white px-3 py-2.5">
+            <SurfaceLabel>Job</SurfaceLabel>
+            <p className="mt-1 truncate font-medium text-slate-950">
+              {props.job?.name ?? "-"}
+            </p>
+          </div>
+          <div className="bg-white px-3 py-2.5">
+            <SurfaceLabel>Pod</SurfaceLabel>
+            <p className="mt-1 truncate font-mono text-[12px] text-slate-900">
+              {terminalTarget}
+            </p>
+          </div>
+          <div className="bg-white px-3 py-2.5">
+            <SurfaceLabel>容器</SurfaceLabel>
+            <p className="mt-1 truncate font-mono text-[12px] text-slate-900">
+              {terminalSession?.containerName ?? "isaac-lab"}
+            </p>
+          </div>
+          <div className="bg-white px-3 py-2.5">
+            <SurfaceLabel>节点</SurfaceLabel>
+            <p className="mt-1 truncate font-mono text-[12px] text-slate-900">
+              {terminalSession?.nodeName ?? props.job?.nodeName ?? "-"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-3 bg-slate-50/70 p-3">
+          {terminalError ? (
+            <Alert className="shrink-0 border-rose-200 bg-rose-50 text-rose-900">
+              <AlertTriangleIcon className="size-4" />
+              <AlertTitle>终端连接异常</AlertTitle>
+              <AlertDescription>{terminalError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="flex shrink-0 gap-1.5">
+                  <span className="size-2 rounded-full bg-rose-400" />
+                  <span className="size-2 rounded-full bg-amber-300" />
+                  <span className="size-2 rounded-full bg-emerald-400" />
+                </span>
+                <span className="truncate font-mono text-xs text-slate-300">
+                  kubectl exec -n {terminalSession?.namespace ?? "remote-work"}{" "}
+                  {terminalTarget}
+                </span>
+              </div>
+              <span className="hidden shrink-0 font-mono text-[11px] text-slate-500 sm:inline">
+                bash
+              </span>
+            </div>
+            <div
+              onClick={() => terminalRef.current?.focus()}
+              className="relative min-h-0 flex-1 overflow-hidden focus-within:ring-2 focus-within:ring-sky-500/70 focus-within:ring-inset"
+            >
+              <div
+                ref={setTerminalHost}
+                aria-label="Isaac Lab Web 终端"
+                role="application"
+                className={cn(
+                  "h-full w-full cursor-text bg-slate-950 px-3 py-3 text-slate-100",
+                  "[&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto [&_.xterm-viewport]:[scrollbar-color:rgba(148,163,184,0.55)_transparent]",
+                )}
+              />
+            </div>
+          </div>
+
+          <div className="shrink-0 rounded-[10px] border border-slate-200/90 bg-white px-3 py-2 text-[12px] leading-5 text-slate-600">
+            需要自由跑任务时，可提交 Custom Lab Job 使用{" "}
+            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono">
+              sleep infinity
+            </code>{" "}
+            保持 Pod 在线，然后在这里手动执行 Isaac Lab 命令。
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -767,7 +1573,7 @@ function IsaacStationDialog(props: {
                   if (!value) return;
                   props.onDraftChange((current) => ({
                     ...current,
-                    mode: value,
+                    mode: value as IsaacStationMode,
                   }));
                 }}
               >
@@ -869,12 +1675,12 @@ function IsaacLabDialog(props: {
           </div>
           <DialogTitle>创建 Isaac Lab Job</DialogTitle>
           <DialogDescription>
-            提交一个 Isaac Lab headless 训练或实验任务，使用 K8s GPU Job 执行。
+            提交 Isaac Lab 训练或实验任务，可选择纯 headless 或 WebRTC 可视化。
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
-          <div className="grid gap-3 md:grid-cols-[1fr_0.8fr]">
+          <div className="grid gap-3 md:grid-cols-[1fr_0.75fr_0.75fr]">
             <Field label="Job 名称">
               <Input
                 className={dialogControlClassName}
@@ -895,7 +1701,7 @@ function IsaacLabDialog(props: {
                   if (!value) return;
                   props.onDraftChange((current) => ({
                     ...current,
-                    runner: value,
+                    runner: value as IsaacLabRunner,
                   }));
                 }}
               >
@@ -915,6 +1721,35 @@ function IsaacLabDialog(props: {
                         </SelectItem>
                       ),
                     )}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="显示模式">
+              <Select
+                value={props.draft.displayMode}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    displayMode: value as IsaacLabDisplayMode,
+                  }));
+                }}
+              >
+                <SelectTrigger className={dialogControlClassName}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-[10px]">
+                  <SelectGroup>
+                    <SelectItem
+                      value="headless"
+                      className={selectItemClassName}
+                    >
+                      Headless
+                    </SelectItem>
+                    <SelectItem value="webrtc" className={selectItemClassName}>
+                      WebRTC
+                    </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -988,7 +1823,7 @@ function IsaacLabDialog(props: {
           {props.draft.runner === "custom" ? (
             <Field
               label="启动命令"
-              hint="Custom runner 会直接执行这段 shell；平台可注入 GITLAB_TOKEN 用于 clone 私有仓库。"
+              hint="Custom runner 会直接执行这段 shell；WebRTC 模式只负责暴露端口，命令参数由你控制。"
             >
               <Textarea
                 className="min-h-28 rounded-[10px] border-slate-200/90 bg-white/92 px-2.5 py-2 font-mono text-[12px] shadow-none"
@@ -999,7 +1834,7 @@ function IsaacLabDialog(props: {
                     command: event.target.value,
                   }))
                 }
-                placeholder="./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Velocity-Flat-G1-v0 --headless --max_iterations 1000"
+                placeholder="cd /shared-dist-storage/my-isaac-train && /workspace/isaaclab/isaaclab.sh -p train.py --task Isaac-Velocity-Flat-G1-v0 --livestream 2 --max_iterations 1000"
               />
             </Field>
           ) : null}
@@ -1036,10 +1871,8 @@ function IsaacLabDialog(props: {
           <GpuFields draft={props.draft} onDraftChange={props.onDraftChange} />
 
           <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/80 px-3 py-2.5 text-[12px] leading-5 text-slate-600">
-            默认命令会使用 `./isaaclab.sh -p ... --headless`；Custom runner 可先
-            clone GitLab
-            代码再训练。输出目录挂载到共享工作目录，适合后续接入日志、checkpoint
-            和 TensorBoard。
+            Headless 会追加 `--headless`；WebRTC 会追加 `--livestream 2` 并使用
+            GPU 节点网络暴露 8011 端口。Custom runner 直接执行你填写的命令。
           </div>
         </div>
 
@@ -1095,6 +1928,7 @@ export function IsaacShell() {
   const [activeTab, setActiveTab] = useState<IsaacTab>("station");
   const [isStationCreateOpen, setIsStationCreateOpen] = useState(false);
   const [isLabCreateOpen, setIsLabCreateOpen] = useState(false);
+  const [terminalJob, setTerminalJob] = useState<IsaacLabJobRow | null>(null);
   const [pendingDeletedStationNames, setPendingDeletedStationNames] = useState<
     string[]
   >([]);
@@ -1156,6 +1990,7 @@ export function IsaacShell() {
       setLabDraft((current) => ({
         ...defaultLabDraft,
         image: current.image,
+        displayMode: current.displayMode,
       }));
     },
     onError: (error) => notifyError(error.message),
@@ -1352,6 +2187,7 @@ export function IsaacShell() {
       name: labDraft.name,
       image: labDraft.image,
       runner: labDraft.runner,
+      displayMode: labDraft.displayMode,
       task: labDraft.task.trim(),
       command: labDraft.runner === "custom" ? labDraft.command : null,
       maxIterations: parsedMaxIterations,
@@ -1610,7 +2446,7 @@ export function IsaacShell() {
       ) : (
         <ModuleSection
           title="Lab Jobs"
-          description="提交和查看 Isaac Lab headless 训练、benchmark 与批量实验任务。"
+          description="提交和查看 Isaac Lab 训练、benchmark 与批量实验任务，可选 headless 或 WebRTC。"
           className="border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]"
           action={
             <Badge
@@ -1654,6 +2490,7 @@ export function IsaacShell() {
                     (deleteLabJob.isPending &&
                       deleteLabJob.variables?.name === job.name)
                   }
+                  onOpenTerminal={() => setTerminalJob(job)}
                   onDelete={() => void handleDeleteLabJob(job.name)}
                 />
               ))}
@@ -1692,6 +2529,14 @@ export function IsaacShell() {
         onOpenChange={setIsLabCreateOpen}
         onDraftChange={(updater) => setLabDraft((current) => updater(current))}
         onSubmit={() => void handleCreateLabJob()}
+      />
+
+      <IsaacLabTerminalDialog
+        open={Boolean(terminalJob)}
+        job={terminalJob}
+        onOpenChange={(open) => {
+          if (!open) setTerminalJob(null);
+        }}
       />
 
       {confirmDialog}

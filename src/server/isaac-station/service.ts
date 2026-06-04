@@ -21,6 +21,7 @@ import { db } from "@/server/db";
 import {
   buildHamiGpuResources,
   buildHamiSchedulerSpec,
+  buildNvidiaDirectRuntimeEnv,
   buildNvidiaDesktopRuntimeEnv,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
@@ -59,6 +60,10 @@ const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_ISAAC_STATION_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
+const HAMI_WEBHOOK_LABEL_KEY = "hami.io/webhook";
+const HAMI_WEBHOOK_IGNORE_VALUE = "ignore";
+const NVIDIA_DRIVER_HOST_VOLUME_NAME = "nvidia-driver-libs";
+const NVIDIA_DRIVER_HOST_MOUNT_PATH = "/host-nvidia-libs";
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
   return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
@@ -98,6 +103,7 @@ type IsaacStationResources = {
 };
 
 type IsaacStationLaunchMode = "headless-webrtc" | "headless-egl";
+type IsaacStationGpuRuntimeMode = "hami" | "nvidia";
 
 export type IsaacStationItem = {
   id: string;
@@ -401,7 +407,7 @@ function isGpuCapable(
   );
 }
 
-function assertStationSchedulable(params: {
+function selectStationNode(params: {
   configNodes: ClusterNode[];
   liveNodes: V1Node[];
   requestedGpuSpec: GpuAllocationSpec;
@@ -447,6 +453,8 @@ function assertStationSchedulable(params: {
   if (preferred.length === 0) {
     throw new Error("没有找到满足 Isaac GPU 需求的 Ready worker 节点。");
   }
+
+  return preferred[0]?.node.name ?? null;
 }
 
 function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
@@ -469,6 +477,35 @@ function resolveNodeIp(configNodes: ClusterNode[], liveNode?: V1Node | null) {
 function buildEndpoint(params: { nodeIp?: string | null; port: number }) {
   if (!params.nodeIp) return null;
   return `${params.nodeIp}:${params.port}`;
+}
+
+function parseStationGpuAnnotation(
+  annotations?: Record<string, string> | null,
+) {
+  const gpuAllocationMode = annotations?.["cola.isaac/gpu-allocation-mode"];
+  if (gpuAllocationMode !== "whole" && gpuAllocationMode !== "memory") {
+    return null;
+  }
+
+  const gpuCount = Number(annotations?.["cola.isaac/gpu-count"] ?? 0);
+  if (!Number.isInteger(gpuCount) || gpuCount < 0) return null;
+
+  if (gpuAllocationMode === "whole") {
+    return {
+      gpuAllocationMode,
+      gpuCount,
+      gpuMemoryGi: null,
+    } satisfies GpuAllocationSpec;
+  }
+
+  const gpuMemoryGi = Number(annotations?.["cola.isaac/gpu-memory-gi"] ?? 0);
+  if (!Number.isInteger(gpuMemoryGi) || gpuMemoryGi <= 0) return null;
+
+  return {
+    gpuAllocationMode,
+    gpuCount,
+    gpuMemoryGi,
+  } satisfies GpuAllocationSpec;
 }
 
 function deploymentStatus(deployment: V1Deployment) {
@@ -590,10 +627,63 @@ function resolveRuntimeClassName() {
 
 function resolveGpuRuntimeMode() {
   const configured = process.env.COLA_ISAAC_STATION_GPU_RUNTIME?.trim();
-  return configured === "nvidia" ? "nvidia" : "hami";
+  return configured === "hami" ? "hami" : "nvidia";
 }
 
-function buildIsaacCommand(input: { workdir: string }) {
+function resolveNvidiaDriverHostPath() {
+  const configured =
+    process.env.COLA_ISAAC_STATION_NVIDIA_DRIVER_HOST_PATH?.trim() ??
+    process.env.COLA_NVIDIA_DRIVER_HOST_PATH?.trim();
+
+  return configured && configured.length > 0 ? configured : null;
+}
+
+function buildNvidiaDriverHostSetupCommand(enabled: boolean) {
+  if (!enabled) return null;
+
+  return [
+    `if [ -d ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)} ]; then`,
+    "  mkdir -p /tmp/cola-nvidia-lib /tmp/cola-vulkan-icd /tmp/cola-egl-vendors",
+    `  ln -sfn ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/lib*.so* /tmp/cola-nvidia-lib/ 2>/dev/null || true`,
+    "  link_first() {",
+    '    local target="$1"',
+    "    shift",
+    "    local candidate",
+    '    for candidate in "$@"; do',
+    '      if [ -e "$candidate" ]; then',
+    '        ln -sfn "$candidate" "/tmp/cola-nvidia-lib/$target"',
+    "        return 0",
+    "      fi",
+    "    done",
+    "    return 0",
+    "  }",
+    `  link_first libGL.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGL.so.1.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGL.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGL.so`,
+    `  link_first libEGL.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libEGL.so.1.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libEGL.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libEGL.so`,
+    `  link_first libGLESv1_CM.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv1_CM.so.1.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv1_CM.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv1_CM.so`,
+    `  link_first libGLESv2.so.2 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv2.so.2.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv2.so.2 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv2.so`,
+    `  link_first libGLX_nvidia.so.0 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLX_nvidia.so.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLX_nvidia.so.0`,
+    `  link_first libEGL_nvidia.so.0 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libEGL_nvidia.so.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libEGL_nvidia.so.0`,
+    `  link_first libGLESv1_CM_nvidia.so.1 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv1_CM_nvidia.so.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv1_CM_nvidia.so.1`,
+    `  link_first libGLESv2_nvidia.so.2 ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv2_nvidia.so.* ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/libGLESv2_nvidia.so.2`,
+    `  if [ -f ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/nvidia_icd.json ]; then`,
+    `    cp ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/nvidia_icd.json /tmp/cola-vulkan-icd/nvidia_icd.json`,
+    "    export VK_ICD_FILENAMES=/tmp/cola-vulkan-icd/nvidia_icd.json",
+    "    export VK_DRIVER_FILES=/tmp/cola-vulkan-icd/nvidia_icd.json",
+    "  fi",
+    `  if [ -f ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/10_nvidia.json ]; then`,
+    `    cp ${shellQuote(NVIDIA_DRIVER_HOST_MOUNT_PATH)}/10_nvidia.json /tmp/cola-egl-vendors/10_nvidia.json`,
+    "    export __EGL_VENDOR_LIBRARY_FILENAMES=/tmp/cola-egl-vendors/10_nvidia.json",
+    "  fi",
+    '  export LD_LIBRARY_PATH="/tmp/cola-nvidia-lib:${LD_LIBRARY_PATH:-}"',
+    "fi",
+  ].join("\n");
+}
+
+function buildIsaacCommand(input: {
+  workdir: string;
+  gpuRuntimeMode: IsaacStationGpuRuntimeMode;
+  nvidiaDriverHostPath: string | null;
+}) {
   const customCommand = process.env.COLA_ISAAC_STATION_COMMAND?.trim();
   if (customCommand) return customCommand;
 
@@ -601,12 +691,22 @@ function buildIsaacCommand(input: { workdir: string }) {
     process.env.COLA_ISAAC_STATION_EXECUTABLE?.trim() ??
     "/isaac-sim/runheadless.sh";
   const extraArgs = process.env.COLA_ISAAC_STATION_EXTRA_ARGS?.trim() ?? "";
+  const nvidiaDriverSetup = buildNvidiaDriverHostSetupCommand(
+    input.gpuRuntimeMode === "nvidia" && Boolean(input.nvidiaDriverHostPath),
+  );
 
   return [
     "set -euo pipefail",
     `mkdir -p ${shellQuote(input.workdir)}/cache ${shellQuote(input.workdir)}/logs ${shellQuote(input.workdir)}/data`,
     "export ACCEPT_EULA=${ACCEPT_EULA:-Y}",
     "export PRIVACY_CONSENT=${PRIVACY_CONSENT:-Y}",
+    ...(input.gpuRuntimeMode === "nvidia"
+      ? [
+          "export NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}",
+          "export NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}",
+        ]
+      : []),
+    ...(nvidiaDriverSetup ? [nvidiaDriverSetup] : []),
     `export ISAAC_STATION_WORKDIR=${shellQuote(input.workdir)}`,
     `exec ${executable} ${extraArgs}`.trim(),
   ].join("\n");
@@ -625,6 +725,7 @@ function buildStationDeployment(input: {
   gpuCount: number;
   gpuMemoryGi: number | null;
   mode: IsaacStationLaunchMode;
+  nodeName?: string | null;
   ownerUserId?: string;
 }) {
   const labels = stationSelector(input.name);
@@ -634,13 +735,53 @@ function buildStationDeployment(input: {
     gpuCount: input.gpuCount,
     gpuMemoryGi: input.gpuMemoryGi,
   } satisfies GpuAllocationSpec;
-  const gpuResources = buildHamiGpuResources(gpuSpec);
   const workVolume = resolveWorkVolume();
   const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
   const gpuRuntimeMode = resolveGpuRuntimeMode();
+  const usesNvidiaDirectRuntime = gpuRuntimeMode === "nvidia";
+  const nvidiaDriverHostPath = resolveNvidiaDriverHostPath();
+  const gpuResources = usesNvidiaDirectRuntime
+    ? {}
+    : buildHamiGpuResources(gpuSpec);
+  const gpuEnv = usesNvidiaDirectRuntime
+    ? buildNvidiaDirectRuntimeEnv(gpuSpec)
+    : buildNvidiaDesktopRuntimeEnv(gpuSpec);
   const schedulerSpec =
     gpuRuntimeMode === "hami" ? buildHamiSchedulerSpec(gpuSpec) : {};
+  const gpuAnnotations = {
+    "cola.isaac/gpu-runtime": gpuRuntimeMode,
+    "cola.isaac/gpu-allocation-mode": input.gpuAllocationMode,
+    "cola.isaac/gpu-count": String(input.gpuCount),
+    ...(input.gpuMemoryGi === null
+      ? {}
+      : { "cola.isaac/gpu-memory-gi": String(input.gpuMemoryGi) }),
+  };
+  const nvidiaRuntimeLabels: Record<string, string> = usesNvidiaDirectRuntime
+    ? { [HAMI_WEBHOOK_LABEL_KEY]: HAMI_WEBHOOK_IGNORE_VALUE }
+    : {};
+  const nvidiaDriverVolume =
+    usesNvidiaDirectRuntime && nvidiaDriverHostPath
+      ? [
+          {
+            name: NVIDIA_DRIVER_HOST_VOLUME_NAME,
+            hostPath: {
+              path: nvidiaDriverHostPath,
+              type: "Directory",
+            },
+          },
+        ]
+      : [];
+  const nvidiaDriverVolumeMount =
+    usesNvidiaDirectRuntime && nvidiaDriverHostPath
+      ? [
+          {
+            name: NVIDIA_DRIVER_HOST_VOLUME_NAME,
+            mountPath: NVIDIA_DRIVER_HOST_MOUNT_PATH,
+            readOnly: true,
+          },
+        ]
+      : [];
 
   return {
     apiVersion: "apps/v1",
@@ -652,6 +793,7 @@ function buildStationDeployment(input: {
         ...ownerLabels,
         "cola.isaac/title": input.name,
         "cola.isaac/mode": input.mode,
+        ...gpuAnnotations,
       },
     },
     spec: {
@@ -666,10 +808,11 @@ function buildStationDeployment(input: {
       },
       template: {
         metadata: {
-          labels: { ...labels, ...ownerLabels },
+          labels: { ...labels, ...ownerLabels, ...nvidiaRuntimeLabels },
           annotations: {
             ...ownerLabels,
             "cola.isaac/mode": input.mode,
+            ...gpuAnnotations,
           },
         },
         spec: {
@@ -680,6 +823,9 @@ function buildStationDeployment(input: {
               : "ClusterFirst",
           ...(runtimeClassName ? { runtimeClassName } : {}),
           ...schedulerSpec,
+          ...(usesNvidiaDirectRuntime && input.nodeName
+            ? { nodeName: input.nodeName }
+            : {}),
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
@@ -693,7 +839,11 @@ function buildStationDeployment(input: {
               args: [
                 buildWorkVolumeShellCommand(
                   workVolume,
-                  buildIsaacCommand({ workdir: mountPath }),
+                  buildIsaacCommand({
+                    workdir: mountPath,
+                    gpuRuntimeMode,
+                    nvidiaDriverHostPath,
+                  }),
                 ),
               ],
               ports: [
@@ -716,7 +866,7 @@ function buildStationDeployment(input: {
                   name: "COLA_ISAAC_STATION_WORKDIR",
                   value: mountPath,
                 },
-                ...buildNvidiaDesktopRuntimeEnv(gpuSpec),
+                ...gpuEnv,
                 ...buildWorkVolumeEnv(workVolume),
               ],
               resources: {
@@ -730,11 +880,14 @@ function buildStationDeployment(input: {
                   ...gpuResources,
                 },
               },
-              volumeMounts: buildWorkVolumeMounts(workVolume),
+              volumeMounts: [
+                ...buildWorkVolumeMounts(workVolume),
+                ...nvidiaDriverVolumeMount,
+              ],
               securityContext: buildWorkVolumeSecurityContext(workVolume),
             },
           ],
-          volumes: buildWorkVolumes(workVolume),
+          volumes: [...buildWorkVolumes(workVolume), ...nvidiaDriverVolume],
         },
       },
     },
@@ -822,7 +975,12 @@ function stationItemFromDeployment(input: {
   const container = input.deployment.spec?.template.spec?.containers?.[0];
   const resources =
     container?.resources?.limits ?? container?.resources?.requests;
-  const gpu = parseGpuAllocationFromResources(resources);
+  const gpu =
+    parseStationGpuAnnotation(input.deployment.metadata?.annotations) ??
+    parseStationGpuAnnotation(
+      input.deployment.spec?.template.metadata?.annotations,
+    ) ??
+    parseGpuAllocationFromResources(resources);
   const ownerUserId =
     input.deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
     input.deployment.metadata?.labels?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -990,7 +1148,7 @@ export async function createIsaacStation(input: CreateIsaacStationInput) {
     throw new Error(`Isaac Station ${name} 已存在。`);
   }
 
-  assertStationSchedulable({
+  const nodeName = selectStationNode({
     configNodes: ctx.nodes,
     liveNodes: resources.liveNodes,
     requestedGpuSpec: gpu,
@@ -1007,6 +1165,7 @@ export async function createIsaacStation(input: CreateIsaacStationInput) {
     gpuCount: gpu.gpuCount,
     gpuMemoryGi: gpu.gpuMemoryGi,
     mode,
+    nodeName,
     ownerUserId: input.ownerUserId,
   });
   const service = buildStationService({

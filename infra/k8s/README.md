@@ -156,9 +156,9 @@ demo.launch(server_name="0.0.0.0", server_port=7860)
 
 - `Headless WebRTC`：Pod 申请 GPU、启用 `runtimeClassName: nvidia`，使用 `hostNetwork` 暴露 Isaac streaming，客户端连接实际 GPU 节点 IP。
 - `Headless EGL`：只运行 headless 仿真，不暴露浏览器画面入口，适合批量仿真、数据生成和脚本验证。
-- `Lab Jobs`：创建 Kubernetes Job 跑 Isaac Lab headless 训练或实验任务，默认使用 Isaac Lab 镜像、共享工作目录和 HAMi/NVIDIA GPU 调度。
+- `Lab Jobs`：创建 Kubernetes Job 跑 Isaac Lab 训练或实验任务，默认使用 Isaac Lab 镜像、共享工作目录和 HAMi/NVIDIA GPU 调度；可在创建时选择 `Headless` 或 `WebRTC`。
 
-WebRTC 模式默认客户端端点：
+Isaac Station 和 Isaac Lab WebRTC 模式默认客户端端点：
 
 ```text
 TCP 8011
@@ -166,11 +166,16 @@ TCP 8011
 
 该入口使用 GPU 节点网络，不走普通 NodePort。需要确认安全组、防火墙和云桌面网络允许访问对应节点 IP 的 `8011/TCP`。Isaac Sim 5.0.0 容器暴露的是 `/v1/streaming/*` 服务 API，不内置旧版 `/streaming/webrtc-client` 浏览器页面；需要用 Isaac Sim WebRTC Streaming Client 连接节点 IP 和端口。
 
+Isaac Lab Job 选择 `Headless` 时平台默认追加 `--headless`；选择 `WebRTC` 时平台默认追加 `--livestream 2`，并为 Job Pod 启用 `hostNetwork`，客户端同样连接实际 GPU 节点 IP 的 `8011/TCP`。`Custom runner` 会直接执行用户填写的命令，平台只负责 WebRTC 网络暴露，命令里是否传 `--livestream` 由用户自己控制。
+
 常用环境变量：
 
 ```text
 COLA_ISAAC_STATION_IMAGE=nvcr.io/nvidia/isaac-sim:5.0.0
-COLA_ISAAC_STATION_IMAGES=registry.local/isaac-sim:5.0.0,registry.local/isaac-sim:4.5.0
+COLA_ISAAC_STATION_IMAGES=nvcr.io/nvidia/isaac-sim:5.0.0,nvcr.io/nvidia/isaac-sim:4.5.0
+COLA_ISAAC_STATION_GPU_RUNTIME=nvidia
+COLA_ISAAC_STATION_RUNTIME_CLASS_NAME=nvidia
+COLA_ISAAC_STATION_NVIDIA_DRIVER_HOST_PATH=/tmp/cola-nvidia-run-570.211.01/NVIDIA-Linux-x86_64-570.211.01
 COLA_ISAAC_STATION_COMMAND=<自定义 Isaac 启动命令>
 COLA_ISAAC_STATION_EXTRA_ARGS=<附加 Isaac 参数>
 COLA_ISAAC_STATION_SEAWEEDFS_MOUNT_ENABLED=false
@@ -178,6 +183,11 @@ COLA_ISAAC_STATION_WORKDIR_HOST_PATH=/var/lib/remote-work/isaac-station
 COLA_ISAAC_STATION_WORKDIR_MOUNT_PATH=/shared-dist-storage
 COLA_ISAAC_STATION_PVC_NAME=<可选 PVC>
 ```
+
+Isaac Station 默认使用官方 Isaac Sim 镜像和节点的 `nvidia` runtime，不再为 Isaac Sim 自行构建镜像。
+如果 GPU 节点没有通过系统包或 NVIDIA runfile 安装匹配驱动版本的 GL/EGL/Vulkan/OptiX 用户态库，
+可以把官方 NVIDIA runfile 的解压目录配置到 `COLA_ISAAC_STATION_NVIDIA_DRIVER_HOST_PATH`。该目录必须和节点内核驱动版本一致，
+例如节点 `nvidia-smi` 显示 `570.211.01` 时使用同版本 runfile 解压目录。
 
 当前 Isaac Sim 镜像内的 `fusermount` 可能和节点侧 `fusermount3` 存在 glibc 版本不匹配。遇到 `GLIBC_2.38 not found` 时，先将 `COLA_ISAAC_STATION_SEAWEEDFS_MOUNT_ENABLED=false`，让 Isaac Station 使用节点 `hostPath` 工作目录；已有 Pod 需要删除并重新创建。
 
@@ -187,7 +197,11 @@ Isaac Lab Job 常用环境变量：
 COLA_ISAAC_LAB_IMAGE=nvcr.io/nvidia/isaac-lab:2.2.0
 COLA_ISAAC_LAB_IMAGES=registry.local/isaac-lab:2.3.2,registry.local/isaac-lab:2.2.0
 COLA_ISAAC_LAB_EXTRA_ARGS=<附加训练参数>
+COLA_ISAAC_LAB_ROOT=/workspace/isaaclab
+COLA_ISAAC_LAB_EXECUTABLE='${ISAACLAB_PATH:-/workspace/isaaclab}/isaaclab.sh'
 COLA_ISAAC_LAB_RUNTIME_CLASS_NAME=nvidia
+COLA_ISAAC_LAB_SEAWEEDFS_MOUNT_ENABLED=false
+COLA_ISAAC_LAB_WORKDIR_HOST_PATH=/var/lib/remote-work/isaac-lab
 COLA_ISAAC_LAB_WORKDIR_MOUNT_PATH=/shared-dist-storage
 COLA_ISAAC_LAB_PVC_NAME=<可选 PVC>
 COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_NAME=isaac-gitlab-token
@@ -203,6 +217,7 @@ kubectl -n remote-work create secret generic isaac-gitlab-token \
 ```
 
 然后在 `Lab Jobs` 里选择 `Runner = custom`，启动命令里使用 `${GITLAB_TOKEN}` clone 仓库，再执行训练脚本。
+默认 runner 会在镜像内 Isaac Lab 根目录 `/workspace/isaaclab` 执行，输出目录仍挂载到 `/shared-dist-storage`。
 
 Isaac 的验收重点不是 `DISPLAY=:1 glxinfo -B`，而是 Pod 内 `nvidia-smi`、Vulkan/EGL 用户态、Isaac headless 启动日志、WebRTC 客户端连接，以及 Isaac Lab Job 的 Pod phase、训练日志和输出目录是否正常。
 

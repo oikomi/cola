@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildHamiGpuResources,
   buildHamiSchedulerSpec,
+  buildNvidiaDirectRuntimeEnv,
   buildNvidiaDesktopRuntimeEnv,
   normalizeGpuAllocation,
   parseGpuAllocationFromResources,
@@ -91,6 +92,28 @@ void test("GPU desktop runtime env exposes NVIDIA graphics capabilities", () => 
       gpuMemoryGi: null,
     }),
     [
+      { name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" },
+      {
+        name: "VK_ICD_FILENAMES",
+        value: "/etc/vulkan/icd.d/nvidia_icd.json",
+      },
+      {
+        name: "VK_DRIVER_FILES",
+        value: "/etc/vulkan/icd.d/nvidia_icd.json",
+      },
+    ],
+  );
+});
+
+void test("direct NVIDIA runtime env exposes all runtime devices", () => {
+  assert.deepEqual(
+    buildNvidiaDirectRuntimeEnv({
+      gpuAllocationMode: "whole",
+      gpuCount: 1,
+      gpuMemoryGi: null,
+    }),
+    [
+      { name: "NVIDIA_VISIBLE_DEVICES", value: "all" },
       { name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" },
       {
         name: "VK_ICD_FILENAMES",

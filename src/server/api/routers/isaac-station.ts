@@ -57,6 +57,7 @@ const createIsaacLabJobInput = z
     name: z.string().trim().min(2).max(42),
     image: z.string().trim().min(1).max(240),
     runner: z.enum(["direct", "rsl-rl", "skrl", "custom"]).default("rsl-rl"),
+    displayMode: z.enum(["headless", "webrtc"]).default("headless"),
     task: z.string().trim().min(3).max(120),
     command: z.string().trim().max(4000).nullable(),
     maxIterations: z.number().int().positive().max(100_000_000),
