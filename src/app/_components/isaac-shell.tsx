@@ -2,6 +2,8 @@
 
 import {
   AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
   CopyIcon,
   CpuIcon,
   ExternalLinkIcon,
@@ -10,6 +12,7 @@ import {
   PlusIcon,
   RadioTowerIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
   TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -144,6 +147,7 @@ type IsaacLabDraft = {
 const STATUS_POLL_INTERVAL_MS = 5000;
 const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
 const TERMINAL_INPUT_FLUSH_MS = 16;
+const TERMINAL_OUTPUT_LIMIT = 1_000_000;
 const TERMINAL_RESIZE_FLUSH_MS = 120;
 const TERMINAL_CONNECTING_MESSAGE =
   "正在通过 Kubernetes exec 进入 Isaac Lab 容器...\r\n";
@@ -862,6 +866,7 @@ function IsaacLabTerminalDialog(props: {
   const terminalResizeDisposableRef = useRef<IDisposable | null>(null);
   const terminalResizeObserverRef = useRef<ResizeObserver | null>(null);
   const terminalPendingOutputRef = useRef("");
+  const terminalOutputRef = useRef("");
   const terminalLastResizeRef = useRef<TerminalDimensions | null>(null);
   const terminalResizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -917,8 +922,20 @@ function IsaacLabTerminalDialog(props: {
       setTerminalStatus("idle");
       setTerminalError(null);
       terminalPendingOutputRef.current = "";
+      terminalOutputRef.current = "";
       terminalRef.current?.reset();
     }
+  }
+
+  function rememberTerminalOutput(value: string) {
+    const normalized = normalizeTerminalOutput(value);
+    if (!normalized) return;
+
+    const next = `${terminalOutputRef.current}${normalized}`;
+    terminalOutputRef.current =
+      next.length > TERMINAL_OUTPUT_LIMIT
+        ? next.slice(-TERMINAL_OUTPUT_LIMIT)
+        : next;
   }
 
   function appendTerminalOutput(value: string) {
@@ -926,17 +943,29 @@ function IsaacLabTerminalDialog(props: {
       terminalRef.current.write(value);
     } else {
       terminalPendingOutputRef.current += value;
+      if (terminalPendingOutputRef.current.length > TERMINAL_OUTPUT_LIMIT) {
+        terminalPendingOutputRef.current =
+          terminalPendingOutputRef.current.slice(-TERMINAL_OUTPUT_LIMIT);
+      }
     }
 
-    const normalized = normalizeTerminalOutput(value);
-    if (!normalized) return;
+    rememberTerminalOutput(value);
   }
 
   function resetTerminalOutput(value: string) {
     const terminal = terminalRef.current;
-    terminalPendingOutputRef.current = terminal ? "" : value;
+    terminalPendingOutputRef.current = terminal
+      ? ""
+      : value.length > TERMINAL_OUTPUT_LIMIT
+        ? value.slice(-TERMINAL_OUTPUT_LIMIT)
+        : value;
     terminal?.reset();
     terminal?.write(value);
+    const normalized = normalizeTerminalOutput(value);
+    terminalOutputRef.current =
+      normalized.length > TERMINAL_OUTPUT_LIMIT
+        ? normalized.slice(-TERMINAL_OUTPUT_LIMIT)
+        : normalized;
   }
 
   function applyTerminalEvent(
@@ -1120,6 +1149,47 @@ function IsaacLabTerminalDialog(props: {
     );
   }
 
+  async function copyTerminalOutput() {
+    const selectedText = terminalRef.current?.getSelection() ?? "";
+    const output = selectedText || terminalOutputRef.current;
+    if (!output) {
+      notifyError("终端暂无可复制内容。");
+      terminalRef.current?.focus();
+      return;
+    }
+
+    try {
+      await writeTextToClipboard(output);
+      notifySuccess({
+        title: selectedText ? "已复制选中内容" : "已复制终端缓冲",
+        message: selectedText ? "已复制当前选区。" : "已复制最近的终端输出。",
+      });
+    } catch {
+      notifyError("复制失败，请手动选择终端内容复制。");
+    } finally {
+      terminalRef.current?.focus();
+    }
+  }
+
+  function clearTerminalOutput() {
+    const terminal = terminalRef.current;
+    terminal?.clear();
+    terminalOutputRef.current = "";
+    terminal?.focus();
+  }
+
+  function scrollTerminalPage(pageCount: number) {
+    const terminal = terminalRef.current;
+    terminal?.scrollPages(pageCount);
+    terminal?.focus();
+  }
+
+  function scrollTerminalToBottom() {
+    const terminal = terminalRef.current;
+    terminal?.scrollToBottom();
+    terminal?.focus();
+  }
+
   async function resizeTerminalSession(dimensions: TerminalDimensions) {
     const sessionId = terminalSessionIdRef.current;
     if (!sessionId || terminalStatusRef.current !== "connected") return;
@@ -1185,7 +1255,11 @@ function IsaacLabTerminalDialog(props: {
       fontSize: 13,
       lineHeight: 1.4,
       minimumContrastRatio: 4.5,
-      scrollback: 5000,
+      scrollback: 100_000,
+      scrollOnEraseInDisplay: true,
+      scrollOnUserInput: true,
+      scrollSensitivity: 1.2,
+      smoothScrollDuration: 0,
       theme: {
         background: "#020617",
         foreground: "#e2e8f0",
@@ -1215,6 +1289,35 @@ function IsaacLabTerminalDialog(props: {
 
     terminal.loadAddon(fitAddon);
     terminal.open(terminalHostElement);
+    terminal.attachCustomWheelEventHandler((event) => {
+      event.stopPropagation();
+      return true;
+    });
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+
+      if (event.key === "PageUp") {
+        terminal.scrollPages(-1);
+        return false;
+      }
+
+      if (event.key === "PageDown") {
+        terminal.scrollPages(1);
+        return false;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "Home") {
+        terminal.scrollToTop();
+        return false;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === "End") {
+        terminal.scrollToBottom();
+        return false;
+      }
+
+      return true;
+    });
     terminalRef.current = terminal;
     terminalFitAddonRef.current = fitAddon;
     terminalInputDisposableRef.current = terminal.onData(queueTerminalInput);
@@ -1302,7 +1405,7 @@ function IsaacLabTerminalDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] min-h-[min(760px,calc(100dvh-1.5rem))] flex-col overflow-hidden border-slate-200/85 bg-white p-0 shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-5xl">
+      <DialogContent className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[min(1400px,calc(100vw-1rem))] flex-col overflow-hidden border-slate-200/85 bg-white p-0 shadow-[0_28px_68px_rgba(15,23,42,0.14)]">
         <DialogHeader className="shrink-0 border-b border-slate-200/85 px-4 py-3 text-left">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -1381,7 +1484,7 @@ function IsaacLabTerminalDialog(props: {
             </Alert>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[10px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+          <div className="flex min-h-[420px] flex-1 flex-col overflow-hidden rounded-[10px] border border-slate-900 bg-slate-950 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
             <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-slate-900 px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex shrink-0 gap-1.5">
@@ -1394,32 +1497,67 @@ function IsaacLabTerminalDialog(props: {
                   {terminalTarget}
                 </span>
               </div>
-              <span className="hidden shrink-0 font-mono text-[11px] text-slate-500 sm:inline">
-                bash
-              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-[7px] px-2 text-[11px] text-slate-300 hover:bg-white/10 hover:text-white"
+                  onClick={() => scrollTerminalPage(-1)}
+                  title="上翻一页"
+                >
+                  <ArrowUpIcon className="size-3.5" />
+                  <span className="hidden lg:inline">上翻</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-[7px] px-2 text-[11px] text-slate-300 hover:bg-white/10 hover:text-white"
+                  onClick={scrollTerminalToBottom}
+                  title="回到底部"
+                >
+                  <ArrowDownIcon className="size-3.5" />
+                  <span className="hidden lg:inline">到底</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-[7px] px-2 text-[11px] text-slate-300 hover:bg-white/10 hover:text-white"
+                  onClick={() => void copyTerminalOutput()}
+                  title="复制选中内容或终端缓冲"
+                >
+                  <CopyIcon className="size-3.5" />
+                  <span className="hidden lg:inline">复制</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-[7px] px-2 text-[11px] text-slate-300 hover:bg-white/10 hover:text-white"
+                  onClick={clearTerminalOutput}
+                  title="清屏"
+                >
+                  <RotateCcwIcon className="size-3.5" />
+                  <span className="hidden lg:inline">清屏</span>
+                </Button>
+              </div>
             </div>
             <div
               onClick={() => terminalRef.current?.focus()}
-              className="relative min-h-0 flex-1 overflow-hidden focus-within:ring-2 focus-within:ring-sky-500/70 focus-within:ring-inset"
+              className="relative min-h-0 flex-1 overflow-hidden overscroll-contain focus-within:ring-2 focus-within:ring-sky-500/70 focus-within:ring-inset"
             >
               <div
                 ref={setTerminalHost}
                 aria-label="Isaac Lab Web 终端"
                 role="application"
                 className={cn(
-                  "h-full w-full cursor-text bg-slate-950 px-3 py-3 text-slate-100",
-                  "[&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto [&_.xterm-viewport]:[scrollbar-color:rgba(148,163,184,0.55)_transparent]",
+                  "h-full w-full cursor-text overscroll-contain bg-slate-950 px-3 py-3 text-slate-100",
+                  "[&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto [&_.xterm-viewport]:overscroll-contain [&_.xterm-viewport]:[scrollbar-color:rgba(148,163,184,0.7)_transparent] [&_.xterm-viewport::-webkit-scrollbar]:w-2 [&_.xterm-viewport::-webkit-scrollbar-thumb]:rounded-full [&_.xterm-viewport::-webkit-scrollbar-thumb]:bg-slate-600 [&_.xterm-viewport::-webkit-scrollbar-track]:bg-transparent",
                 )}
               />
             </div>
-          </div>
-
-          <div className="shrink-0 rounded-[10px] border border-slate-200/90 bg-white px-3 py-2 text-[12px] leading-5 text-slate-600">
-            需要自由跑任务时，可提交 Custom Lab Job 使用{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 font-mono">
-              sleep infinity
-            </code>{" "}
-            保持 Pod 在线，然后在这里手动执行 Isaac Lab 命令。
           </div>
         </div>
       </DialogContent>
@@ -2056,7 +2194,14 @@ export function IsaacShell() {
         current.includes(name) ? current : [...current, name],
       );
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
+      setPendingDeletedStationNames((current) =>
+        current.includes(variables.name)
+          ? current
+          : [...current, variables.name],
+      );
+      notifySuccess(`Isaac Station ${variables.name} 已删除。`);
+      await stationQuery.refetch();
       await utils.isaacStation.list.invalidate();
     },
     onError: (error, variables) => {
@@ -2086,7 +2231,17 @@ export function IsaacShell() {
         current.includes(name) ? current : [...current, name],
       );
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
+      setPendingDeletedLabNames((current) =>
+        current.includes(variables.name)
+          ? current
+          : [...current, variables.name],
+      );
+      setTerminalJob((current) =>
+        current?.name === variables.name ? null : current,
+      );
+      notifySuccess(`Isaac Lab Job ${variables.name} 已删除。`);
+      await labQuery.refetch();
       await utils.isaacStation.listLabJobs.invalidate();
     },
     onError: (error, variables) => {
