@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowUpRightIcon,
   CpuIcon,
   FlaskConicalIcon,
   LoaderCircleIcon,
@@ -19,7 +18,7 @@ import {
 } from "@/app/_components/module-shell";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
@@ -274,7 +273,7 @@ function StatusStrip(props: {
     (station) => station.status === "running",
   ).length;
   const streaming = props.stations.filter((station) =>
-    Boolean(station.streamingUrl),
+    Boolean(station.endpoint),
   ).length;
   const activeLabJobs = props.labJobs.filter((job) =>
     ["running", "pending"].includes(job.status),
@@ -424,39 +423,27 @@ function StationCard(props: {
         <div className="flex items-center gap-2">
           <RadioTowerIcon className="size-3.5 shrink-0 text-slate-500" />
           <span className="min-w-0 truncate">
-            TCP {station.webrtcPort} · /streaming/webrtc-client
+            TCP {station.webrtcPort} · /v1/streaming/*
           </span>
         </div>
         <p className="mt-1 text-[11px] leading-4 text-slate-500">
-          WebRTC 模式使用 hostNetwork，远程客户端连接节点 IP，不经过 Xvnc/软件
-          GL。
+          使用 Isaac Sim WebRTC Streaming Client 连接节点 IP，不经过
+          Xvnc/软件 GL。
         </p>
       </div>
 
       <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
-        {station.streamingUrl ? (
-          <a
-            href={station.streamingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(
-              buttonVariants({ size: "sm" }),
-              "h-7 rounded-[8px] px-2.5 text-[12px]",
-            )}
-          >
-            <ArrowUpRightIcon data-icon="inline-start" />
-            打开 WebRTC
-          </a>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 rounded-[8px] px-2.5 text-[12px] text-slate-500"
-            disabled
-          >
-            打开 WebRTC
-          </Button>
-        )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 max-w-full rounded-[8px] px-2.5 text-[12px] text-slate-500"
+          disabled
+        >
+          <RadioTowerIcon data-icon="inline-start" />
+          <span className="min-w-0 truncate">
+            客户端连接 {station.endpoint ?? "待分配"}
+          </span>
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -1608,13 +1595,13 @@ export function IsaacShell() {
               <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/75 px-3 py-2.5">
                 <SurfaceLabel>Signaling</SurfaceLabel>
                 <p className="mt-1 font-mono text-[13px] text-slate-900">
-                  TCP 8211
+                  TCP 8011
                 </p>
               </div>
               <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/75 px-3 py-2.5">
-                <SurfaceLabel>Client path</SurfaceLabel>
+                <SurfaceLabel>Service API</SurfaceLabel>
                 <p className="mt-1 font-mono text-[13px] text-slate-900">
-                  /streaming/webrtc-client
+                  /v1/streaming/*
                 </p>
               </div>
             </div>

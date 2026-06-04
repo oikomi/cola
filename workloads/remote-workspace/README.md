@@ -23,7 +23,7 @@ KasmVNC 启动时会显式开启双向文本剪贴板：外部浏览器和内部
 amd64 工作区镜像默认会从 NVIDIA 官方 runfile bake `570.211.01` 的 GLX/EGL/Vulkan 用户态文件、
 GLVND/EGL vendor 配置、Vulkan ICD 和 NVIDIA application profiles，避免容器内 `apt install libnvidia-gl-*`
 拉到与宿主机内核驱动不一致的用户态版本。GPU 工作区 Pod 会把 `VK_ICD_FILENAMES` 和
-`VK_DRIVER_FILES` 指向镜像内的 `/opt/nvidia-current/icd.d/nvidia_icd.json`。如果 GPU 节点宿主机驱动升级，
+`VK_DRIVER_FILES` 指向 NVIDIA container runtime 注入的 `/etc/vulkan/icd.d/nvidia_icd.json`。如果 GPU 节点宿主机驱动升级，
 需要用匹配版本重新构建并分发镜像，例如：
 
 ```bash

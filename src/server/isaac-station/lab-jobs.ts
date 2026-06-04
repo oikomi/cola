@@ -550,6 +550,7 @@ function resolveWorkVolume() {
       "COLA_ISAAC_LAB_WORKDIR_HOST_PATH",
       "COLA_TRAINING_WORKDIR_HOST_PATH",
     ],
+    hostPathType: "DirectoryOrCreate",
     hostPathMountPathEnvNames: [
       "COLA_ISAAC_LAB_WORKDIR_MOUNT_PATH",
       "COLA_TRAINING_WORKDIR_MOUNT_PATH",

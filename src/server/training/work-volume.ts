@@ -428,6 +428,7 @@ function resolveLegacyWorkVolume(input: {
   volumeName: string;
   mountPath: string;
   hostPathEnvNames?: string[];
+  hostPathType?: "Directory" | "DirectoryOrCreate";
   pvcNameEnvNames?: string[];
   fallbackHostPath?: {
     path: string;
@@ -440,7 +441,7 @@ function resolveLegacyWorkVolume(input: {
       name: input.volumeName,
       hostPath: {
         path: hostPath,
-        type: "Directory",
+        type: input.hostPathType ?? "Directory",
       },
     } satisfies WorkVolume;
 
@@ -563,6 +564,7 @@ export function resolveKubernetesWorkVolume(input: {
   seaweedfsEnabledEnvNames?: string[];
   mountPathEnvNames?: string[];
   hostPathEnvNames?: string[];
+  hostPathType?: "Directory" | "DirectoryOrCreate";
   hostPathMountPathEnvNames?: string[];
   pvcNameEnvNames?: string[];
   pvcMountPathEnvNames?: string[];
@@ -593,6 +595,7 @@ export function resolveKubernetesWorkVolume(input: {
     volumeName: input.volumeName,
     mountPath,
     hostPathEnvNames: input.hostPathEnvNames,
+    hostPathType: input.hostPathType,
     pvcNameEnvNames: input.pvcNameEnvNames,
     fallbackHostPath: input.fallbackHostPath,
   });

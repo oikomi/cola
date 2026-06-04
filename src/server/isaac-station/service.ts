@@ -44,10 +44,7 @@ import {
   resolveKubernetesWorkVolume,
   SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
-import {
-  buildIsaacStationStreamingUrl,
-  ISAAC_STATION_WEBRTC_PORT,
-} from "./streaming-url";
+import { ISAAC_STATION_WEBRTC_PORT } from "./streaming-url";
 import {
   buildContainerImageOptions,
   type ContainerImageOption,
@@ -115,7 +112,6 @@ export type IsaacStationItem = {
   gpuMemoryGi: number | null;
   nodeName: string | null;
   nodeIp: string | null;
-  streamingUrl: string | null;
   webrtcPort: number;
   endpoint: string | null;
   ownerUserId: string | null;
@@ -571,6 +567,7 @@ function resolveWorkVolume() {
       "COLA_ISAAC_STATION_WORKDIR_HOST_PATH",
       "COLA_TRAINING_WORKDIR_HOST_PATH",
     ],
+    hostPathType: "DirectoryOrCreate",
     hostPathMountPathEnvNames: [
       "COLA_ISAAC_STATION_WORKDIR_MOUNT_PATH",
       "COLA_TRAINING_WORKDIR_MOUNT_PATH",
@@ -591,18 +588,18 @@ function resolveRuntimeClassName() {
   return configured && configured.length > 0 ? configured : "nvidia";
 }
 
-function buildIsaacCommand(input: {
-  mode: IsaacStationLaunchMode;
-  workdir: string;
-}) {
+function resolveGpuRuntimeMode() {
+  const configured = process.env.COLA_ISAAC_STATION_GPU_RUNTIME?.trim();
+  return configured === "nvidia" ? "nvidia" : "hami";
+}
+
+function buildIsaacCommand(input: { workdir: string }) {
   const customCommand = process.env.COLA_ISAAC_STATION_COMMAND?.trim();
   if (customCommand) return customCommand;
 
   const executable =
     process.env.COLA_ISAAC_STATION_EXECUTABLE?.trim() ??
-    (input.mode === "headless-webrtc"
-      ? "/isaac-sim/runheadless.webrtc.sh"
-      : "/isaac-sim/runheadless.sh");
+    "/isaac-sim/runheadless.sh";
   const extraArgs = process.env.COLA_ISAAC_STATION_EXTRA_ARGS?.trim() ?? "";
 
   return [
@@ -641,6 +638,9 @@ function buildStationDeployment(input: {
   const workVolume = resolveWorkVolume();
   const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
+  const gpuRuntimeMode = resolveGpuRuntimeMode();
+  const schedulerSpec =
+    gpuRuntimeMode === "hami" ? buildHamiSchedulerSpec(gpuSpec) : {};
 
   return {
     apiVersion: "apps/v1",
@@ -656,6 +656,9 @@ function buildStationDeployment(input: {
     },
     spec: {
       replicas: 1,
+      strategy: {
+        type: "Recreate",
+      },
       selector: {
         matchLabels: {
           "cola.isaac/station-name": input.name,
@@ -676,7 +679,7 @@ function buildStationDeployment(input: {
               ? "ClusterFirstWithHostNet"
               : "ClusterFirst",
           ...(runtimeClassName ? { runtimeClassName } : {}),
-          ...buildHamiSchedulerSpec(gpuSpec),
+          ...schedulerSpec,
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
@@ -690,7 +693,7 @@ function buildStationDeployment(input: {
               args: [
                 buildWorkVolumeShellCommand(
                   workVolume,
-                  buildIsaacCommand({ mode: input.mode, workdir: mountPath }),
+                  buildIsaacCommand({ workdir: mountPath }),
                 ),
               ],
               ports: [
@@ -848,12 +851,6 @@ function stationItemFromDeployment(input: {
     gpuMemoryGi: gpu.gpuMemoryGi,
     nodeName: podNodeName,
     nodeIp,
-    streamingUrl:
-      mode === "headless-webrtc"
-        ? buildIsaacStationStreamingUrl({
-            nodeIp,
-          })
-        : null,
     webrtcPort: ISAAC_STATION_WEBRTC_PORT,
     endpoint:
       mode === "headless-webrtc"

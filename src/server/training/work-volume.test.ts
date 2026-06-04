@@ -206,6 +206,31 @@ void test("work volume can use a node mounted SeaweedFS FUSE hostPath when autom
   assert.deepEqual(buildWorkVolumeInitContainers(workVolume), []);
 });
 
+void test("work volume can create an explicit hostPath directory when requested", () => {
+  const workVolume = resolveKubernetesWorkVolume({
+    env: {
+      COLA_SEAWEEDFS_MOUNT_ENABLED: "false",
+      COLA_TRAINING_WORKDIR_HOST_PATH: "/var/lib/remote-work/isaac-station",
+    },
+    volumeName: "isaac-workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    hostPathEnvNames: ["COLA_TRAINING_WORKDIR_HOST_PATH"],
+    hostPathType: "DirectoryOrCreate",
+    hostPathMountPathEnvNames: ["COLA_TRAINING_WORKDIR_MOUNT_PATH"],
+    pvcNameEnvNames: ["COLA_TRAINING_PVC_NAME"],
+    pvcMountPathEnvNames: ["COLA_TRAINING_PVC_MOUNT_PATH"],
+  });
+
+  assert.equal(workVolume.mode, "hostPath");
+  assert.deepEqual(workVolume.volume, {
+    name: "isaac-workspace",
+    hostPath: {
+      path: "/var/lib/remote-work/isaac-station",
+      type: "DirectoryOrCreate",
+    },
+  });
+});
+
 void test("work volume falls back to PVC before emptyDir when automatic mount is disabled", () => {
   const workVolume = resolveKubernetesWorkVolume({
     env: {

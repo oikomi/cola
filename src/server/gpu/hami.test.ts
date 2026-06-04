@@ -94,11 +94,11 @@ void test("GPU desktop runtime env exposes NVIDIA graphics capabilities", () => 
       { name: "NVIDIA_DRIVER_CAPABILITIES", value: "all" },
       {
         name: "VK_ICD_FILENAMES",
-        value: "/opt/nvidia-current/icd.d/nvidia_icd.json",
+        value: "/etc/vulkan/icd.d/nvidia_icd.json",
       },
       {
         name: "VK_DRIVER_FILES",
-        value: "/opt/nvidia-current/icd.d/nvidia_icd.json",
+        value: "/etc/vulkan/icd.d/nvidia_icd.json",
       },
     ],
   );

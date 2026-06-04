@@ -12,7 +12,7 @@ export const HAMI_SCHEDULER_NAME = "hami-scheduler";
 export const NVIDIA_DRIVER_CAPABILITIES_ENV_NAME = "NVIDIA_DRIVER_CAPABILITIES";
 export const NVIDIA_DRIVER_CAPABILITIES_FOR_DESKTOP = "all";
 export const NVIDIA_VULKAN_ICD_PATH =
-  "/opt/nvidia-current/icd.d/nvidia_icd.json";
+  "/etc/vulkan/icd.d/nvidia_icd.json";
 export const VULKAN_ICD_FILENAMES_ENV_NAME = "VK_ICD_FILENAMES";
 export const VULKAN_DRIVER_FILES_ENV_NAME = "VK_DRIVER_FILES";
 const GPU_MEMORY_GI_IN_MIB = 1024;

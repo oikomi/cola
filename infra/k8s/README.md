@@ -158,14 +158,13 @@ demo.launch(server_name="0.0.0.0", server_port=7860)
 - `Headless EGL`：只运行 headless 仿真，不暴露浏览器画面入口，适合批量仿真、数据生成和脚本验证。
 - `Lab Jobs`：创建 Kubernetes Job 跑 Isaac Lab headless 训练或实验任务，默认使用 Isaac Lab 镜像、共享工作目录和 HAMi/NVIDIA GPU 调度。
 
-WebRTC 模式默认浏览器入口：
+WebRTC 模式默认客户端端点：
 
 ```text
-TCP 8211
-/streaming/webrtc-client?server=<GPU 节点 IP>
+TCP 8011
 ```
 
-该入口使用 GPU 节点网络，不走普通 NodePort。需要确认安全组、防火墙和云桌面网络允许访问对应节点 IP 的 `8211/TCP`。
+该入口使用 GPU 节点网络，不走普通 NodePort。需要确认安全组、防火墙和云桌面网络允许访问对应节点 IP 的 `8011/TCP`。Isaac Sim 5.0.0 容器暴露的是 `/v1/streaming/*` 服务 API，不内置旧版 `/streaming/webrtc-client` 浏览器页面；需要用 Isaac Sim WebRTC Streaming Client 连接节点 IP 和端口。
 
 常用环境变量：
 
