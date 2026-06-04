@@ -174,9 +174,13 @@ COLA_ISAAC_STATION_IMAGE=nvcr.io/nvidia/isaac-sim:5.0.0
 COLA_ISAAC_STATION_IMAGES=registry.local/isaac-sim:5.0.0,registry.local/isaac-sim:4.5.0
 COLA_ISAAC_STATION_COMMAND=<自定义 Isaac 启动命令>
 COLA_ISAAC_STATION_EXTRA_ARGS=<附加 Isaac 参数>
+COLA_ISAAC_STATION_SEAWEEDFS_MOUNT_ENABLED=false
+COLA_ISAAC_STATION_WORKDIR_HOST_PATH=/var/lib/remote-work/isaac-station
 COLA_ISAAC_STATION_WORKDIR_MOUNT_PATH=/shared-dist-storage
 COLA_ISAAC_STATION_PVC_NAME=<可选 PVC>
 ```
+
+当前 Isaac Sim 镜像内的 `fusermount` 可能和节点侧 `fusermount3` 存在 glibc 版本不匹配。遇到 `GLIBC_2.38 not found` 时，先将 `COLA_ISAAC_STATION_SEAWEEDFS_MOUNT_ENABLED=false`，让 Isaac Station 使用节点 `hostPath` 工作目录；已有 Pod 需要删除并重新创建。
 
 Isaac Lab Job 常用环境变量：
 
