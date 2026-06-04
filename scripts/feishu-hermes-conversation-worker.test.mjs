@@ -11,6 +11,7 @@ import {
   parseCardActionValue,
   parseTextReviewAction,
   readExecutionOutput,
+  resolveFeishuOperatorName,
   sendArchiveText,
 } from "./feishu-hermes-conversation-worker.mjs";
 
@@ -139,6 +140,76 @@ void test("builds archive message with task result and conversation history", ()
     message,
     /日志：\/workspace\/state-to-light\/.hermes-runner\/bootstrap.log/,
   );
+});
+
+void test("archive message does not expose Feishu open_id as operator name", () => {
+  const message = buildArchiveMessage(
+    {
+      event: {
+        session_id: sessionId,
+        task_title: "分析进度",
+        device_name: "yyys Runner",
+      },
+      history: [],
+      outputText: "",
+    },
+    {
+      action: "confirm",
+      taskId,
+      sessionId,
+      chatId: "oc_chat",
+      messageId: "om_message",
+      operatorOpenId: "ou_06a263dcd590b1a32c508f6ee3d7b09c",
+      operatorName: null,
+    },
+  );
+
+  assert.match(message, /确认人：飞书用户/);
+  assert.doesNotMatch(message, /ou_06a263dcd590b1a32c508f6ee3d7b09c/);
+});
+
+void test("resolves Feishu operator name from local user table", async () => {
+  const sql = async (_strings, openId) => {
+    assert.equal(openId, "ou_user");
+    return [{ name: "Harold 苗宏" }];
+  };
+
+  const name = await resolveFeishuOperatorName({
+    sql,
+    client: {},
+    operatorName: null,
+    operatorOpenId: "ou_user",
+  });
+
+  assert.equal(name, "Harold 苗宏");
+});
+
+void test("resolves Feishu operator name from contact API fallback", async () => {
+  const sql = async () => [];
+  const client = {
+    contact: {
+      v3: {
+        user: {
+          get: async (payload) => {
+            assert.deepEqual(payload, {
+              params: { user_id_type: "open_id" },
+              path: { user_id: "ou_user" },
+            });
+            return { data: { user: { name: "真实姓名" } } };
+          },
+        },
+      },
+    },
+  };
+
+  const name = await resolveFeishuOperatorName({
+    sql,
+    client,
+    operatorName: null,
+    operatorOpenId: "ou_user",
+  });
+
+  assert.equal(name, "真实姓名");
 });
 
 void test("summarizes multi-turn archive conversations", () => {

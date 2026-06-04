@@ -5,6 +5,7 @@ import {
   BlocksIcon,
   BrainCircuitIcon,
   Building2Icon,
+  CpuIcon,
   DatabaseIcon,
   MonitorSmartphoneIcon,
   ServerIcon,
@@ -21,6 +22,7 @@ import {
 const areaIcons = {
   office: Building2Icon,
   workspace: MonitorSmartphoneIcon,
+  isaacStation: CpuIcon,
   cmdb: ServerIcon,
   training: BrainCircuitIcon,
   storage: DatabaseIcon,
@@ -31,6 +33,7 @@ const areaIcons = {
 const areaEyebrows: Record<ProductAreaKey, string> = {
   office: "Operations Control",
   workspace: "Workspace Control",
+  isaacStation: "Simulation Station",
   cmdb: "CMDB Ops",
   training: "Training Ops",
   storage: "Storage Ops",

@@ -3,6 +3,7 @@ import type { DockerRunnerEngine } from "@/server/office/catalog";
 export type ProductAreaKey =
   | "office"
   | "workspace"
+  | "isaacStation"
   | "cmdb"
   | "training"
   | "storage"
@@ -26,6 +27,12 @@ export const PRODUCT_AREAS: Array<{
     href: "/workspace",
     title: "云桌面",
     description: "集中管理 remote workspace、浏览器桌面、入口地址与节点资源。",
+  },
+  {
+    key: "isaacStation",
+    href: "/isaac-station",
+    title: "Isaac Station",
+    description: "运行 Isaac Sim headless GPU 仿真和 WebRTC 远程可视化。",
   },
   {
     key: "training",
@@ -84,6 +91,10 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/workspace")) {
     return "workspace";
+  }
+
+  if (pathname.startsWith("/isaac-station")) {
+    return "isaacStation";
   }
 
   if (pathname.startsWith("/cmdb")) {

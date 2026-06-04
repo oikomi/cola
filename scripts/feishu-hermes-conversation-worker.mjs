@@ -42,8 +42,88 @@ function limitText(value, maxLength) {
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
+function trimNonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function displayNameFromFeishuUserRecord(user) {
+  if (!isPlainRecord(user)) return null;
+
+  return (
+    trimNonEmptyString(user.name) ??
+    trimNonEmptyString(user.nickname) ??
+    trimNonEmptyString(user.en_name)
+  );
+}
+
+function extractSenderDisplayName(sender) {
+  if (!isPlainRecord(sender)) return null;
+
+  return (
+    trimNonEmptyString(sender.name) ??
+    trimNonEmptyString(sender.sender_name) ??
+    trimNonEmptyString(sender.employee_name) ??
+    displayNameFromFeishuUserRecord(sender.sender_id)
+  );
+}
+
+async function loadLocalFeishuUserDisplayName(sql, openId) {
+  if (!sql || !openId) return null;
+
+  try {
+    const rows = await sql`
+      select name
+      from cola_user
+      where "feishuOpenId" = ${openId}
+      limit 1
+    `;
+    return displayNameFromFeishuUserRecord(rows?.[0]);
+  } catch (error) {
+    console.warn(
+      "[feishu-hermes] failed to resolve local Feishu user name:",
+      errorMessage(error),
+    );
+    return null;
+  }
+}
+
+async function fetchFeishuUserDisplayName(client, openId) {
+  if (!client?.contact?.v3?.user?.get || !openId) return null;
+
+  try {
+    const response = await client.contact.v3.user.get({
+      params: { user_id_type: "open_id" },
+      path: { user_id: openId },
+    });
+    if (response?.code && response.code !== 0) {
+      throw new Error(response.msg ?? "Feishu contact user get failed.");
+    }
+
+    return displayNameFromFeishuUserRecord(response?.data?.user);
+  } catch (error) {
+    console.warn(
+      "[feishu-hermes] failed to fetch Feishu user name:",
+      errorMessage(error),
+    );
+    return null;
+  }
+}
+
+async function resolveFeishuOperatorName({
+  sql,
+  client,
+  operatorName,
+  operatorOpenId,
+}) {
+  return (
+    trimNonEmptyString(operatorName) ??
+    (await loadLocalFeishuUserDisplayName(sql, operatorOpenId)) ??
+    (await fetchFeishuUserDisplayName(client, operatorOpenId))
+  );
 }
 
 function parseMessageText(content) {
@@ -857,8 +937,7 @@ async function summarizeArchiveConversation(context, input) {
 
 function buildArchiveMessage(context, input) {
   const event = context.event;
-  const operatorName =
-    input.operatorName?.trim() || input.operatorOpenId || "飞书用户";
+  const operatorName = trimNonEmptyString(input.operatorName) ?? "飞书用户";
   const decisionText =
     input.action === "confirm" ? "确认通过" : "不认可，需要继续处理";
   const titlePrefix =
@@ -984,6 +1063,13 @@ async function handleCardAction(sql, client, data) {
     }),
   );
 
+  const operatorName = await resolveFeishuOperatorName({
+    sql,
+    client,
+    operatorName: normalized.operator.name,
+    operatorOpenId: normalized.operator.openId,
+  });
+
   const context = await loadArchiveContext(sql, actionValue);
   if (!context) {
     await sendFeishuText(
@@ -999,7 +1085,7 @@ async function handleCardAction(sql, client, data) {
     chatId: normalized.chatId,
     messageId: normalized.messageId,
     operatorOpenId: normalized.operator.openId,
-    operatorName: normalized.operator.name,
+    operatorName,
   };
   archiveInput.conversationSummary = await summarizeArchiveConversation(
     context,
@@ -1107,12 +1193,20 @@ async function handleMessage(sql, client, appConfig, data) {
 
   const textReviewAction = parseTextReviewAction(userText);
   if (textReviewAction) {
+    const operatorOpenId = data.sender?.sender_id?.open_id ?? null;
+    const operatorName = await resolveFeishuOperatorName({
+      sql,
+      client,
+      operatorName: extractSenderDisplayName(data.sender),
+      operatorOpenId,
+    });
+
     await archiveConversationContext(sql, client, context, {
       action: textReviewAction,
       chatId: data.message.chat_id,
       messageId: data.message.message_id,
-      operatorOpenId: data.sender?.sender_id?.open_id ?? null,
-      operatorName: null,
+      operatorOpenId,
+      operatorName,
     });
 
     if (data.message.message_id) {
@@ -1260,6 +1354,7 @@ export {
   parseCardActionValue,
   parseTextReviewAction,
   readExecutionOutput,
+  resolveFeishuOperatorName,
   resolveArchiveTargets,
   sendArchiveText,
 };

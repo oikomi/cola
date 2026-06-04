@@ -8,6 +8,7 @@ import {
   BrainCircuitIcon,
   Building2Icon,
   DatabaseIcon,
+  CpuIcon,
   MonitorSmartphoneIcon,
   NetworkIcon,
   ServerIcon,
@@ -26,6 +27,7 @@ import { CurrentUserBadge } from "./current-user-badge";
 const areaIcons = {
   office: Building2Icon,
   workspace: MonitorSmartphoneIcon,
+  isaacStation: CpuIcon,
   cmdb: ServerIcon,
   training: BrainCircuitIcon,
   storage: DatabaseIcon,
@@ -47,6 +49,12 @@ const areaChrome = {
     tag: "桌面",
     signal: "Desktop / Node",
     marker: "bg-cyan-300",
+  },
+  isaacStation: {
+    label: "Isaac",
+    tag: "仿真",
+    signal: "Sim / WebRTC",
+    marker: "bg-emerald-300",
   },
   training: {
     label: "GPU Queue",
