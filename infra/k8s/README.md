@@ -149,13 +149,14 @@ demo.launch(server_name="0.0.0.0", server_port=7860)
 
 默认公开端口 NodePort 区间是 `32180-32199`，可通过 `COLA_JUPYTERLAB_PUBLIC_NODE_PORT_START` 和 `COLA_JUPYTERLAB_PUBLIC_NODE_PORT_END` 调整；该区间不要与其他业务 NodePort 区间重叠。
 
-## Isaac Station
+## Isaac
 
-左侧菜单的 `Isaac Station` 是 Isaac Sim 在当前 K8s 下的推荐入口。它不复用 `KasmVNC + Xvnc`
-桌面显示层，而是创建独立的 Isaac Sim GPU Pod：
+左侧菜单的 `Isaac` 是 Isaac Sim 和 Isaac Lab 在当前 K8s 下的推荐入口。它不复用
+`KasmVNC + Xvnc` 桌面显示层，而是创建独立的 GPU 工作负载：
 
 - `Headless WebRTC`：Pod 申请 GPU、启用 `runtimeClassName: nvidia`，使用 `hostNetwork` 暴露 Isaac streaming，客户端连接实际 GPU 节点 IP。
 - `Headless EGL`：只运行 headless 仿真，不暴露浏览器画面入口，适合批量仿真、数据生成和脚本验证。
+- `Lab Jobs`：创建 Kubernetes Job 跑 Isaac Lab headless 训练或实验任务，默认使用 Isaac Lab 镜像、共享工作目录和 HAMi/NVIDIA GPU 调度。
 
 WebRTC 模式默认浏览器入口：
 
@@ -176,7 +177,17 @@ COLA_ISAAC_STATION_WORKDIR_MOUNT_PATH=/shared-dist-storage
 COLA_ISAAC_STATION_PVC_NAME=<可选 PVC>
 ```
 
-Isaac Station 的验收重点不是 `DISPLAY=:1 glxinfo -B`，而是 Pod 内 `nvidia-smi`、Vulkan/EGL 用户态、Isaac headless 启动日志和 WebRTC 客户端连接是否正常。
+Isaac Lab Job 常用环境变量：
+
+```text
+COLA_ISAAC_LAB_IMAGE=nvcr.io/nvidia/isaac-lab:2.2.0
+COLA_ISAAC_LAB_EXTRA_ARGS=<附加训练参数>
+COLA_ISAAC_LAB_RUNTIME_CLASS_NAME=nvidia
+COLA_ISAAC_LAB_WORKDIR_MOUNT_PATH=/shared-dist-storage
+COLA_ISAAC_LAB_PVC_NAME=<可选 PVC>
+```
+
+Isaac 的验收重点不是 `DISPLAY=:1 glxinfo -B`，而是 Pod 内 `nvidia-smi`、Vulkan/EGL 用户态、Isaac headless 启动日志、WebRTC 客户端连接，以及 Isaac Lab Job 的 Pod phase、训练日志和输出目录是否正常。
 
 ## 1. 调整机器清单
 

@@ -1,5 +1,5 @@
-import { IsaacStationShell } from "@/app/_components/isaac-station-shell";
+import { redirect } from "next/navigation";
 
 export default function IsaacStationPage() {
-  return <IsaacStationShell />;
+  redirect("/isaac");
 }

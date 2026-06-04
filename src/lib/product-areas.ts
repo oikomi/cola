@@ -30,9 +30,9 @@ export const PRODUCT_AREAS: Array<{
   },
   {
     key: "isaacStation",
-    href: "/isaac-station",
-    title: "Isaac Station",
-    description: "运行 Isaac Sim headless GPU 仿真和 WebRTC 远程可视化。",
+    href: "/isaac",
+    title: "Isaac",
+    description: "运行 Isaac Sim headless 仿真和 Isaac Lab GPU 任务。",
   },
   {
     key: "training",
@@ -93,7 +93,7 @@ export function productAreaForPath(
     return "workspace";
   }
 
-  if (pathname.startsWith("/isaac-station")) {
+  if (pathname.startsWith("/isaac") || pathname.startsWith("/isaac-station")) {
     return "isaacStation";
   }
 
