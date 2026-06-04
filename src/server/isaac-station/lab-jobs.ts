@@ -17,14 +17,7 @@ import {
   usesGpuAcceleration,
 } from "@/lib/gpu-allocation";
 import { db } from "@/server/db";
-import {
-  buildHamiGpuResources,
-  buildHamiSchedulerSpec,
-  buildNvidiaDirectRuntimeEnv,
-  buildNvidiaDesktopRuntimeEnv,
-  normalizeGpuAllocation,
-  parseGpuAllocationFromResources,
-} from "@/server/gpu/hami";
+import { normalizeGpuAllocation } from "@/server/gpu/hami";
 import {
   createKubeConfig as createSharedKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
@@ -49,6 +42,10 @@ import {
   type ContainerImageOption,
 } from "./image-options";
 import { buildIsaacLabGitLabTokenEnv as buildGitLabTokenEnv } from "./gitlab-token-env.js";
+import {
+  buildIsaacLabGpuRuntimeSpec,
+  parseIsaacLabGpuAllocation,
+} from "./lab-gpu-runtime";
 import { ISAAC_STATION_WEBRTC_PORT } from "./streaming-url";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -68,8 +65,6 @@ const ISAAC_LAB_GITLAB_TOKEN_ENV_NAME =
   process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_ENV_NAME?.trim() ?? "GITLAB_TOKEN";
 const DEFAULT_ISAAC_LAB_ROOT_SHELL = "${ISAACLAB_PATH:-/workspace/isaaclab}";
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
-const HAMI_WEBHOOK_LABEL_KEY = "hami.io/webhook";
-const HAMI_WEBHOOK_IGNORE_VALUE = "ignore";
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
   return ownerUserId ? { [OWNER_USER_ID_METADATA_KEY]: ownerUserId } : {};
@@ -108,7 +103,6 @@ type IsaacLabResources = {
 
 export type IsaacLabRunner = "direct" | "rsl-rl" | "skrl" | "custom";
 export type IsaacLabDisplayMode = "headless" | "webrtc";
-type IsaacLabGpuRuntimeMode = "hami" | "nvidia";
 
 export type IsaacLabJobItem = {
   id: string;
@@ -415,38 +409,6 @@ function normalizeDisplayMode(input: IsaacLabDisplayMode | null | undefined) {
   return input === "webrtc" ? "webrtc" : "headless";
 }
 
-function parseOptionalPositiveIntAnnotation(value: string | null | undefined) {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseLabGpuAllocation(input: {
-  annotations?: Record<string, string> | null;
-  resources:
-    | Record<string, string | number | null | undefined>
-    | null
-    | undefined;
-}): GpuAllocationSpec {
-  const gpuCount = parseOptionalPositiveIntAnnotation(
-    input.annotations?.["cola.isaac/gpu-count"],
-  );
-  const gpuMemoryGi = parseOptionalPositiveIntAnnotation(
-    input.annotations?.["cola.isaac/gpu-memory-gi"],
-  );
-  const mode = input.annotations?.["cola.isaac/gpu-allocation-mode"];
-
-  if (gpuCount) {
-    return {
-      gpuAllocationMode: mode === "memory" ? ("memory" as const) : "whole",
-      gpuCount,
-      gpuMemoryGi: mode === "memory" ? gpuMemoryGi : null,
-    };
-  }
-
-  return parseGpuAllocationFromResources(input.resources);
-}
-
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
@@ -648,13 +610,6 @@ function resolveRuntimeClassName() {
   return configured && configured.length > 0 ? configured : "nvidia";
 }
 
-function resolveGpuRuntimeMode() {
-  const configured =
-    process.env.COLA_ISAAC_LAB_GPU_RUNTIME?.trim() ??
-    process.env.COLA_TRAINING_GPU_RUNTIME?.trim();
-  return configured === "hami" ? "hami" : "nvidia";
-}
-
 function buildLabCommand(input: {
   runner: IsaacLabRunner;
   displayMode: IsaacLabDisplayMode;
@@ -738,27 +693,18 @@ function buildLabJob(input: {
   const workVolume = resolveWorkVolume();
   const { mountPath } = workVolume;
   const runtimeClassName = resolveRuntimeClassName();
-  const gpuRuntimeMode = resolveGpuRuntimeMode();
-  const usesNvidiaDirectRuntime = gpuRuntimeMode === "nvidia";
-  const gpuResources = usesNvidiaDirectRuntime
-    ? {}
-    : buildHamiGpuResources(gpuSpec);
-  const gpuEnv = usesNvidiaDirectRuntime
-    ? buildNvidiaDirectRuntimeEnv(gpuSpec)
-    : buildNvidiaDesktopRuntimeEnv(gpuSpec);
-  const schedulerSpec =
-    gpuRuntimeMode === "hami" ? buildHamiSchedulerSpec(gpuSpec) : {};
+  const runtimeSpec = buildIsaacLabGpuRuntimeSpec({
+    gpuSpec,
+    nodeName: input.nodeName,
+  });
   const gpuAnnotations = {
-    "cola.isaac/gpu-runtime": gpuRuntimeMode,
+    "cola.isaac/gpu-runtime": runtimeSpec.gpuRuntimeMode,
     "cola.isaac/gpu-allocation-mode": input.gpuAllocationMode,
     "cola.isaac/gpu-count": String(input.gpuCount),
     ...(input.gpuMemoryGi === null
       ? {}
       : { "cola.isaac/gpu-memory-gi": String(input.gpuMemoryGi) }),
   };
-  const nvidiaRuntimeLabels: Record<string, string> = usesNvidiaDirectRuntime
-    ? { [HAMI_WEBHOOK_LABEL_KEY]: HAMI_WEBHOOK_IGNORE_VALUE }
-    : {};
   const configuredWorkingDir =
     process.env.COLA_ISAAC_LAB_CONTAINER_WORKDIR?.trim();
 
@@ -781,7 +727,7 @@ function buildLabJob(input: {
       backoffLimit: 0,
       template: {
         metadata: {
-          labels: { ...labels, ...ownerLabels, ...nvidiaRuntimeLabels },
+          labels: { ...labels, ...ownerLabels, ...runtimeSpec.podLabels },
           annotations: {
             ...ownerLabels,
             "cola.isaac/runner": input.runner,
@@ -798,10 +744,8 @@ function buildLabJob(input: {
               ? "ClusterFirstWithHostNet"
               : "ClusterFirst",
           ...(runtimeClassName ? { runtimeClassName } : {}),
-          ...schedulerSpec,
-          ...(usesNvidiaDirectRuntime && input.nodeName
-            ? { nodeName: input.nodeName }
-            : {}),
+          ...runtimeSpec.schedulerSpec,
+          ...runtimeSpec.nodeSpec,
           initContainers: buildWorkVolumeInitContainers(workVolume),
           containers: [
             {
@@ -846,7 +790,7 @@ function buildLabJob(input: {
                   secretKey: ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY,
                   envName: ISAAC_LAB_GITLAB_TOKEN_ENV_NAME,
                 }),
-                ...gpuEnv,
+                ...runtimeSpec.gpuEnv,
                 ...buildWorkVolumeEnv(workVolume),
               ],
               resources: {
@@ -857,7 +801,7 @@ function buildLabJob(input: {
                 limits: {
                   cpu: input.cpu,
                   memory: input.memory,
-                  ...gpuResources,
+                  ...runtimeSpec.gpuResources,
                 },
               },
               ports:
@@ -880,12 +824,6 @@ function buildLabJob(input: {
     },
   } satisfies V1Job;
 }
-
-export const __testables = {
-  buildLabJob,
-  parseLabGpuAllocation,
-  selectLabNode,
-};
 
 function imageOptions(): IsaacLabImageOption[] {
   return buildContainerImageOptions({
@@ -1022,7 +960,7 @@ function labItemFromJob(input: {
   const container = input.job.spec?.template.spec?.containers?.[0];
   const resources =
     container?.resources?.limits ?? container?.resources?.requests;
-  const gpu = parseLabGpuAllocation({
+  const gpu = parseIsaacLabGpuAllocation({
     annotations: input.job.metadata?.annotations,
     resources,
   });

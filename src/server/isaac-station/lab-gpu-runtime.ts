@@ -4,6 +4,7 @@ import {
   buildHamiSchedulerSpec,
   buildNvidiaDesktopRuntimeEnv,
   buildNvidiaDirectRuntimeEnv,
+  parseGpuAllocationFromResources,
 } from "../gpu/hami.ts";
 
 export const HAMI_WEBHOOK_LABEL_KEY = "hami.io/webhook";
@@ -29,6 +30,9 @@ export function buildIsaacLabGpuRuntimeSpec(input: {
 }) {
   const gpuRuntimeMode = resolveIsaacLabGpuRuntimeMode(input.env);
   const usesNvidiaDirectRuntime = gpuRuntimeMode === "nvidia";
+  const podLabels: Record<string, string> = usesNvidiaDirectRuntime
+    ? { [HAMI_WEBHOOK_LABEL_KEY]: HAMI_WEBHOOK_IGNORE_VALUE }
+    : {};
 
   return {
     gpuRuntimeMode,
@@ -40,12 +44,42 @@ export function buildIsaacLabGpuRuntimeSpec(input: {
       : buildNvidiaDesktopRuntimeEnv(input.gpuSpec),
     schedulerSpec:
       gpuRuntimeMode === "hami" ? buildHamiSchedulerSpec(input.gpuSpec) : {},
-    podLabels: usesNvidiaDirectRuntime
-      ? { [HAMI_WEBHOOK_LABEL_KEY]: HAMI_WEBHOOK_IGNORE_VALUE }
-      : {},
+    podLabels,
     nodeSpec:
       usesNvidiaDirectRuntime && input.nodeName
         ? { nodeName: input.nodeName }
         : {},
   };
+}
+
+function parseOptionalPositiveIntAnnotation(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function parseIsaacLabGpuAllocation(input: {
+  annotations?: Record<string, string> | null;
+  resources:
+    | Record<string, string | number | null | undefined>
+    | null
+    | undefined;
+}): GpuAllocationSpec {
+  const gpuCount = parseOptionalPositiveIntAnnotation(
+    input.annotations?.["cola.isaac/gpu-count"],
+  );
+  const gpuMemoryGi = parseOptionalPositiveIntAnnotation(
+    input.annotations?.["cola.isaac/gpu-memory-gi"],
+  );
+  const mode = input.annotations?.["cola.isaac/gpu-allocation-mode"];
+
+  if (gpuCount) {
+    return {
+      gpuAllocationMode: mode === "memory" ? ("memory" as const) : "whole",
+      gpuCount,
+      gpuMemoryGi: mode === "memory" ? gpuMemoryGi : null,
+    };
+  }
+
+  return parseGpuAllocationFromResources(input.resources);
 }
