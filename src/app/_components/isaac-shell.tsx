@@ -999,7 +999,10 @@ function IsaacLabDialog(props: {
           </div>
 
           {props.draft.runner === "custom" ? (
-            <Field label="启动命令" hint="Custom runner 会直接执行这段 shell。">
+            <Field
+              label="启动命令"
+              hint="Custom runner 会直接执行这段 shell；平台可注入 GITLAB_TOKEN 用于 clone 私有仓库。"
+            >
               <Textarea
                 className="min-h-28 rounded-[10px] border-slate-200/90 bg-white/92 px-2.5 py-2 font-mono text-[12px] shadow-none"
                 value={props.draft.command}
@@ -1046,8 +1049,9 @@ function IsaacLabDialog(props: {
           <GpuFields draft={props.draft} onDraftChange={props.onDraftChange} />
 
           <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/80 px-3 py-2.5 text-[12px] leading-5 text-slate-600">
-            默认命令会使用 `./isaaclab.sh -p ...
-            --headless`。输出目录挂载到共享工作目录，适合后续接入日志、checkpoint
+            默认命令会使用 `./isaaclab.sh -p ... --headless`；Custom runner 可先
+            clone GitLab
+            代码再训练。输出目录挂载到共享工作目录，适合后续接入日志、checkpoint
             和 TensorBoard。
           </div>
         </div>

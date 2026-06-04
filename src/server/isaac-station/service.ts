@@ -48,6 +48,10 @@ import {
   buildIsaacStationStreamingUrl,
   ISAAC_STATION_WEBRTC_PORT,
 } from "./streaming-url";
+import {
+  buildContainerImageOptions,
+  type ContainerImageOption,
+} from "./image-options";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -126,11 +130,7 @@ export type IsaacStationListResult = {
   items: IsaacStationItem[];
 };
 
-export type IsaacStationImageOption = {
-  value: string;
-  label: string;
-  description: string;
-};
+export type IsaacStationImageOption = ContainerImageOption;
 
 export type CreateIsaacStationInput = {
   name: string;
@@ -434,11 +434,12 @@ function assertStationSchedulable(params: {
       };
     })
     .filter((entry) => entry.live && entry.ready)
-    .filter((entry) =>
-      entry.gpuCapable &&
-      (params.requestedGpuSpec.gpuAllocationMode === "memory"
-        ? entry.allocatableGpu >= 1
-        : entry.allocatableGpu >= params.requestedGpuSpec.gpuCount),
+    .filter(
+      (entry) =>
+        entry.gpuCapable &&
+        (params.requestedGpuSpec.gpuAllocationMode === "memory"
+          ? entry.allocatableGpu >= 1
+          : entry.allocatableGpu >= params.requestedGpuSpec.gpuCount),
     );
 
   const workspaceCandidates = candidates.some((entry) => entry.workspaceLabeled)
@@ -770,16 +771,38 @@ function buildStationService(input: { name: string; ownerUserId?: string }) {
 }
 
 function imageOptions(): IsaacStationImageOption[] {
-  const configured = process.env.COLA_ISAAC_STATION_IMAGE?.trim();
-  const defaultImage = configured ?? "nvcr.io/nvidia/isaac-sim:5.0.0";
-
-  return [
-    {
-      value: defaultImage,
-      label: configured ? "Configured Isaac Sim" : "Isaac Sim 5.0.0",
-      description: defaultImage,
-    },
-  ];
+  return buildContainerImageOptions({
+    productName: "Isaac Sim",
+    configuredImage: process.env.COLA_ISAAC_STATION_IMAGE,
+    configuredImages: process.env.COLA_ISAAC_STATION_IMAGES,
+    defaultOptions: [
+      {
+        value: "nvcr.io/nvidia/isaac-sim:5.0.0",
+        label: "Isaac Sim 5.0.0",
+        description: "nvcr.io/nvidia/isaac-sim:5.0.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-sim:5.1.0",
+        label: "Isaac Sim 5.1.0",
+        description: "nvcr.io/nvidia/isaac-sim:5.1.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-sim:6.0.0-dev2",
+        label: "Isaac Sim 6.0.0 dev",
+        description: "nvcr.io/nvidia/isaac-sim:6.0.0-dev2",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-sim:4.5.0",
+        label: "Isaac Sim 4.5.0",
+        description: "nvcr.io/nvidia/isaac-sim:4.5.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-sim:4.2.0",
+        label: "Isaac Sim 4.2.0",
+        description: "nvcr.io/nvidia/isaac-sim:4.2.0",
+      },
+    ],
+  });
 }
 
 function stationItemFromDeployment(input: {
@@ -794,7 +817,8 @@ function stationItemFromDeployment(input: {
   if (!name) return null;
 
   const container = input.deployment.spec?.template.spec?.containers?.[0];
-  const resources = container?.resources?.limits ?? container?.resources?.requests;
+  const resources =
+    container?.resources?.limits ?? container?.resources?.requests;
   const gpu = parseGpuAllocationFromResources(resources);
   const ownerUserId =
     input.deployment.metadata?.annotations?.[OWNER_USER_ID_METADATA_KEY] ??
@@ -886,8 +910,8 @@ export async function listIsaacStations(): Promise<IsaacStationListResult> {
     const serviceByStation = new Map(
       resources.services
         .map((service) => [stationLabel(service.metadata), service] as const)
-        .filter(
-          (entry): entry is readonly [string, V1Service] => Boolean(entry[0]),
+        .filter((entry): entry is readonly [string, V1Service] =>
+          Boolean(entry[0]),
         ),
     );
     const podByStation = new Map(
@@ -907,7 +931,9 @@ export async function listIsaacStations(): Promise<IsaacStationListResult> {
       .map((deployment) =>
         stationItemFromDeployment({
           deployment,
-          service: serviceByStation.get(stationLabel(deployment.metadata) ?? ""),
+          service: serviceByStation.get(
+            stationLabel(deployment.metadata) ?? "",
+          ),
           pod: podByStation.get(stationLabel(deployment.metadata) ?? ""),
           liveNodes: resources.liveNodes,
           configNodes: ctx.nodes,

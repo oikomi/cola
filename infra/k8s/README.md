@@ -171,6 +171,7 @@ TCP 8211
 
 ```text
 COLA_ISAAC_STATION_IMAGE=nvcr.io/nvidia/isaac-sim:5.0.0
+COLA_ISAAC_STATION_IMAGES=registry.local/isaac-sim:5.0.0,registry.local/isaac-sim:4.5.0
 COLA_ISAAC_STATION_COMMAND=<自定义 Isaac 启动命令>
 COLA_ISAAC_STATION_EXTRA_ARGS=<附加 Isaac 参数>
 COLA_ISAAC_STATION_WORKDIR_MOUNT_PATH=/shared-dist-storage
@@ -181,11 +182,24 @@ Isaac Lab Job 常用环境变量：
 
 ```text
 COLA_ISAAC_LAB_IMAGE=nvcr.io/nvidia/isaac-lab:2.2.0
+COLA_ISAAC_LAB_IMAGES=registry.local/isaac-lab:2.3.2,registry.local/isaac-lab:2.2.0
 COLA_ISAAC_LAB_EXTRA_ARGS=<附加训练参数>
 COLA_ISAAC_LAB_RUNTIME_CLASS_NAME=nvidia
 COLA_ISAAC_LAB_WORKDIR_MOUNT_PATH=/shared-dist-storage
 COLA_ISAAC_LAB_PVC_NAME=<可选 PVC>
+COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_NAME=isaac-gitlab-token
+COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY=GITLAB_TOKEN
+COLA_ISAAC_LAB_GITLAB_TOKEN_ENV_NAME=GITLAB_TOKEN
 ```
+
+GitLab 私有仓库训练代码可以通过 Kubernetes Secret 注入 token。默认 Secret 创建方式：
+
+```bash
+kubectl -n remote-work create secret generic isaac-gitlab-token \
+  --from-literal=GITLAB_TOKEN='<your-gitlab-token>'
+```
+
+然后在 `Lab Jobs` 里选择 `Runner = custom`，启动命令里使用 `${GITLAB_TOKEN}` clone 仓库，再执行训练脚本。
 
 Isaac 的验收重点不是 `DISPLAY=:1 glxinfo -B`，而是 Pod 内 `nvidia-smi`、Vulkan/EGL 用户态、Isaac headless 启动日志、WebRTC 客户端连接，以及 Isaac Lab Job 的 Pod phase、训练日志和输出目录是否正常。
 

@@ -43,6 +43,11 @@ import {
   resolveKubernetesWorkVolume,
   SHARED_STORAGE_MOUNT_PATH,
 } from "@/server/training/work-volume";
+import {
+  buildContainerImageOptions,
+  type ContainerImageOption,
+} from "./image-options";
+import { buildIsaacLabGitLabTokenEnv as buildGitLabTokenEnv } from "./gitlab-token-env.js";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -52,6 +57,13 @@ const ISAAC_LAB_WORKDIR =
 const K8S_API_CONNECT_TIMEOUT_MS = Number(
   process.env.COLA_ISAAC_LAB_K8S_API_CONNECT_TIMEOUT_MS ?? "2500",
 );
+const ISAAC_LAB_GITLAB_TOKEN_SECRET_NAME =
+  process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_NAME?.trim() ??
+  "isaac-gitlab-token";
+const ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY =
+  process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY?.trim() ?? "GITLAB_TOKEN";
+const ISAAC_LAB_GITLAB_TOKEN_ENV_NAME =
+  process.env.COLA_ISAAC_LAB_GITLAB_TOKEN_ENV_NAME?.trim() ?? "GITLAB_TOKEN";
 const OWNER_USER_ID_METADATA_KEY = "cola.dev/owner-user-id";
 
 function ownerMetadata(ownerUserId?: string | null): Record<string, string> {
@@ -120,11 +132,7 @@ export type IsaacLabListResult = {
   items: IsaacLabJobItem[];
 };
 
-export type IsaacLabImageOption = {
-  value: string;
-  label: string;
-  description: string;
-};
+export type IsaacLabImageOption = ContainerImageOption;
 
 export type CreateIsaacLabJobInput = {
   name: string;
@@ -696,6 +704,11 @@ function buildLabJob(input: {
                 { name: "COLA_ISAAC_LAB_RUNNER", value: input.runner },
                 { name: "COLA_ISAAC_LAB_TASK", value: input.task },
                 { name: "COLA_ISAAC_LAB_WORKDIR", value: mountPath },
+                ...buildGitLabTokenEnv({
+                  secretName: ISAAC_LAB_GITLAB_TOKEN_SECRET_NAME,
+                  secretKey: ISAAC_LAB_GITLAB_TOKEN_SECRET_KEY,
+                  envName: ISAAC_LAB_GITLAB_TOKEN_ENV_NAME,
+                }),
                 ...buildNvidiaDesktopRuntimeEnv(gpuSpec),
                 ...buildWorkVolumeEnv(workVolume),
               ],
@@ -722,16 +735,63 @@ function buildLabJob(input: {
 }
 
 function imageOptions(): IsaacLabImageOption[] {
-  const configured = process.env.COLA_ISAAC_LAB_IMAGE?.trim();
-  const defaultImage = configured ?? "nvcr.io/nvidia/isaac-lab:2.2.0";
-
-  return [
-    {
-      value: defaultImage,
-      label: configured ? "Configured Isaac Lab" : "Isaac Lab 2.2.0",
-      description: defaultImage,
-    },
-  ];
+  return buildContainerImageOptions({
+    productName: "Isaac Lab",
+    configuredImage: process.env.COLA_ISAAC_LAB_IMAGE,
+    configuredImages: process.env.COLA_ISAAC_LAB_IMAGES,
+    defaultOptions: [
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.2.0",
+        label: "Isaac Lab 2.2.0",
+        description: "nvcr.io/nvidia/isaac-lab:2.2.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.3.2",
+        label: "Isaac Lab 2.3.2",
+        description: "nvcr.io/nvidia/isaac-lab:2.3.2",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.3.1",
+        label: "Isaac Lab 2.3.1",
+        description: "nvcr.io/nvidia/isaac-lab:2.3.1",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.3.0",
+        label: "Isaac Lab 2.3.0",
+        description: "nvcr.io/nvidia/isaac-lab:2.3.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.2.1",
+        label: "Isaac Lab 2.2.1",
+        description: "nvcr.io/nvidia/isaac-lab:2.2.1",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.1.0",
+        label: "Isaac Lab 2.1.0",
+        description: "nvcr.io/nvidia/isaac-lab:2.1.0",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.1.1",
+        label: "Isaac Lab 2.1.1",
+        description: "nvcr.io/nvidia/isaac-lab:2.1.1",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.0.2",
+        label: "Isaac Lab 2.0.2",
+        description: "nvcr.io/nvidia/isaac-lab:2.0.2",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.0.1",
+        label: "Isaac Lab 2.0.1",
+        description: "nvcr.io/nvidia/isaac-lab:2.0.1",
+      },
+      {
+        value: "nvcr.io/nvidia/isaac-lab:2.0.0",
+        label: "Isaac Lab 2.0.0",
+        description: "nvcr.io/nvidia/isaac-lab:2.0.0",
+      },
+    ],
+  });
 }
 
 function podForJob(pods: V1Pod[], name: string) {
