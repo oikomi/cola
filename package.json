@@ -19,6 +19,7 @@
     "feishu:hermes": "node --env-file=.env scripts/feishu-hermes-conversation-worker.mjs",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
+    "isaac:ssh-gateway": "node --env-file=.env scripts/isaac-lab-ssh-gateway.mjs",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
     "preview": "next build && next start",

@@ -46,6 +46,7 @@ import {
   buildIsaacLabGpuRuntimeSpec,
   parseIsaacLabGpuAllocation,
 } from "./lab-gpu-runtime";
+import { buildIsaacLabSshCommandForJob } from "./lab-ssh-gateway-config";
 import { ISAAC_STATION_WEBRTC_PORT } from "./streaming-url";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
@@ -75,6 +76,7 @@ type ClusterConfig = {
   workspaceNamespace?: string;
   workspaceLabelKey?: string;
   gpuLabelKey?: string;
+  controllerIp?: string;
 };
 
 type ClusterNode = {
@@ -121,6 +123,7 @@ export type IsaacLabJobItem = {
   nodeIp: string | null;
   webrtcPort: number;
   endpoint: string | null;
+  sshCommand: string | null;
   podName: string | null;
   podPhase: string | null;
   restarts: number;
@@ -964,6 +967,7 @@ function labItemFromJob(input: {
   pods: V1Pod[];
   liveNodes: V1Node[];
   configNodes: ClusterNode[];
+  config: ClusterConfig;
   ownerMap: Map<string, ResourceOwner>;
 }): IsaacLabJobItem | null {
   const name = labLabel(input.job.metadata);
@@ -997,6 +1001,7 @@ function labItemFromJob(input: {
     : undefined;
   const nodeIp = resolveNodeIp(input.configNodes, liveNode);
   const status = labJobStatus(input.job, pod);
+  const podName = pod?.metadata?.name ?? null;
 
   return {
     id: name,
@@ -1015,7 +1020,13 @@ function labItemFromJob(input: {
     nodeIp,
     webrtcPort: ISAAC_STATION_WEBRTC_PORT,
     endpoint: labJobEndpoint({ displayMode, nodeIp, status }),
-    podName: pod?.metadata?.name ?? null,
+    sshCommand: buildIsaacLabSshCommandForJob({
+      jobName: name,
+      status,
+      podName,
+      controllerIp: input.config.controllerIp,
+    }),
+    podName,
     podPhase: pod?.status?.phase ?? null,
     restarts: restartsForPod(pod),
     summary: summaryForJob(input.job, pod),
@@ -1077,6 +1088,7 @@ export async function listIsaacLabJobs(): Promise<IsaacLabListResult> {
           pods: resources.pods,
           liveNodes: resources.liveNodes,
           configNodes: ctx.nodes,
+          config: ctx.config,
           ownerMap,
         }),
       )

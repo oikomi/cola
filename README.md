@@ -143,6 +143,7 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 ## 常用脚本
 
 - `./restart.sh`：重启本地 Next.js 开发服务；会先检查数据库连通性，必要时自动启动数据库容器并执行 migration
+- `npm run isaac:ssh-gateway`：启动 Isaac Lab SSH 网关；用户可用页面里显示的 `ssh -p 2222 <job>@平台IP` 直接进入对应 Lab 容器，Web Terminal 仍保留；`./restart.sh` 会在 `COLA_ISAAC_LAB_SSH_PASSWORD` 已配置时自动用 pm2 管理，也可传 `--with-isaac-ssh` 强制启动
 - `./start-database.sh`：启动本地 PostgreSQL 容器
 - `./reset-database.sh --seed-office`：清空数据库、重新迁移并重建示例办公室数据
 - `./cleanup-containers.sh --all`：清理本地数据库和 runner 容器

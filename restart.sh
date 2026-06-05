@@ -13,6 +13,8 @@ START_DB_SCRIPT="$ROOT_DIR/start-database.sh"
 FEISHU_HERMES_SCRIPT="$ROOT_DIR/scripts/feishu-hermes-conversation-worker.mjs"
 FEISHU_HERMES_WORKER="${FEISHU_HERMES_WORKER:-auto}"
 FEISHU_HERMES_PM2_NAME="${FEISHU_HERMES_PM2_NAME:-cola-feishu-hermes}"
+ISAAC_LAB_SSH_GATEWAY="${ISAAC_LAB_SSH_GATEWAY:-auto}"
+ISAAC_LAB_SSH_GATEWAY_PM2_NAME="${ISAAC_LAB_SSH_GATEWAY_PM2_NAME:-cola-isaac-lab-ssh}"
 RUN_MODE="background"
 
 while [[ $# -gt 0 ]]; do
@@ -29,8 +31,16 @@ while [[ $# -gt 0 ]]; do
       FEISHU_HERMES_WORKER="0"
       shift
       ;;
+    --with-isaac-ssh)
+      ISAAC_LAB_SSH_GATEWAY="1"
+      shift
+      ;;
+    --no-isaac-ssh)
+      ISAAC_LAB_SSH_GATEWAY="0"
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes]"
+      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes] [--with-isaac-ssh|--no-isaac-ssh]"
       echo
       echo "Restarts the local Next.js dev server for this repo."
       echo "Default: restart in background and write logs to $LOG_FILE"
@@ -40,11 +50,16 @@ while [[ $# -gt 0 ]]; do
       echo "  auto: start/restart with pm2 when FEISHU_APP_ID, FEISHU_APP_SECRET, and DATABASE_URL are set"
       echo "  --with-feishu-hermes: require the pm2 worker to start"
       echo "  --no-feishu-hermes: skip the pm2 worker"
+      echo
+      echo "Isaac Lab SSH gateway:"
+      echo "  auto: start/restart with pm2 when COLA_ISAAC_LAB_SSH_PASSWORD is set"
+      echo "  --with-isaac-ssh: require the pm2 gateway to start"
+      echo "  --no-isaac-ssh: skip the pm2 gateway"
       exit 0
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes]"
+      echo "Usage: $0 [--foreground|-f] [--with-feishu-hermes|--no-feishu-hermes] [--with-isaac-ssh|--no-isaac-ssh]"
       exit 1
       ;;
   esac
@@ -171,6 +186,71 @@ start_feishu_hermes_worker() {
   done
 
   echo "Feishu Hermes conversation worker did not stay running. Check: pm2 logs $FEISHU_HERMES_PM2_NAME"
+  return 1
+}
+
+start_isaac_lab_ssh_gateway() {
+  if is_falsey "$ISAAC_LAB_SSH_GATEWAY"; then
+    echo "Isaac Lab SSH gateway skipped."
+    return 0
+  fi
+
+  load_env_file
+  load_node_toolchain
+
+  local forced=0
+  if is_truthy "$ISAAC_LAB_SSH_GATEWAY"; then
+    forced=1
+  fi
+
+  if [[ -z "${COLA_ISAAC_LAB_SSH_PASSWORD:-}" && -z "${COLA_ISAAC_LAB_SSH_GATEWAY_PASSWORD:-}" ]]; then
+    if [[ "$forced" -eq 1 ]]; then
+      echo "Cannot start Isaac Lab SSH gateway. Missing: COLA_ISAAC_LAB_SSH_PASSWORD"
+      return 1
+    fi
+    echo "Isaac Lab SSH gateway skipped. Missing: COLA_ISAAC_LAB_SSH_PASSWORD"
+    return 0
+  fi
+
+  if ! command -v pm2 >/dev/null 2>&1; then
+    if [[ "$forced" -eq 1 ]]; then
+      echo "Cannot start Isaac Lab SSH gateway. pm2 is not available."
+      return 1
+    fi
+    echo "Isaac Lab SSH gateway skipped. pm2 is not available."
+    return 0
+  fi
+
+  if [[ ! -f "$ROOT_DIR/scripts/isaac-lab-ssh-gateway.mjs" ]]; then
+    echo "Cannot start Isaac Lab SSH gateway. Missing script: $ROOT_DIR/scripts/isaac-lab-ssh-gateway.mjs"
+    return 1
+  fi
+
+  if [[ ! -d "$ROOT_DIR/node_modules/ssh2" || ! -d "$ROOT_DIR/node_modules/@kubernetes/client-node" ]]; then
+    echo "Cannot start Isaac Lab SSH gateway. Run npm install first."
+    return 1
+  fi
+
+  echo "Starting Isaac Lab SSH gateway with pm2 ($ISAAC_LAB_SSH_GATEWAY_PM2_NAME)..."
+  if pm2 describe "$ISAAC_LAB_SSH_GATEWAY_PM2_NAME" >/dev/null 2>&1; then
+    pm2 restart "$ISAAC_LAB_SSH_GATEWAY_PM2_NAME" --update-env
+  else
+    pm2 start npm --name "$ISAAC_LAB_SSH_GATEWAY_PM2_NAME" --cwd "$ROOT_DIR" --time -- run isaac:ssh-gateway
+  fi
+
+  local gateway_pid=""
+  for _ in {1..10}; do
+    gateway_pid="$(pm2 pid "$ISAAC_LAB_SSH_GATEWAY_PM2_NAME" 2>/dev/null | tail -n 1 | tr -d '[:space:]' || true)"
+    if [[ "$gateway_pid" =~ ^[1-9][0-9]*$ ]]; then
+      echo "Isaac Lab SSH gateway restarted successfully."
+      echo "PM2 name: $ISAAC_LAB_SSH_GATEWAY_PM2_NAME"
+      echo "PID: $gateway_pid"
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Isaac Lab SSH gateway did not stay running. Check: pm2 logs $ISAAC_LAB_SSH_GATEWAY_PM2_NAME"
   return 1
 }
 
@@ -324,6 +404,7 @@ done < <(find_repo_next_pids || true)
 
 ensure_virtual_office_schema
 start_feishu_hermes_worker
+start_isaac_lab_ssh_gateway
 
 if command -v lsof >/dev/null 2>&1; then
   while IFS= read -r pid; do

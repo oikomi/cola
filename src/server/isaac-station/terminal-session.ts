@@ -3,14 +3,15 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { PassThrough, Writable } from "node:stream";
 
-import { CoreV1Api, Exec } from "@kubernetes/client-node";
-import type { V1Pod, V1Status } from "@kubernetes/client-node";
-
 import {
-  createKubeConfig as createSharedKubeConfig,
-  resolveKubeconfigPath as resolveSharedKubeconfigPath,
-} from "@/server/kubernetes/kubeconfig";
-import { readIsaacClusterConfig, resolveIsaacNamespace } from "./k8s-context";
+  ISAAC_LAB_LOGIN_COMMAND,
+  type IsaacLabExecTarget,
+  type TerminalSocket,
+  ResizableTerminalOutput,
+  isTerminalSocket,
+  resolveIsaacLabExecTarget,
+  statusExitCode,
+} from "./lab-exec-target";
 
 type TerminalStatus = "connecting" | "connected" | "closed";
 
@@ -46,20 +47,10 @@ export type IsaacTerminalSessionInfo = {
 };
 
 type TerminalListener = (event: IsaacTerminalSessionEvent) => void;
-type TerminalSocket = {
-  close: () => void;
-  once: (
-    eventName: "close" | "error",
-    listener: (error?: unknown) => void,
-  ) => void;
-};
 
 const SESSION_IDLE_MS = 30 * 60 * 1000;
 const SESSION_RETAIN_MS = 60 * 1000;
 const MAX_BACKLOG_EVENTS = 500;
-const DEFAULT_TERMINAL_COLS = 120;
-const DEFAULT_TERMINAL_ROWS = 32;
-const LAB_CONTAINER_NAME = "isaac-lab";
 
 declare global {
   var __colaIsaacTerminalSessions:
@@ -73,111 +64,6 @@ const sessions =
 
 globalThis.__colaIsaacTerminalSessions = sessions;
 
-function resolveKubeconfigPath(clusterName: string) {
-  return resolveSharedKubeconfigPath({
-    clusterName,
-    envVarNames: [
-      "COLA_ISAAC_LAB_KUBECONFIG_PATH",
-      "REMOTE_WORK_KUBECONFIG_PATH",
-      "WORKSPACE_KUBECONFIG",
-    ],
-  });
-}
-
-function createKubeConfig(clusterName: string) {
-  return createSharedKubeConfig({
-    clusterName,
-    envVarNames: [
-      "COLA_ISAAC_LAB_KUBECONFIG_PATH",
-      "REMOTE_WORK_KUBECONFIG_PATH",
-      "WORKSPACE_KUBECONFIG",
-    ],
-    warnPrefix: "[isaac-terminal]",
-  });
-}
-
-function jobName(name: string) {
-  return `isaac-lab-${name}`;
-}
-
-function validateLabName(name: string) {
-  if (name.length > 42) {
-    throw new Error("Isaac Lab Job 名称最多 42 个字符。");
-  }
-
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
-    throw new Error("Isaac Lab Job 名称必须符合 DNS-1123 简单命名规则。");
-  }
-}
-
-function podBelongsToJob(pod: V1Pod, name: string) {
-  return (
-    pod.metadata?.labels?.["cola.isaac/lab-job-name"] === name ||
-    pod.metadata?.labels?.["batch.kubernetes.io/job-name"] === jobName(name) ||
-    pod.metadata?.labels?.["job-name"] === jobName(name)
-  );
-}
-
-function isPodReady(pod: V1Pod) {
-  return (
-    pod.status?.conditions?.some(
-      (condition) => condition.type === "Ready" && condition.status === "True",
-    ) ?? false
-  );
-}
-
-function selectLabPod(pods: V1Pod[], name: string) {
-  const matches = pods.filter((pod) => podBelongsToJob(pod, name));
-  return (
-    matches.find((pod) => pod.status?.phase === "Running" && isPodReady(pod)) ??
-    matches.find((pod) => pod.status?.phase === "Running") ??
-    null
-  );
-}
-
-function statusExitCode(status: V1Status) {
-  const raw = status.details?.causes?.find(
-    (cause) => cause.reason === "ExitCode",
-  )?.message;
-  const value = Number(raw);
-  return Number.isInteger(value) ? value : null;
-}
-
-function isTerminalSocket(value: unknown): value is TerminalSocket {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "close" in value &&
-    typeof value.close === "function" &&
-    "once" in value &&
-    typeof value.once === "function"
-  );
-}
-
-class ResizableOutput extends Writable {
-  columns = DEFAULT_TERMINAL_COLS;
-  rows = DEFAULT_TERMINAL_ROWS;
-
-  constructor(private readonly onData: (data: string) => void) {
-    super();
-  }
-
-  override _write(
-    chunk: Buffer | string,
-    _encoding: BufferEncoding,
-    callback: (error?: Error | null) => void,
-  ) {
-    this.onData(chunk.toString());
-    callback();
-  }
-
-  resize(cols: number, rows: number) {
-    this.columns = cols;
-    this.rows = rows;
-    this.emit("resize");
-  }
-}
-
 class IsaacTerminalSession {
   readonly id = randomUUID();
   readonly startedAt = new Date();
@@ -185,7 +71,7 @@ class IsaacTerminalSession {
   private readonly listeners = new Set<TerminalListener>();
   private readonly backlog: IsaacTerminalSessionEvent[] = [];
   private readonly stdin = new PassThrough();
-  private readonly stdout = new ResizableOutput((data) => {
+  private readonly stdout = new ResizableTerminalOutput((data) => {
     this.resetIdleTimer();
     this.emit({ type: "output", data });
   });
@@ -203,16 +89,7 @@ class IsaacTerminalSession {
   private removeTimer: ReturnType<typeof setTimeout> | null = null;
   private socket: TerminalSocket | null = null;
 
-  constructor(
-    private readonly target: {
-      namespace: string;
-      jobName: string;
-      podName: string;
-      containerName: string;
-      nodeName: string | null;
-      exec: Exec;
-    },
-  ) {}
+  constructor(private readonly target: IsaacLabExecTarget) {}
 
   info(): IsaacTerminalSessionInfo {
     return {
@@ -239,11 +116,7 @@ class IsaacTerminalSession {
         this.target.namespace,
         this.target.podName,
         this.target.containerName,
-        [
-          "/bin/bash",
-          "-lc",
-          'cd "${ISAAC_LAB_WORKDIR:-$PWD}" 2>/dev/null || true; exec /bin/bash -l',
-        ],
+        ["/bin/bash", "-lc", ISAAC_LAB_LOGIN_COMMAND],
         this.stdout,
         this.stderr,
         this.stdin,
@@ -373,37 +246,9 @@ class IsaacTerminalSession {
 }
 
 export async function createIsaacLabTerminalSession(nameInput: string) {
-  const name = nameInput.trim().toLowerCase();
-  validateLabName(name);
-
-  const { config } = readIsaacClusterConfig();
-  resolveKubeconfigPath(config.clusterName);
-  const { kubeConfig } = createKubeConfig(config.clusterName);
-  const coreApi = kubeConfig.makeApiClient(CoreV1Api);
-  const namespace = resolveIsaacNamespace(config, "lab");
-  const pods = await coreApi.listNamespacedPod({ namespace });
-  const pod = selectLabPod(pods.items ?? [], name);
-
-  if (!pod?.metadata?.name) {
-    throw new Error("没有找到正在运行的 Isaac Lab Pod。请先启动 Job。");
-  }
-
-  const container =
-    pod.spec?.containers?.find((item) => item.name === LAB_CONTAINER_NAME)
-      ?.name ?? pod.spec?.containers?.[0]?.name;
-
-  if (!container) {
-    throw new Error("Isaac Lab Pod 没有可进入的容器。");
-  }
-
-  const session = new IsaacTerminalSession({
-    namespace,
-    jobName: name,
-    podName: pod.metadata.name,
-    containerName: container,
-    nodeName: pod.spec?.nodeName ?? null,
-    exec: new Exec(kubeConfig),
-  });
+  const session = new IsaacTerminalSession(
+    await resolveIsaacLabExecTarget(nameInput),
+  );
   sessions.set(session.id, session);
   session.start();
   return session.info();

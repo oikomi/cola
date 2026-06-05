@@ -661,10 +661,12 @@ function LabJobCard(props: {
   isDeleting: boolean;
   onDelete: () => void;
   onCopyEndpoint: () => void;
+  onCopySshCommand: () => void;
   onOpenTerminal: () => void;
 }) {
   const { job } = props;
   const terminalAvailable = job.status === "running" && Boolean(job.podName);
+  const sshAvailable = Boolean(job.sshCommand);
 
   return (
     <article className="rounded-[10px] border border-slate-200/85 bg-white/94 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.035)]">
@@ -755,6 +757,15 @@ function LabJobCard(props: {
         </div>
       ) : null}
 
+      <div className="mt-3 rounded-[9px] border border-slate-200/85 bg-slate-950 px-2.5 py-2 text-[12px] leading-5 text-slate-200">
+        <div className="flex items-center gap-2">
+          <TerminalIcon className="size-3.5 shrink-0 text-slate-400" />
+          <span className="min-w-0 truncate font-mono">
+            {job.sshCommand ?? "Pod 运行后生成 SSH 命令"}
+          </span>
+        </div>
+      </div>
+
       <div className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:justify-end">
         {job.displayMode === "webrtc" ? (
           <>
@@ -791,6 +802,17 @@ function LabJobCard(props: {
             </Button>
           </>
         ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 rounded-[8px] border-slate-200/90 bg-white px-2.5 text-[12px] text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+          disabled={!sshAvailable}
+          title={job.sshCommand ?? "Pod 运行后才能复制 SSH 命令"}
+          onClick={props.onCopySshCommand}
+        >
+          <CopyIcon data-icon="inline-start" />
+          SSH
+        </Button>
         <Button
           size="sm"
           variant="outline"
@@ -2461,6 +2483,26 @@ export function IsaacShell() {
     }
   }, []);
 
+  const handleCopyLabSshCommand = useCallback(async (job: IsaacLabJobRow) => {
+    if (!job.sshCommand) {
+      notifyError("SSH 命令尚未生成。");
+      return;
+    }
+
+    try {
+      await writeTextToClipboard(job.sshCommand);
+      notifySuccess({
+        title: "SSH 命令已复制",
+        message: job.sshCommand,
+      });
+    } catch {
+      notifyError({
+        title: "复制失败",
+        message: `请手动复制页面上的 SSH 命令：${job.sshCommand}`,
+      });
+    }
+  }, []);
+
   const handleDeleteStation = async (name: string) => {
     const confirmed = await confirm({
       title: `确认删除 Sim Station ${name}？`,
@@ -2752,6 +2794,7 @@ export function IsaacShell() {
                       deleteLabJob.variables?.name === job.name)
                   }
                   onCopyEndpoint={() => void handleCopyLabEndpoint(job)}
+                  onCopySshCommand={() => void handleCopyLabSshCommand(job)}
                   onOpenTerminal={() => setTerminalJob(job)}
                   onDelete={() => void handleDeleteLabJob(job.name)}
                 />
