@@ -641,7 +641,7 @@ function buildLabCommand(input: {
   } satisfies Record<IsaacLabRunner, string>;
   const extraArgs = process.env.COLA_ISAAC_LAB_EXTRA_ARGS?.trim() ?? "";
   const displayArgs =
-    input.displayMode === "webrtc" ? "--livestream 2" : "--headless";
+    input.displayMode === "webrtc" ? "--headless --livestream 2" : "--headless";
 
   return [
     "set -euo pipefail",
@@ -946,6 +946,19 @@ function summaryForJob(job: V1Job, pod?: V1Pod | null) {
   return "Waiting for pod scheduling";
 }
 
+function labJobEndpoint(input: {
+  displayMode: IsaacLabDisplayMode;
+  nodeIp: string | null;
+  status: IsaacLabJobItem["status"];
+}) {
+  if (input.displayMode !== "webrtc" || input.status !== "running") return null;
+
+  return buildEndpoint({
+    nodeIp: input.nodeIp,
+    port: ISAAC_STATION_WEBRTC_PORT,
+  });
+}
+
 function labItemFromJob(input: {
   job: V1Job;
   pods: V1Pod[];
@@ -983,11 +996,12 @@ function labItemFromJob(input: {
     ? input.liveNodes.find((node) => node.metadata?.name === podNodeName)
     : undefined;
   const nodeIp = resolveNodeIp(input.configNodes, liveNode);
+  const status = labJobStatus(input.job, pod);
 
   return {
     id: name,
     name,
-    status: labJobStatus(input.job, pod),
+    status,
     runner,
     displayMode,
     task,
@@ -1000,13 +1014,7 @@ function labItemFromJob(input: {
     nodeName: podNodeName,
     nodeIp,
     webrtcPort: ISAAC_STATION_WEBRTC_PORT,
-    endpoint:
-      displayMode === "webrtc"
-        ? buildEndpoint({
-            nodeIp,
-            port: ISAAC_STATION_WEBRTC_PORT,
-          })
-        : null,
+    endpoint: labJobEndpoint({ displayMode, nodeIp, status }),
     podName: pod?.metadata?.name ?? null,
     podPhase: pod?.status?.phase ?? null,
     restarts: restartsForPod(pod),

@@ -43,6 +43,9 @@ type ParsedEndpoint = {
   value: string;
 };
 
+const ISAAC_STREAMING_API_PORT = 8011;
+const ISAAC_WEBRTC_STREAM_PORT = 49100;
+
 function parseEndpoint(value: string | null): ParsedEndpoint | null {
   const raw = value?.trim();
   if (!raw) return null;
@@ -70,14 +73,18 @@ function parseEndpoint(value: string | null): ParsedEndpoint | null {
   }
 }
 
+function resolveStreamPort(endpoint: ParsedEndpoint) {
+  return endpoint.port === ISAAC_STREAMING_API_PORT
+    ? ISAAC_WEBRTC_STREAM_PORT
+    : endpoint.port;
+}
+
 function eventInfoText(event: StreamEventLike) {
   if (typeof event.info === "string") return event.info;
   if (event.info instanceof Error) return event.info.message;
   if (event.info) return JSON.stringify(event.info);
 
-  return (
-    [event.action, event.status].filter(Boolean).join(" / ") || "未知状态"
-  );
+  return [event.action, event.status].filter(Boolean).join(" / ") || "未知状态";
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -109,10 +116,14 @@ function useElementSize<T extends HTMLElement>() {
 export function IsaacWebrtcViewer() {
   const { ref: stageRef, size } = useElementSize<HTMLDivElement>();
   const sizeRef = useRef(size);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [message, setMessage] = useState("等待连接");
   const [stats, setStats] = useState<ViewerStats | null>(null);
-  const [searchParams, setSearchParams] = useState<URLSearchParams | null>(null);
+  const [hasVideoFrame, setHasVideoFrame] = useState(false);
+  const [searchParams, setSearchParams] = useState<URLSearchParams | null>(
+    null,
+  );
 
   useEffect(() => {
     setSearchParams(new URLSearchParams(window.location.search));
@@ -131,6 +142,16 @@ export function IsaacWebrtcViewer() {
     rawResourceName && rawResourceName.length > 0 ? rawResourceName : "Isaac";
   const resourceKind =
     searchParams?.get("kind") === "lab" ? "Isaac Lab" : "Isaac Sim";
+  const streamPort = endpoint ? resolveStreamPort(endpoint) : null;
+
+  const markVideoFrame = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+
+    setHasVideoFrame(true);
+    setStatus("streaming");
+    setMessage("WebRTC 画面已连接");
+  }, []);
 
   const disconnect = useCallback(async () => {
     try {
@@ -138,6 +159,7 @@ export function IsaacWebrtcViewer() {
       await AppStreamer.terminate(false).catch(() => undefined);
       setStatus("stopped");
       setMessage("画面连接已断开");
+      setHasVideoFrame(false);
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "断开连接失败");
@@ -154,14 +176,15 @@ export function IsaacWebrtcViewer() {
     setStatus("connecting");
     setMessage(`正在连接 ${endpoint.value}`);
     setStats(null);
+    setHasVideoFrame(false);
 
     try {
-      const { AppStreamer, EventStatus, LogLevel, StreamType } = await import(
-        "@nvidia/ov-web-rtc"
-      );
+      const { AppStreamer, EventStatus, LogLevel, StreamType } =
+        await import("@nvidia/ov-web-rtc");
 
       await AppStreamer.terminate(false).catch(() => undefined);
       const targetSize = sizeRef.current;
+      const resolvedStreamPort = resolveStreamPort(endpoint);
 
       await AppStreamer.connect({
         streamSource: StreamType.DIRECT,
@@ -169,9 +192,7 @@ export function IsaacWebrtcViewer() {
         streamConfig: {
           server: endpoint.host,
           signalingServer: endpoint.host,
-          signalingPort: endpoint.port,
-          mediaServer: endpoint.host,
-          mediaPort: endpoint.port,
+          signalingPort: resolvedStreamPort,
           videoElementId: "isaac-webrtc-video",
           audioElementId: "isaac-webrtc-audio",
           width: Math.min(1920, targetSize.width),
@@ -185,19 +206,32 @@ export function IsaacWebrtcViewer() {
               return;
             }
 
-            setStatus("streaming");
-            setMessage("WebRTC 画面已连接");
+            setStatus("connecting");
+            setMessage("WebRTC 信令已建立，等待视频帧");
+            markVideoFrame();
           },
           onStop: (event: StreamEventLike) => {
             setStatus("stopped");
             setMessage(eventInfoText(event));
+            setHasVideoFrame(false);
           },
           onTerminate: (event: StreamEventLike) => {
             setStatus("stopped");
             setMessage(eventInfoText(event));
+            setHasVideoFrame(false);
           },
           onStreamStats: (event: StreamStatsLike) => {
-            setStats(event.data?.stats ?? null);
+            const nextStats = event.data?.stats ?? null;
+            setStats(nextStats);
+            if (
+              nextStats &&
+              ((nextStats.fps ?? 0) > 0 ||
+                (nextStats.streamingResolutionWidth ?? 0) > 0)
+            ) {
+              setHasVideoFrame(true);
+              setStatus("streaming");
+              setMessage("WebRTC 画面已连接");
+            }
           },
         },
       });
@@ -208,8 +242,9 @@ export function IsaacWebrtcViewer() {
           ? error.message
           : eventInfoText(error as StreamEventLike),
       );
+      setHasVideoFrame(false);
     }
-  }, [endpoint]);
+  }, [endpoint, markVideoFrame]);
 
   useEffect(() => {
     if (!searchParams) return;
@@ -287,16 +322,21 @@ export function IsaacWebrtcViewer() {
             className="relative min-h-[calc(100dvh-9.25rem)] overflow-hidden bg-black"
           >
             <video
+              ref={videoRef}
               id="isaac-webrtc-video"
               className="h-full w-full bg-black object-contain"
               autoPlay
               playsInline
               muted
               tabIndex={0}
+              onLoadedMetadata={markVideoFrame}
+              onPlaying={markVideoFrame}
+              onResize={markVideoFrame}
+              onTimeUpdate={markVideoFrame}
             />
             <audio id="isaac-webrtc-audio" autoPlay />
 
-            {status !== "streaming" ? (
+            {status !== "streaming" || !hasVideoFrame ? (
               <div className="absolute inset-0 flex items-center justify-center bg-black/72 p-4">
                 <div className="w-full max-w-lg rounded-[8px] border border-white/12 bg-[#101923]/94 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.35)]">
                   <div className="flex items-start gap-3">
@@ -317,7 +357,7 @@ export function IsaacWebrtcViewer() {
                             ? "正在建立 WebRTC 连接"
                             : "WebRTC Viewer"}
                       </p>
-                      <p className="mt-1 break-words text-[13px] leading-5 text-slate-300">
+                      <p className="mt-1 text-[13px] leading-5 break-words text-slate-300">
                         {message}
                       </p>
                     </div>
@@ -330,6 +370,7 @@ export function IsaacWebrtcViewer() {
           <footer className="grid gap-2 border-t border-white/10 bg-[#111a24] px-3 py-2 text-[12px] text-slate-300 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4">
             <div className="min-w-0 truncate">
               状态：{message}
+              {streamPort ? ` · 流端口 ${streamPort}` : ""}
               {stats
                 ? ` · ${stats.codec ?? "codec"} · ${stats.fps ?? 0} FPS · ${
                     stats.streamingResolutionWidth ?? "-"

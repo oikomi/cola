@@ -2028,7 +2028,7 @@ function IsaacLabDialog(props: {
                     command: event.target.value,
                   }))
                 }
-                placeholder="cd /shared-dist-storage/my-isaac-train && /workspace/isaaclab/isaaclab.sh -p train.py --task Isaac-Velocity-Flat-G1-v0 --livestream 2 --max_iterations 1000"
+                placeholder="cd /shared-dist-storage/my-isaac-train && /workspace/isaaclab/isaaclab.sh -p train.py --task Isaac-Velocity-Flat-G1-v0 --headless --livestream 2 --max_iterations 1000"
               />
             </Field>
           ) : null}
@@ -2065,8 +2065,10 @@ function IsaacLabDialog(props: {
           <GpuFields draft={props.draft} onDraftChange={props.onDraftChange} />
 
           <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/80 px-3 py-2.5 text-[12px] leading-5 text-slate-600">
-            Headless 会追加 `--headless`；WebRTC 会追加 `--livestream 2` 并使用
-            GPU 节点网络暴露 8011 端口。Custom runner 直接执行你填写的命令。
+            Headless 会追加 <code>--headless</code>；WebRTC 会追加{" "}
+            <code>--headless --livestream 2</code> 并使用 GPU 节点网络暴露 8011
+            端口。Custom runner 直接执行你填写的命令，手动 SSH
+            运行时也要自己带上这些参数。
           </div>
         </div>
 
