@@ -76,7 +76,6 @@ const DEFAULT_SEAWEEDFS_FILER =
 const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/xdream";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
-const DEFAULT_SEAWEEDFS_FUSERMOUNT_HOST_PATH = "/bin/fusermount3";
 export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
@@ -119,6 +118,17 @@ function buildSeaweedfsInstallCommand() {
 mkdir -p "${SEAWEEDFS_TOOLS_DIR}"
 cp "$(command -v weed)" "${SEAWEEDFS_TOOLS_DIR}/weed"
 chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/weed"
+for cola_fusermount_path in /bin/fusermount /usr/bin/fusermount /bin/fusermount3 /usr/bin/fusermount3; do
+  if [ -x "$cola_fusermount_path" ]; then
+    cp "$cola_fusermount_path" "${SEAWEEDFS_TOOLS_DIR}/fusermount"
+    chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/fusermount"
+    break
+  fi
+done
+if [ -e /lib/ld-musl-x86_64.so.1 ]; then
+  cp /lib/ld-musl-x86_64.so.1 "${SEAWEEDFS_TOOLS_DIR}/ld-musl-x86_64.so.1"
+  chmod 0755 "${SEAWEEDFS_TOOLS_DIR}/ld-musl-x86_64.so.1"
+fi
 
 mkdir -p "$COLA_SEAWEEDFS_CACHE_DIR"
 if [ "$(id -u)" = "0" ]; then
@@ -130,6 +140,16 @@ cat > "${SEAWEEDFS_TOOLS_DIR}/mount-workdir.sh" <<'SH'
 #!/bin/sh
 set -eu
 mkdir -p "$COLA_SEAWEEDFS_MOUNT_DIR" "$COLA_SEAWEEDFS_CACHE_DIR"
+if [ -x "${SEAWEEDFS_TOOLS_DIR}/fusermount" ]; then
+  mkdir -p /bin /usr/bin
+  cp "${SEAWEEDFS_TOOLS_DIR}/fusermount" /bin/fusermount
+  cp "${SEAWEEDFS_TOOLS_DIR}/fusermount" /usr/bin/fusermount
+  chmod 0755 /bin/fusermount /usr/bin/fusermount
+fi
+if [ -e "${SEAWEEDFS_TOOLS_DIR}/ld-musl-x86_64.so.1" ]; then
+  cp "${SEAWEEDFS_TOOLS_DIR}/ld-musl-x86_64.so.1" /lib/ld-musl-x86_64.so.1
+  chmod 0755 /lib/ld-musl-x86_64.so.1
+fi
 
 extra_args=""
 if [ -n "\${COLA_SEAWEEDFS_ALLOW_OTHERS:-}" ]; then
@@ -290,15 +310,11 @@ function resolveSeaweedfsWorkVolume(input: {
 }): WorkVolumeSource {
   const cacheVolumeName = volumeName(input.volumeName, "seaweedfs-cache");
   const fuseVolumeName = volumeName(input.volumeName, "fuse-device");
-  const fusermountVolumeName = volumeName(input.volumeName, "fusermount");
   const toolsVolumeName = volumeName(input.volumeName, "seaweedfs-tools");
   const installContainerName = volumeName(input.volumeName, "seaweedfs-tools");
   const cacheDir =
     firstEnvValue(input.env, ["COLA_SEAWEEDFS_CACHE_DIR"]) ??
     DEFAULT_SEAWEEDFS_CACHE_DIR;
-  const fusermountHostPath =
-    firstEnvValue(input.env, ["COLA_SEAWEEDFS_FUSERMOUNT_HOST_PATH"]) ??
-    DEFAULT_SEAWEEDFS_FUSERMOUNT_HOST_PATH;
   const runMountAsRoot = isEnabled(
     firstEnvValue(input.env, ["COLA_SEAWEEDFS_MOUNT_RUN_AS_ROOT"]),
     true,
@@ -339,13 +355,6 @@ function resolveSeaweedfsWorkVolume(input: {
         hostPath: {
           path: "/dev/fuse",
           type: "CharDevice",
-        },
-      },
-      {
-        name: fusermountVolumeName,
-        hostPath: {
-          path: fusermountHostPath,
-          type: "File",
         },
       },
       {
@@ -405,11 +414,6 @@ function resolveSeaweedfsWorkVolume(input: {
       {
         name: fuseVolumeName,
         mountPath: "/dev/fuse",
-      },
-      {
-        name: fusermountVolumeName,
-        mountPath: "/bin/fusermount",
-        readOnly: true,
       },
       {
         name: toolsVolumeName,

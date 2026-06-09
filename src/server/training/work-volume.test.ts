@@ -83,7 +83,6 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     [
       "training-workdir-seaweedfs-cache",
       "training-workdir-fuse-device",
-      "training-workdir-fusermount",
       "training-workdir-seaweedfs-tools",
     ],
   );
@@ -99,7 +98,6 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     [
       "/var/cache/seaweedfs",
       "/dev/fuse",
-      "/bin/fusermount",
       "/opt/cola-seaweedfs",
     ],
   );
@@ -112,6 +110,18 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     /chown -R "\$COLA_SEAWEEDFS_MOUNT_UID:[^"]+" "\$COLA_SEAWEEDFS_CACHE_DIR"/,
   );
   assert.match(initContainers[0]?.args?.[0] ?? "", /-nonempty/);
+  assert.match(
+    initContainers[0]?.args?.[0] ?? "",
+    /\/opt\/cola-seaweedfs\/fusermount/,
+  );
+  assert.match(
+    initContainers[0]?.args?.[0] ?? "",
+    /ld-musl-x86_64\.so\.1/,
+  );
+  assert.match(
+    initContainers[0]?.args?.[0] ?? "",
+    /\/usr\/bin\/fusermount/,
+  );
   assert.deepEqual(
     initContainers[0]?.volumeMounts?.map((mount) => mount.mountPath),
     ["/var/cache/seaweedfs", "/opt/cola-seaweedfs"],
@@ -121,18 +131,8 @@ void test("work volume mounts SeaweedFS FUSE automatically by default", () => {
     [
       "training-workdir-seaweedfs-cache",
       "training-workdir-fuse-device",
-      "training-workdir-fusermount",
       "training-workdir-seaweedfs-tools",
     ],
-  );
-  assert.deepEqual(
-    buildWorkVolumes(workVolume).find(
-      (volume) => volume.name === "training-workdir-fusermount",
-    )?.hostPath,
-    {
-      path: "/bin/fusermount3",
-      type: "File",
-    },
   );
 });
 

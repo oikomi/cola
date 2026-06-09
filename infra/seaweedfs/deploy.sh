@@ -344,6 +344,7 @@ set_defaults() {
 
   SEAWEEDFS_ENABLE_SECURITY="${SEAWEEDFS_ENABLE_SECURITY:-true}"
   SEAWEEDFS_DATA_ROOT="${SEAWEEDFS_DATA_ROOT:-/var/lib/cola/seaweedfs}"
+  SEAWEEDFS_METADATA_NODE="${SEAWEEDFS_METADATA_NODE:-node-01}"
   SEAWEEDFS_VOLUME_MODE="${SEAWEEDFS_VOLUME_MODE:-k8s}"
   SEAWEEDFS_VOLUME_NODES="${SEAWEEDFS_VOLUME_NODES:-[]}"
   SEAWEEDFS_REPLICATION="${SEAWEEDFS_REPLICATION:-001}"
@@ -456,6 +457,24 @@ validate_node_port() {
   fi
 }
 
+validate_non_negative_int() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+    die "$name 必须是非负整数"
+  fi
+}
+
+validate_positive_int() {
+  local name="$1"
+  local value="$2"
+
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -lt 1 ]]; then
+    die "$name 必须是正整数"
+  fi
+}
+
 validate_json_nodes() {
   if command -v python3 >/dev/null 2>&1; then
     python3 - "$SEAWEEDFS_VOLUME_NODES" <<'PY'
@@ -512,6 +531,35 @@ process.stdout.write(String(Array.isArray(value) ? value.length : 0));
 EOF
 }
 
+cluster_node_exists() {
+  local name="$1"
+
+  [[ -f "$K8S_DIR/cluster/nodes.json" ]] || die "找不到集群节点配置: $K8S_DIR/cluster/nodes.json"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$K8S_DIR/cluster/nodes.json" "$name" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+nodes = json.loads(Path(sys.argv[1]).read_text())
+name = sys.argv[2]
+if any(isinstance(node, dict) and node.get("name") == name for node in nodes):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    return $?
+  fi
+
+  node --input-type=module - "$K8S_DIR/cluster/nodes.json" "$name" <<'EOF'
+import fs from "node:fs";
+
+const [path, name] = process.argv.slice(2);
+const nodes = JSON.parse(fs.readFileSync(path, "utf8"));
+process.exit(nodes.some((node) => node && node.name === name) ? 0 : 1);
+EOF
+}
+
 validate_inputs() {
   [[ -n "$SEAWEEDFS_NAMESPACE" ]] || die "SEAWEEDFS_NAMESPACE 不能为空"
   [[ -n "$SEAWEEDFS_RELEASE" ]] || die "SEAWEEDFS_RELEASE 不能为空"
@@ -534,6 +582,11 @@ validate_inputs() {
   validate_port "SEAWEEDFS_MASTER_PORT" "$SEAWEEDFS_MASTER_PORT"
   validate_port "SEAWEEDFS_MASTER_GRPC_PORT" "$SEAWEEDFS_MASTER_GRPC_PORT"
   validate_port "SEAWEEDFS_S3_PORT" "$SEAWEEDFS_S3_PORT"
+  validate_positive_int "SEAWEEDFS_MASTER_REPLICAS" "$SEAWEEDFS_MASTER_REPLICAS"
+  validate_positive_int "SEAWEEDFS_FILER_REPLICAS" "$SEAWEEDFS_FILER_REPLICAS"
+  validate_positive_int "SEAWEEDFS_S3_REPLICAS" "$SEAWEEDFS_S3_REPLICAS"
+  validate_positive_int "SEAWEEDFS_VOLUME_MAX" "$SEAWEEDFS_VOLUME_MAX"
+  validate_positive_int "SEAWEEDFS_VOLUME_SIZE_LIMIT_MB" "$SEAWEEDFS_VOLUME_SIZE_LIMIT_MB"
 
   if is_true "$SEAWEEDFS_S3_NODEPORT_ENABLED"; then
     [[ -n "$SEAWEEDFS_S3_NODEPORT_SERVICE_NAME" ]] || die "SEAWEEDFS_S3_NODEPORT_SERVICE_NAME 不能为空"
@@ -547,6 +600,14 @@ validate_inputs() {
   fi
 
   validate_json_nodes
+
+  if [[ -n "$SEAWEEDFS_METADATA_NODE" ]] && ! cluster_node_exists "$SEAWEEDFS_METADATA_NODE"; then
+    die "SEAWEEDFS_METADATA_NODE=$SEAWEEDFS_METADATA_NODE 不在 infra/k8s/cluster/nodes.json 中"
+  fi
+  if [[ -n "$SEAWEEDFS_METADATA_NODE" ]] &&
+    { [[ "$SEAWEEDFS_MASTER_REPLICAS" -gt 1 ]] || [[ "$SEAWEEDFS_FILER_REPLICAS" -gt 1 ]] || [[ "$SEAWEEDFS_S3_REPLICAS" -gt 1 ]]; }; then
+    warn "SEAWEEDFS_METADATA_NODE 已固定到单节点，master/filer/s3 多副本可能受 chart 默认 anti-affinity 影响无法调度。"
+  fi
 
   local node_count
   node_count="$(json_array_length "$SEAWEEDFS_VOLUME_NODES")"
@@ -564,9 +625,7 @@ validate_inputs() {
     validate_port "SEAWEEDFS_EXTERNAL_VOLUME_PORT" "$SEAWEEDFS_EXTERNAL_VOLUME_PORT"
     validate_port "SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT" "$SEAWEEDFS_EXTERNAL_VOLUME_GRPC_PORT"
 
-    if ! [[ "$SEAWEEDFS_EXTERNAL_VOLUME_MAX" =~ ^[0-9]+$ ]]; then
-      die "SEAWEEDFS_EXTERNAL_VOLUME_MAX 必须是非负整数"
-    fi
+    validate_non_negative_int "SEAWEEDFS_EXTERNAL_VOLUME_MAX" "$SEAWEEDFS_EXTERNAL_VOLUME_MAX"
 
     if [[ -z "$SEAWEEDFS_EXTERNAL_VOLUME_MASTER" ]] && ! is_true "$SEAWEEDFS_MASTER_NODEPORT_ENABLED"; then
       die "SEAWEEDFS_VOLUME_MODE=external 且未配置 SEAWEEDFS_EXTERNAL_VOLUME_MASTER 时，必须启用 SEAWEEDFS_MASTER_NODEPORT_ENABLED"
@@ -667,6 +726,20 @@ $(render_volume_affinity)
 YAML
 }
 
+render_metadata_node_selector() {
+  if [[ -z "$SEAWEEDFS_METADATA_NODE" ]]; then
+    cat <<YAML
+  nodeSelector: ""
+YAML
+    return 0
+  fi
+
+  cat <<YAML
+  nodeSelector: |
+    kubernetes.io/hostname: $(yaml_quote "$SEAWEEDFS_METADATA_NODE")
+YAML
+}
+
 render_values() {
   cat <<YAML
 seaweedfs:
@@ -691,6 +764,7 @@ admin:
   logs:
     type: hostPath
     hostPathPrefix: ${SEAWEEDFS_DATA_ROOT%/}/admin-logs
+$(render_metadata_node_selector)
 
 master:
   enabled: true
@@ -705,6 +779,7 @@ master:
   logs:
     type: hostPath
     hostPathPrefix: ${SEAWEEDFS_DATA_ROOT%/}/master-logs
+$(render_metadata_node_selector)
 
 $(render_volume_values)
 
@@ -718,6 +793,7 @@ filer:
   logs:
     type: hostPath
     hostPathPrefix: ${SEAWEEDFS_DATA_ROOT%/}/filer-logs
+$(render_metadata_node_selector)
 
 s3:
   enabled: $(if is_true "$SEAWEEDFS_S3_ENABLED"; then echo true; else echo false; fi)
@@ -735,6 +811,7 @@ s3:
   logs:
     type: hostPath
     hostPathPrefix: ${SEAWEEDFS_DATA_ROOT%/}/s3-logs
+$(render_metadata_node_selector)
 
 ingress:
   enabled: false

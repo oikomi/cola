@@ -56,6 +56,7 @@ SEAWEEDFS_VOLUME_NODES='[
   {"name":"master-01","path":"/var/lib/cola/seaweedfs/volume"},
   {"name":"node-01","path":"/var/lib/cola/seaweedfs/volume"}
 ]'
+SEAWEEDFS_METADATA_NODE=node-01
 SEAWEEDFS_REPLICATION=001
 SEAWEEDFS_S3_BUCKET=xdream
 SEAWEEDFS_ADMIN_PASSWORD=...
@@ -86,6 +87,46 @@ SEAWEEDFS_ADMIN_NODE_PORT=32246
 kubectl -n storage get pods -o wide
 kubectl -n storage get svc
 ```
+
+## hostPath metadata 和节点重启恢复
+
+当前 chart values 里 `master`、`filer`、`s3`、`admin` 使用节点本地 `hostPath`：
+
+```text
+/var/lib/cola/seaweedfs/master
+/var/lib/cola/seaweedfs/filer
+/var/lib/cola/seaweedfs/s3-logs
+/var/lib/cola/seaweedfs/admin
+```
+
+单副本部署时，这些组件必须固定在保存旧 metadata 的同一台 Kubernetes 节点上。当前集群的旧 `xdream` bucket metadata 在 `node-01`，所以默认配置是：
+
+```bash
+SEAWEEDFS_METADATA_NODE=node-01
+```
+
+如果 `node-01` 重启后，`master/filer/s3` 被调度到 `master-01`，S3 会读到 `master-01` 上新生成的空 metadata，看起来像 `xdream` bucket 消失了。NAS 或外部 volume 上的数据块通常还在，恢复时不要先删除 NAS 数据，也不要把远程机器代码当成修复对象。
+
+恢复步骤：
+
+```bash
+cd infra/seaweedfs
+
+# 确认 seaweedfs.env 中固定到保存旧 metadata 的节点。
+grep '^SEAWEEDFS_METADATA_NODE=' seaweedfs.env
+
+# 重新渲染确认 master/filer/s3/admin 都带 nodeSelector。
+./deploy.sh render-values --env-file seaweedfs.env | grep -A2 'nodeSelector'
+
+# 应用后 StatefulSet/Deployment 会重建到 node-01，重新读取 node-01 的 hostPath metadata。
+./deploy.sh install --env-file seaweedfs.env
+
+# 验证 Pod 节点、bucket 和对象读写。
+kubectl -n storage get pods -l app.kubernetes.io/instance=seaweedfs -o wide
+./deploy.sh smoke-test --env-file seaweedfs.env
+```
+
+如果恢复后 bucket 仍为空，先检查 `node-01` 上 `/var/lib/cola/seaweedfs/filer` 和 `/var/lib/cola/seaweedfs/master` 是否存在旧文件，再决定是否从备份迁移 metadata。只有确认旧 metadata 不存在时，才重新运行 `bucket-init` 创建空 bucket。
 
 ## NAS 外部 Volume 模式
 
