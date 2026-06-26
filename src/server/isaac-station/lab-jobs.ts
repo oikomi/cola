@@ -583,6 +583,8 @@ function resolveWorkVolume() {
     env: process.env,
     volumeName: "isaac-lab-workspace",
     defaultMountPath: ISAAC_LAB_WORKDIR,
+    defaultMountMode: "smb",
+    mountModeEnvNames: ["COLA_ISAAC_LAB_WORK_VOLUME_MOUNT_MODE"],
     seaweedfsEnabledEnvNames: ["COLA_ISAAC_LAB_SEAWEEDFS_MOUNT_ENABLED"],
     mountPathEnvNames: [
       "COLA_ISAAC_LAB_WORKDIR_MOUNT_PATH",

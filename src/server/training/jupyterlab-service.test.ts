@@ -46,13 +46,10 @@ void test("JupyterLab command allows root when FUSE mounting requires a root con
 
   assert.match(command, /exec start-notebook\.py/);
   assert.match(command, /--allow-root/);
-  assert.match(
-    command,
-    /--ServerApp\.root_dir="\/shared-dist-storage"/,
-  );
+  assert.match(command, /--ServerApp\.root_dir="\/shared-dist-storage"/);
 });
 
-void test("JupyterLab mounts SeaweedFS automatically by default", () => {
+void test("JupyterLab mounts SMB automatically by default", () => {
   const workVolume = withEnv(
     {
       COLA_TRAINING_PVC_NAME: "cola-training-workspace",
@@ -60,7 +57,10 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
       COLA_JUPYTERLAB_PVC_MOUNT_PATH: undefined,
       COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH: undefined,
       COLA_TRAINING_WORKDIR_MOUNT_PATH: undefined,
+      COLA_JUPYTERLAB_WORK_VOLUME_MOUNT_MODE: undefined,
+      COLA_WORK_VOLUME_MOUNT_MODE: undefined,
       COLA_SEAWEEDFS_MOUNT_ENABLED: undefined,
+      COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED: undefined,
     },
     () =>
       resolveJupyterLabWorkVolume({
@@ -70,20 +70,23 @@ void test("JupyterLab mounts SeaweedFS automatically by default", () => {
   );
   const { mode, volume, mountPath, initContainers } = workVolume;
 
-  assert.equal(mode, "seaweedfs");
+  assert.equal(mode, "smb");
   assert.deepEqual(volume, {
     name: "jupyterlab-workdir",
   });
   assert.equal(mountPath, SHARED_STORAGE_MOUNT_PATH);
-  assert.equal(buildWorkVolumeWorkingDir(workVolume), "/");
   assert.equal(
-    buildWorkVolumeMounts(workVolume).some(
-      (mount) => mount.mountPath === SHARED_STORAGE_MOUNT_PATH,
-    ),
-    false,
+    buildWorkVolumeWorkingDir(workVolume),
+    SHARED_STORAGE_MOUNT_PATH,
+  );
+  assert.equal(
+    buildWorkVolumeMounts(workVolume)
+      .map((mount) => mount.mountPath)
+      .join(","),
+    "/opt/cola-smb",
   );
   assert.equal(initContainers.length, 1);
-  assert.equal(initContainers[0]?.name, "jupyterlab-workdir-seaweedfs-tools");
+  assert.equal(initContainers[0]?.name, "jupyterlab-workdir-smb-tools");
   assert.equal(initContainers[0]?.restartPolicy, undefined);
 });
 

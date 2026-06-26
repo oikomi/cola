@@ -2171,7 +2171,7 @@ async function writeTextToClipboard(text: string) {
 export function IsaacShell() {
   const utils = api.useUtils();
   const { confirm, confirmDialog } = useConfirmDialog();
-  const [activeTab, setActiveTab] = useState<IsaacTab>("station");
+  const [activeTab, setActiveTab] = useState<IsaacTab>("lab");
   const [isStationCreateOpen, setIsStationCreateOpen] = useState(false);
   const [isLabCreateOpen, setIsLabCreateOpen] = useState(false);
   const [terminalJob, setTerminalJob] = useState<IsaacLabJobRow | null>(null);
@@ -2639,14 +2639,6 @@ export function IsaacShell() {
         <div className="grid gap-3">
           <StatusStrip stations={stationRows} labJobs={labRows} />
           <div className="flex gap-2 overflow-x-auto pb-0.5">
-            <TabButton
-              value="station"
-              activeValue={activeTab}
-              onClick={setActiveTab}
-              icon={CpuIcon}
-              label="Sim Station"
-              count={stationRows.length}
-            />
             <TabButton
               value="lab"
               activeValue={activeTab}

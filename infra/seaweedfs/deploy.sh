@@ -9,6 +9,17 @@ CLUSTER_CONFIG="$K8S_DIR/cluster/config.json"
 DEFAULT_ENV_FILE="$SCRIPT_DIR/seaweedfs.env"
 KUBEASZ_BASE_DIR="${KUBEASZ_BASE_DIR:-/etc/kubeasz}"
 
+readonly SEAWEEDFS_SSH_OPTS=(
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o LogLevel=ERROR
+  -o ServerAliveInterval=15
+  -o ServerAliveCountMax=8
+  -o TCPKeepAlive=yes
+  -o PreferredAuthentications=password
+  -o PubkeyAuthentication=no
+)
+
 ACTION="install"
 ENV_FILE=""
 DRY_RUN=0
@@ -18,7 +29,7 @@ HELM_BIN=""
 
 usage() {
   cat <<'EOF'
-Usage: ./deploy.sh [install|install-all|preflight-all|install-nas|status|status-all|status-nas|smoke-test|bucket-init|render-values|render-master-service|render-s3-service|render-admin-service|render-bucket-job|render-smoke-test|render-external-volume-command|render-nas-env|render-nas-volume-command|uninstall|uninstall-nas] [options]
+Usage: ./deploy.sh [install|install-all|preflight-all|install-nas|prewarm-images|status|status-all|status-nas|smoke-test|bucket-init|render-values|render-master-service|render-s3-service|render-admin-service|render-bucket-job|render-smoke-test|render-external-volume-command|render-nas-env|render-nas-volume-command|uninstall|uninstall-nas] [options]
 
 Deploy SeaweedFS as a lightweight distributed S3-compatible object store.
 
@@ -27,6 +38,7 @@ Actions:
   install-all             One-key install: Kubernetes SeaweedFS + external NAS volume + bucket + smoke test
   preflight-all           Check local tools, Kubernetes rendering/status, and NAS SSH/sudo basics
   install-nas             Only prepare/start weed volume on NAS
+  prewarm-images          Preload SeaweedFS/helper container images into target Kubernetes nodes
   bucket-init             Create/update the configured S3 bucket init Job
   status                  Show Helm release and Kubernetes resources
   status-all              Show Kubernetes status and NAS weed volume status
@@ -233,7 +245,7 @@ load_env_file() {
 parse_args() {
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      install | install-all | preflight-all | install-nas | bucket-init | status | status-all | status-nas | smoke-test | render-values | render-master-service | render-s3-service | render-admin-service | render-bucket-job | render-smoke-test | render-external-volume-command | render-nas-env | render-nas-volume-command | uninstall | uninstall-nas)
+      install | install-all | preflight-all | install-nas | prewarm-images | bucket-init | status | status-all | status-nas | smoke-test | render-values | render-master-service | render-s3-service | render-admin-service | render-bucket-job | render-smoke-test | render-external-volume-command | render-nas-env | render-nas-volume-command | uninstall | uninstall-nas)
         ACTION="$1"
         shift
         ;;
@@ -340,6 +352,8 @@ set_defaults() {
   SEAWEEDFS_CHART="${SEAWEEDFS_CHART:-${SEAWEEDFS_HELM_REPO_NAME}/seaweedfs}"
   SEAWEEDFS_CHART_VERSION="${SEAWEEDFS_CHART_VERSION:-4.26.0}"
   SEAWEEDFS_IMAGE_TAG="${SEAWEEDFS_IMAGE_TAG:-4.26}"
+  SEAWEEDFS_IMAGE_REPOSITORY="${SEAWEEDFS_IMAGE_REPOSITORY:-chrislusf/seaweedfs}"
+  SEAWEEDFS_PREWARM_IMAGES="${SEAWEEDFS_PREWARM_IMAGES:-true}"
   SEAWEEDFS_WAIT_TIMEOUT="${SEAWEEDFS_WAIT_TIMEOUT:-600s}"
 
   SEAWEEDFS_ENABLE_SECURITY="${SEAWEEDFS_ENABLE_SECURITY:-true}"
@@ -560,9 +574,470 @@ process.exit(nodes.some((node) => node && node.name === name) ? 0 : 1);
 EOF
 }
 
+node_json_field() {
+  local name="$1"
+  local field="$2"
+
+  [[ -f "$K8S_DIR/cluster/nodes.json" ]] || die "找不到集群节点配置: $K8S_DIR/cluster/nodes.json"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$K8S_DIR/cluster/nodes.json" "$name" "$field" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+nodes_path = Path(sys.argv[1])
+name = sys.argv[2]
+field = sys.argv[3]
+nodes = json.loads(nodes_path.read_text())
+
+for node in nodes:
+    if isinstance(node, dict) and node.get("name") == name:
+        value = node.get(field)
+        if value is not None:
+            print(value)
+        raise SystemExit(0)
+
+raise SystemExit(f"node not found: {name}")
+PY
+    return 0
+  fi
+
+  node --input-type=module - "$K8S_DIR/cluster/nodes.json" "$name" "$field" <<'EOF'
+import fs from "node:fs";
+
+const [path, name, field] = process.argv.slice(2);
+const nodes = JSON.parse(fs.readFileSync(path, "utf8"));
+const found = nodes.find((node) => node && node.name === name);
+if (!found) {
+  throw new Error(`node not found: ${name}`);
+}
+if (found[field] !== undefined && found[field] !== null) {
+  process.stdout.write(String(found[field]));
+}
+EOF
+}
+
+node_ip() {
+  node_json_field "$1" ip
+}
+
+node_user() {
+  node_json_field "$1" sshUser
+}
+
+node_password() {
+  node_json_field "$1" sshPassword
+}
+
+node_port() {
+  node_json_field "$1" sshPort
+}
+
+node_arch() {
+  local arch
+  arch="$(node_json_field "$1" arch)"
+  case "$arch" in
+    x86_64 | x64)
+      printf '%s\n' "amd64"
+      ;;
+    aarch64)
+      printf '%s\n' "arm64"
+      ;;
+    *)
+      printf '%s\n' "$arch"
+      ;;
+  esac
+}
+
+seaweedfs_image_ref() {
+  printf '%s:%s\n' "$SEAWEEDFS_IMAGE_REPOSITORY" "$SEAWEEDFS_IMAGE_TAG"
+}
+
+image_ref_base_name() {
+  local ref="$1"
+  ref="${ref%@*}"
+  if [[ "$ref" == *:* ]]; then
+    printf '%s\n' "${ref%:*}"
+  else
+    printf '%s\n' "$ref"
+  fi
+}
+
+canonical_k8s_image_ref() {
+  local ref="$1"
+  local first_component
+
+  if [[ "$ref" == */* ]]; then
+    first_component="${ref%%/*}"
+    if [[ "$first_component" == *.* || "$first_component" == *:* || "$first_component" == "localhost" ]]; then
+      printf '%s\n' "$ref"
+    else
+      printf 'docker.io/%s\n' "$ref"
+    fi
+    return 0
+  fi
+
+  printf 'docker.io/library/%s\n' "$ref"
+}
+
+seaweedfs_prewarm_target_nodes() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$K8S_DIR/cluster/nodes.json" "${SEAWEEDFS_PREWARM_TARGET_NODES:-}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+nodes = json.loads(Path(sys.argv[1]).read_text())
+configured = sys.argv[2].strip()
+known = [node["name"] for node in nodes if isinstance(node, dict) and node.get("name")]
+
+if configured:
+    requested = [value for value in re.split(r"[\s,]+", configured) if value]
+else:
+    requested = known
+
+seen = set()
+for name in requested:
+    if name in seen:
+        continue
+    if name not in known:
+        raise SystemExit(f"SEAWEEDFS_PREWARM_TARGET_NODES 包含未知节点: {name}")
+    seen.add(name)
+    print(name)
+PY
+    return 0
+  fi
+
+  node --input-type=module - "$K8S_DIR/cluster/nodes.json" "${SEAWEEDFS_PREWARM_TARGET_NODES:-}" <<'EOF'
+import fs from "node:fs";
+
+const [path, configuredRaw] = process.argv.slice(2);
+const nodes = JSON.parse(fs.readFileSync(path, "utf8"));
+const known = nodes.filter((node) => node && node.name).map((node) => node.name);
+const requested = configuredRaw.trim()
+  ? configuredRaw.trim().split(/[\s,]+/).filter(Boolean)
+  : known;
+const seen = new Set();
+for (const name of requested) {
+  if (seen.has(name)) continue;
+  if (!known.includes(name)) {
+    throw new Error(`SEAWEEDFS_PREWARM_TARGET_NODES 包含未知节点: ${name}`);
+  }
+  seen.add(name);
+  console.log(name);
+}
+EOF
+}
+
+remote_ctr_resolver_script() {
+  cat <<'EOF'
+resolve_ctr() {
+  if command -v ctr >/dev/null 2>&1; then
+    command -v ctr
+    return 0
+  fi
+
+  for candidate in /opt/kube/bin/containerd-bin/ctr /usr/local/bin/ctr /usr/bin/ctr; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+CTR_BIN="$(resolve_ctr)" || {
+  echo "ERROR: ctr not found in PATH or kubeasz containerd-bin." >&2
+  exit 127
+}
+EOF
+}
+
+remote_sudo_ssh() {
+  local node_name="$1"
+  shift
+
+  local password
+  password="$(node_password "$node_name")"
+
+  sshpass -p "$password" \
+    ssh "${SEAWEEDFS_SSH_OPTS[@]}" \
+    -p "$(node_port "$node_name")" \
+    "$(node_user "$node_name")@$(node_ip "$node_name")" \
+    "printf '%s\n' $(printf '%q' "$password") | sudo -S -p '' bash -lc $(printf '%q' "$*")"
+}
+
+remote_scp_from_node() {
+  local node_name="$1"
+  local remote_path="$2"
+  local local_path="$3"
+  local password
+  password="$(node_password "$node_name")"
+
+  sshpass -p "$password" \
+    scp "${SEAWEEDFS_SSH_OPTS[@]}" \
+    -P "$(node_port "$node_name")" \
+    "$(node_user "$node_name")@$(node_ip "$node_name"):$remote_path" \
+    "$local_path"
+}
+
+remote_scp_to_node() {
+  local local_path="$1"
+  local node_name="$2"
+  local remote_path="$3"
+  local password
+  password="$(node_password "$node_name")"
+
+  sshpass -p "$password" \
+    scp "${SEAWEEDFS_SSH_OPTS[@]}" \
+    -P "$(node_port "$node_name")" \
+    "$local_path" \
+    "$(node_user "$node_name")@$(node_ip "$node_name"):$remote_path"
+}
+
+remote_image_exists() {
+  local node_name="$1"
+  local image_ref="$2"
+  local canonical_ref
+  canonical_ref="$(canonical_k8s_image_ref "$image_ref")"
+
+  remote_sudo_ssh "$node_name" "
+set -euo pipefail
+
+$(remote_ctr_resolver_script)
+
+for ref in $(printf '%q ' "$image_ref" "$canonical_ref"); do
+  if \"\$CTR_BIN\" -n k8s.io images list name==\"\$ref\" | tail -n +2 | grep -q .; then
+    exit 0
+  fi
+done
+
+exit 1
+" >/dev/null 2>&1
+}
+
+remote_pull_image() {
+  local node_name="$1"
+  local image_ref="$2"
+  local canonical_ref
+  local platform
+  canonical_ref="$(canonical_k8s_image_ref "$image_ref")"
+  platform="linux/$(node_arch "$node_name")"
+
+  remote_sudo_ssh "$node_name" "
+set -euo pipefail
+
+$(remote_ctr_resolver_script)
+
+image_ref=$(printf '%q' "$image_ref")
+canonical_ref=$(printf '%q' "$canonical_ref")
+platform=$(printf '%q' "$platform")
+pull_log=\"/tmp/cola-seaweedfs-ctr-pull.\$\$.log\"
+
+image_exists() {
+  \"\$CTR_BIN\" -n k8s.io images list name==\"\$1\" | tail -n +2 | grep -q .
+}
+
+if image_exists \"\$image_ref\" || image_exists \"\$canonical_ref\"; then
+  exit 0
+fi
+
+if \"\$CTR_BIN\" -n k8s.io images pull --platform \"\$platform\" \"\$canonical_ref\" >\"\$pull_log\" 2>&1; then
+  \"\$CTR_BIN\" -n k8s.io images tag \"\$canonical_ref\" \"\$image_ref\" >/dev/null 2>&1 || true
+  rm -f \"\$pull_log\"
+  exit 0
+fi
+
+tail -n 80 \"\$pull_log\" >&2 || true
+rm -f \"\$pull_log\"
+exit 1
+"
+}
+
+find_node_with_cached_image() {
+  local image_ref="$1"
+  local node_name
+
+  while IFS= read -r node_name; do
+    [[ -n "$node_name" ]] || continue
+    if remote_image_exists "$node_name" "$image_ref"; then
+      printf '%s\n' "$node_name"
+      return 0
+    fi
+  done < <(SEAWEEDFS_PREWARM_TARGET_NODES="" seaweedfs_prewarm_target_nodes)
+
+  return 1
+}
+
+export_image_archive_from_node() {
+  local source_node="$1"
+  local image_ref="$2"
+  local local_archive="$3"
+  local canonical_ref
+  local platform
+  local base_name
+  local remote_base
+  local remote_archive
+  canonical_ref="$(canonical_k8s_image_ref "$image_ref")"
+  platform="linux/$(node_arch "$source_node")"
+  base_name="$(image_ref_base_name "$canonical_ref")"
+  remote_base="/tmp/cola-seaweedfs-image-${SEAWEEDFS_IMAGE_TAG}-$$"
+  remote_archive="${remote_base}.tar.gz"
+
+  remote_sudo_ssh "$source_node" "
+set -euo pipefail
+
+$(remote_ctr_resolver_script)
+
+canonical_ref=$(printf '%q' "$canonical_ref")
+platform=$(printf '%q' "$platform")
+base_name=$(printf '%q' "$base_name")
+remote_tar=$(printf '%q' "${remote_base}.tar")
+remote_archive=$(printf '%q' "$remote_archive")
+
+rm -f \"\$remote_tar\" \"\$remote_archive\"
+\"\$CTR_BIN\" -n k8s.io images export --local --platform \"\$platform\" \"\$remote_tar\" \"\$canonical_ref\"
+gzip -f \"\$remote_tar\"
+chmod 0644 \"\$remote_archive\"
+"
+
+  remote_scp_from_node "$source_node" "$remote_archive" "$local_archive"
+  remote_sudo_ssh "$source_node" "rm -f $(printf '%q' "$remote_archive")"
+}
+
+import_image_archive_into_node() {
+  local local_archive="$1"
+  local target_node="$2"
+  local image_ref="$3"
+  local canonical_ref
+  local base_name
+  local remote_archive
+  canonical_ref="$(canonical_k8s_image_ref "$image_ref")"
+  base_name="$(image_ref_base_name "$canonical_ref")"
+  remote_archive="/tmp/$(basename "$local_archive")"
+
+  remote_scp_to_node "$local_archive" "$target_node" "$remote_archive"
+  remote_sudo_ssh "$target_node" "
+set -euo pipefail
+
+$(remote_ctr_resolver_script)
+
+archive=$(printf '%q' "$remote_archive")
+image_ref=$(printf '%q' "$image_ref")
+canonical_ref=$(printf '%q' "$canonical_ref")
+base_name=$(printf '%q' "$base_name")
+
+gzip -dc \"\$archive\" | \"\$CTR_BIN\" -n k8s.io images import --base-name \"\$base_name\" --no-unpack --label io.cri-containerd.image=managed -
+\"\$CTR_BIN\" -n k8s.io images tag \"\$canonical_ref\" \"\$image_ref\" >/dev/null 2>&1 || true
+
+if ! \"\$CTR_BIN\" -n k8s.io images list name==\"\$canonical_ref\" | tail -n +2 | grep -q .; then
+  echo \"ERROR: imported image \$canonical_ref was not found in containerd.\" >&2
+  \"\$CTR_BIN\" -n k8s.io images list | grep -F seaweedfs >&2 || true
+  exit 1
+fi
+
+rm -f \"\$archive\"
+"
+}
+
+prewarm_single_image() {
+  local image_ref="$1"
+  shift
+
+  local canonical_ref
+  local node_name
+  local source_node
+  local local_dir=""
+  local local_archive=""
+  local -a target_nodes=("$@")
+  local -a missing_nodes=()
+
+  canonical_ref="$(canonical_k8s_image_ref "$image_ref")"
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || die "没有可预热镜像的目标节点: ${canonical_ref}"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Dry-run: prewarm image ${canonical_ref} to nodes: ${target_nodes[*]}"
+    return 0
+  fi
+
+  log "预热镜像 ${canonical_ref} 到节点: ${target_nodes[*]}"
+
+  for node_name in "${target_nodes[@]}"; do
+    if remote_image_exists "$node_name" "$image_ref"; then
+      log "节点 ${node_name} 已有 ${canonical_ref}"
+      continue
+    fi
+
+    if remote_pull_image "$node_name" "$image_ref"; then
+      log "节点 ${node_name} 已拉取 ${canonical_ref}"
+      continue
+    fi
+
+    warn "节点 ${node_name} 直接拉取 ${canonical_ref} 失败，将尝试从已有缓存节点导入。"
+    missing_nodes+=("$node_name")
+  done
+
+  [[ "${#missing_nodes[@]}" -gt 0 ]] || return 0
+
+  source_node="$(find_node_with_cached_image "$image_ref" || true)"
+  [[ -n "$source_node" ]] || die "没有任何集群节点缓存 ${canonical_ref}，无法为 ${missing_nodes[*]} 导入镜像。"
+
+  local_dir="$(mktemp -d)"
+  local_archive="${local_dir}/cola-image-$(echo "$canonical_ref" | tr '/:@' '___')-$(node_arch "$source_node").tar.gz"
+
+  log "从节点 ${source_node} 导出 ${canonical_ref}"
+  export_image_archive_from_node "$source_node" "$image_ref" "$local_archive"
+
+  for node_name in "${missing_nodes[@]}"; do
+    if remote_image_exists "$node_name" "$image_ref"; then
+      continue
+    fi
+    log "导入 ${canonical_ref} 到节点 ${node_name}"
+    import_image_archive_into_node "$local_archive" "$node_name" "$image_ref"
+  done
+
+  rm -rf "$local_dir"
+}
+
+prewarm_seaweedfs_images() {
+  if ! is_true "$SEAWEEDFS_PREWARM_IMAGES"; then
+    log "跳过 SeaweedFS 镜像预热: SEAWEEDFS_PREWARM_IMAGES=false"
+    return 0
+  fi
+
+  local image_ref
+  local node_name
+  local -a target_nodes=()
+
+  image_ref="$(seaweedfs_image_ref)"
+
+  while IFS= read -r node_name; do
+    [[ -n "$node_name" ]] || continue
+    target_nodes+=("$node_name")
+  done < <(seaweedfs_prewarm_target_nodes)
+
+  [[ "${#target_nodes[@]}" -gt 0 ]] || die "没有可预热 SeaweedFS 镜像的目标节点。"
+
+  require_cmd sshpass
+  require_cmd ssh
+  require_cmd scp
+
+  prewarm_single_image "$image_ref" "${target_nodes[@]}"
+  prewarm_single_image "$SEAWEEDFS_BUCKET_JOB_IMAGE" "${target_nodes[@]}"
+  if [[ "$SEAWEEDFS_SMOKE_TEST_IMAGE" != "$SEAWEEDFS_BUCKET_JOB_IMAGE" ]]; then
+    prewarm_single_image "$SEAWEEDFS_SMOKE_TEST_IMAGE" "${target_nodes[@]}"
+  fi
+}
+
 validate_inputs() {
   [[ -n "$SEAWEEDFS_NAMESPACE" ]] || die "SEAWEEDFS_NAMESPACE 不能为空"
   [[ -n "$SEAWEEDFS_RELEASE" ]] || die "SEAWEEDFS_RELEASE 不能为空"
+  [[ -n "$SEAWEEDFS_IMAGE_REPOSITORY" ]] || die "SEAWEEDFS_IMAGE_REPOSITORY 不能为空"
+  [[ -n "$SEAWEEDFS_IMAGE_TAG" ]] || die "SEAWEEDFS_IMAGE_TAG 不能为空"
   [[ -n "$SEAWEEDFS_S3_BUCKET" ]] || die "SEAWEEDFS_S3_BUCKET 不能为空"
   [[ -n "$SEAWEEDFS_S3_ACCESS_KEY" ]] || die "SEAWEEDFS_S3_ACCESS_KEY 不能为空"
   [[ -n "$SEAWEEDFS_S3_SECRET_KEY" ]] || die "SEAWEEDFS_S3_SECRET_KEY 不能为空"
@@ -750,6 +1225,7 @@ seaweedfs:
   replicationPlacement: "${SEAWEEDFS_REPLICATION}"
 
 image:
+  repository: $(yaml_quote "$SEAWEEDFS_IMAGE_REPOSITORY")
   tag: $(yaml_quote "$SEAWEEDFS_IMAGE_TAG")
 
 admin:
@@ -1279,12 +1755,20 @@ main() {
       ;;
   esac
 
+  case "$ACTION" in
+    prewarm-images)
+      prewarm_seaweedfs_images
+      return 0
+      ;;
+  esac
+
   resolve_kubeconfig
   resolve_cluster_bins
 
   case "$ACTION" in
     install)
       connectivity_check
+      prewarm_seaweedfs_images
       install_chart
       apply_master_service
       apply_s3_service

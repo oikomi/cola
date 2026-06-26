@@ -17,6 +17,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import clusterConfig from "../../../infra/k8s/cluster/config.json";
+import nasConfig from "../../../infra/k8s/cluster/nas.json";
 import clusterNodes from "../../../infra/k8s/cluster/nodes.json";
 import { ModulePageShell } from "@/app/_components/module-shell";
 import { buttonVariants } from "@/components/ui/button";
@@ -29,7 +30,6 @@ const SEAWEEDFS_PORT = "8333";
 const SEAWEEDFS_FILER_PORT = "8888";
 const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
 const SEAWEEDFS_S3_NODE_PORT = "32247";
-const SEAWEEDFS_FUSE_IMAGE = "chrislusf/seaweedfs:4.23";
 const DEFAULT_BUCKET = "xdream";
 const SEAWEEDFS_DATA_ROOT = "/var/lib/cola/seaweedfs";
 const SEAWEEDFS_VOLUME_ROOT = `${SEAWEEDFS_DATA_ROOT}/volume`;
@@ -41,6 +41,13 @@ const TRAINING_DATASET_DIR = `${TRAINING_WORKDIR}/datasets`;
 const TRAINING_CHECKPOINT_DIR = `${TRAINING_WORKDIR}/checkpoints`;
 const TRAINING_MODEL_DIR = `${TRAINING_WORKDIR}/models`;
 const TRAINING_OUTPUT_ROOT = `${TRAINING_WORKDIR}/cola-training`;
+const DEFAULT_SMB_SHARE = "nas-share";
+const NAS_IP =
+  typeof nasConfig.ip === "string" && nasConfig.ip.trim().length > 0
+    ? nasConfig.ip.trim()
+    : "172.16.60.47";
+const SMB_URL = `smb://${NAS_IP}`;
+const SMB_SOURCE = `//${NAS_IP}/${DEFAULT_SMB_SHARE}`;
 
 const clusterNodeNames = clusterNodes
   .map((node) => node.name)
@@ -126,11 +133,13 @@ s3.upload_file(
     "${DEFAULT_BUCKET}",
     "datasets/my-app/dataset.jsonl",
 )`;
-  const internalMountExample = `# 平台创建远程桌面、训练 Job、JupyterLab、Unsloth Studio 时自动完成。
-# 业务容器启动后，把 SeaweedFS Filer 路径挂成本地目录：
-COLA_SEAWEEDFS_FILER="${INTERNAL_FILER_ENDPOINT}"
-COLA_SEAWEEDFS_FILER_PATH="${DEFAULT_BUCKET_FILER_PATH}"
-COLA_SEAWEEDFS_MOUNT_DIR="${TRAINING_WORKDIR}"
+  const internalMountExample = `# 云桌面、Isaac Lab Jobs 和 JupyterLab 由平台在容器启动时自动挂载。
+COLA_SMB_URL="${SMB_URL}"
+COLA_SMB_SHARE_NAME="${DEFAULT_SMB_SHARE}"
+COLA_SMB_USERNAME="${DEFAULT_SMB_SHARE}"
+COLA_SMB_PASSWORD="从部署环境读取"
+COLA_SMB_MOUNT_DIR="${TRAINING_WORKDIR}"
+COLA_SMB_MOUNT_OPTIONS="vers=3.0,iocharset=utf8,uid=1000,gid=1000,file_mode=0777,dir_mode=0777,noperm"
 
 # 容器里的业务代码直接按本地文件系统使用：
 ls ${TRAINING_WORKDIR}
@@ -140,8 +149,10 @@ python train.py \\
 
 # 训练平台默认产物根目录：
 ${TRAINING_OUTPUT_ROOT}/<job-id>/<runtime-job-name>`;
-  const fallbackExample = `# 默认走 SeaweedFS FUSE。如需临时切换，必须先关闭自动挂载。
-COLA_SEAWEEDFS_MOUNT_ENABLED=false
+  const fallbackExample = `# 如需临时切回旧路径，可把对应入口的挂载模式改成 legacy。
+REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE=legacy
+COLA_JUPYTERLAB_WORK_VOLUME_MOUNT_MODE=legacy
+COLA_ISAAC_LAB_WORK_VOLUME_MOUNT_MODE=legacy
 
 # 方案 A：节点已经预挂载共享目录。
 COLA_TRAINING_WORKDIR_HOST_PATH=/mnt/cola-training
@@ -166,9 +177,9 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       description: "Pod 启动时挂载成普通目录",
       icon: HardDriveIcon,
       tone: "sky",
-      source: "训练 / 桌面 / Notebook",
-      entry: INTERNAL_FILER_ENDPOINT,
-      service: SEAWEEDFS_FUSE_IMAGE,
+      source: "桌面 / Lab Jobs / Notebook",
+      entry: SMB_URL,
+      service: "SMB / CIFS",
       result: TRAINING_WORKDIR,
     },
   ];
@@ -177,9 +188,9 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       name: "云桌面",
       description: "桌面容器启动时挂载共享目录",
       icon: FilesIcon,
-      enable: "REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED",
+      enable: "REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE=smb",
       mount: TRAINING_WORKDIR,
-      detail: "REMOTE_WORKSPACE_WORKDIR_HOST_PATH / REMOTE_WORKSPACE_PVC_NAME",
+      detail: SMB_SOURCE,
     },
     {
       name: "训练任务",
@@ -193,9 +204,17 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       name: "JupyterLab",
       description: "Notebook 里看到同一个共享目录",
       icon: PackageIcon,
-      enable: "COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED",
-      mount: "COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH",
-      detail: "上传数据、调试脚本、查看训练产物",
+      enable: "COLA_JUPYTERLAB_WORK_VOLUME_MOUNT_MODE=smb",
+      mount: TRAINING_WORKDIR,
+      detail: SMB_SOURCE,
+    },
+    {
+      name: "Lab Jobs",
+      description: "Isaac Lab Job 输出写入 NAS 共享目录",
+      icon: TerminalIcon,
+      enable: "COLA_ISAAC_LAB_WORK_VOLUME_MOUNT_MODE=smb",
+      mount: TRAINING_WORKDIR,
+      detail: SMB_SOURCE,
     },
     {
       name: "Unsloth Studio",
@@ -290,16 +309,16 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
 
         <OperationPanel
           title="挂载使用"
-          description="平台在 Pod 启动时完成 Filer/FUSE 挂载，业务代码按普通本地路径读写。"
+          description="平台在 Pod 启动时完成 SMB 挂载，业务代码按普通本地路径读写。"
           icon={HardDriveIcon}
         >
           <FactTable
             facts={[
-              ["ClusterIP S3", INTERNAL_ENDPOINT],
-              ["Filer", INTERNAL_FILER_ENDPOINT],
-              ["Filer path", DEFAULT_BUCKET_FILER_PATH],
-              ["默认缓存", "/var/cache/seaweedfs"],
-              ["默认权限", "root + SYS_ADMIN + /dev/fuse"],
+              ["SMB URL", SMB_URL],
+              ["SMB source", SMB_SOURCE],
+              ["挂载目录", TRAINING_WORKDIR],
+              ["账号", DEFAULT_SMB_SHARE],
+              ["默认权限", "root + SYS_ADMIN + 0777"],
             ]}
           />
           <div className="mt-3 grid gap-2">
@@ -311,7 +330,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             />
             <CodeDetails
               title="临时回退方式"
-              description="关闭自动 FUSE 后才会使用 hostPath 或 PVC。"
+              description="改成 legacy 后才会使用 hostPath 或 PVC。"
               icon={TerminalIcon}
               code={fallbackExample}
             />
@@ -322,7 +341,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       <section className="overflow-hidden rounded-[var(--radius-shell)] border border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]">
         <SectionTitle
           title="工作负载挂载策略"
-          description="不同入口使用同一套 SeaweedFS 目录约定，只有环境变量名称不同。"
+          description="云桌面、Lab Jobs 和 JupyterLab 使用 SMB；其他训练入口保留原有存储模式。"
         />
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] border-collapse text-left">
@@ -375,7 +394,8 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             icon={KeyRoundIcon}
             title="边界说明"
             facts={[
-              ["默认模式", "SeaweedFS FUSE 本地挂载"],
+              ["默认模式", "SMB/CIFS 本地挂载"],
+              ["NAS 来源", "infra/k8s/cluster/nas.json"],
               ["PVC", "infra/seaweedfs 不创建 PVC"],
               ["独立数据盘", "当前节点信息未声明独立数据盘"],
               ["公网暴露", "不建议；NodePort 只给可信局域网"],

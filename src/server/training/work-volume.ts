@@ -1,3 +1,5 @@
+import { SEAWEEDFS_FUSE_IMAGE } from "../../lib/seaweedfs.ts";
+
 type WorkVolumeEnv = Readonly<Record<string, string | undefined>>;
 
 type WorkVolume = {
@@ -55,7 +57,7 @@ type WorkContainer = {
   };
 };
 
-type WorkVolumeMode = "seaweedfs" | "hostPath" | "pvc" | "emptyDir";
+type WorkVolumeMode = "seaweedfs" | "smb" | "hostPath" | "pvc" | "emptyDir";
 
 type WorkVolumeSource = {
   mode: WorkVolumeMode;
@@ -70,12 +72,25 @@ type WorkVolumeSource = {
   shellPrefix: string | null;
 };
 
-const DEFAULT_SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.23";
+type WorkVolumeMountMode = "seaweedfs" | "smb";
+
+const DEFAULT_SEAWEEDFS_IMAGE = SEAWEEDFS_FUSE_IMAGE;
 const DEFAULT_SEAWEEDFS_FILER =
   "seaweedfs-filer.storage.svc.cluster.local:8888";
 const DEFAULT_SEAWEEDFS_FILER_PATH = "/buckets/xdream";
 const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
+const DEFAULT_SMB_TOOLS_IMAGE = "ubuntu:22.04";
+const DEFAULT_SMB_SERVER = "172.16.60.47";
+const DEFAULT_SMB_SHARE_NAME = "nas-share";
+const DEFAULT_SMB_URL = `smb://${DEFAULT_SMB_SERVER}/${DEFAULT_SMB_SHARE_NAME}`;
+const DEFAULT_SMB_USERNAME = "nas-share";
+const DEFAULT_SMB_PASSWORD = "NAS-a1@123";
+const DEFAULT_SMB_MOUNT_OPTIONS =
+  "vers=3.0,iocharset=utf8,uid=1000,gid=1000,file_mode=0777,dir_mode=0777,noperm";
+const SMB_TOOLS_DIR = "/opt/cola-smb";
+const SMB_CREDENTIALS_DIR = "/run/cola-smb";
+const SMB_CREDENTIALS_PATH = `${SMB_CREDENTIALS_DIR}/credentials`;
 export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
@@ -111,6 +126,58 @@ function resolveMountPath(input: {
 
 function volumeName(base: string, suffix: string) {
   return `${base}-${suffix}`.slice(0, 63).replace(/-+$/g, "");
+}
+
+function normalizeSmbSource(value: string, defaultShareName: string) {
+  const source = value.replace(/^smb:\/\//i, "//");
+  const withoutPrefix = source.startsWith("//") ? source.slice(2) : source;
+  if (withoutPrefix.includes("/")) return source;
+
+  return `//${withoutPrefix}/${defaultShareName}`;
+}
+
+function resolveSmbSource(env: WorkVolumeEnv) {
+  const shareName =
+    firstEnvValue(env, ["COLA_SMB_SHARE_NAME"]) ?? DEFAULT_SMB_SHARE_NAME;
+  const configuredSource =
+    firstEnvValue(env, ["COLA_SMB_URL", "COLA_SMB_SOURCE", "COLA_SMB_SHARE"]) ??
+    DEFAULT_SMB_URL;
+
+  return normalizeSmbSource(configuredSource, shareName);
+}
+
+function resolveWorkVolumeMountMode(input: {
+  env: WorkVolumeEnv;
+  mountModeEnvNames?: string[];
+  seaweedfsEnabledEnvNames?: string[];
+  defaultMountMode?: WorkVolumeMountMode;
+}) {
+  const configuredMode = firstEnvValue(input.env, [
+    ...(input.mountModeEnvNames ?? []),
+    "COLA_WORK_VOLUME_MOUNT_MODE",
+  ]);
+  if (configuredMode) {
+    const normalized = configuredMode.toLowerCase();
+    if (normalized === "smb" || normalized === "cifs") return "smb";
+    if (normalized === "seaweedfs" || normalized === "fuse") {
+      return "seaweedfs";
+    }
+    if (normalized === "legacy" || normalized === "hostpath") return null;
+
+    throw new Error(
+      `不支持的工作目录挂载模式：${configuredMode}。可选值：smb、seaweedfs、legacy。`,
+    );
+  }
+
+  const seaweedfsConfigured = firstEnvValue(input.env, [
+    ...(input.seaweedfsEnabledEnvNames ?? []),
+    "COLA_SEAWEEDFS_MOUNT_ENABLED",
+  ]);
+  if (seaweedfsConfigured !== null) {
+    return isEnabled(seaweedfsConfigured, true) ? "seaweedfs" : null;
+  }
+
+  return input.defaultMountMode ?? "seaweedfs";
 }
 
 function buildSeaweedfsInstallCommand() {
@@ -427,6 +494,211 @@ function resolveSeaweedfsWorkVolume(input: {
   };
 }
 
+function buildSmbInstallCommand() {
+  return `set -eu
+mkdir -p "${SMB_TOOLS_DIR}"
+copy_mount_cifs() {
+  cola_mount_cifs_path="$1"
+  mkdir -p "${SMB_TOOLS_DIR}/lib"
+  cp "$cola_mount_cifs_path" "${SMB_TOOLS_DIR}/mount.cifs"
+  chmod 0755 "${SMB_TOOLS_DIR}/mount.cifs"
+  if command -v ldd >/dev/null 2>&1; then
+    ldd "$cola_mount_cifs_path" | awk '/=> \\/.*\\// { print $3 } /^\\// { print $1 }' | while IFS= read -r cola_lib_path; do
+      [ -r "$cola_lib_path" ] || continue
+      cp -L "$cola_lib_path" "${SMB_TOOLS_DIR}/lib/"
+    done
+  fi
+}
+for cola_mount_cifs_path in /sbin/mount.cifs /usr/sbin/mount.cifs /bin/mount.cifs /usr/bin/mount.cifs; do
+  if [ -x "$cola_mount_cifs_path" ]; then
+    copy_mount_cifs "$cola_mount_cifs_path"
+    exit 0
+  fi
+done
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cifs-utils
+  rm -rf /var/lib/apt/lists/*
+  copy_mount_cifs "$(command -v mount.cifs)"
+  exit 0
+fi
+echo "mount.cifs not found in SMB tools image. Use COLA_SMB_TOOLS_IMAGE with cifs-utils installed." >&2
+exit 1`;
+}
+
+function buildSmbShellPrefix() {
+  return `mkdir -p "$COLA_SMB_MOUNT_DIR" "${SMB_CREDENTIALS_DIR}"
+chmod 0777 "$COLA_SMB_MOUNT_DIR" || true
+if grep -qs " $COLA_SMB_MOUNT_DIR cifs " /proc/mounts; then
+  :
+else
+  if [ ! -x "${SMB_TOOLS_DIR}/mount.cifs" ] && ! command -v mount.cifs >/dev/null 2>&1; then
+    echo "mount.cifs is not available; install cifs-utils in the workload image or configure COLA_SMB_TOOLS_IMAGE." >&2
+    exit 1
+  fi
+  cola_smb_previous_umask="$(umask)"
+  umask 077
+  {
+    printf 'username=%s\\n' "$COLA_SMB_USERNAME"
+    printf 'password=%s\\n' "$COLA_SMB_PASSWORD"
+    if [ -n "\${COLA_SMB_DOMAIN:-}" ]; then
+      printf 'domain=%s\\n' "$COLA_SMB_DOMAIN"
+    fi
+  } > "${SMB_CREDENTIALS_PATH}"
+  umask "$cola_smb_previous_umask"
+  chmod 0600 "${SMB_CREDENTIALS_PATH}"
+  if [ -x "${SMB_TOOLS_DIR}/mount.cifs" ]; then
+    LD_LIBRARY_PATH="${SMB_TOOLS_DIR}/lib:\${LD_LIBRARY_PATH:-}" "${SMB_TOOLS_DIR}/mount.cifs" "$COLA_SMB_SOURCE" "$COLA_SMB_MOUNT_DIR" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
+  else
+    mount -t cifs "$COLA_SMB_SOURCE" "$COLA_SMB_MOUNT_DIR" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
+  fi
+  chmod 0777 "$COLA_SMB_MOUNT_DIR" || true
+fi`;
+}
+
+function buildSmbEnv(input: {
+  env: WorkVolumeEnv;
+  mountPath: string;
+  source: string;
+}) {
+  return [
+    {
+      name: "COLA_SHARED_STORAGE_DIR",
+      value: input.mountPath,
+    },
+    {
+      name: "COLA_SMB_SOURCE",
+      value: input.source,
+    },
+    {
+      name: "COLA_SMB_URL",
+      value:
+        firstEnvValue(input.env, [
+          "COLA_SMB_URL",
+          "COLA_SMB_SOURCE",
+          "COLA_SMB_SHARE",
+        ]) ?? DEFAULT_SMB_URL,
+    },
+    {
+      name: "COLA_SMB_USERNAME",
+      value:
+        firstEnvValue(input.env, ["COLA_SMB_USERNAME"]) ?? DEFAULT_SMB_USERNAME,
+    },
+    {
+      name: "COLA_SMB_PASSWORD",
+      value:
+        firstEnvValue(input.env, ["COLA_SMB_PASSWORD"]) ?? DEFAULT_SMB_PASSWORD,
+    },
+    {
+      name: "COLA_SMB_DOMAIN",
+      value: firstEnvValue(input.env, ["COLA_SMB_DOMAIN"]) ?? "",
+    },
+    {
+      name: "COLA_SMB_MOUNT_DIR",
+      value: input.mountPath,
+    },
+    {
+      name: "COLA_SMB_MOUNT_OPTIONS",
+      value:
+        firstEnvValue(input.env, ["COLA_SMB_MOUNT_OPTIONS"]) ??
+        DEFAULT_SMB_MOUNT_OPTIONS,
+    },
+  ];
+}
+
+function resolveSmbWorkVolume(input: {
+  env: WorkVolumeEnv;
+  volumeName: string;
+  mountPath: string;
+}): WorkVolumeSource {
+  const toolsVolumeName = volumeName(input.volumeName, "smb-tools");
+  const installContainerName = volumeName(input.volumeName, "smb-tools");
+  const source = resolveSmbSource(input.env);
+  const containerEnv = buildSmbEnv({
+    env: input.env,
+    mountPath: input.mountPath,
+    source,
+  });
+  const privileged = isEnabled(
+    firstEnvValue(input.env, ["COLA_SMB_MOUNT_PRIVILEGED"]),
+    true,
+  );
+  const runMountAsRoot = isEnabled(
+    firstEnvValue(input.env, ["COLA_SMB_MOUNT_RUN_AS_ROOT"]),
+    true,
+  );
+  const containerSecurityContext = {
+    runAsUser: runMountAsRoot ? 0 : undefined,
+    runAsGroup: runMountAsRoot ? 0 : undefined,
+    ...(privileged ? { privileged } : {}),
+    allowPrivilegeEscalation: true,
+    capabilities: {
+      add: ["SYS_ADMIN"],
+    },
+  } satisfies WorkContainer["securityContext"];
+  const volume = {
+    name: input.volumeName,
+  } satisfies VirtualWorkVolume;
+
+  return {
+    mode: "smb",
+    volume,
+    volumes: [
+      {
+        name: toolsVolumeName,
+        emptyDir: {},
+      },
+    ],
+    mountPath: input.mountPath,
+    initContainers: [
+      {
+        name: installContainerName,
+        image:
+          firstEnvValue(input.env, ["COLA_SMB_TOOLS_IMAGE"]) ??
+          DEFAULT_SMB_TOOLS_IMAGE,
+        imagePullPolicy:
+          firstEnvValue(input.env, ["COLA_SMB_TOOLS_IMAGE_PULL_POLICY"]) ??
+          "IfNotPresent",
+        command: ["sh", "-lc"],
+        args: [buildSmbInstallCommand()],
+        env: containerEnv,
+        volumeMounts: [
+          {
+            name: toolsVolumeName,
+            mountPath: SMB_TOOLS_DIR,
+          },
+        ],
+        resources: {
+          requests: {
+            cpu:
+              firstEnvValue(input.env, ["COLA_SMB_MOUNT_CPU_REQUEST"]) ?? "25m",
+            memory:
+              firstEnvValue(input.env, ["COLA_SMB_MOUNT_MEMORY_REQUEST"]) ??
+              "64Mi",
+          },
+          limits: {
+            cpu:
+              firstEnvValue(input.env, ["COLA_SMB_MOUNT_CPU_LIMIT"]) ?? "250m",
+            memory:
+              firstEnvValue(input.env, ["COLA_SMB_MOUNT_MEMORY_LIMIT"]) ??
+              "256Mi",
+          },
+        },
+      },
+    ],
+    containerVolumeMounts: [
+      {
+        name: toolsVolumeName,
+        mountPath: SMB_TOOLS_DIR,
+        readOnly: true,
+      },
+    ],
+    containerEnv,
+    containerSecurityContext,
+    shellPrefix: buildSmbShellPrefix(),
+  };
+}
+
 function resolveLegacyWorkVolume(input: {
   env: WorkVolumeEnv;
   volumeName: string;
@@ -565,6 +837,8 @@ export function resolveKubernetesWorkVolume(input: {
   env: WorkVolumeEnv;
   volumeName: string;
   defaultMountPath: string;
+  defaultMountMode?: WorkVolumeMountMode;
+  mountModeEnvNames?: string[];
   seaweedfsEnabledEnvNames?: string[];
   mountPathEnvNames?: string[];
   hostPathEnvNames?: string[];
@@ -578,15 +852,17 @@ export function resolveKubernetesWorkVolume(input: {
   };
 }): WorkVolumeSource {
   const mountPath = resolveMountPath(input);
-  const seaweedfsEnabled = isEnabled(
-    firstEnvValue(input.env, [
-      ...(input.seaweedfsEnabledEnvNames ?? []),
-      "COLA_SEAWEEDFS_MOUNT_ENABLED",
-    ]),
-    true,
-  );
+  const mountMode = resolveWorkVolumeMountMode(input);
 
-  if (seaweedfsEnabled) {
+  if (mountMode === "smb") {
+    return resolveSmbWorkVolume({
+      env: input.env,
+      volumeName: input.volumeName,
+      mountPath,
+    });
+  }
+
+  if (mountMode === "seaweedfs") {
     return resolveSeaweedfsWorkVolume({
       env: input.env,
       volumeName: input.volumeName,

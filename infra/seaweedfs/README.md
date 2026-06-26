@@ -63,6 +63,25 @@ SEAWEEDFS_ADMIN_PASSWORD=...
 SEAWEEDFS_ADMIN_NODE_PORT=32246
 ```
 
+部署脚本默认会先把 `chrislusf/seaweedfs:4.26` 以及 bucket/smoke-test
+辅助镜像预热到 `infra/k8s/cluster/nodes.json` 里的 Kubernetes 节点。
+当前局域网如果对 Docker Hub 返回异常证书，直接拉取会出现
+`ImagePullBackOff` 和 `x509: certificate is valid for ... not registry-1.docker.io`，
+预热可以让 `imagePullPolicy: IfNotPresent` 直接使用节点本地 containerd
+里的镜像。
+
+也可以单独执行：
+
+```bash
+./deploy.sh prewarm-images --env-file seaweedfs.env
+```
+
+需要限制预热目标节点时，在 `seaweedfs.env` 中设置：
+
+```bash
+SEAWEEDFS_PREWARM_TARGET_NODES=master-01,node-01
+```
+
 先 dry-run：
 
 ```bash

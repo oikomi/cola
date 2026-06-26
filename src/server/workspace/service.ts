@@ -719,6 +719,8 @@ function buildWorkspaceDeployment(input: {
     env: process.env,
     volumeName: "workspace",
     defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    defaultMountMode: "smb",
+    mountModeEnvNames: ["REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE"],
     seaweedfsEnabledEnvNames: ["REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
     mountPathEnvNames: [
       "REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH",

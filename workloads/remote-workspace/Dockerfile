@@ -51,6 +51,7 @@ RUN if [ "$SKIP_PACKAGE_INSTALL" = "1" ]; then \
   && apt-get install -y --no-install-recommends \
     adwaita-icon-theme \
     ca-certificates \
+    cifs-utils \
     curl \
     default-jre-headless \
     dbus-user-session \

@@ -10,6 +10,8 @@ export function resolveJupyterLabWorkVolume(input: {
     env: input.env,
     volumeName: "jupyterlab-workdir",
     defaultMountPath: input.workdir,
+    defaultMountMode: "smb",
+    mountModeEnvNames: ["COLA_JUPYTERLAB_WORK_VOLUME_MOUNT_MODE"],
     seaweedfsEnabledEnvNames: ["COLA_JUPYTERLAB_SEAWEEDFS_MOUNT_ENABLED"],
     mountPathEnvNames: [
       "COLA_JUPYTERLAB_WORKDIR_MOUNT_PATH",
