@@ -199,7 +199,9 @@ function resolveWorkVolumeMountMode(input: {
     "COLA_SEAWEEDFS_MOUNT_ENABLED",
   ]);
   if (seaweedfsConfigured !== null) {
-    return isEnabled(seaweedfsConfigured, true) ? "seaweedfs" : null;
+    if (isEnabled(seaweedfsConfigured, true)) return "seaweedfs";
+
+    return input.defaultMountMode === "smb" ? "smb" : null;
   }
 
   return input.defaultMountMode ?? "seaweedfs";

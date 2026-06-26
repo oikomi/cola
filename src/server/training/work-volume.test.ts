@@ -240,6 +240,62 @@ void test("work volume can mount SMB by default for selected workloads", () => {
   assert.match(smbCommand, /umask "\$cola_smb_previous_umask"/);
 });
 
+void test("SMB default is kept when SeaweedFS is disabled for selected workloads", () => {
+  const workVolume = resolveKubernetesWorkVolume({
+    env: {
+      REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED: "false",
+      REMOTE_WORKSPACE_WORKDIR_HOST_PATH: "/var/lib/remote-work/workspaces/ws",
+    },
+    volumeName: "workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    defaultMountMode: "smb",
+    seaweedfsEnabledEnvNames: ["REMOTE_WORKSPACE_SEAWEEDFS_MOUNT_ENABLED"],
+    hostPathEnvNames: ["REMOTE_WORKSPACE_WORKDIR_HOST_PATH"],
+    hostPathMountPathEnvNames: ["REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH"],
+    pvcNameEnvNames: ["REMOTE_WORKSPACE_PVC_NAME"],
+    pvcMountPathEnvNames: ["REMOTE_WORKSPACE_PVC_MOUNT_PATH"],
+  });
+
+  assert.equal(workVolume.mode, "smb");
+  assert.equal(
+    buildWorkVolumeEnv(workVolume).find(
+      (entry) => entry.name === "COLA_SMB_SOURCE",
+    )?.value,
+    "//172.16.60.47/xdream",
+  );
+  assert.deepEqual(buildWorkVolumeMount(workVolume), {
+    name: "workspace-smb-tools",
+    mountPath: "/opt/cola-smb",
+    readOnly: true,
+  });
+});
+
+void test("SMB default can still be explicitly changed to legacy hostPath", () => {
+  const workVolume = resolveKubernetesWorkVolume({
+    env: {
+      REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE: "legacy",
+      REMOTE_WORKSPACE_WORKDIR_HOST_PATH: "/var/lib/remote-work/workspaces/ws",
+    },
+    volumeName: "workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    defaultMountMode: "smb",
+    mountModeEnvNames: ["REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE"],
+    hostPathEnvNames: ["REMOTE_WORKSPACE_WORKDIR_HOST_PATH"],
+    hostPathMountPathEnvNames: ["REMOTE_WORKSPACE_WORKDIR_MOUNT_PATH"],
+    pvcNameEnvNames: ["REMOTE_WORKSPACE_PVC_NAME"],
+    pvcMountPathEnvNames: ["REMOTE_WORKSPACE_PVC_MOUNT_PATH"],
+  });
+
+  assert.equal(workVolume.mode, "hostPath");
+  assert.deepEqual(workVolume.volume, {
+    name: "workspace",
+    hostPath: {
+      path: "/var/lib/remote-work/workspaces/ws",
+      type: "Directory",
+    },
+  });
+});
+
 void test("SMB work volume accepts a server-only smb URL and custom tools image", () => {
   const workVolume = resolveKubernetesWorkVolume({
     env: {
