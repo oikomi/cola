@@ -177,13 +177,19 @@ void test("work volume can mount SMB by default for selected workloads", () => {
     buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SMB_SOURCE",
     )?.value,
-    "//172.16.60.47/nas-share",
+    "//172.16.60.47/xdream",
+  );
+  assert.equal(
+    buildWorkVolumeEnv(workVolume).find(
+      (entry) => entry.name === "COLA_SMB_SUBPATH",
+    )?.value,
+    "cloud",
   );
   assert.equal(
     buildWorkVolumeEnv(workVolume).find(
       (entry) => entry.name === "COLA_SMB_USERNAME",
     )?.value,
-    "nas-share",
+    "xdream",
   );
   assert.equal(
     buildWorkVolumeEnv(workVolume).find(
@@ -224,8 +230,9 @@ void test("work volume can mount SMB by default for selected workloads", () => {
   const smbCommand = buildWorkVolumeShellCommand(workVolume, "exec start");
   assert.match(
     smbCommand,
-    /mount -t cifs "\$COLA_SMB_SOURCE" "\$COLA_SMB_MOUNT_DIR"/,
+    /mount -t cifs "\$COLA_SMB_SOURCE" "\$cola_smb_mount_target"/,
   );
+  assert.match(smbCommand, /mount --bind/);
   assert.equal(
     smbCommand.match(/chmod 0777 "\$COLA_SMB_MOUNT_DIR" \|\| true/g)?.length,
     2,
@@ -260,6 +267,53 @@ void test("SMB work volume accepts a server-only smb URL and custom tools image"
   assert.equal(
     buildWorkVolumeSecurityContext(workVolume)?.privileged,
     undefined,
+  );
+});
+
+void test("SMB work volume accepts a share subpath", () => {
+  const workVolume = resolveKubernetesWorkVolume({
+    env: {
+      COLA_SMB_URL: "smb://10.0.0.8/shared/project/data",
+      COLA_SMB_USERNAME: "project-user",
+      COLA_SMB_SHARE_MOUNT_DIR: "/mnt/smb-share",
+    },
+    volumeName: "workspace",
+    defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+    defaultMountMode: "smb",
+  });
+  const env = buildWorkVolumeEnv(workVolume);
+
+  assert.equal(workVolume.mode, "smb");
+  assert.equal(
+    env.find((entry) => entry.name === "COLA_SMB_SOURCE")?.value,
+    "//10.0.0.8/shared",
+  );
+  assert.equal(
+    env.find((entry) => entry.name === "COLA_SMB_SUBPATH")?.value,
+    "project/data",
+  );
+  assert.equal(
+    env.find((entry) => entry.name === "COLA_SMB_URL")?.value,
+    "smb://10.0.0.8/shared/project/data",
+  );
+  assert.equal(
+    env.find((entry) => entry.name === "COLA_SMB_SHARE_MOUNT_DIR")?.value,
+    "/mnt/smb-share",
+  );
+});
+
+void test("SMB work volume rejects parent-directory subpaths", () => {
+  assert.throws(
+    () =>
+      resolveKubernetesWorkVolume({
+        env: {
+          COLA_SMB_URL: "smb://10.0.0.8/shared/../private",
+        },
+        volumeName: "workspace",
+        defaultMountPath: SHARED_STORAGE_MOUNT_PATH,
+        defaultMountMode: "smb",
+      }),
+    /不支持的 SMB 子目录/,
   );
 });
 

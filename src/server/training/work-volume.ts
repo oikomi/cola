@@ -82,15 +82,17 @@ const DEFAULT_SEAWEEDFS_CACHE_DIR = "/var/cache/seaweedfs";
 const SEAWEEDFS_TOOLS_DIR = "/opt/cola-seaweedfs";
 const DEFAULT_SMB_TOOLS_IMAGE = "ubuntu:22.04";
 const DEFAULT_SMB_SERVER = "172.16.60.47";
-const DEFAULT_SMB_SHARE_NAME = "nas-share";
-const DEFAULT_SMB_URL = `smb://${DEFAULT_SMB_SERVER}/${DEFAULT_SMB_SHARE_NAME}`;
-const DEFAULT_SMB_USERNAME = "nas-share";
+const DEFAULT_SMB_SHARE_NAME = "xdream";
+const DEFAULT_SMB_SUBPATH = "cloud";
+const DEFAULT_SMB_URL = `smb://${DEFAULT_SMB_SERVER}/${DEFAULT_SMB_SHARE_NAME}/${DEFAULT_SMB_SUBPATH}`;
+const DEFAULT_SMB_USERNAME = "xdream";
 const DEFAULT_SMB_PASSWORD = "NAS-a1@123";
 const DEFAULT_SMB_MOUNT_OPTIONS =
   "vers=3.0,iocharset=utf8,uid=1000,gid=1000,file_mode=0777,dir_mode=0777,noperm";
 const SMB_TOOLS_DIR = "/opt/cola-smb";
 const SMB_CREDENTIALS_DIR = "/run/cola-smb";
 const SMB_CREDENTIALS_PATH = `${SMB_CREDENTIALS_DIR}/credentials`;
+const DEFAULT_SMB_SHARE_MOUNT_DIR = "/run/cola-smb/share";
 export const SHARED_STORAGE_MOUNT_PATH = "/shared-dist-storage";
 
 function firstEnvValue(env: WorkVolumeEnv, names: string[]) {
@@ -136,14 +138,37 @@ function normalizeSmbSource(value: string, defaultShareName: string) {
   return `//${withoutPrefix}/${defaultShareName}`;
 }
 
-function resolveSmbSource(env: WorkVolumeEnv) {
+function resolveSmbTarget(env: WorkVolumeEnv) {
   const shareName =
     firstEnvValue(env, ["COLA_SMB_SHARE_NAME"]) ?? DEFAULT_SMB_SHARE_NAME;
   const configuredSource =
     firstEnvValue(env, ["COLA_SMB_URL", "COLA_SMB_SOURCE", "COLA_SMB_SHARE"]) ??
     DEFAULT_SMB_URL;
+  const normalizedSource = normalizeSmbSource(configuredSource, shareName);
+  const match = /^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(normalizedSource);
 
-  return normalizeSmbSource(configuredSource, shareName);
+  if (!match) {
+    return {
+      source: normalizedSource,
+      subPath: "",
+      url: configuredSource,
+    };
+  }
+
+  const [, server, share, rawSubPath = ""] = match;
+  const subPathParts = rawSubPath
+    .split("/")
+    .filter((part) => part.length > 0 && part !== ".");
+  if (subPathParts.some((part) => part === "..")) {
+    throw new Error(`不支持的 SMB 子目录：${rawSubPath}。`);
+  }
+  const subPath = subPathParts.join("/");
+
+  return {
+    source: `//${server}/${share}`,
+    subPath,
+    url: configuredSource,
+  };
 }
 
 function resolveWorkVolumeMountMode(input: {
@@ -527,11 +552,15 @@ exit 1`;
 }
 
 function buildSmbShellPrefix() {
-  return `mkdir -p "$COLA_SMB_MOUNT_DIR" "${SMB_CREDENTIALS_DIR}"
+  return `mkdir -p "$COLA_SMB_MOUNT_DIR" "\${COLA_SMB_SHARE_MOUNT_DIR:-${DEFAULT_SMB_SHARE_MOUNT_DIR}}" "${SMB_CREDENTIALS_DIR}"
 chmod 0777 "$COLA_SMB_MOUNT_DIR" || true
 if grep -qs " $COLA_SMB_MOUNT_DIR cifs " /proc/mounts; then
   :
 else
+  cola_smb_mount_target="$COLA_SMB_MOUNT_DIR"
+  if [ -n "\${COLA_SMB_SUBPATH:-}" ]; then
+    cola_smb_mount_target="\${COLA_SMB_SHARE_MOUNT_DIR:-${DEFAULT_SMB_SHARE_MOUNT_DIR}}"
+  fi
   if [ ! -x "${SMB_TOOLS_DIR}/mount.cifs" ] && ! command -v mount.cifs >/dev/null 2>&1; then
     echo "mount.cifs is not available; install cifs-utils in the workload image or configure COLA_SMB_TOOLS_IMAGE." >&2
     exit 1
@@ -547,10 +576,16 @@ else
   } > "${SMB_CREDENTIALS_PATH}"
   umask "$cola_smb_previous_umask"
   chmod 0600 "${SMB_CREDENTIALS_PATH}"
-  if [ -x "${SMB_TOOLS_DIR}/mount.cifs" ]; then
-    LD_LIBRARY_PATH="${SMB_TOOLS_DIR}/lib:\${LD_LIBRARY_PATH:-}" "${SMB_TOOLS_DIR}/mount.cifs" "$COLA_SMB_SOURCE" "$COLA_SMB_MOUNT_DIR" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
+  if grep -qs " $cola_smb_mount_target cifs " /proc/mounts; then
+    :
+  elif [ -x "${SMB_TOOLS_DIR}/mount.cifs" ]; then
+    LD_LIBRARY_PATH="${SMB_TOOLS_DIR}/lib:\${LD_LIBRARY_PATH:-}" "${SMB_TOOLS_DIR}/mount.cifs" "$COLA_SMB_SOURCE" "$cola_smb_mount_target" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
   else
-    mount -t cifs "$COLA_SMB_SOURCE" "$COLA_SMB_MOUNT_DIR" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
+    mount -t cifs "$COLA_SMB_SOURCE" "$cola_smb_mount_target" -o "credentials=${SMB_CREDENTIALS_PATH},$COLA_SMB_MOUNT_OPTIONS"
+  fi
+  if [ -n "\${COLA_SMB_SUBPATH:-}" ]; then
+    mkdir -p "$cola_smb_mount_target/$COLA_SMB_SUBPATH"
+    mount --bind "$cola_smb_mount_target/$COLA_SMB_SUBPATH" "$COLA_SMB_MOUNT_DIR"
   fi
   chmod 0777 "$COLA_SMB_MOUNT_DIR" || true
 fi`;
@@ -560,6 +595,8 @@ function buildSmbEnv(input: {
   env: WorkVolumeEnv;
   mountPath: string;
   source: string;
+  subPath: string;
+  url: string;
 }) {
   return [
     {
@@ -571,13 +608,12 @@ function buildSmbEnv(input: {
       value: input.source,
     },
     {
+      name: "COLA_SMB_SUBPATH",
+      value: input.subPath,
+    },
+    {
       name: "COLA_SMB_URL",
-      value:
-        firstEnvValue(input.env, [
-          "COLA_SMB_URL",
-          "COLA_SMB_SOURCE",
-          "COLA_SMB_SHARE",
-        ]) ?? DEFAULT_SMB_URL,
+      value: input.url,
     },
     {
       name: "COLA_SMB_USERNAME",
@@ -598,6 +634,12 @@ function buildSmbEnv(input: {
       value: input.mountPath,
     },
     {
+      name: "COLA_SMB_SHARE_MOUNT_DIR",
+      value:
+        firstEnvValue(input.env, ["COLA_SMB_SHARE_MOUNT_DIR"]) ??
+        DEFAULT_SMB_SHARE_MOUNT_DIR,
+    },
+    {
       name: "COLA_SMB_MOUNT_OPTIONS",
       value:
         firstEnvValue(input.env, ["COLA_SMB_MOUNT_OPTIONS"]) ??
@@ -613,11 +655,13 @@ function resolveSmbWorkVolume(input: {
 }): WorkVolumeSource {
   const toolsVolumeName = volumeName(input.volumeName, "smb-tools");
   const installContainerName = volumeName(input.volumeName, "smb-tools");
-  const source = resolveSmbSource(input.env);
+  const target = resolveSmbTarget(input.env);
   const containerEnv = buildSmbEnv({
     env: input.env,
     mountPath: input.mountPath,
-    source,
+    source: target.source,
+    subPath: target.subPath,
+    url: target.url,
   });
   const privileged = isEnabled(
     firstEnvValue(input.env, ["COLA_SMB_MOUNT_PRIVILEGED"]),

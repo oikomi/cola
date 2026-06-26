@@ -25,29 +25,27 @@ import { cn } from "@/lib/utils";
 
 const STORAGE_NAMESPACE = "storage";
 const SEAWEEDFS_SERVICE = "seaweedfs-s3";
-const SEAWEEDFS_FILER_SERVICE = "seaweedfs-filer";
 const SEAWEEDFS_PORT = "8333";
-const SEAWEEDFS_FILER_PORT = "8888";
 const SEAWEEDFS_ADMIN_NODE_PORT = "32246";
 const SEAWEEDFS_S3_NODE_PORT = "32247";
 const DEFAULT_BUCKET = "xdream";
 const SEAWEEDFS_DATA_ROOT = "/var/lib/cola/seaweedfs";
 const SEAWEEDFS_VOLUME_ROOT = `${SEAWEEDFS_DATA_ROOT}/volume`;
-const INTERNAL_ENDPOINT = `http://${SEAWEEDFS_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_PORT}`;
-const INTERNAL_FILER_ENDPOINT = `${SEAWEEDFS_FILER_SERVICE}.${STORAGE_NAMESPACE}.svc.cluster.local:${SEAWEEDFS_FILER_PORT}`;
-const DEFAULT_BUCKET_FILER_PATH = `/buckets/${DEFAULT_BUCKET}`;
 const TRAINING_WORKDIR = "/shared-dist-storage";
 const TRAINING_DATASET_DIR = `${TRAINING_WORKDIR}/datasets`;
 const TRAINING_CHECKPOINT_DIR = `${TRAINING_WORKDIR}/checkpoints`;
 const TRAINING_MODEL_DIR = `${TRAINING_WORKDIR}/models`;
 const TRAINING_OUTPUT_ROOT = `${TRAINING_WORKDIR}/cola-training`;
-const DEFAULT_SMB_SHARE = "nas-share";
+const DEFAULT_SMB_SHARE = "xdream";
+const DEFAULT_SMB_SUBPATH = "cloud";
+const DEFAULT_SMB_USERNAME = "xdream";
 const NAS_IP =
   typeof nasConfig.ip === "string" && nasConfig.ip.trim().length > 0
     ? nasConfig.ip.trim()
     : "172.16.60.47";
-const SMB_URL = `smb://${NAS_IP}`;
+const SMB_URL = `smb://${NAS_IP}/${DEFAULT_SMB_SHARE}/${DEFAULT_SMB_SUBPATH}`;
 const SMB_SOURCE = `//${NAS_IP}/${DEFAULT_SMB_SHARE}`;
+const SMB_EFFECTIVE_SOURCE = `${SMB_SOURCE}/${DEFAULT_SMB_SUBPATH}`;
 
 const clusterNodeNames = clusterNodes
   .map((node) => node.name)
@@ -136,7 +134,7 @@ s3.upload_file(
   const internalMountExample = `# 云桌面、Isaac Lab Jobs 和 JupyterLab 由平台在容器启动时自动挂载。
 COLA_SMB_URL="${SMB_URL}"
 COLA_SMB_SHARE_NAME="${DEFAULT_SMB_SHARE}"
-COLA_SMB_USERNAME="${DEFAULT_SMB_SHARE}"
+COLA_SMB_USERNAME="${DEFAULT_SMB_USERNAME}"
 COLA_SMB_PASSWORD="从部署环境读取"
 COLA_SMB_MOUNT_DIR="${TRAINING_WORKDIR}"
 COLA_SMB_MOUNT_OPTIONS="vers=3.0,iocharset=utf8,uid=1000,gid=1000,file_mode=0777,dir_mode=0777,noperm"
@@ -190,7 +188,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       icon: FilesIcon,
       enable: "REMOTE_WORKSPACE_WORK_VOLUME_MOUNT_MODE=smb",
       mount: TRAINING_WORKDIR,
-      detail: SMB_SOURCE,
+      detail: SMB_EFFECTIVE_SOURCE,
     },
     {
       name: "训练任务",
@@ -206,7 +204,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       icon: PackageIcon,
       enable: "COLA_JUPYTERLAB_WORK_VOLUME_MOUNT_MODE=smb",
       mount: TRAINING_WORKDIR,
-      detail: SMB_SOURCE,
+      detail: SMB_EFFECTIVE_SOURCE,
     },
     {
       name: "Lab Jobs",
@@ -214,7 +212,7 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
       icon: TerminalIcon,
       enable: "COLA_ISAAC_LAB_WORK_VOLUME_MOUNT_MODE=smb",
       mount: TRAINING_WORKDIR,
-      detail: SMB_SOURCE,
+      detail: SMB_EFFECTIVE_SOURCE,
     },
     {
       name: "Unsloth Studio",
@@ -316,8 +314,9 @@ COLA_TRAINING_PVC_MOUNT_PATH=${TRAINING_WORKDIR}`;
             facts={[
               ["SMB URL", SMB_URL],
               ["SMB source", SMB_SOURCE],
+              ["SMB 子目录", DEFAULT_SMB_SUBPATH],
               ["挂载目录", TRAINING_WORKDIR],
-              ["账号", DEFAULT_SMB_SHARE],
+              ["账号", DEFAULT_SMB_USERNAME],
               ["默认权限", "root + SYS_ADMIN + 0777"],
             ]}
           />
