@@ -408,58 +408,6 @@ function LoadingCards() {
   );
 }
 
-function StatusStrip(props: {
-  stations: IsaacStationRow[];
-  labJobs: IsaacLabJobRow[];
-}) {
-  const runningStations = props.stations.filter(
-    (station) => station.status === "running",
-  ).length;
-  const streaming = props.stations.filter((station) =>
-    Boolean(station.endpoint),
-  ).length;
-  const streamingLabJobs = props.labJobs.filter((job) =>
-    Boolean(job.endpoint),
-  ).length;
-  const activeLabJobs = props.labJobs.filter((job) =>
-    ["running", "pending"].includes(job.status),
-  ).length;
-  const gpuCount =
-    props.stations.reduce((total, station) => total + station.gpuCount, 0) +
-    props.labJobs.reduce((total, job) => total + job.gpuCount, 0);
-
-  return (
-    <div className="grid gap-2 md:grid-cols-4">
-      <StatusItem
-        label="Sim Station"
-        value={`${runningStations}/${props.stations.length}`}
-      />
-      <StatusItem
-        label={ISAAC_LAB_UI_COPY.statusLabel}
-        value={`${activeLabJobs}/${props.labJobs.length}`}
-      />
-      <StatusItem
-        label="WebRTC"
-        value={`${streaming + streamingLabJobs}/${runningStations + activeLabJobs}`}
-      />
-      <StatusItem label="GPU 申请" value={String(gpuCount)} />
-    </div>
-  );
-}
-
-function StatusItem(props: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-[9px] border border-slate-200/90 bg-white/88 px-3 py-2">
-      <span className="truncate text-[11px] leading-4 font-medium text-slate-500">
-        {props.label}
-      </span>
-      <span className="shrink-0 text-[15px] leading-none font-semibold text-slate-950">
-        {props.value}
-      </span>
-    </div>
-  );
-}
-
 function TabButton(props: {
   value: IsaacTab;
   activeValue: IsaacTab;
@@ -2626,7 +2574,6 @@ export function IsaacShell() {
         }
       >
         <div className="grid gap-3">
-          <StatusStrip stations={stationRows} labJobs={labRows} />
           <div className="flex gap-2 overflow-x-auto pb-0.5">
             <TabButton
               value="lab"

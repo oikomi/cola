@@ -1,5 +1,4 @@
 export const ISAAC_LAB_UI_COPY = {
-  statusLabel: "Isaac Lab",
   tabLabel: "Isaac Lab",
   sectionTitle: "Isaac Lab",
   dialogBadge: "Isaac Lab",
