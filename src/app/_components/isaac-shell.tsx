@@ -34,6 +34,13 @@ import {
   ModuleSection,
 } from "@/app/_components/module-shell";
 import { ISAAC_LAB_UI_COPY } from "@/app/_components/isaac-copy";
+import {
+  ISAAC_LAB_DEFAULT_DRAFT,
+  shouldShowIsaacLabTrainingFields,
+  type IsaacLabDisplayMode,
+  type IsaacLabDraft,
+  type IsaacLabRunner,
+} from "@/app/_components/isaac-lab-draft";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -76,8 +83,6 @@ type IsaacLabImageOption =
   RouterOutputs["isaacStation"]["listLabJobs"]["imageOptions"][number];
 type GpuAllocationMode = (typeof gpuAllocationModeValues)[number];
 type IsaacStationMode = "headless-webrtc" | "headless-egl";
-type IsaacLabRunner = "direct" | "rsl-rl" | "skrl" | "custom";
-type IsaacLabDisplayMode = "headless" | "webrtc";
 type IsaacTab = "station" | "lab";
 type TerminalSessionStatus =
   | "idle"
@@ -130,21 +135,6 @@ type IsaacStationDraft = {
   mode: IsaacStationMode;
 };
 
-type IsaacLabDraft = {
-  name: string;
-  image: string;
-  runner: IsaacLabRunner;
-  displayMode: IsaacLabDisplayMode;
-  task: string;
-  command: string;
-  maxIterations: string;
-  cpu: string;
-  memoryGi: string;
-  gpuAllocationMode: GpuAllocationMode;
-  gpuCount: string;
-  gpuMemoryGi: string;
-};
-
 const STATUS_POLL_INTERVAL_MS = 5000;
 const TERMINAL_INPUT_CHUNK_SIZE = 8_000;
 const TERMINAL_INPUT_FLUSH_MS = 16;
@@ -168,21 +158,6 @@ const defaultStationDraft: IsaacStationDraft = {
   gpuCount: "1",
   gpuMemoryGi: "",
   mode: "headless-webrtc",
-};
-
-const defaultLabDraft: IsaacLabDraft = {
-  name: "",
-  image: "",
-  runner: "rsl-rl",
-  displayMode: "headless",
-  task: "Isaac-Velocity-Flat-G1-v0",
-  command: "",
-  maxIterations: "1000",
-  cpu: "8",
-  memoryGi: "48",
-  gpuAllocationMode: "whole",
-  gpuCount: "1",
-  gpuMemoryGi: "",
 };
 
 const runnerLabels = {
@@ -1875,6 +1850,10 @@ function IsaacLabDialog(props: {
   onDraftChange: (updater: (current: IsaacLabDraft) => IsaacLabDraft) => void;
   onSubmit: () => void;
 }) {
+  const showTrainingFields = shouldShowIsaacLabTrainingFields(
+    props.draft.runner,
+  );
+
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-slate-200/85 bg-white shadow-[0_28px_68px_rgba(15,23,42,0.14)] sm:max-w-3xl">
@@ -2008,34 +1987,36 @@ function IsaacLabDialog(props: {
             </Select>
           </Field>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_0.5fr]">
-            <Field label="Task">
-              <Input
-                className={dialogControlClassName}
-                value={props.draft.task}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    task: event.target.value.trim(),
-                  }))
-                }
-                placeholder="Isaac-Velocity-Flat-G1-v0"
-              />
-            </Field>
-            <Field label="最大迭代">
-              <Input
-                inputMode="numeric"
-                className={dialogControlClassName}
-                value={props.draft.maxIterations}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    maxIterations: event.target.value.replace(/\D/g, ""),
-                  }))
-                }
-              />
-            </Field>
-          </div>
+          {showTrainingFields ? (
+            <div className="grid gap-3 md:grid-cols-[1fr_0.5fr]">
+              <Field label="Task">
+                <Input
+                  className={dialogControlClassName}
+                  value={props.draft.task}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      task: event.target.value.trim(),
+                    }))
+                  }
+                  placeholder="Isaac-Velocity-Flat-G1-v0"
+                />
+              </Field>
+              <Field label="最大迭代">
+                <Input
+                  inputMode="numeric"
+                  className={dialogControlClassName}
+                  value={props.draft.maxIterations}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      maxIterations: event.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
 
           {props.draft.runner === "custom" ? (
             <Field
@@ -2184,7 +2165,9 @@ export function IsaacShell() {
   >([]);
   const [stationDraft, setStationDraft] =
     useState<IsaacStationDraft>(defaultStationDraft);
-  const [labDraft, setLabDraft] = useState<IsaacLabDraft>(defaultLabDraft);
+  const [labDraft, setLabDraft] = useState<IsaacLabDraft>(
+    ISAAC_LAB_DEFAULT_DRAFT,
+  );
 
   const stationQuery = api.isaacStation.list.useQuery(undefined, {
     retry: false,
@@ -2242,9 +2225,8 @@ export function IsaacShell() {
       await utils.isaacStation.listLabJobs.invalidate();
       setIsLabCreateOpen(false);
       setLabDraft((current) => ({
-        ...defaultLabDraft,
+        ...ISAAC_LAB_DEFAULT_DRAFT,
         image: current.image,
-        displayMode: current.displayMode,
       }));
     },
     onError: (error) => notifyError(error.message),
@@ -2358,17 +2340,20 @@ export function IsaacShell() {
   const parsedLabGpuCount = parsePositiveInt(labDraft.gpuCount);
   const parsedLabGpuMemoryGi = parsePositiveInt(labDraft.gpuMemoryGi);
   const parsedMaxIterations = parsePositiveInt(labDraft.maxIterations);
+  const showLabTrainingFields = shouldShowIsaacLabTrainingFields(
+    labDraft.runner,
+  );
   const labCanCreate =
     labAvailable &&
     labDraft.name.length >= 2 &&
     labDraft.image.trim().length > 0 &&
-    labDraft.task.trim().length >= 3 &&
+    (!showLabTrainingFields || labDraft.task.trim().length >= 3) &&
     (labDraft.runner !== "custom" || labDraft.command.trim().length > 0) &&
     Number.isFinite(parsePositiveNumber(labDraft.cpu)) &&
     Number.isInteger(parsedLabMemoryGi) &&
     Number.isInteger(parsedLabGpuCount) &&
     parsedLabGpuCount <= 16 &&
-    Number.isInteger(parsedMaxIterations) &&
+    (!showLabTrainingFields || Number.isInteger(parsedMaxIterations)) &&
     (labDraft.gpuAllocationMode !== "memory" ||
       (Number.isInteger(parsedLabGpuMemoryGi) && parsedLabGpuMemoryGi <= 1024));
   const labSubmitDisabledReason = !labAvailable
@@ -2377,7 +2362,7 @@ export function IsaacShell() {
       ? "名称至少 2 个字符"
       : !labDraft.image.trim()
         ? "请选择 Isaac Lab 镜像"
-        : labDraft.task.trim().length < 3
+        : showLabTrainingFields && labDraft.task.trim().length < 3
           ? "Task 至少 3 个字符"
           : labDraft.runner === "custom" && !labDraft.command.trim()
             ? "Custom runner 必须填写启动命令"
@@ -2387,7 +2372,8 @@ export function IsaacShell() {
                 ? "内存必须是正整数"
                 : !Number.isInteger(parsedLabGpuCount) || parsedLabGpuCount > 16
                   ? "Isaac Lab Job 至少需要 1 个 GPU"
-                  : !Number.isInteger(parsedMaxIterations)
+                  : showLabTrainingFields &&
+                      !Number.isInteger(parsedMaxIterations)
                     ? "最大迭代必须是正整数"
                     : labDraft.gpuAllocationMode === "memory" &&
                         (!Number.isInteger(parsedLabGpuMemoryGi) ||
@@ -2650,9 +2636,6 @@ export function IsaacShell() {
               label={ISAAC_LAB_UI_COPY.tabLabel}
               count={labRows.length}
             />
-          </div>
-          <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/88 px-3.5 py-3 text-[12px] leading-5 text-slate-600">
-            {ISAAC_LAB_UI_COPY.summaryDescription}
           </div>
         </div>
       </ModuleHero>
