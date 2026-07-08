@@ -54,7 +54,7 @@ COLA_HERMES_NODE_PORT_START=31280
 COLA_HERMES_NODE_PORT_END=31379
 COLA_HERMES_API_NODE_PORT_START=31380
 COLA_HERMES_API_NODE_PORT_END=31479
-COLA_HERMES_API_SERVER_KEY=cola-hermes-api
+COLA_HERMES_API_SERVER_KEY=replace-with-a-strong-random-secret
 COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS=example
 ```
 
@@ -72,7 +72,7 @@ COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS=example
 - `COLA_HERMES_API_NODE_PORT_START` / `COLA_HERMES_API_NODE_PORT_END`
   Hermes OpenAI-compatible API Server NodePort 区间，默认 `31380-31479`
 - `COLA_HERMES_API_SERVER_KEY`
-  Hermes API Server 固定 Bearer token，默认 `cola-hermes-api`
+  Hermes API Server 固定 Bearer token。未设置时 Cola 会为每个新 runner 自动生成强随机 token；显式设置时必须至少 16 个字符，不能使用旧占位值。
 - `COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS`
   逗号分隔的 Hermes dashboard 插件隐藏列表。默认会隐藏 `example`，避免部分 Hermes 镜像里示例插件缺少 `dashboard/dist/index.js` 时出现在侧边栏。
 
@@ -82,14 +82,14 @@ COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS=example
 - Codex 配置优先从已存在的 Secret 读取
 - 如果没配置 `COLA_K8S_CODEX_SECRET_NAME`，控制面会尝试从本地文件创建每个 runner 自己的 Secret
 - dashboard 通过 NodePort 暴露
-- 新创建的 Hermes runner 会默认启用 API Server，容器内端口为 `8642`，外部 NodePort 会写入设备 metadata 的 `hermesApiNodePort` / `hermesApiServerUrl`，Bearer token 默认是 `cola-hermes-api`，也可通过 `COLA_HERMES_API_SERVER_KEY` 覆盖
+- 新创建的 Hermes runner 会默认启用 API Server，容器内端口为 `8642`，外部 NodePort 会写入设备 metadata 的 `hermesApiNodePort` / `hermesApiServerUrl` / `hermesApiServerKey`。Bearer token 默认自动生成，也可通过 `COLA_HERMES_API_SERVER_KEY` 覆盖。
 - 如果前端配置了 `NEXT_PUBLIC_OPENCLAW_NATIVE_URL` / `NEXT_PUBLIC_HERMES_NATIVE_URL`，人物卡仍会优先打开 Cola 自带工作区页
 
 Hermes API Server 调用示例：
 
 ```bash
 curl "${HERMES_API_SERVER_URL%/}/v1/chat/completions" \
-  -H "Authorization: Bearer ${HERMES_API_SERVER_KEY:-cola-hermes-api}" \
+  -H "Authorization: Bearer ${HERMES_API_SERVER_KEY}" \
   -H "Content-Type: application/json" \
   -d '{"model":"hermes-agent","messages":[{"role":"user","content":"hello"}]}'
 ```

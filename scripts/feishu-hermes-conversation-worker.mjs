@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
-const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
 const DEFAULT_MODEL = "hermes-agent";
 const MAX_HISTORY_MESSAGES = 16;
 const MAX_ARCHIVE_HISTORY_MESSAGES = 80;
@@ -710,14 +709,22 @@ async function loadConversationMessages(sql, context, userText) {
   ];
 }
 
+function resolveHermesApiServerAuthHeader(metadata) {
+  const key = metadata?.hermesApiServerKey?.trim();
+
+  if (!key) {
+    throw new Error("Hermes API Server key is missing from device metadata.");
+  }
+
+  return `Bearer ${key}`;
+}
+
 async function callHermes(context, messages) {
   const apiUrl = `${context.metadata.hermesApiServerUrl.replace(/\/+$/, "")}/v1/chat/completions`;
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${
-        context.metadata.hermesApiServerKey ?? DEFAULT_HERMES_API_SERVER_KEY
-      }`,
+      Authorization: resolveHermesApiServerAuthHeader(context.metadata),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -1355,6 +1362,7 @@ export {
   parseTextReviewAction,
   readExecutionOutput,
   resolveFeishuOperatorName,
+  resolveHermesApiServerAuthHeader,
   resolveArchiveTargets,
   sendArchiveText,
 };

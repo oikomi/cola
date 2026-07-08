@@ -12,6 +12,7 @@ import {
   parseTextReviewAction,
   readExecutionOutput,
   resolveFeishuOperatorName,
+  resolveHermesApiServerAuthHeader,
   sendArchiveText,
 } from "./feishu-hermes-conversation-worker.mjs";
 
@@ -75,6 +76,22 @@ void test("normalizes stored Feishu conversation messages", () => {
       { role: "assistant", content: "已经复核完成" },
       { role: "user", content: "fallback role" },
     ],
+  );
+});
+
+void test("Hermes API Server auth header uses metadata key", () => {
+  assert.equal(
+    resolveHermesApiServerAuthHeader({
+      hermesApiServerKey: "metadata-hermes-api-secret",
+    }),
+    "Bearer metadata-hermes-api-secret",
+  );
+});
+
+void test("Hermes API Server auth header rejects missing metadata key", () => {
+  assert.throws(
+    () => resolveHermesApiServerAuthHeader({ hermesApiServerKey: null }),
+    /Hermes API Server key is missing from device metadata/,
   );
 });
 

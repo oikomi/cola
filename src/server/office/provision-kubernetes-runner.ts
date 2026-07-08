@@ -40,6 +40,7 @@ const OPENCLAW_DASHBOARD_PORT = 18789;
 const HERMES_DASHBOARD_PORT = 9119;
 const HERMES_API_SERVER_PORT = 8642;
 const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
+const HERMES_API_SERVER_KEY_MIN_LENGTH = 16;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
@@ -61,12 +62,35 @@ function generateGatewayToken() {
   return randomBytes(32).toString("base64url");
 }
 
-function configuredHermesApiServerKey() {
-  return (
-    process.env.COLA_HERMES_API_SERVER_KEY ??
-    process.env.HERMES_API_SERVER_KEY ??
-    DEFAULT_HERMES_API_SERVER_KEY
-  );
+function readConfiguredHermesApiServerKey() {
+  for (const name of ["COLA_HERMES_API_SERVER_KEY", "HERMES_API_SERVER_KEY"]) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+
+  return null;
+}
+
+function assertStrongHermesApiServerKey(value: string) {
+  if (
+    value.length < HERMES_API_SERVER_KEY_MIN_LENGTH ||
+    value === DEFAULT_HERMES_API_SERVER_KEY
+  ) {
+    throw new Error(
+      "Hermes API Server key must be at least 16 characters and cannot use the legacy placeholder. Set COLA_HERMES_API_SERVER_KEY / HERMES_API_SERVER_KEY to a strong secret, or leave it unset so Cola generates one.",
+    );
+  }
+}
+
+export function resolveHermesApiServerKey(
+  generateKey: () => string = generateGatewayToken,
+) {
+  const configured = readConfiguredHermesApiServerKey();
+  const key = configured ?? generateKey();
+
+  assertStrongHermesApiServerKey(key);
+
+  return key;
 }
 
 function readClusterConfig() {
@@ -1312,7 +1336,7 @@ export async function provisionKubernetesRunner(
         ? generateGatewayToken()
         : null;
     const hermesApiServerKey =
-      input.engine === "hermes-agent" ? configuredHermesApiServerKey() : null;
+      input.engine === "hermes-agent" ? resolveHermesApiServerKey() : null;
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);
     const hermesApiServerUrl = hermesApiNodePort
       ? buildHermesApiServerUrl(hermesApiNodePort)
