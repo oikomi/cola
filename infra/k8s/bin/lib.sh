@@ -470,6 +470,9 @@ runtime_root = Path(sys.argv[1])
 template = """# https://github.com/containerd/containerd/blob/main/docs/hosts.md
 server = "https://registry-1.docker.io"
 
+[host."https://docker.m.daocloud.io"]
+  capabilities = ["pull", "resolve"]
+
 [host."https://registry-1.docker.io"]
   capabilities = ["pull", "resolve"]
 """

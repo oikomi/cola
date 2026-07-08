@@ -24,8 +24,9 @@ import {
 } from "react";
 
 import { AdminChrome } from "@/app/_components/admin-chrome";
-import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
+import { createDefaultAgentDraft } from "@/app/_components/office-agent-defaults";
 import { ProductAreaHeader } from "@/app/_components/product-area-header";
+import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { cn } from "@/lib/utils";
@@ -261,11 +262,11 @@ export function OfficeShell({ snapshot }: Props) {
   const [highlightedAgentId, setHighlightedAgentId] = useState<string | null>(
     snapshot.agents[0]?.id ?? null,
   );
-  const [agentDraft, setAgentDraft] = useState({
-    name: "",
-    role: "engineering" as AgentRole,
-    engine: "openclaw" as DockerRunnerEngine,
-  });
+  const [agentDraft, setAgentDraft] = useState<{
+    name: string;
+    role: AgentRole;
+    engine: DockerRunnerEngine;
+  }>(createDefaultAgentDraft());
   const [taskDraft, setTaskDraft] = useState({
     title: "",
     summary: "",
@@ -359,11 +360,7 @@ export function OfficeShell({ snapshot }: Props) {
   const createAgent = api.office.createAgent.useMutation({
     onSuccess: (result) => {
       pushFeedback(result.message);
-      setAgentDraft({
-        name: "",
-        role: "engineering",
-        engine: "openclaw",
-      });
+      setAgentDraft(createDefaultAgentDraft());
       startTransition(() => {
         setHighlightedAgentId(result.agentId);
         setTaskDraft((current) => ({
@@ -490,7 +487,9 @@ export function OfficeShell({ snapshot }: Props) {
       origin: window.location.origin,
     };
 
-    openedWindow.location.replace(resolveBrowserNativeWorkspaceHref(baseTarget));
+    openedWindow.location.replace(
+      resolveBrowserNativeWorkspaceHref(baseTarget),
+    );
 
     try {
       const refreshed = await getNativeDashboardUrl.mutateAsync({

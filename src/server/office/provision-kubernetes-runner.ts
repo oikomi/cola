@@ -31,6 +31,7 @@ import type {
 import { createKubeConfig } from "@/server/kubernetes/kubeconfig";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import { resolveRunnerApiBaseUrl } from "@/server/office/runner-api-base-url";
+import { buildHermesDashboardAuthEnv } from "@/server/office/hermes-dashboard-auth";
 
 const K8S_INFRA_DIR = path.join(process.cwd(), "infra", "k8s");
 const CLUSTER_CONFIG_PATH = path.join(K8S_INFRA_DIR, "cluster", "config.json");
@@ -1018,6 +1019,7 @@ function buildRunnerResources(
                         name: "HERMES_ALLOW_ROOT_GATEWAY",
                         value: "1",
                       },
+                      ...buildHermesDashboardAuthEnv(gatewayToken),
                       ...(process.env.COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS
                         ? [
                             {
@@ -1306,7 +1308,9 @@ export async function provisionKubernetesRunner(
         ? await findAvailableNodePort(coreApi, NODE_PORT_RANGES.hermesApi)
         : null;
     const gatewayToken =
-      input.engine === "openclaw" ? generateGatewayToken() : null;
+      input.engine === "openclaw" || input.engine === "hermes-agent"
+        ? generateGatewayToken()
+        : null;
     const hermesApiServerKey =
       input.engine === "hermes-agent" ? configuredHermesApiServerKey() : null;
     const nativeDashboardUrl = buildNativeDashboardUrl(input.engine, nodePort);

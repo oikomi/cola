@@ -23,6 +23,7 @@ import { gsap } from "gsap";
 import { startTransition, useEffect, useRef, useState } from "react";
 
 import { AdminChrome } from "@/app/_components/admin-chrome";
+import { createDefaultAgentDraft } from "@/app/_components/office-agent-defaults";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1891,11 +1892,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     name: string;
     role: AgentRole;
     engine: DockerRunnerEngine;
-  }>({
-    name: "",
-    role: "engineering",
-    engine: "openclaw",
-  });
+  }>(createDefaultAgentDraft());
   const [taskDraft, setTaskDraft] = useState<{
     ownerAgentId: string;
     notifyUserIds: string[];
@@ -1977,11 +1974,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     onSuccess: (result) => {
       notifySuccess(result.message);
       setIsCreateAgentOpen(false);
-      setAgentDraft({
-        name: "",
-        role: "engineering",
-        engine: "openclaw",
-      });
+      setAgentDraft(createDefaultAgentDraft());
       pendingSelectedAgentIdRef.current = result.agentId;
       startTransition(() => {
         setSelectedAgentId(result.agentId);
@@ -2825,7 +2818,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     <p className="text-[11px] font-semibold tracking-[0.16em] text-[#7f8f87] uppercase">
                       当前任务
                     </p>
-                    <p className="mt-1 line-clamp-2 font-medium text-[#24170d] [overflow-wrap:anywhere]">
+                    <p className="mt-1 line-clamp-2 font-medium [overflow-wrap:anywhere] text-[#24170d]">
                       {selectedTask?.title ?? "空闲"}
                     </p>
                     {selectedTask ? (
@@ -2878,7 +2871,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   </div>
                 </div>
 
-                <p className="mt-4 line-clamp-3 text-sm leading-6 text-[#6d5544] [overflow-wrap:anywhere]">
+                <p className="mt-4 line-clamp-3 text-sm leading-6 [overflow-wrap:anywhere] text-[#6d5544]">
                   {selectedAgent.focus}
                 </p>
                 <ResourceOwnerBadge
@@ -3279,8 +3272,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
                             {notificationUsers.map((user) => {
                               const label =
                                 user.name ?? user.email ?? user.feishuOpenId;
-                              const selected =
-                                taskDraft.notifyUserIds.includes(user.id);
+                              const selected = taskDraft.notifyUserIds.includes(
+                                user.id,
+                              );
 
                               return (
                                 <button
