@@ -2671,17 +2671,8 @@ export function IsaacShell() {
         </>
       ) : (
         <ModuleSection
-          title={ISAAC_LAB_UI_COPY.sectionTitle}
-          description="提交和查看 Isaac Lab 训练、benchmark 与批量实验任务，可选 headless 或 WebRTC。"
+          headerless
           className="border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]"
-          action={
-            <Badge
-              variant="outline"
-              className="border-slate-200/90 bg-white/90 text-slate-600"
-            >
-              {labRows.length} 个任务
-            </Badge>
-          }
         >
           {labQuery.isLoading ? (
             <LoadingCards />

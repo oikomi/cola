@@ -1,4 +1,11 @@
-import { appendFile, chmod, mkdir, readdir, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -52,6 +59,10 @@ const gitNetrcPath = path.join(gitCredentialsDir, ".netrc");
 const gitCredentialStorePath = path.join(gitCredentialsDir, "credentials");
 const gitConfigPath = path.join(gitCredentialsDir, ".gitconfig");
 const defaultHiddenDashboardPlugins = ["example"];
+const hermesDashboardLoginPagePath =
+  process.env.HERMES_DASHBOARD_LOGIN_PAGE_PATH ??
+  "/opt/hermes/hermes_cli/dashboard_auth/login_page.py";
+const hermesDashboardAutoLoginMarker = "COLA_HERMES_HASH_AUTO_LOGIN";
 
 let deviceId = "";
 let sessionId = "";
@@ -345,6 +356,95 @@ async function writeHermesGitCredentials() {
   return true;
 }
 
+function hermesDashboardAutoLoginScript() {
+  const username =
+    process.env.HERMES_DASHBOARD_BASIC_AUTH_USERNAME?.trim() || "cola";
+
+  return `
+(() => {
+  const marker = "${hermesDashboardAutoLoginMarker}";
+  const username = ${JSON.stringify(username)};
+
+  async function autoLoginFromHash() {
+    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const password = hashParams.get("token");
+    if (!password) return;
+
+    const form = document.querySelector("form");
+    const nextInput = form?.querySelector('input[name="next"]');
+    const next = nextInput?.value || "/";
+    const provider = form?.getAttribute("data-provider") || "basic";
+    history.replaceState(null, document.title, location.pathname + location.search);
+
+    const response = await fetch("/auth/password-login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        provider,
+        username,
+        password,
+        next,
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json().catch(() => ({}));
+    location.replace(data.next || next || "/");
+  }
+
+  autoLoginFromHash().catch((error) => {
+    console.warn(marker, error);
+  });
+})();
+`.trim();
+}
+
+async function patchHermesDashboardAutoLogin() {
+  try {
+    if (!existsSync(hermesDashboardLoginPagePath)) {
+      await logLine(
+        `Hermes dashboard auto-login patch skipped: ${hermesDashboardLoginPagePath} not found`,
+      );
+      return false;
+    }
+
+    const source = await readFile(hermesDashboardLoginPagePath, "utf8");
+    if (source.includes(hermesDashboardAutoLoginMarker)) return false;
+
+    const scriptStart = source.indexOf("_PASSWORD_FORM_SCRIPT");
+    const scriptEnd = source.indexOf("</script>", scriptStart);
+    if (scriptStart < 0 || scriptEnd < 0) {
+      await logLine(
+        "Hermes dashboard auto-login patch skipped: password form script not found",
+      );
+      return false;
+    }
+
+    const updated = [
+      source.slice(0, scriptEnd).trimEnd(),
+      "",
+      hermesDashboardAutoLoginScript(),
+      "",
+      source.slice(scriptEnd),
+    ].join("\n");
+
+    await writeFile(hermesDashboardLoginPagePath, updated);
+    await logLine("Hermes dashboard hash auto-login patch applied");
+    return true;
+  } catch (error) {
+    await logLine(
+      `Hermes dashboard auto-login patch skipped: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+    return false;
+  }
+}
+
 async function logLine(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   await appendFile(sessionLogPath, line);
@@ -603,6 +703,7 @@ async function probeHermes() {
 
   try {
     await writeHermesConfig();
+    await patchHermesDashboardAutoLogin();
     await shell(readyCommand);
     const browserSummary = await localBrowserSummary();
     return {
@@ -860,6 +961,7 @@ async function main() {
 
   if (prepareOnly) {
     await writeHermesConfig();
+    await patchHermesDashboardAutoLogin();
     await writeHermesGitCredentials();
     await shell(readyCommand);
     await logLine(

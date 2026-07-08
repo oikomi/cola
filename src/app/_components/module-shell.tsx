@@ -277,14 +277,16 @@ export function ModuleSection({
   children,
   className,
   density = "default",
+  headerless = false,
 }: {
   id?: string;
-  title: string;
+  title?: string;
   description?: string;
   action?: ReactNode;
   children: ReactNode;
   className?: string;
   density?: "default" | "compact";
+  headerless?: boolean;
 }) {
   const isCompact = density === "compact";
 
@@ -296,53 +298,55 @@ export function ModuleSection({
         className,
       )}
     >
-      <div
-        className={cn(
-          "border-b border-slate-200/80",
-          isCompact
-            ? "flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
-            : "flex flex-col gap-4 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8",
-        )}
-      >
+      {headerless ? null : (
         <div
           className={cn(
+            "border-b border-slate-200/80",
             isCompact
-              ? "flex min-w-0 flex-col gap-1.5 md:flex-row md:items-baseline md:gap-3"
-              : "min-w-0 space-y-2",
+              ? "flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
+              : "flex flex-col gap-4 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8",
           )}
         >
-          <h2
-            className={cn(
-              "text-foreground font-semibold tracking-normal break-words",
-              isCompact ? "text-[1.2rem]" : "text-[1.5rem]",
-            )}
-          >
-            {title}
-          </h2>
-          {description ? (
-            <p
-              className={cn(
-                "text-slate-600",
-                isCompact
-                  ? "max-w-3xl text-[13px] leading-5"
-                  : "max-w-2xl text-sm leading-6",
-              )}
-            >
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {action ? (
           <div
             className={cn(
-              "flex shrink-0 flex-wrap gap-2 md:justify-end",
-              isCompact ? "items-center" : undefined,
+              isCompact
+                ? "flex min-w-0 flex-col gap-1.5 md:flex-row md:items-baseline md:gap-3"
+                : "min-w-0 space-y-2",
             )}
           >
-            {action}
+            <h2
+              className={cn(
+                "text-foreground font-semibold tracking-normal break-words",
+                isCompact ? "text-[1.2rem]" : "text-[1.5rem]",
+              )}
+            >
+              {title}
+            </h2>
+            {description ? (
+              <p
+                className={cn(
+                  "text-slate-600",
+                  isCompact
+                    ? "max-w-3xl text-[13px] leading-5"
+                    : "max-w-2xl text-sm leading-6",
+                )}
+              >
+                {description}
+              </p>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+          {action ? (
+            <div
+              className={cn(
+                "flex shrink-0 flex-wrap gap-2 md:justify-end",
+                isCompact ? "items-center" : undefined,
+              )}
+            >
+              {action}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div
         className={cn(isCompact ? "px-5 py-5 md:px-6" : "px-6 py-6 md:px-8")}

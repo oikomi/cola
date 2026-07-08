@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const source = await readFile(new URL("./bootstrap.mjs", import.meta.url), "utf8");
+
+void test("Hermes bootstrap injects dashboard hash-token auto login", () => {
+  assert.match(source, /COLA_HERMES_HASH_AUTO_LOGIN/);
+  assert.match(source, /HERMES_DASHBOARD_LOGIN_PAGE_PATH/);
+  assert.match(source, /location\.hash/);
+  assert.match(source, /\/auth\/password-login/);
+  assert.match(source, /HERMES_DASHBOARD_BASIC_AUTH_USERNAME/);
+  assert.match(source, /patchHermesDashboardAutoLogin\(\)/);
+});
