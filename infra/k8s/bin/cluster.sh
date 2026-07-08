@@ -17,6 +17,7 @@ Groups and actions:
 
   gpu enable               Enable NVIDIA runtime and HAMi
   image build-and-load     Build and load the workspace image
+  image prewarm            Preload external images into Kubernetes nodes
 
   secondary-arch export    Export a kubeasz bundle for another architecture
   secondary-arch import    Import the bundle and optionally add a node
@@ -36,6 +37,7 @@ Examples:
   ./bin/cluster.sh gpu enable
   ./bin/cluster.sh monitoring deploy
   ./bin/cluster.sh image build-and-load
+  ./bin/cluster.sh image prewarm vllm/vllm-openai:latest
   ./bin/cluster.sh stack up
   ./bin/cluster.sh dashboard port-forward --status
 EOF
@@ -82,6 +84,9 @@ case "$GROUP:$ACTION" in
   image:build-and-load)
     echo "WARN: workspace 镜像发布已迁移到 ./scripts/workspace-image.sh" >&2
     exec "$REPO_ROOT/scripts/workspace-image.sh" build-and-load "$@"
+    ;;
+  image:prewarm)
+    exec "$SCRIPT_DIR/internal/image-prewarm.sh" "$@"
     ;;
   workspace:create)
     echo "WARN: workspace 生命周期已迁移到 ./scripts/workspace.sh" >&2

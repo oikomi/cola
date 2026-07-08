@@ -33,6 +33,7 @@ import {
   ModulePageShell,
   ModuleSection,
 } from "@/app/_components/module-shell";
+import { ISAAC_LAB_UI_COPY } from "@/app/_components/isaac-copy";
 import { ResourceOwnerBadge } from "@/app/_components/resource-owner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -459,7 +460,7 @@ function StatusStrip(props: {
         value={`${runningStations}/${props.stations.length}`}
       />
       <StatusItem
-        label="Lab Jobs"
+        label={ISAAC_LAB_UI_COPY.statusLabel}
         value={`${activeLabJobs}/${props.labJobs.length}`}
       />
       <StatusItem
@@ -1880,7 +1881,7 @@ function IsaacLabDialog(props: {
         <DialogHeader className="gap-1.5">
           <div className="mb-1 flex items-center gap-1.5">
             <Badge className="border border-sky-200 bg-sky-50 text-sky-700">
-              Lab Jobs
+              {ISAAC_LAB_UI_COPY.dialogBadge}
             </Badge>
             <Badge
               variant="outline"
@@ -2631,7 +2632,9 @@ export function IsaacShell() {
               }}
             >
               <PlusIcon data-icon="inline-start" />
-              {activeTab === "station" ? "创建 Station" : "提交 Lab Job"}
+              {activeTab === "station"
+                ? "创建 Station"
+                : ISAAC_LAB_UI_COPY.primaryActionLabel}
             </Button>
           </>
         }
@@ -2644,14 +2647,12 @@ export function IsaacShell() {
               activeValue={activeTab}
               onClick={setActiveTab}
               icon={FlaskConicalIcon}
-              label="Lab Jobs"
+              label={ISAAC_LAB_UI_COPY.tabLabel}
               count={labRows.length}
             />
           </div>
           <div className="rounded-[10px] border border-slate-200/90 bg-slate-50/88 px-3.5 py-3 text-[12px] leading-5 text-slate-600">
-            Sim Station 负责 Isaac Sim headless/WebRTC 仿真；Lab Jobs 负责 Isaac
-            Lab 训练、benchmark 和批量实验。两者都绕开当前 Xvnc/llvmpipe
-            桌面显示层。
+            {ISAAC_LAB_UI_COPY.summaryDescription}
           </div>
         </div>
       </ModuleHero>
@@ -2740,7 +2741,7 @@ export function IsaacShell() {
         </>
       ) : (
         <ModuleSection
-          title="Lab Jobs"
+          title={ISAAC_LAB_UI_COPY.sectionTitle}
           description="提交和查看 Isaac Lab 训练、benchmark 与批量实验任务，可选 headless 或 WebRTC。"
           className="border-slate-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)]"
           action={
@@ -2771,7 +2772,7 @@ export function IsaacShell() {
                 onClick={() => setIsLabCreateOpen(true)}
               >
                 <PlusIcon data-icon="inline-start" />
-                提交 Lab Job
+                {ISAAC_LAB_UI_COPY.emptyActionLabel}
               </Button>
             </div>
           ) : (
