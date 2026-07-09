@@ -84,6 +84,106 @@ function recordBody<T>(body: unknown) {
   return body as T;
 }
 
+void test("Hermes group notification broadcasts via Feishu app bot groups", async () => {
+  const requests: Array<{
+    url: string;
+    method: string;
+    body: unknown;
+    authorization: string | null;
+  }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const requestUrl = requestUrlString(url);
+    requests.push({
+      url: requestUrl,
+      method: init?.method ?? "GET",
+      body: init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null,
+      authorization:
+        init?.headers instanceof Headers
+          ? init.headers.get("authorization")
+          : ((init?.headers as Record<string, string> | undefined)
+              ?.Authorization ?? null),
+    });
+
+    if (requestUrl.endsWith("/auth/v3/tenant_access_token/internal")) {
+      return Response.json({
+        code: 0,
+        data: { tenant_access_token: "tenant-token" },
+      });
+    }
+
+    if (requestUrl.includes("/im/v1/chats")) {
+      return Response.json({
+        code: 0,
+        data: {
+          items: [
+            { chat_id: "oc_group_a", chat_status: "normal" },
+            { chat_id: "oc_group_b", chat_status: "normal" },
+          ],
+          has_more: false,
+        },
+      });
+    }
+
+    return Response.json({
+      code: 0,
+      data: { message_id: `message-${requests.length}` },
+    });
+  };
+
+  try {
+    await withEnv(
+      {
+        FEISHU_APP_ID: "app-id",
+        FEISHU_APP_SECRET: "app-secret",
+        COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
+        COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
+      },
+      () => notifyHermesTaskResultToFeishu(taskResultInputWithDocumentLink()),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(
+    requests.some(
+      (request) => request.url === "https://open.feishu.example/webhook",
+    ),
+    false,
+  );
+
+  const messageRequests = requests.filter((request) =>
+    request.url.includes("/im/v1/messages?receive_id_type=chat_id"),
+  );
+  assert.equal(messageRequests.length, 2);
+  assert.deepEqual(
+    messageRequests.map(
+      (request) => recordBody<{ receive_id: string }>(request.body).receive_id,
+    ),
+    ["oc_group_a", "oc_group_b"],
+  );
+  assert.equal(messageRequests[0]?.authorization, "Bearer tenant-token");
+  const firstMessage = recordBody<{
+    msg_type: string;
+    content: string;
+  }>(messageRequests[0]?.body);
+  const firstCard = JSON.parse(firstMessage.content) as {
+    header: { title: { content: string } };
+    elements: Array<{
+      text?: { content: string };
+      actions?: Array<{ url: string; text: { content: string } }>;
+    }>;
+  };
+
+  assert.equal(firstMessage.msg_type, "interactive");
+  assert.equal(firstCard.header.title.content, "Hermes 任务执行成功");
+  assert.match(firstCard.elements[0]?.text?.content ?? "", /\[飞书文档链接\]/);
+  assert.equal(
+    firstCard.elements[3]?.actions?.[0]?.url,
+    "https://example.feishu.cn/wiki/wiki-token",
+  );
+});
+
 void test("Hermes group notification sends an interactive card", async () => {
   const requests: Array<{ url: string; body: unknown }> = [];
   const originalFetch = globalThis.fetch;
@@ -98,6 +198,8 @@ void test("Hermes group notification sends an interactive card", async () => {
   try {
     await withEnv(
       {
+        FEISHU_APP_ID: undefined,
+        FEISHU_APP_SECRET: undefined,
         COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
         COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
       },
@@ -152,6 +254,8 @@ void test("Hermes group notification keeps non-Feishu links visible", async () =
   try {
     await withEnv(
       {
+        FEISHU_APP_ID: undefined,
+        FEISHU_APP_SECRET: undefined,
         COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
         COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
       },
@@ -188,6 +292,8 @@ void test("Hermes group notification card can mention recipient open_ids", async
   try {
     await withEnv(
       {
+        FEISHU_APP_ID: undefined,
+        FEISHU_APP_SECRET: undefined,
         COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
         COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
       },
@@ -228,6 +334,8 @@ void test("Hermes group notification card includes review actions for archiving"
   try {
     await withEnv(
       {
+        FEISHU_APP_ID: undefined,
+        FEISHU_APP_SECRET: undefined,
         COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
         COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
       },
@@ -344,11 +452,12 @@ void test("Hermes user notification sends interactive card to open_id", async ()
   assert.match(card.elements[0]?.text?.content ?? "", /任务.*整理发布摘要/);
 });
 
-void test("Hermes user notification keeps long result inside a compact card summary", async () => {
+void test("Hermes user notification displays the complete long result", async () => {
   const requests: Array<{
     url: string;
     body: unknown;
   }> = [];
+  const input = longTaskResultInput();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const requestUrl = requestUrlString(url);
@@ -376,8 +485,7 @@ void test("Hermes user notification keeps long result inside a compact card summ
         FEISHU_APP_ID: "app-id",
         FEISHU_APP_SECRET: "app-secret",
       },
-      () =>
-        notifyHermesTaskResultToFeishuUser("ou_owner", longTaskResultInput()),
+      () => notifyHermesTaskResultToFeishuUser("ou_owner", input),
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -392,11 +500,17 @@ void test("Hermes user notification keeps long result inside a compact card summ
   const firstCard = JSON.parse(
     recordBody<{ content: string }>(messageRequests[0]?.body).content,
   ) as { elements: Array<{ text?: { content: string } }> };
-  assert.match(firstCard.elements[2]?.text?.content ?? "", /结果摘要/);
+  const resultContent = firstCard.elements[2]?.text?.content ?? "";
+
+  assert.match(resultContent, /完整结果/);
+  assert.match(resultContent, /第一部分：周报总体判断。/);
+  assert.match(resultContent, /第二部分：风险和建议。/);
   assert.match(
-    firstCard.elements[2]?.text?.content ?? "",
-    /完整结果.*请查看下方产物或日志/,
+    resultContent,
+    new RegExp(input.outputText!.replaceAll("\n", "\\n")),
   );
+  assert.doesNotMatch(resultContent, /结果摘要/);
+  assert.doesNotMatch(resultContent, /只展示摘要/);
 });
 
 void test("Hermes user notification explains missing Feishu bot ability", async () => {

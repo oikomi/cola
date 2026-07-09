@@ -32,6 +32,20 @@ type SendMessageData = {
   message_id?: string;
 };
 
+type FeishuAppCredentials = {
+  appId: string;
+  appSecret: string;
+};
+
+type FeishuChatListData = {
+  items?: Array<{
+    chat_id?: string;
+    chat_status?: string;
+  }>;
+  has_more?: boolean;
+  page_token?: string;
+};
+
 export type FeishuUserNotificationMessage = {
   openId: string;
   chatId: string | null;
@@ -39,7 +53,7 @@ export type FeishuUserNotificationMessage = {
 };
 
 const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
-const RESULT_PREVIEW_MAX_LENGTH = 560;
+const FEISHU_CHAT_LIST_PAGE_SIZE = 100;
 
 type FeishuCardText = {
   tag: "plain_text" | "lark_md";
@@ -118,22 +132,32 @@ function resolveFeishuWebhookSecret() {
   );
 }
 
-function resolveFeishuAppCredentials() {
+function readFeishuAppCredentials(): FeishuAppCredentials | null {
   const appId = trimEnv(process.env.FEISHU_APP_ID);
   const appSecret = trimEnv(process.env.FEISHU_APP_SECRET);
-  if (!appId || !appSecret) {
-    const missing = [
-      appId ? null : "FEISHU_APP_ID",
-      appSecret ? null : "FEISHU_APP_SECRET",
-    ].filter((key): key is string => Boolean(key));
-    throw new Error(`飞书个人通知缺少环境变量：${missing.join(", ")}。`);
-  }
+  if (!appId || !appSecret) return null;
 
   return { appId, appSecret };
 }
 
+function resolveFeishuAppCredentials(): FeishuAppCredentials {
+  const credentials = readFeishuAppCredentials();
+  if (credentials) return credentials;
+
+  const missing = [
+    trimEnv(process.env.FEISHU_APP_ID) ? null : "FEISHU_APP_ID",
+    trimEnv(process.env.FEISHU_APP_SECRET) ? null : "FEISHU_APP_SECRET",
+  ].filter((key): key is string => Boolean(key));
+
+  throw new Error(`飞书个人通知缺少环境变量：${missing.join(", ")}。`);
+}
+
 function uniqueOpenIds(openIds: string[]) {
   return Array.from(new Set(openIds));
+}
+
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values));
 }
 
 function normalizeOpenIds(openIds: string[]) {
@@ -184,11 +208,6 @@ function normalizeResultText(value: string | null | undefined) {
   return value.replace(/\r\n?/g, "\n").trim();
 }
 
-function hasLongResult(input: HermesTaskResultNotificationInput) {
-  const outputText = normalizeResultText(input.outputText);
-  return outputText.length > RESULT_PREVIEW_MAX_LENGTH;
-}
-
 function cardTemplate(status: SessionStatus): FeishuCard["header"]["template"] {
   switch (status) {
     case "succeeded":
@@ -215,7 +234,6 @@ function buildHermesTaskResultCard(
   mentionOpenIds: string[] = [],
   options: { includeReviewActions?: boolean } = {},
 ): FeishuCard {
-  const longResult = hasLongResult(input);
   const mentionText = buildFeishuAtText(mentionOpenIds);
   const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
   const actions: FeishuCardButton[] = documentReferences
@@ -231,12 +249,8 @@ function buildHermesTaskResultCard(
     stripFeishuDocumentUrls(input.taskSummary),
     260,
   );
-  const resultText = longResult
-    ? [
-        `**结果摘要**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`,
-        "**完整结果**：内容较长，飞书里只展示摘要；请查看下方产物或日志。",
-      ].join("\n")
-    : `**结果**：${compactText(input.outputText, RESULT_PREVIEW_MAX_LENGTH)}`;
+  const outputText = normalizeResultText(input.outputText);
+  const resultText = `**完整结果**：\n${outputText || "无"}`;
   const metaLines = [
     `**人物**：${input.agentName ?? "未绑定人物"}`,
     `**设备**：${input.deviceName}`,
@@ -368,6 +382,38 @@ function enhanceFeishuMessageError(message: string) {
   return message;
 }
 
+async function parseFeishuResponse<T>(response: Response) {
+  const payload = (await response.json()) as FeishuApiResponse<T>;
+
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(payload.msg ?? `飞书接口请求失败：HTTP ${response.status}`);
+  }
+
+  return (payload.data ?? payload) as T;
+}
+
+async function getFeishu<T>(
+  path: string,
+  tenantAccessToken: string,
+  params: Record<string, string | number | undefined> = {},
+) {
+  const url = new URL(`${FEISHU_OPEN_API_BASE_URL}${path}`);
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    url.searchParams.set(key, String(value));
+  }
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${tenantAccessToken}`,
+    },
+  });
+
+  return parseFeishuResponse<T>(response);
+}
+
 async function postFeishu<T>(
   path: string,
   body: unknown,
@@ -382,13 +428,53 @@ async function postFeishu<T>(
     body: JSON.stringify(body),
   });
 
-  const payload = (await response.json()) as FeishuApiResponse<T>;
+  return parseFeishuResponse<T>(response);
+}
 
-  if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.msg ?? `飞书接口请求失败：HTTP ${response.status}`);
-  }
+async function listFeishuBotGroupChatIds(tenantAccessToken: string) {
+  const chatIds: string[] = [];
+  let pageToken: string | undefined;
 
-  return (payload.data ?? payload) as T;
+  do {
+    const data = await getFeishu<FeishuChatListData>(
+      "/im/v1/chats",
+      tenantAccessToken,
+      {
+        sort_type: "ByActiveTimeDesc",
+        page_size: FEISHU_CHAT_LIST_PAGE_SIZE,
+        ...(pageToken ? { page_token: pageToken } : {}),
+      },
+    );
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const item of items) {
+      if (typeof item.chat_id !== "string") continue;
+      if (item.chat_status && item.chat_status !== "normal") continue;
+      chatIds.push(item.chat_id);
+    }
+
+    pageToken = data.has_more ? data.page_token || undefined : undefined;
+  } while (pageToken);
+
+  return uniqueStrings(chatIds);
+}
+
+async function sendFeishuChatCard(
+  chatId: string,
+  card: FeishuCard,
+  tenantAccessToken: string,
+) {
+  return postFeishu<SendMessageData>(
+    "/im/v1/messages?receive_id_type=chat_id",
+    {
+      receive_id: chatId,
+      msg_type: "interactive",
+      content: JSON.stringify(card),
+    },
+    {
+      Authorization: `Bearer ${tenantAccessToken}`,
+    },
+  );
 }
 
 async function sendFeishuUserCard(
@@ -409,9 +495,9 @@ async function sendFeishuUserCard(
   );
 }
 
-async function getTenantAccessToken() {
-  const credentials = resolveFeishuAppCredentials();
-
+async function getTenantAccessToken(
+  credentials: FeishuAppCredentials = resolveFeishuAppCredentials(),
+) {
   const data = await postFeishu<TenantAccessTokenData>(
     "/auth/v3/tenant_access_token/internal",
     {
@@ -435,14 +521,37 @@ export async function notifyHermesTaskResultToFeishu(
     return;
   }
 
+  const card = buildHermesTaskResultCard(input, mentionOpenIds, {
+    includeReviewActions: true,
+  });
+  const appCredentials = readFeishuAppCredentials();
+
+  if (appCredentials) {
+    const tenantAccessToken = await getTenantAccessToken(appCredentials);
+    const chatIds = await listFeishuBotGroupChatIds(tenantAccessToken);
+    const failures: string[] = [];
+
+    for (const chatId of chatIds) {
+      try {
+        await sendFeishuChatCard(chatId, card, tenantAccessToken);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "未知错误";
+        failures.push(`${chatId}: ${enhanceFeishuMessageError(message)}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(`飞书群通知发送失败：${failures.join("；")}`);
+    }
+
+    return;
+  }
+
   const webhookUrl = resolveFeishuWebhookUrl();
   if (!webhookUrl) return;
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const secret = resolveFeishuWebhookSecret();
-  const card = buildHermesTaskResultCard(input, mentionOpenIds, {
-    includeReviewActions: true,
-  });
 
   const response = await fetch(webhookUrl, {
     method: "POST",

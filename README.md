@@ -92,13 +92,14 @@ NEXT_PUBLIC_OPENCLAW_NATIVE_URL="https://openclaw.example.com/"
 NEXT_PUBLIC_HERMES_NATIVE_URL="https://hermes.example.com/"
 ```
 
-Hermes 任务完成或失败后可以自动推送到飞书。群通知使用群机器人 webhook；个人私聊通知使用同一个飞书应用的机器人能力，需要在飞书开放平台开启机器人，并申请 `im:message:send_as_bot`（或 `im:message` / `im:message:send`）权限后发布版本。即使个人私聊失败，群通知仍会发送，并会在群消息里 @ 任务创建人或指定通知人。
+Hermes 任务完成或失败后可以自动推送到飞书。群通知优先使用同一个飞书应用机器人：只要把 Xdream-cloud 机器人拉进群，任务完成卡片就会自动发送到该机器人所在的所有群，并会在群消息里 @ 任务创建人或指定通知人。个人私聊通知也使用同一个飞书应用机器人能力。需要在飞书开放平台开启机器人，并申请发送消息和群列表读取权限后发布版本。
 
 ```env
-COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
-COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
+# 可选 fallback：未配置 FEISHU_APP_ID / FEISHU_APP_SECRET 时才使用自定义群机器人 webhook
+COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
 ```
 
 如需让用户在飞书里基于任务完成通知继续追问 Hermes，或点击任务结果卡片里的「确认 / 不认可」完成归档，需要在飞书开放平台的「事件与回调」里使用长连接订阅「接收消息 v2.0 / `im.message.receive_v1`」和「卡片行为触发 / `card.action.trigger`」，并单独启动事件 worker：
@@ -109,11 +110,11 @@ FEISHU_APP_SECRET="xxx"
 
 `restart.sh` 会在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET` 和 `DATABASE_URL` 配齐时用 pm2 管理 `cola-feishu-hermes` 常驻进程；也可以设置 `FEISHU_HERMES_WORKER=0` 或传 `--no-feishu-hermes` 跳过。持续对话会优先关联用户回复的任务完成通知。如果飞书消息没有 `parent_id/root_id`，worker 会按同一 `chat_id` 和用户 `open_id` 找最近一条 Hermes 任务完成通知，并调用该任务绑定 runner metadata 里的 `hermesApiServerUrl` 继续处理。用户点击「确认」后，worker 会读取该任务的执行结果和同一任务下的多轮继续对话，生成归档总结，并发送到当前飞书应用机器人所在的所有群。确认来源是个人对话时，个人对话只收到处理回执；完整归档总结发送到机器人所在群。
 
-飞书侧需要发布包含以下配置的新版本，否则 worker 即使在线也收不到用户回复事件，或无法获取机器人所在所有群：
+飞书侧需要发布包含以下配置的新版本，否则任务完成卡片无法自动发到机器人所在群，worker 即使在线也收不到用户回复事件，或无法获取机器人所在所有群：
 
 - 机器人能力已启用。
 - 权限管理里已开通发送消息权限、读取用户发给机器人的单聊消息和群聊消息权限。
-- 权限管理里已开通群列表读取权限，例如 `im:chat:readonly`（也可使用飞书允许的等价权限 `im:chat` / `im:chat.group_info:readonly` / `im:chat:read`），用于把确认归档广播到机器人所在所有群。
+- 权限管理里已开通群列表读取权限，例如 `im:chat:readonly`（也可使用飞书允许的等价权限 `im:chat` / `im:chat.group_info:readonly` / `im:chat:read`），用于把任务完成卡片和确认归档广播到机器人所在所有群。
 - 事件与回调使用长连接，并订阅「接收消息 v2.0 / `im.message.receive_v1`」和「卡片行为触发 / `card.action.trigger`」。
 
 Hermes 需要分析私有 GitLab 仓库时，按 CMDB 的服务端授权模式配置受限凭据。优先配置 Hermes 专用 token；未配置时服务端能力可 fallback 到 `GITLAB_API_TOKEN`，但 runner 注入建议使用专用 token 或预建 K8s Secret。
