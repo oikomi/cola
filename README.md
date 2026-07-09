@@ -97,10 +97,14 @@ Hermes 任务完成或失败后可以自动推送到飞书。群通知优先使�
 ```env
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
+# 可选：使用飞书卡片搭建工具发布的模板卡片
+COLA_HERMES_FEISHU_CARD_TEMPLATE_ID="AAqWYOYiJBeNz"
 # 可选 fallback：未配置 FEISHU_APP_ID / FEISHU_APP_SECRET 时才使用自定义群机器人 webhook
 COLA_HERMES_FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
 COLA_HERMES_FEISHU_WEBHOOK_SECRET="optional-signing-secret"
 ```
+
+使用卡片搭建工具模板时，模板变量可引用：`title`、`status`、`task_title`、`task_summary`、`agent_name`、`device_name`、`output_text`、`artifact_path`、`log_path`、`path_text`、`document_url`、`mention_text`、`rows`。表格组件如需展示动态内容，需要把「行数据来源」从「指定」切换为「变量」，变量名使用 `rows`；每行包含 `name` 和 `progress` 字段。
 
 如需让用户在飞书里基于任务完成通知继续追问 Hermes，或点击任务结果卡片里的「确认 / 不认可」完成归档，需要在飞书开放平台的「事件与回调」里使用长连接订阅「接收消息 v2.0 / `im.message.receive_v1`」和「卡片行为触发 / `card.action.trigger`」，并单独启动事件 worker：
 

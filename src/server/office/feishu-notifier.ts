@@ -97,6 +97,16 @@ type FeishuCard = {
   elements: FeishuCardElement[];
 };
 
+type FeishuTemplateCardContent = {
+  type: "template";
+  data: {
+    template_id: string;
+    template_variable: Record<string, unknown>;
+  };
+};
+
+type FeishuInteractiveContent = FeishuCard | FeishuTemplateCardContent;
+
 function trimEnv(value: string | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) return null;
@@ -129,6 +139,13 @@ function resolveFeishuWebhookSecret() {
   return (
     trimEnv(process.env.COLA_HERMES_FEISHU_WEBHOOK_SECRET) ??
     trimEnv(process.env.FEISHU_BOT_WEBHOOK_SECRET)
+  );
+}
+
+function resolveFeishuCardTemplateId() {
+  return (
+    trimEnv(process.env.COLA_HERMES_FEISHU_CARD_TEMPLATE_ID) ??
+    trimEnv(process.env.FEISHU_CARD_TEMPLATE_ID)
   );
 }
 
@@ -320,6 +337,67 @@ function buildHermesTaskResultCard(
   };
 }
 
+function buildHermesTaskTemplateVariables(
+  input: HermesTaskResultNotificationInput,
+  mentionOpenIds: string[] = [],
+) {
+  const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
+  const documentUrl = documentReferences[0]?.url ?? "";
+  const summaryText = compactText(
+    stripFeishuDocumentUrls(input.taskSummary),
+    1200,
+  );
+  const outputText = normalizeResultText(input.outputText) || "无";
+  const pathLines = [
+    input.artifactPath ? `产物：${input.artifactPath}` : null,
+    input.logPath ? `日志：${input.logPath}` : null,
+  ].filter((line): line is string => Boolean(line));
+
+  return {
+    title: `Hermes 任务${statusText(input.status)}`,
+    status: statusText(input.status),
+    task_title: input.taskTitle,
+    task_summary: summaryText,
+    agent_name: input.agentName ?? "未绑定人物",
+    device_name: input.deviceName,
+    output_text: outputText,
+    artifact_path: input.artifactPath ?? "",
+    log_path: input.logPath ?? "",
+    path_text: pathLines.join("\n"),
+    document_url: documentUrl,
+    mention_text: buildFeishuAtText(mentionOpenIds) ?? "",
+    rows: [
+      {
+        name: input.agentName ?? input.deviceName,
+        progress: outputText,
+      },
+    ],
+  };
+}
+
+function buildHermesTaskResultContent(
+  input: HermesTaskResultNotificationInput,
+  mentionOpenIds: string[] = [],
+  options: { includeReviewActions?: boolean } = {},
+): FeishuInteractiveContent {
+  const templateId = resolveFeishuCardTemplateId();
+
+  if (templateId) {
+    return {
+      type: "template",
+      data: {
+        template_id: templateId,
+        template_variable: buildHermesTaskTemplateVariables(
+          input,
+          mentionOpenIds,
+        ),
+      },
+    };
+  }
+
+  return buildHermesTaskResultCard(input, mentionOpenIds, options);
+}
+
 function buildHermesTaskReviewActions(
   input: HermesTaskResultNotificationInput,
   options: { includeReviewActions?: boolean },
@@ -461,7 +539,7 @@ async function listFeishuBotGroupChatIds(tenantAccessToken: string) {
 
 async function sendFeishuChatCard(
   chatId: string,
-  card: FeishuCard,
+  card: FeishuInteractiveContent,
   tenantAccessToken: string,
 ) {
   return postFeishu<SendMessageData>(
@@ -479,7 +557,7 @@ async function sendFeishuChatCard(
 
 async function sendFeishuUserCard(
   openId: string,
-  card: FeishuCard,
+  card: FeishuInteractiveContent,
   tenantAccessToken: string,
 ) {
   return postFeishu<SendMessageData>(
@@ -521,7 +599,7 @@ export async function notifyHermesTaskResultToFeishu(
     return;
   }
 
-  const card = buildHermesTaskResultCard(input, mentionOpenIds, {
+  const card = buildHermesTaskResultContent(input, mentionOpenIds, {
     includeReviewActions: true,
   });
   const appCredentials = readFeishuAppCredentials();
@@ -605,7 +683,7 @@ export async function notifyHermesTaskResultToFeishuUsers(
 
   const tenantAccessToken = await getTenantAccessToken();
 
-  const card = buildHermesTaskResultCard(input);
+  const card = buildHermesTaskResultContent(input);
   const failures: string[] = [];
   const sentMessages: FeishuUserNotificationMessage[] = [];
 

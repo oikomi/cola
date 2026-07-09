@@ -184,6 +184,82 @@ void test("Hermes group notification broadcasts via Feishu app bot groups", asyn
   );
 });
 
+void test("Hermes group notification can use a published Feishu card template", async () => {
+  const requests: Array<{
+    url: string;
+    body: unknown;
+  }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const requestUrl = requestUrlString(url);
+    requests.push({
+      url: requestUrl,
+      body: init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null,
+    });
+
+    if (requestUrl.endsWith("/auth/v3/tenant_access_token/internal")) {
+      return Response.json({
+        code: 0,
+        data: { tenant_access_token: "tenant-token" },
+      });
+    }
+
+    if (requestUrl.includes("/im/v1/chats")) {
+      return Response.json({
+        code: 0,
+        data: {
+          items: [{ chat_id: "oc_group_a", chat_status: "normal" }],
+          has_more: false,
+        },
+      });
+    }
+
+    return Response.json({
+      code: 0,
+      data: { message_id: "message-id" },
+    });
+  };
+
+  try {
+    await withEnv(
+      {
+        FEISHU_APP_ID: "app-id",
+        FEISHU_APP_SECRET: "app-secret",
+        COLA_HERMES_FEISHU_CARD_TEMPLATE_ID: "AAqWYOYiJBeNz",
+      },
+      () => notifyHermesTaskResultToFeishu(taskResultInputWithDocumentLink()),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const messageRequest = requests.find((request) =>
+    request.url.includes("/im/v1/messages?receive_id_type=chat_id"),
+  );
+  const message = recordBody<{
+    msg_type: string;
+    content: string;
+  }>(messageRequest?.body);
+  const content = JSON.parse(message.content) as {
+    type: string;
+    data: {
+      template_id: string;
+      template_variable: Record<string, unknown>;
+    };
+  };
+
+  assert.equal(message.msg_type, "interactive");
+  assert.equal(content.type, "template");
+  assert.equal(content.data.template_id, "AAqWYOYiJBeNz");
+  assert.equal(content.data.template_variable.task_title, "整理发布摘要");
+  assert.equal(content.data.template_variable.agent_name, "Hermes");
+  assert.equal(content.data.template_variable.output_text, "已完成。");
+  assert.equal(
+    content.data.template_variable.document_url,
+    "https://example.feishu.cn/wiki/wiki-token",
+  );
+});
+
 void test("Hermes group notification sends an interactive card", async () => {
   const requests: Array<{ url: string; body: unknown }> = [];
   const originalFetch = globalThis.fetch;
