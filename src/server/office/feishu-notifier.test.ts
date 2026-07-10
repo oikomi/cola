@@ -260,6 +260,77 @@ void test("Hermes group notification can use a published Feishu card template", 
   );
 });
 
+void test("Hermes group notification falls back when the Feishu card template is unavailable", async () => {
+  const requests: Array<{
+    url: string;
+    body: unknown;
+  }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const requestUrl = requestUrlString(url);
+    const body = init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null;
+    requests.push({
+      url: requestUrl,
+      body,
+    });
+
+    if (requestUrl.endsWith("/auth/v3/tenant_access_token/internal")) {
+      return Response.json({
+        code: 0,
+        data: { tenant_access_token: "tenant-token" },
+      });
+    }
+
+    if (requestUrl.includes("/im/v1/chats")) {
+      return Response.json({
+        code: 0,
+        data: {
+          items: [{ chat_id: "oc_group_a", chat_status: "normal" }],
+          has_more: false,
+        },
+      });
+    }
+
+    const content = JSON.parse(recordBody<{ content: string }>(body).content);
+    if (content.type === "template") {
+      return Response.json({
+        code: 200380,
+        msg: "Failed to create card content, ext=ErrCode: 200380; ErrMsg: template does not exist, please confirm whether this template has been released;",
+      });
+    }
+
+    return Response.json({
+      code: 0,
+      data: { message_id: "fallback-message-id" },
+    });
+  };
+
+  try {
+    await withEnv(
+      {
+        FEISHU_APP_ID: "app-id",
+        FEISHU_APP_SECRET: "app-secret",
+        COLA_HERMES_FEISHU_CARD_TEMPLATE_ID: "AAqWYOYiJBeNz",
+      },
+      () => notifyHermesTaskResultToFeishu(taskResultInput()),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const messageRequests = requests.filter((request) =>
+    request.url.includes("/im/v1/messages?receive_id_type=chat_id"),
+  );
+  assert.equal(messageRequests.length, 2);
+
+  const fallbackCard = JSON.parse(
+    recordBody<{ content: string }>(messageRequests[1]?.body).content,
+  ) as {
+    header: { title: { content: string } };
+  };
+  assert.equal(fallbackCard.header.title.content, "Hermes 任务执行成功");
+});
+
 void test("Hermes group notification sends an interactive card", async () => {
   const requests: Array<{ url: string; body: unknown }> = [];
   const originalFetch = globalThis.fetch;
@@ -526,6 +597,67 @@ void test("Hermes user notification sends interactive card to open_id", async ()
   assert.equal(body.msg_type, "interactive");
   assert.equal(card.header.title.content, "Hermes 任务执行成功");
   assert.match(card.elements[0]?.text?.content ?? "", /任务.*整理发布摘要/);
+});
+
+void test("Hermes user notification falls back when the Feishu card template is unavailable", async () => {
+  const requests: Array<{
+    url: string;
+    body: unknown;
+  }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const requestUrl = requestUrlString(url);
+    const body = init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null;
+    requests.push({
+      url: requestUrl,
+      body,
+    });
+
+    if (requestUrl.endsWith("/auth/v3/tenant_access_token/internal")) {
+      return Response.json({
+        code: 0,
+        data: { tenant_access_token: "tenant-token" },
+      });
+    }
+
+    const content = JSON.parse(recordBody<{ content: string }>(body).content);
+    if (content.type === "template") {
+      return Response.json({
+        code: 200380,
+        msg: "Failed to create card content, ext=ErrCode: 200380; ErrMsg: template does not exist, please confirm whether this template has been released;",
+      });
+    }
+
+    return Response.json({
+      code: 0,
+      data: { message_id: "fallback-message-id" },
+    });
+  };
+
+  try {
+    await withEnv(
+      {
+        FEISHU_APP_ID: "app-id",
+        FEISHU_APP_SECRET: "app-secret",
+        COLA_HERMES_FEISHU_CARD_TEMPLATE_ID: "AAqWYOYiJBeNz",
+      },
+      () => notifyHermesTaskResultToFeishuUser("ou_owner", taskResultInput()),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const messageRequests = requests.filter((request) =>
+    request.url.includes("/im/v1/messages?receive_id_type=open_id"),
+  );
+  assert.equal(messageRequests.length, 2);
+
+  const fallbackCard = JSON.parse(
+    recordBody<{ content: string }>(messageRequests[1]?.body).content,
+  ) as {
+    header: { title: { content: string } };
+  };
+  assert.equal(fallbackCard.header.title.content, "Hermes 任务执行成功");
 });
 
 void test("Hermes user notification displays the complete long result", async () => {

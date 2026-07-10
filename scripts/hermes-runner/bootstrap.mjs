@@ -62,7 +62,12 @@ const defaultHiddenDashboardPlugins = ["example"];
 const hermesDashboardLoginPagePath =
   process.env.HERMES_DASHBOARD_LOGIN_PAGE_PATH ??
   "/opt/hermes/hermes_cli/dashboard_auth/login_page.py";
+const hermesDashboardAuthMiddlewarePath =
+  process.env.HERMES_DASHBOARD_AUTH_MIDDLEWARE_PATH ??
+  "/opt/hermes/hermes_cli/dashboard_auth/middleware.py";
 const hermesDashboardAutoLoginMarker = "COLA_HERMES_HASH_AUTO_LOGIN";
+const hermesDashboardBasicAutoSsoPatchMarker =
+  "COLA_HERMES_BASIC_AUTO_SSO_PATCH";
 
 let deviceId = "";
 let sessionId = "";
@@ -445,6 +450,66 @@ async function patchHermesDashboardAutoLogin() {
   }
 }
 
+async function patchHermesDashboardBasicAutoSso() {
+  try {
+    if (!existsSync(hermesDashboardAuthMiddlewarePath)) {
+      await logLine(
+        `Hermes dashboard basic auto-SSO patch skipped: ${hermesDashboardAuthMiddlewarePath} not found`,
+      );
+      return false;
+    }
+
+    const source = await readFile(hermesDashboardAuthMiddlewarePath, "utf8");
+    if (source.includes(hermesDashboardBasicAutoSsoPatchMarker)) return false;
+
+    const target = [
+      "    providers = list_session_providers()",
+      "    if len(providers) != 1:",
+      "        # Zero \u2192 nothing to redirect to. Two+ \u2192 user must choose at /login.",
+      "        return None",
+      "",
+      "    from hermes_cli.dashboard_auth.prefix import prefix_from_request",
+      "",
+      "    provider = providers[0]",
+    ].join("\n");
+    const replacement = [
+      "    providers = list_session_providers()",
+      "    if len(providers) != 1:",
+      "        # Zero \u2192 nothing to redirect to. Two+ \u2192 user must choose at /login.",
+      "        return None",
+      "",
+      `    # ${hermesDashboardBasicAutoSsoPatchMarker}: basic/password providers`,
+      "    # render /login and POST to /auth/password-login; /auth/login is OAuth-only.",
+      "    provider = providers[0]",
+      '    if getattr(provider, "supports_password", False):',
+      "        return None",
+      "",
+      "    from hermes_cli.dashboard_auth.prefix import prefix_from_request",
+    ].join("\n");
+
+    if (!source.includes(target)) {
+      await logLine(
+        "Hermes dashboard basic auto-SSO patch skipped: middleware shape not found",
+      );
+      return false;
+    }
+
+    await writeFile(
+      hermesDashboardAuthMiddlewarePath,
+      source.replace(target, replacement),
+    );
+    await logLine("Hermes dashboard basic auto-SSO patch applied");
+    return true;
+  } catch (error) {
+    await logLine(
+      `Hermes dashboard basic auto-SSO patch skipped: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+    );
+    return false;
+  }
+}
+
 async function logLine(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   await appendFile(sessionLogPath, line);
@@ -574,7 +639,9 @@ ${yamlList(hiddenDashboardPlugins())}
   }
 
   if (agentBrowserExecutablePath) {
-    envLines.push(`AGENT_BROWSER_EXECUTABLE_PATH=${agentBrowserExecutablePath}`);
+    envLines.push(
+      `AGENT_BROWSER_EXECUTABLE_PATH=${agentBrowserExecutablePath}`,
+    );
   }
 
   for (const key of [
@@ -704,6 +771,7 @@ async function probeHermes() {
   try {
     await writeHermesConfig();
     await patchHermesDashboardAutoLogin();
+    await patchHermesDashboardBasicAutoSso();
     await shell(readyCommand);
     const browserSummary = await localBrowserSummary();
     return {
@@ -962,6 +1030,7 @@ async function main() {
   if (prepareOnly) {
     await writeHermesConfig();
     await patchHermesDashboardAutoLogin();
+    await patchHermesDashboardBasicAutoSso();
     await writeHermesGitCredentials();
     await shell(readyCommand);
     await logLine(

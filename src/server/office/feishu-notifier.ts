@@ -398,6 +398,12 @@ function buildHermesTaskResultContent(
   return buildHermesTaskResultCard(input, mentionOpenIds, options);
 }
 
+function isFeishuTemplateCardContent(
+  card: FeishuInteractiveContent,
+): card is FeishuTemplateCardContent {
+  return "type" in card && card.type === "template";
+}
+
 function buildHermesTaskReviewActions(
   input: HermesTaskResultNotificationInput,
   options: { includeReviewActions?: boolean },
@@ -458,6 +464,15 @@ function enhanceFeishuMessageError(message: string) {
   }
 
   return message;
+}
+
+function isFeishuTemplateUnavailableError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return (
+    message.includes("ErrCode: 200380") ||
+    message.includes("template does not exist")
+  );
 }
 
 async function parseFeishuResponse<T>(response: Response) {
@@ -573,6 +588,25 @@ async function sendFeishuUserCard(
   );
 }
 
+async function sendFeishuCardWithTemplateFallback<T>(
+  card: FeishuInteractiveContent,
+  fallbackCard: FeishuInteractiveContent,
+  send: (card: FeishuInteractiveContent) => Promise<T>,
+) {
+  try {
+    return await send(card);
+  } catch (error) {
+    if (
+      !isFeishuTemplateCardContent(card) ||
+      !isFeishuTemplateUnavailableError(error)
+    ) {
+      throw error;
+    }
+
+    return send(fallbackCard);
+  }
+}
+
 async function getTenantAccessToken(
   credentials: FeishuAppCredentials = resolveFeishuAppCredentials(),
 ) {
@@ -607,11 +641,20 @@ export async function notifyHermesTaskResultToFeishu(
   if (appCredentials) {
     const tenantAccessToken = await getTenantAccessToken(appCredentials);
     const chatIds = await listFeishuBotGroupChatIds(tenantAccessToken);
+    const fallbackCard = isFeishuTemplateCardContent(card)
+      ? buildHermesTaskResultCard(input, mentionOpenIds, {
+          includeReviewActions: true,
+        })
+      : card;
     const failures: string[] = [];
 
     for (const chatId of chatIds) {
       try {
-        await sendFeishuChatCard(chatId, card, tenantAccessToken);
+        await sendFeishuCardWithTemplateFallback(
+          card,
+          fallbackCard,
+          (content) => sendFeishuChatCard(chatId, content, tenantAccessToken),
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "未知错误";
         failures.push(`${chatId}: ${enhanceFeishuMessageError(message)}`);
@@ -684,15 +727,18 @@ export async function notifyHermesTaskResultToFeishuUsers(
   const tenantAccessToken = await getTenantAccessToken();
 
   const card = buildHermesTaskResultContent(input);
+  const fallbackCard = isFeishuTemplateCardContent(card)
+    ? buildHermesTaskResultCard(input)
+    : card;
   const failures: string[] = [];
   const sentMessages: FeishuUserNotificationMessage[] = [];
 
   for (const openId of recipientOpenIds) {
     try {
-      const sentMessage = await sendFeishuUserCard(
-        openId,
+      const sentMessage = await sendFeishuCardWithTemplateFallback(
         card,
-        tenantAccessToken,
+        fallbackCard,
+        (content) => sendFeishuUserCard(openId, content, tenantAccessToken),
       );
       sentMessages.push({
         openId,
