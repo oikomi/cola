@@ -60,3 +60,7 @@ runtime/
 .codex
 
 .codex-tmp/
+
+# Local agent workspaces and visual brainstorming sessions.
+.worktrees/
+.superpowers/
