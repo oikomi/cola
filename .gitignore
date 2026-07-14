@@ -50,6 +50,11 @@ yarn-error.log*
 .idea
 
 .playwright-mcp/
+.playwright-cli/
+
+# Python runtime caches
+__pycache__/
+*.py[cod]
 
 output
 runtime/
