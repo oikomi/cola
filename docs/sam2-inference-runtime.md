@@ -32,6 +32,14 @@
 ./scripts/sam2-inference-image.sh build-and-load --target-arch amd64
 ```
 
+脚本默认使用清华 PyPI 和 Ubuntu APT 镜像。Docker Hub 访问受限时，可以把基础镜像切换到 digest 一致的国内代理：
+
+```bash
+./scripts/sam2-inference-image.sh build-and-load \
+  --base-image swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime \
+  --sam2-git-url https://ghfast.top/https://github.com/facebookresearch/sam2.git
+```
+
 ## 创建部署
 
 在 `/deployments` 中选择：

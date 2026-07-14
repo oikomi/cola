@@ -8,9 +8,11 @@ DOCKERFILE_PATH="$REPO_ROOT/docker/sam2-inference.Dockerfile"
 IMAGE_NAME="cola-sam2"
 IMAGE_TAG="local"
 BASE_IMAGE="pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime"
+SAM2_GIT_URL="https://github.com/facebookresearch/sam2.git"
 SAM2_GIT_REF="2b90b9f5ceec907a1c18123530e92e794ad901a4"
 PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn"
+APT_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/ubuntu"
 DOCKER_BUILD_NETWORK="host"
 DOCKER_BUILD_NO_CACHE=0
 TARGET_ARCH=""
@@ -29,11 +31,13 @@ Options:
   --image-name <name>     Image name, default cola-sam2
   --image-tag <tag>       Image tag, default local
   --base-image <ref>      PyTorch CUDA base image
+  --sam2-git-url <url>    facebookresearch/sam2 Git repository or mirror
   --sam2-git-ref <ref>    Pinned facebookresearch/sam2 commit
   --target-arch <arch>    Target architecture; defaults to the first configured GPU node
   --pip-index-url <url>   Python package index, default Tsinghua PyPI mirror
   --pip-trusted-host <host>
                           Trusted host for the configured pip index
+  --apt-mirror <url>      Ubuntu package mirror, default Tsinghua mirror
   --build-network <mode>  Docker build network mode, default host
   --no-cache              Build without Docker layer cache
   --archive <path>        Image archive for load/build-and-load
@@ -62,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       BASE_IMAGE="$2"
       shift 2
       ;;
+    --sam2-git-url)
+      SAM2_GIT_URL="$2"
+      shift 2
+      ;;
     --sam2-git-ref)
       SAM2_GIT_REF="$2"
       shift 2
@@ -76,6 +84,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --pip-trusted-host)
       PIP_TRUSTED_HOST="$2"
+      shift 2
+      ;;
+    --apt-mirror)
+      APT_MIRROR="$2"
       shift 2
       ;;
     --build-network)
@@ -136,9 +148,11 @@ if [[ "$cmd" == "build" || "$cmd" == "build-and-load" ]]; then
     --network "$DOCKER_BUILD_NETWORK" \
     "${BUILD_ARGS[@]}" \
     --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+    --build-arg "SAM2_GIT_URL=$SAM2_GIT_URL" \
     --build-arg "SAM2_GIT_REF=$SAM2_GIT_REF" \
     --build-arg "PIP_INDEX_URL=$PIP_INDEX_URL" \
     --build-arg "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST" \
+    --build-arg "APT_MIRROR=$APT_MIRROR" \
     -t "$IMAGE_REF" \
     "$REPO_ROOT"
 fi
