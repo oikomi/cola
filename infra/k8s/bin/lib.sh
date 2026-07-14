@@ -925,6 +925,7 @@ prefetch_image_archive_on_controller() {
   local image_ref="$1"
   local platform="$2"
   local archive_path
+  local archive_size=0
 
   controller_can_cache_image_archives || return 1
   if ! wait_for_controller_local_image_runtime_ready; then
@@ -933,7 +934,10 @@ prefetch_image_archive_on_controller() {
   fi
   archive_path="$(cached_image_archive_path "$image_ref" "$platform")"
 
-  if [[ -s "$archive_path" && "$(stat -c '%s' "$archive_path" 2>/dev/null || echo 0)" -gt 1024 ]]; then
+  if [[ -s "$archive_path" ]]; then
+    archive_size="$(wc -c < "$archive_path" | tr -d '[:space:]')"
+  fi
+  if [[ "$archive_size" =~ ^[0-9]+$ ]] && (( archive_size > 1024 )); then
     return 0
   fi
 
