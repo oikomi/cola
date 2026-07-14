@@ -276,9 +276,14 @@ class Sam2Runtime:
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and not force_cpu else "cpu"
         )
-        if self.device.type == "cuda" and torch.cuda.get_device_properties(0).major >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
+        self.autocast_dtype = None
+        if self.device.type == "cuda":
+            if torch.cuda.get_device_properties(0).major >= 8:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+            self.autocast_dtype = (
+                torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            )
 
         logger.info("Loading SAM 2 model=%s device=%s", model_ref, self.device)
         self.video_predictor = SAM2VideoPredictor.from_pretrained(
@@ -290,8 +295,8 @@ class Sam2Runtime:
         logger.info("SAM 2 model ready: model=%s device=%s", model_ref, self.device)
 
     def _autocast(self):
-        if self.device.type == "cuda":
-            return self.torch.autocast("cuda", dtype=self.torch.bfloat16)
+        if self.device.type == "cuda" and self.autocast_dtype is not None:
+            return self.torch.autocast("cuda", dtype=self.autocast_dtype)
         return contextlib.nullcontext()
 
     def health(self) -> dict[str, Any]:
@@ -302,6 +307,7 @@ class Sam2Runtime:
         }
         if self.device.type == "cuda":
             result["gpu"] = self.torch.cuda.get_device_name(0)
+            result["precision"] = str(self.autocast_dtype).removeprefix("torch.")
         return result
 
     def predict_image(

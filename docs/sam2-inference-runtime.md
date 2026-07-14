@@ -122,4 +122,4 @@ curl -X POST http://<master-ip>:<node-port>/video/sessions/<session-id>/cancel
 curl -X DELETE http://<master-ip>:<node-port>/video/sessions/<session-id>
 ```
 
-默认最多同时保留 2 个视频会话，会话空闲 1 小时后清理，单个 MP4 最大 512 MiB。可以通过 `SAM2_MAX_VIDEO_SESSIONS`、`SAM2_SESSION_TTL_SECONDS` 和 `SAM2_MAX_VIDEO_BYTES` 调整。
+默认最多同时保留 2 个视频会话，会话空闲 1 小时后清理，单个 MP4 最大 512 MiB。Pod 将会话文件放在默认限额 2 GiB 的独立 `emptyDir` 中。可以通过 `SAM2_MAX_VIDEO_SESSIONS`、`SAM2_SESSION_TTL_SECONDS`、`SAM2_MAX_VIDEO_BYTES` 和控制面的 `SAM2_SESSION_STORAGE_LIMIT` 调整。

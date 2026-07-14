@@ -903,6 +903,14 @@ function buildInferenceDeployment(input: {
                   name: "dev-shm",
                   mountPath: "/dev/shm",
                 },
+                ...(input.engine === "sam2"
+                  ? [
+                      {
+                        name: "sam2-sessions",
+                        mountPath: "/tmp/cola-sam2-sessions",
+                      },
+                    ]
+                  : []),
               ],
             },
           ],
@@ -927,6 +935,17 @@ function buildInferenceDeployment(input: {
                 medium: "Memory",
               },
             },
+            ...(input.engine === "sam2"
+              ? [
+                  {
+                    name: "sam2-sessions",
+                    emptyDir: {
+                      sizeLimit:
+                        process.env.SAM2_SESSION_STORAGE_LIMIT ?? "2Gi",
+                    },
+                  },
+                ]
+              : []),
           ],
         },
       },
