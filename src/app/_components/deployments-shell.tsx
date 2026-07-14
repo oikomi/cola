@@ -51,11 +51,15 @@ import {
   defaultInferenceImage,
   inferenceDeploymentEngineLabels,
   inferenceDeploymentStatusLabels,
+  isSam2ModelRef,
   isValidInferenceModelRef,
   lmDeployModelRefExample,
   llamaCppModelRefExample,
   llamaCppModelRoot,
   llamaCppRemoteModelRefExample,
+  locateAnythingModelRef,
+  maxInferenceReplicaCount,
+  sam2ModelRefExample,
   s3ModelRefExample,
   visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
@@ -94,11 +98,14 @@ function modelRefHint(engine: DraftState["engine"]) {
       return `支持 ${llamaCppModelRoot} 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "vision-detection":
       return `支持 Hugging Face 视觉检测模型 ID，例如 RT-DETR v2-L：${visionDetectionModelRefExample}。容器会暴露 GET /health 和 POST /predict。`;
+    case "sam2":
+      return `支持官方 SAM 2 / SAM 2.1 模型，例如 ${sam2ModelRefExample}。服务提供图片提示分割和有状态视频跟踪 API。`;
     case "lmdeploy":
       return `支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}；也支持 NAS/SeaweedFS 上的 S3 模型目录，例如 ${s3ModelRefExample}。`;
     case "vllm":
-    case "sglang":
       return `支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct；也支持 S3 模型目录，例如 ${s3ModelRefExample}。`;
+    case "sglang":
+      return `支持 Hugging Face 模型 ID，例如视觉定位模型 ${locateAnythingModelRef}；也支持 S3 模型目录，例如 ${s3ModelRefExample}。`;
     default:
       return "输入模型引用。";
   }
@@ -110,11 +117,14 @@ function modelRefPlaceholder(engine: DraftState["engine"]) {
       return llamaCppRemoteModelRefExample;
     case "vision-detection":
       return visionDetectionModelRefExample;
+    case "sam2":
+      return sam2ModelRefExample;
     case "lmdeploy":
       return s3ModelRefExample;
     case "vllm":
-    case "sglang":
       return "Qwen/Qwen3-8B-Instruct";
+    case "sglang":
+      return locateAnythingModelRef;
     default:
       return "输入模型引用";
   }
@@ -128,6 +138,8 @@ function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
       return "请输入合法的本地 GGUF 路径、hf:// 文件引用或 https:// GGUF 地址";
     case "vision-detection":
       return "请输入合法的 Hugging Face 视觉检测模型 ID";
+    case "sam2":
+      return "请选择受支持的官方 SAM 2 Hugging Face 模型";
     case "lmdeploy":
       return "请输入合法的 Hugging Face 模型 ID 或 s3:// 模型目录";
     case "vllm":
@@ -144,11 +156,14 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
       return `llama.cpp 既支持 ${llamaCppModelRoot} 下的本地 GGUF，也支持启动前自动下载远端 GGUF。创建后会先保存为草稿，点击上线时再拉起 Pod。`;
     case "vision-detection":
       return "视觉检测运行时用于 RT-DETR、DETR 等目标检测模型，服务上线后通过 NodePort 暴露 /health 和 /predict 远程 API。";
+    case "sam2":
+      return "SAM 2 运行时提供图片点/框提示分割和视频目标跟踪。视频状态保存在单个推理进程中，因此部署固定为单副本。";
     case "lmdeploy":
       return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等模型。模型可来自 Hugging Face，也可在启动前从 NAS S3 同步。创建后会先保存为草稿，点击上线时再拉起 Pod。";
     case "vllm":
-    case "sglang":
       return "当前运行时支持 Hugging Face 模型引用或 S3 模型目录。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
+    case "sglang":
+      return `SGLang 支持 OpenAI 兼容的文本与多模态请求，并已适配 ${locateAnythingModelRef}。创建后会先保存为草稿，确认配置无误后再点击上线。`;
     default:
       return "创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
   }
@@ -177,6 +192,10 @@ function gpuRequirementCopy(
     return "视觉检测运行时默认使用 1 张 GPU；也可以用 HAMi 显存模式按份额调度。远程调用使用服务入口下的 POST /predict。";
   }
 
+  if (engine === "sam2") {
+    return "SAM 2 建议先使用 1 张整卡 GPU 和 tiny 模型验证；图片接口为 POST /predict，视频会话从 POST /video/sessions 开始。";
+  }
+
   if (engine === "lmdeploy") {
     return "LMDeploy 默认使用 1 张 GPU，并通过 --tp 与 GPU 数量对齐；也可以用 HAMi 显存模式按份额调度。";
   }
@@ -184,9 +203,23 @@ function gpuRequirementCopy(
   return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
 }
 
+function serviceEntryCopy(engine: DraftState["engine"]) {
+  switch (engine) {
+    case "sam2":
+      return "外部服务通过 master NodePort 暴露；图片分割使用 POST /predict，视频跟踪从 POST /video/sessions 开始，完整接口可在 /docs 查看。";
+    case "vision-detection":
+      return "外部服务通过 master NodePort 暴露；目标检测使用 POST /predict 上传图片，完整接口可在 /docs 查看。";
+    case "llama.cpp":
+      return "外部服务通过 master NodePort 暴露，并提供 llama.cpp HTTP API。";
+    default:
+      return "外部服务通过 master NodePort 暴露，并提供 OpenAI 兼容 API。";
+  }
+}
+
 function apiPathHint(row: DeploymentRow) {
   switch (row.engine) {
     case "vision-detection":
+    case "sam2":
       return {
         label: "POST /predict",
         value: row.endpoint ? `${row.endpoint}/predict` : null,
@@ -216,6 +249,7 @@ function apiOpenUrl(row: DeploymentRow) {
 
   switch (row.engine) {
     case "vision-detection":
+    case "sam2":
       return `${row.endpoint}/docs`;
     default:
       return row.endpoint;
@@ -448,7 +482,8 @@ function DeploymentActionButtons(props: {
               : "rounded-full",
           )}
           title={
-            props.row.engine === "vision-detection"
+            props.row.engine === "vision-detection" ||
+            props.row.engine === "sam2"
               ? "打开视觉推理 Swagger API 文档"
               : "打开推理服务入口"
           }
@@ -740,6 +775,7 @@ export function DeploymentsShell() {
   const parsedGpuMemoryGi = Number.parseInt(draft.gpuMemoryGi, 10);
   const parsedGpuCount = Number.parseInt(draft.gpuCount, 10);
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
+  const maximumReplicaCount = maxInferenceReplicaCount(draft.engine);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
   const modelRefValid = isValidInferenceModelRef(draft.engine, trimmedModelRef);
@@ -773,7 +809,7 @@ export function DeploymentsShell() {
     gpuMemoryValid &&
     Number.isInteger(parsedReplicaCount) &&
     parsedReplicaCount >= 1 &&
-    parsedReplicaCount <= 16;
+    parsedReplicaCount <= maximumReplicaCount;
 
   useEffect(() => {
     if (!capabilityReason) return;
@@ -819,7 +855,7 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Inference Ops"
         title="推理部署"
-        description="管理 LLM 与视觉检测推理服务：vLLM、LMDeploy、SGLang、llama.cpp 和 RT-DETR 等目标检测运行时，集中查看入口、资源和远程 API 状态。"
+        description="管理 LLM 与视觉推理服务：vLLM、LMDeploy、SGLang、llama.cpp、目标检测和 SAM 2 分割，集中查看入口、资源和远程 API 状态。"
         icon={BlocksIcon}
         size="compact"
         density="dense"
@@ -1030,12 +1066,21 @@ export function DeploymentsShell() {
                       setDraft((current) => ({
                         ...current,
                         engine: value,
-                        modelRef: isValidInferenceModelRef(
-                          value,
-                          current.modelRef,
-                        )
-                          ? current.modelRef
-                          : modelRefPlaceholder(value),
+                        modelRef:
+                          value === "sglang" &&
+                          current.engine === defaultDraft.engine &&
+                          current.modelRef === defaultDraft.modelRef
+                            ? locateAnythingModelRef
+                            : isValidInferenceModelRef(
+                                  value,
+                                  current.modelRef,
+                                ) &&
+                                !(
+                                  value === "vision-detection" &&
+                                  isSam2ModelRef(current.modelRef)
+                                )
+                              ? current.modelRef
+                              : modelRefPlaceholder(value),
                         image: defaultInferenceImage(
                           value,
                           Number.parseInt(current.gpuCount, 10) ||
@@ -1044,12 +1089,18 @@ export function DeploymentsShell() {
                         cpu:
                           value === "vision-detection" && current.cpu === "8"
                             ? "4"
-                            : current.cpu,
+                            : value === "sam2" && current.cpu === "4"
+                              ? "8"
+                              : current.cpu,
                         memoryGi:
                           value === "vision-detection" &&
                           current.memoryGi === "32"
                             ? "16"
-                            : current.memoryGi,
+                            : value === "sam2" && current.memoryGi === "16"
+                              ? "32"
+                              : current.memoryGi,
+                        replicaCount:
+                          value === "sam2" ? "1" : current.replicaCount,
                       }));
                     }}
                   >
@@ -1249,12 +1300,24 @@ export function DeploymentsShell() {
                   />
                 </Field>
 
-                <Field label="副本数">
+                <Field
+                  label="副本数"
+                  hint={
+                    draft.engine === "sam2"
+                      ? "视频会话运行时固定为单副本。"
+                      : undefined
+                  }
+                >
                   <Input
-                    className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
+                    className={cn(
+                      "h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none",
+                      draft.engine === "sam2"
+                        ? "bg-slate-100/90 text-slate-500"
+                        : undefined,
+                    )}
                     type="number"
                     min={1}
-                    max={16}
+                    max={maximumReplicaCount}
                     value={draft.replicaCount}
                     onChange={(event) =>
                       setDraft((current) => ({
@@ -1263,6 +1326,7 @@ export function DeploymentsShell() {
                       }))
                     }
                     placeholder="1"
+                    disabled={draft.engine === "sam2"}
                   />
                 </Field>
               </div>
@@ -1306,11 +1370,7 @@ export function DeploymentsShell() {
                     <p className="text-[11px] font-medium tracking-[0.08em] text-slate-500">
                       服务入口
                     </p>
-                    <p className="mt-1">
-                      外部服务统一通过 master NodePort 暴露；LLM 运行时提供
-                      OpenAI 兼容 API，视觉检测服务使用 POST /predict
-                      上传图片远程调用。
-                    </p>
+                    <p className="mt-1">{serviceEntryCopy(draft.engine)}</p>
                   </div>
 
                   <div>

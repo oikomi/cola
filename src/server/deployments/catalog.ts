@@ -4,6 +4,7 @@ export const inferenceDeploymentEngineValues = [
   "llama.cpp",
   "sglang",
   "vision-detection",
+  "sam2",
 ] as const;
 
 export const creatableInferenceDeploymentEngineValues = [
@@ -12,6 +13,7 @@ export const creatableInferenceDeploymentEngineValues = [
   "llama.cpp",
   "sglang",
   "vision-detection",
+  "sam2",
 ] as const;
 
 export const inferenceDeploymentStatusValues = [
@@ -38,6 +40,40 @@ export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
 export const lmDeployModelRefExample = "internlm/internlm3-8b-instruct";
 export const s3ModelRefExample = "s3://xdream/models/qwen3-8b-instruct/";
 export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
+export const sam2ModelRefValues = [
+  "facebook/sam2-hiera-tiny",
+  "facebook/sam2-hiera-small",
+  "facebook/sam2-hiera-base-plus",
+  "facebook/sam2-hiera-large",
+  "facebook/sam2.1-hiera-tiny",
+  "facebook/sam2.1-hiera-small",
+  "facebook/sam2.1-hiera-base-plus",
+  "facebook/sam2.1-hiera-large",
+] as const;
+export const sam2ModelRefExample = "facebook/sam2.1-hiera-tiny";
+export const defaultSam2Image = "cola-sam2:local";
+export const locateAnythingModelRef = "nvidia/LocateAnything-3B";
+export const locateAnythingModelRevision =
+  "c32291ca5e996f5a7a485845b4f57a233936bba0";
+export const defaultSglangImage = "lmsysorg/sglang:v0.5.15.post1-cu129";
+
+export type SglangModelRuntimeProfile = Readonly<{
+  revision: string;
+  trustRemoteCode: boolean;
+  modelImpl: "sglang";
+}>;
+
+// Keep remote-code execution limited to audited model IDs and immutable revisions.
+const sglangModelRuntimeProfiles = new Map<string, SglangModelRuntimeProfile>([
+  [
+    locateAnythingModelRef,
+    {
+      revision: locateAnythingModelRevision,
+      trustRemoteCode: true,
+      modelImpl: "sglang",
+    },
+  ],
+]);
 const huggingFaceModelRefPattern =
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}\/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const llamaCppPathSegmentPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -54,6 +90,20 @@ export function canCreateInferenceDeploymentWithEngine(
 
 export function isHuggingFaceModelRef(modelRef: string) {
   return huggingFaceModelRefPattern.test(modelRef.trim());
+}
+
+const sam2ModelRefSet = new Set<string>(sam2ModelRefValues);
+
+export function isSam2ModelRef(modelRef: string) {
+  return sam2ModelRefSet.has(modelRef.trim());
+}
+
+export function maxInferenceReplicaCount(engine: InferenceDeploymentEngine) {
+  return engine === "sam2" ? 1 : 16;
+}
+
+export function sglangRuntimeProfileForModel(modelRef: string) {
+  return sglangModelRuntimeProfiles.get(modelRef.trim()) ?? null;
 }
 
 export function isS3ModelRef(modelRef: string) {
@@ -166,6 +216,8 @@ export function isValidInferenceModelRef(
       return isHuggingFaceModelRef(modelRef) || isS3ModelRef(modelRef);
     case "vision-detection":
       return isHuggingFaceModelRef(modelRef);
+    case "sam2":
+      return isSam2ModelRef(modelRef);
     default:
       return false;
   }
@@ -180,6 +232,7 @@ export const inferenceDeploymentEngineLabels: Record<
   "llama.cpp": "llama.cpp",
   sglang: "SGLang",
   "vision-detection": "视觉检测",
+  sam2: "SAM 2 分割",
 };
 
 export const inferenceDeploymentStatusLabels: Record<
@@ -207,9 +260,11 @@ export function defaultInferenceImage(
         ? "ghcr.io/ggml-org/llama.cpp:server-cuda"
         : "ghcr.io/ggml-org/llama.cpp:server";
     case "sglang":
-      return "lmsysorg/sglang:latest";
+      return defaultSglangImage;
     case "vision-detection":
       return "cola-vision-tensorrt:local";
+    case "sam2":
+      return defaultSam2Image;
     default:
       return "vllm/vllm-openai:latest";
   }

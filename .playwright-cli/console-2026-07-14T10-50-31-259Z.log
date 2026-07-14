@@ -1,0 +1,230 @@
+[    4092ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:25630
+[    4199ms] [LOG] %c >> query #1 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[    4786ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[    5368ms] [LOG] [Fast Refresh] done in 582ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[    6392ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[    7898ms] [LOG] [Fast Refresh] done in 1506ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[    9558ms] [LOG] %c << query #1 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: Object, elapsedMs: 5359, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1109833ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:25630
+[ 1109907ms] [LOG] %c >> query #1 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1110308ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[ 1110908ms] [LOG] [Fast Refresh] done in 599ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[ 1111139ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[ 1112214ms] [LOG] [Fast Refresh] done in 1076ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[ 1113602ms] [LOG] %c << query #1 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: Object, elapsedMs: 3694, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1246265ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:25630
+[ 1246338ms] [LOG] %c >> query #1 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1246374ms] [ERROR] %c << query #1 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: TRPCClientError: value$1 is not iterable
+    at TRPCClientError.from (webpack-internal:///(app-page…, elapsedMs: 35, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/next-devtools/userspace/app/errors/intercept-console-error.js:56
+[ 1247376ms] [LOG] %c >> query #2 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1247378ms] [ERROR] %c << query #2 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: TRPCClientError: value$1 is not iterable
+    at TRPCClientError.from (webpack-internal:///(app-page…, elapsedMs: 1, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/next-devtools/userspace/app/errors/intercept-console-error.js:56
+[ 1249380ms] [LOG] %c >> query #3 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1249383ms] [ERROR] %c << query #3 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: TRPCClientError: value$1 is not iterable
+    at TRPCClientError.from (webpack-internal:///(app-page…, elapsedMs: 3, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/next-devtools/userspace/app/errors/intercept-console-error.js:56
+[ 1253385ms] [LOG] %c >> query #4 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1253389ms] [ERROR] %c << query #4 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: TRPCClientError: value$1 is not iterable
+    at TRPCClientError.from (webpack-internal:///(app-page…, elapsedMs: 3, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/next-devtools/userspace/app/errors/intercept-console-error.js:56
+[ 1310180ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[ 1310606ms] [LOG] [Fast Refresh] done in 426ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[ 1339535ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:25630
+[ 1339607ms] [LOG] %c >> query #1 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1340892ms] [LOG] %c << query #1 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: Object, elapsedMs: 1286, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1903625ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[ 1904046ms] [LOG] %c >> query #2 %cdeployments.list%c %O 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+   
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #72e3ff;
+    color: black;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1904063ms] [LOG] [Fast Refresh] done in 438ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13
+[ 1905549ms] [LOG] %c << query #2 %cdeployments.list%c %O 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+   
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: bold; 
+    background-color: #3fb0d8;
+    color: white;
+    padding: 2px;
+  ; font-weight: normal; {input: undefined, result: Object, elapsedMs: 1503, context: Object} @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/@trpc/client/dist/loggerLink-ineCN1PO.mjs:78
+[ 1927717ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/hot-reloader/app/hot-reloader-app.js:196
+[ 1928121ms] [LOG] [Fast Refresh] done in 404ms @ webpack-internal:///(app-pages-browser)/../../../Users/harold/dev/webdev/cola/node_modules/next/dist/client/dev/report-hmr-latency.js:13

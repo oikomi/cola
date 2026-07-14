@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   assertLlamaCppModelFileExists,
   assertLlamaCppModelFileExistsOnNodes,
+  buildInferenceRuntimeCommand,
   isInferencePodFailed,
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
@@ -16,6 +17,10 @@ import {
   resolveS3AwareRuntimeModelPath,
   resolveS3ModelPath,
 } from "./runtime-utils.ts";
+import {
+  locateAnythingModelRef,
+  locateAnythingModelRevision,
+} from "./catalog.ts";
 
 void test("llama.cpp model refs map into the host model root", () => {
   assert.equal(
@@ -108,6 +113,93 @@ void test("S3 model refs resolve to stable cache directories", () => {
   assert.equal(
     resolveS3AwareRuntimeModelPath("qwen3", "Qwen/Qwen3-8B-Instruct"),
     "Qwen/Qwen3-8B-Instruct",
+  );
+});
+
+void test("SGLang LocateAnything command uses the pinned native profile", () => {
+  assert.deepEqual(
+    buildInferenceRuntimeCommand({
+      name: "locate-anything",
+      engine: "sglang",
+      modelRef: locateAnythingModelRef,
+      gpuSpec: {
+        gpuAllocationMode: "whole",
+        gpuCount: 1,
+        gpuMemoryGi: null,
+      },
+    }),
+    {
+      command: ["python3", "-m", "sglang.launch_server"],
+      args: [
+        "--model-path",
+        locateAnythingModelRef,
+        "--served-model-name",
+        "locate-anything",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--tp",
+        "1",
+        "--trust-remote-code",
+        "--revision",
+        locateAnythingModelRevision,
+        "--model-impl",
+        "sglang",
+      ],
+    },
+  );
+});
+
+void test("SGLang does not trust remote code for arbitrary model refs", () => {
+  const command = buildInferenceRuntimeCommand({
+    name: "qwen",
+    engine: "sglang",
+    modelRef: "Qwen/Qwen3-8B-Instruct",
+    gpuSpec: {
+      gpuAllocationMode: "whole",
+      gpuCount: 2,
+      gpuMemoryGi: null,
+    },
+  });
+
+  assert.deepEqual(command.command, ["python3", "-m", "sglang.launch_server"]);
+  assert.deepEqual(command.args, [
+    "--model-path",
+    "Qwen/Qwen3-8B-Instruct",
+    "--served-model-name",
+    "qwen",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8000",
+    "--tp",
+    "2",
+  ]);
+});
+
+void test("SAM 2 command follows the dedicated runtime entrypoint contract", () => {
+  assert.deepEqual(
+    buildInferenceRuntimeCommand({
+      name: "sam2-images",
+      engine: "sam2",
+      modelRef: "facebook/sam2.1-hiera-tiny",
+      gpuSpec: {
+        gpuAllocationMode: "whole",
+        gpuCount: 1,
+        gpuMemoryGi: null,
+      },
+    }),
+    {
+      args: [
+        "--model",
+        "facebook/sam2.1-hiera-tiny",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ],
+    },
   );
 });
 

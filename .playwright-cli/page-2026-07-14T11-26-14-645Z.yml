@@ -1,0 +1,193 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e3]:
+    - complementary [ref=f1e4]:
+      - generic [ref=f1e5]:
+        - navigation [ref=f1e199]:
+          - generic [ref=f1e12]:
+            - generic [ref=f1e13]:
+              - link [ref=f1e200] [cursor=pointer]:
+                - /url: /
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 虚拟 Office
+                    - generic: Agent / Task
+                - generic: 统一查看 agent、任务、审批、执行状态和 workspace 路由。
+            - generic [ref=f1e21]:
+              - link [ref=f1e201] [cursor=pointer]:
+                - /url: /workspace
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 云桌面
+                    - generic: Desktop / Node
+                - generic: 集中管理 remote workspace、浏览器桌面、入口地址与节点资源。
+            - generic [ref=f1e28]:
+              - link [ref=f1e202] [cursor=pointer]:
+                - /url: /isaac
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: Isaac
+                    - generic: Sim / WebRTC
+                - generic: 运行 Isaac Sim headless 仿真和 Isaac Lab GPU 任务。
+            - generic [ref=f1e35]:
+              - link [ref=f1e203] [cursor=pointer]:
+                - /url: /training
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 训练作业
+                    - generic: Job / Dataset
+                - generic: 统一管理训练任务、数据集、优先级和 GPU 消耗。
+            - generic [ref=f1e51]:
+              - link [ref=f1e204] [cursor=pointer]:
+                - /url: /storage
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 存储管理
+                    - generic: SeaweedFS / S3
+                - generic: 管理 SeaweedFS S3、数据集对象和训练产物归档。
+            - generic [ref=f1e59]:
+              - link [ref=f1e205] [cursor=pointer]:
+                - /url: /deployments
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 推理部署
+                    - generic: Model / Route
+                - generic: 管理模型服务、规格、入口地址和服务状态。
+            - generic [ref=f1e66]:
+              - link [ref=f1e206] [cursor=pointer]:
+                - /url: /system
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 集群管理
+                    - generic: Dashboard / Host
+                - generic: 查看 Kubernetes Dashboard 入口与集群连接信息。
+            - generic [ref=f1e75]:
+              - link [ref=f1e207] [cursor=pointer]:
+                - /url: /cmdb
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: CMDB
+                    - generic: Server / GitLab
+                - generic: 统一管理服务器资产、GitLab 项目、代码部署和运行监控。
+        - generic [ref=f1e83]:
+          - generic [ref=f1e84]: S
+          - button [ref=f1e208]
+    - main [ref=f1e87]:
+      - generic [ref=f1e90]:
+        - generic [ref=f1e92]:
+          - generic [ref=f1e99]:
+            - generic [ref=f1e100]:
+              - generic [ref=f1e101]: Inference Ops
+              - generic [ref=f1e102]: K8s 已连接
+              - generic [ref=f1e103]: Master NodePort
+              - generic [ref=f1e104]: 部署 0
+              - generic [ref=f1e105]: 服务中 0
+              - generic [ref=f1e106]: 启动中 0
+              - generic [ref=f1e107]: 活跃 GPU 0
+            - heading [level=1] [ref=f1e209]: 推理部署
+            - paragraph [ref=f1e109]: 管理 LLM 与视觉推理服务：vLLM、LMDeploy、SGLang、llama.cpp、目标检测和 SAM 2 分割，集中查看入口、资源和远程 API 状态。
+          - generic [ref=f1e111]:
+            - button [ref=f1e210]: 刷新列表
+            - button [ref=f1e211]: 创建推理部署
+        - generic [ref=f1e113]:
+          - generic [ref=f1e114]:
+            - heading [level=2] [ref=f1e212]: 运行时列表
+            - generic [ref=f1e117]: 已暂停 0
+          - generic [ref=f1e183]:
+            - paragraph [ref=f1e184]: 还没有推理部署
+            - paragraph [ref=f1e185]: 先选择一个 runtime，把模型引用、镜像和资源规格固化成可上线的 K8s 部署。
+            - button [ref=f1e213]: 创建第一个部署
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=f1e193] [cursor=pointer]
+  - alert [ref=f1e197]
+  - dialog [ref=f1e217]:
+    - generic [ref=f1e219]:
+      - generic [ref=f1e220]:
+        - heading "创建推理部署" [level=2] [ref=f1e221]
+        - paragraph [ref=f1e222]: SAM 2 运行时提供图片点/框提示分割和视频目标跟踪。视频状态保存在单个推理进程中，因此部署固定为单副本。
+      - generic [ref=f1e223]: 创建后保存为草稿
+    - generic [ref=f1e224]:
+      - generic [ref=f1e225]:
+        - generic [ref=f1e226]:
+          - heading "部署信息" [level=3] [ref=f1e227]
+          - paragraph [ref=f1e228]: 名称、模型与镜像会直接决定后续上线行为。
+        - generic [ref=f1e229]:
+          - generic [ref=f1e230]:
+            - generic [ref=f1e231]:
+              - generic [ref=f1e232]: 部署名称
+              - textbox "部署名称" [ref=f1e233]:
+                - /placeholder: 例如：qwen3-chat-prod
+            - generic [ref=f1e234]:
+              - generic [ref=f1e235]: 运行时
+              - combobox "运行时" [active] [ref=f1e313]:
+                - generic [ref=f1e237]: SAM 2 分割
+                - img: ▼
+              - textbox [ref=f1e238]: sam2
+          - generic [ref=f1e239]:
+            - generic [ref=f1e240]: 模型引用
+            - textbox "模型引用 支持官方 SAM 2 / SAM 2.1 模型，例如 facebook/sam2.1-hiera-tiny。服务提供图片提示分割和有状态视频跟踪 API。" [ref=f1e314]:
+              - /placeholder: facebook/sam2.1-hiera-tiny
+              - text: facebook/sam2.1-hiera-tiny
+            - generic [ref=f1e242]: 支持官方 SAM 2 / SAM 2.1 模型，例如 facebook/sam2.1-hiera-tiny。服务提供图片提示分割和有状态视频跟踪 API。
+          - generic [ref=f1e243]:
+            - generic [ref=f1e244]: 运行镜像
+            - textbox "运行镜像 默认镜像：cola-sam2:local" [ref=f1e315]:
+              - /placeholder: cola-sam2:local
+              - text: cola-sam2:local
+            - generic [ref=f1e246]: 默认镜像：cola-sam2:local
+      - generic [ref=f1e247]:
+        - generic [ref=f1e248]:
+          - heading "资源与调度" [level=3] [ref=f1e249]
+          - paragraph [ref=f1e250]: 桌面端直接在一屏内确认目标规格与创建结果。
+        - generic [ref=f1e251]:
+          - generic [ref=f1e252]:
+            - generic [ref=f1e253]:
+              - generic [ref=f1e254]: GPU 分配方式
+              - combobox "GPU 分配方式 整卡模式使用完整 GPU；显存模式通过 HAMi 按 GPU 份额申请资源。" [ref=f1e255]:
+                - generic [ref=f1e256]: 整卡
+                - img: ▼
+              - textbox [ref=f1e257]: whole
+              - generic [ref=f1e258]: 整卡模式使用完整 GPU；显存模式通过 HAMi 按 GPU 份额申请资源。
+            - generic [ref=f1e259]:
+              - generic [ref=f1e260]: CPU
+              - textbox "CPU" [ref=f1e261]:
+                - /placeholder: "8"
+                - text: "8"
+            - generic [ref=f1e262]:
+              - generic [ref=f1e263]: 内存 (Gi)
+              - spinbutton "内存 (Gi)" [ref=f1e264]: "32"
+            - generic [ref=f1e265]:
+              - generic [ref=f1e266]: GPU
+              - spinbutton "GPU" [ref=f1e267]: "1"
+            - generic [ref=f1e268]:
+              - generic [ref=f1e269]: 每份额显存 (Gi)
+              - spinbutton "每份额显存 (Gi)" [disabled]
+            - generic [ref=f1e270]:
+              - generic [ref=f1e271]: 副本数
+              - spinbutton "副本数 视频会话运行时固定为单副本。" [disabled]: "1"
+              - generic [ref=f1e316]: 视频会话运行时固定为单副本。
+          - generic [ref=f1e273]: SAM 2 建议先使用 1 张整卡 GPU 和 tiny 模型验证；图片接口为 POST /predict，视频会话从 POST /video/sessions 开始。
+          - generic [ref=f1e274]:
+            - generic [ref=f1e275]: 模型引用格式正确
+            - generic [ref=f1e276]: SAM 2 分割
+          - generic [ref=f1e278]:
+            - generic [ref=f1e279]:
+              - paragraph [ref=f1e280]: 调度策略
+              - paragraph [ref=f1e281]: 推理 Pod 会优先调度到非 master worker。
+            - generic [ref=f1e282]:
+              - paragraph [ref=f1e283]: 服务入口
+              - paragraph [ref=f1e284]: 外部服务通过 master NodePort 暴露；图片分割使用 POST /predict，视频跟踪从 POST /video/sessions 开始，完整接口可在 /docs 查看。
+            - generic [ref=f1e285]:
+              - paragraph [ref=f1e286]: 创建结果
+              - paragraph [ref=f1e287]: 创建后先保存为草稿，确认无误后再点击上线。
+    - generic [ref=f1e288]:
+      - button "取消" [ref=f1e289]
+      - button "创建推理部署" [disabled]
+    - button "关闭" [ref=f1e290]

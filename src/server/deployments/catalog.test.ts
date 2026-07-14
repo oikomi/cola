@@ -4,14 +4,23 @@ import test from "node:test";
 import {
   canCreateInferenceDeploymentWithEngine,
   creatableInferenceDeploymentEngineValues,
+  defaultInferenceImage,
+  defaultSam2Image,
+  defaultSglangImage,
   isHuggingFaceModelRef,
   isLlamaCppHuggingFaceFileRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelUrl,
+  isSam2ModelRef,
   isS3ModelRef,
   isValidInferenceModelRef,
   llamaCppModelRefExample,
+  locateAnythingModelRef,
+  locateAnythingModelRevision,
+  maxInferenceReplicaCount,
+  sam2ModelRefExample,
   s3ModelRefExample,
+  sglangRuntimeProfileForModel,
   visionDetectionModelRefExample,
 } from "./catalog.ts";
 
@@ -22,6 +31,7 @@ void test("create flow exposes all supported runtimes", () => {
     "llama.cpp",
     "sglang",
     "vision-detection",
+    "sam2",
   ]);
   assert.equal(canCreateInferenceDeploymentWithEngine("vllm"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("lmdeploy"), true);
@@ -31,6 +41,7 @@ void test("create flow exposes all supported runtimes", () => {
     canCreateInferenceDeploymentWithEngine("vision-detection"),
     true,
   );
+  assert.equal(canCreateInferenceDeploymentWithEngine("sam2"), true);
 });
 
 void test("Hugging Face model refs reject local paths", () => {
@@ -138,4 +149,39 @@ void test("model ref validation follows runtime selection", () => {
     isValidInferenceModelRef("vision-detection", "/models/a.pt"),
     false,
   );
+  assert.equal(isValidInferenceModelRef("sam2", sam2ModelRefExample), true);
+  assert.equal(
+    isValidInferenceModelRef("sam2", "facebook/sam2.1-hiera-large"),
+    true,
+  );
+  assert.equal(isValidInferenceModelRef("sam2", "someone/custom-sam2"), false);
+  assert.equal(isSam2ModelRef(`  ${sam2ModelRefExample}  `), true);
+});
+
+void test("SGLang LocateAnything profile pins trusted remote code", () => {
+  assert.deepEqual(sglangRuntimeProfileForModel(locateAnythingModelRef), {
+    revision: locateAnythingModelRevision,
+    trustRemoteCode: true,
+    modelImpl: "sglang",
+  });
+  assert.deepEqual(
+    sglangRuntimeProfileForModel(`  ${locateAnythingModelRef}  `),
+    sglangRuntimeProfileForModel(locateAnythingModelRef),
+  );
+  assert.equal(
+    sglangRuntimeProfileForModel("untrusted/custom-remote-code-model"),
+    null,
+  );
+});
+
+void test("SGLang defaults to a version with native LocateAnything support", () => {
+  assert.equal(defaultInferenceImage("sglang", 1), defaultSglangImage);
+  assert.equal(defaultSglangImage, "lmsysorg/sglang:v0.5.15.post1-cu129");
+});
+
+void test("SAM 2 uses its dedicated image and remains single replica", () => {
+  assert.equal(defaultInferenceImage("sam2", 1), defaultSam2Image);
+  assert.equal(defaultSam2Image, "cola-sam2:local");
+  assert.equal(maxInferenceReplicaCount("sam2"), 1);
+  assert.equal(maxInferenceReplicaCount("vllm"), 16);
 });

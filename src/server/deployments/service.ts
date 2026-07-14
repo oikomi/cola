@@ -26,22 +26,25 @@ import {
   isLlamaCppLocalModelRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelRef,
+  isSam2ModelRef,
   isS3ModelRef,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
   lmDeployModelRefExample,
+  maxInferenceReplicaCount,
+  sam2ModelRefExample,
   s3ModelRefExample,
   supportsS3ModelRef,
 } from "@/server/deployments/catalog";
 import {
   assertLlamaCppModelFileExistsOnNodes,
+  buildInferenceRuntimeCommand,
   DEFAULT_INFERENCE_CACHE_ROOT,
   DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
   isInferencePodFailed,
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
   resolveLlamaRuntimeModelPath,
-  resolveS3AwareRuntimeModelPath,
   resolveS3ModelPath,
 } from "@/server/deployments/runtime-utils";
 import {
@@ -263,13 +266,22 @@ function normalizeInferenceGpuAllocation(
   });
 }
 
-function normalizeReplicaCount(replicaCount: number) {
+function normalizeReplicaCount(
+  engine: InferenceDeploymentEngine,
+  replicaCount: number,
+) {
+  const maximum = maxInferenceReplicaCount(engine);
+
   if (
     !Number.isInteger(replicaCount) ||
     replicaCount <= 0 ||
-    replicaCount > 16
+    replicaCount > maximum
   ) {
-    throw new Error("副本数必须是 1 到 16 之间的整数。");
+    throw new Error(
+      engine === "sam2"
+        ? "SAM 2 视频会话运行时只支持单副本部署。"
+        : `副本数必须是 1 到 ${maximum} 之间的整数。`,
+    );
   }
 
   return replicaCount;
@@ -290,6 +302,16 @@ function normalizeModelRef(engine: InferenceDeploymentEngine, input: string) {
     if (!isLlamaCppModelRef(value)) {
       throw new Error(
         `llama.cpp 只支持 /models 下的 GGUF 文件路径，或可直接下载的 GGUF 来源，例如 ${llamaCppModelRefExample}、${llamaCppRemoteModelRefExample}。`,
+      );
+    }
+
+    return value;
+  }
+
+  if (engine === "sam2") {
+    if (!isSam2ModelRef(value)) {
+      throw new Error(
+        `SAM 2 目前只支持官方 Hugging Face 模型，例如 ${sam2ModelRefExample}。`,
       );
     }
 
@@ -607,101 +629,9 @@ function buildStartupProbe(engine: InferenceDeploymentEngine) {
     periodSeconds: positiveIntegerEnv("INFERENCE_STARTUP_PERIOD_SECONDS", 10),
     failureThreshold: positiveIntegerEnv(
       "INFERENCE_STARTUP_FAILURE_THRESHOLD",
-      engine === "vision-detection" ? 120 : 60,
+      engine === "vision-detection" || engine === "sam2" ? 120 : 60,
     ),
   };
-}
-
-function buildRuntimeCommand(input: {
-  name: string;
-  engine: InferenceDeploymentEngine;
-  modelRef: string;
-  gpuSpec: GpuAllocationSpec;
-}) {
-  const runtimeModelRef = resolveS3AwareRuntimeModelPath(
-    input.name,
-    input.modelRef,
-  );
-
-  switch (input.engine) {
-    case "vllm":
-      return {
-        args: [
-          "--model",
-          runtimeModelRef,
-          "--served-model-name",
-          input.name,
-          "--host",
-          "0.0.0.0",
-          "--port",
-          "8000",
-          "--tensor-parallel-size",
-          String(Math.max(input.gpuSpec.gpuCount, 1)),
-        ],
-      };
-    case "lmdeploy":
-      return {
-        command: ["lmdeploy"],
-        args: [
-          "serve",
-          "api_server",
-          runtimeModelRef,
-          "--server-name",
-          "0.0.0.0",
-          "--server-port",
-          "8000",
-          "--model-name",
-          input.name,
-          "--tp",
-          String(Math.max(input.gpuSpec.gpuCount, 1)),
-        ],
-      };
-    case "llama.cpp":
-      return {
-        args: [
-          "-m",
-          resolveLlamaRuntimeModelPath(input.name, input.modelRef),
-          "--host",
-          "0.0.0.0",
-          "--port",
-          "8000",
-          "-c",
-          process.env.LLAMA_CPP_CONTEXT_SIZE ?? "4096",
-          ...(usesGpuAcceleration(input.gpuSpec)
-            ? ["--n-gpu-layers", process.env.LLAMA_CPP_GPU_LAYERS ?? "999"]
-            : []),
-        ],
-      };
-    case "sglang":
-      return {
-        command: ["python3", "-m", "sglang.launch_server"],
-        args: [
-          "--model-path",
-          runtimeModelRef,
-          "--host",
-          "0.0.0.0",
-          "--port",
-          "8000",
-          "--tp",
-          String(Math.max(input.gpuSpec.gpuCount, 1)),
-        ],
-      };
-    case "vision-detection":
-      return {
-        args: [
-          "--model",
-          input.modelRef,
-          "--host",
-          "0.0.0.0",
-          "--port",
-          "8000",
-        ],
-      };
-    default:
-      return {
-        args: [],
-      };
-  }
 }
 
 function buildInitContainers(input: {
@@ -853,7 +783,7 @@ function buildInferenceDeployment(input: {
     gpuCount: input.gpuCount,
     gpuMemoryGi: input.gpuMemoryGi,
   } satisfies GpuAllocationSpec;
-  const runtimeCommand = buildRuntimeCommand({
+  const runtimeCommand = buildInferenceRuntimeCommand({
     name: input.name,
     engine: input.engine,
     modelRef: input.modelRef,
@@ -1007,6 +937,7 @@ function buildInferenceDeployment(input: {
 function buildInferenceService(input: {
   name: string;
   nodePort: number;
+  engine: InferenceDeploymentEngine;
   ownerUserId?: string;
 }) {
   const ownerLabels = ownerMetadata(input.ownerUserId);
@@ -1028,6 +959,7 @@ function buildInferenceService(input: {
     },
     spec: {
       type: "NodePort",
+      ...(input.engine === "sam2" ? { sessionAffinity: "ClientIP" } : {}),
       selector: {
         "cola.dev/inference-name": input.name,
       },
@@ -1365,7 +1297,7 @@ export async function createInferenceDeployment(
     gpuCount: input.gpuCount,
     gpuMemoryGi: input.gpuMemoryGi,
   });
-  const replicaCount = normalizeReplicaCount(input.replicaCount);
+  const replicaCount = normalizeReplicaCount(engine, input.replicaCount);
 
   await ensureNamespace(ctx.coreApi, ctx.namespace);
 
@@ -1411,6 +1343,7 @@ export async function createInferenceDeployment(
       body: buildInferenceService({
         name: input.name,
         nodePort,
+        engine,
         ownerUserId: input.ownerUserId,
       }),
     });
@@ -1435,6 +1368,7 @@ export async function createInferenceDeployment(
       service: buildInferenceService({
         name: input.name,
         nodePort,
+        engine,
         ownerUserId: input.ownerUserId,
       }),
     }),

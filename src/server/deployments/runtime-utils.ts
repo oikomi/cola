@@ -7,11 +7,17 @@ import { Client } from "ssh2";
 
 import type { V1Pod } from "@kubernetes/client-node";
 import {
+  type GpuAllocationSpec,
+  usesGpuAcceleration,
+} from "../../lib/gpu-allocation.ts";
+import {
+  type InferenceDeploymentEngine,
   isLlamaCppHuggingFaceFileRef,
   isLlamaCppLocalModelRef,
   isLlamaCppRemoteModelRef,
   isLlamaCppRemoteModelUrl,
   isS3ModelRef,
+  sglangRuntimeProfileForModel,
 } from "./catalog.ts";
 
 export const DEFAULT_INFERENCE_MODEL_ROOT =
@@ -342,6 +348,123 @@ export function resolveS3AwareRuntimeModelPath(
   return isS3ModelRef(modelRef)
     ? resolveS3ModelPath(deploymentName, modelRef)
     : modelRef;
+}
+
+export function buildInferenceRuntimeCommand(input: {
+  name: string;
+  engine: InferenceDeploymentEngine;
+  modelRef: string;
+  gpuSpec: GpuAllocationSpec;
+}) {
+  const runtimeModelRef = resolveS3AwareRuntimeModelPath(
+    input.name,
+    input.modelRef,
+  );
+
+  switch (input.engine) {
+    case "vllm":
+      return {
+        args: [
+          "--model",
+          runtimeModelRef,
+          "--served-model-name",
+          input.name,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "--tensor-parallel-size",
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
+        ],
+      };
+    case "lmdeploy":
+      return {
+        command: ["lmdeploy"],
+        args: [
+          "serve",
+          "api_server",
+          runtimeModelRef,
+          "--server-name",
+          "0.0.0.0",
+          "--server-port",
+          "8000",
+          "--model-name",
+          input.name,
+          "--tp",
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
+        ],
+      };
+    case "llama.cpp":
+      return {
+        args: [
+          "-m",
+          resolveLlamaRuntimeModelPath(input.name, input.modelRef),
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "-c",
+          process.env.LLAMA_CPP_CONTEXT_SIZE ?? "4096",
+          ...(usesGpuAcceleration(input.gpuSpec)
+            ? ["--n-gpu-layers", process.env.LLAMA_CPP_GPU_LAYERS ?? "999"]
+            : []),
+        ],
+      };
+    case "sglang": {
+      const profile = sglangRuntimeProfileForModel(input.modelRef);
+
+      return {
+        command: ["python3", "-m", "sglang.launch_server"],
+        args: [
+          "--model-path",
+          runtimeModelRef,
+          "--served-model-name",
+          input.name,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "--tp",
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
+          ...(profile?.trustRemoteCode ? ["--trust-remote-code"] : []),
+          ...(profile
+            ? [
+                "--revision",
+                profile.revision,
+                "--model-impl",
+                profile.modelImpl,
+              ]
+            : []),
+        ],
+      };
+    }
+    case "vision-detection":
+      return {
+        args: [
+          "--model",
+          input.modelRef,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+        ],
+      };
+    case "sam2":
+      return {
+        args: [
+          "--model",
+          input.modelRef,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+        ],
+      };
+    default:
+      return {
+        args: [],
+      };
+  }
 }
 
 export function isInferencePodFailed(pod: Pick<V1Pod, "status">) {

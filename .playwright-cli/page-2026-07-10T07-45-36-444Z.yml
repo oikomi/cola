@@ -1,0 +1,157 @@
+- main "Virtual Office 设计草图" [ref=f2e2]:
+  - complementary [ref=f2e3]:
+    - generic [ref=f2e4]:
+      - generic [ref=f2e5]: X
+      - generic [ref=f2e6]:
+        - generic [ref=f2e7]: XDREAM
+        - strong [ref=f2e8]: Cloud Console
+    - navigation [ref=f2e9]:
+      - paragraph [ref=f2e10]: Workspace
+      - generic [ref=f2e11]:
+        - generic [ref=f2e12]: OF
+        - generic [ref=f2e13]: 虚拟 Office
+        - generic [ref=f2e14]: 协作
+      - generic [ref=f2e15]:
+        - generic [ref=f2e16]: WS
+        - generic [ref=f2e17]: 云桌面
+        - generic [ref=f2e18]: 远程
+      - paragraph [ref=f2e19]: Platform
+      - generic [ref=f2e20]:
+        - generic [ref=f2e21]: IS
+        - generic [ref=f2e22]: Isaac
+        - generic [ref=f2e23]: 仿真
+      - generic [ref=f2e24]:
+        - generic [ref=f2e25]: TR
+        - generic [ref=f2e26]: 训练作业
+        - generic [ref=f2e27]: 队列
+      - generic [ref=f2e28]:
+        - generic [ref=f2e29]: ST
+        - generic [ref=f2e30]: 存储管理
+        - generic [ref=f2e31]: 对象
+      - generic [ref=f2e32]:
+        - generic [ref=f2e33]: DP
+        - generic [ref=f2e34]: 推理部署
+        - generic [ref=f2e35]: 服务
+      - generic [ref=f2e36]:
+        - generic [ref=f2e37]: KS
+        - generic [ref=f2e38]: 集群管理
+        - generic [ref=f2e39]: K8s
+      - generic [ref=f2e40]:
+        - generic [ref=f2e41]: CM
+        - generic [ref=f2e42]: CMDB
+        - generic [ref=f2e43]: 资产
+    - generic [ref=f2e44]:
+      - generic [ref=f2e45]: H
+      - generic [ref=f2e46]:
+        - strong [ref=f2e47]: Harold
+        - generic [ref=f2e48]: Administrator
+      - generic [ref=f2e49]: ↗
+  - generic [ref=f2e50]:
+    - generic [ref=f2e51]:
+      - generic [ref=f2e52]:
+        - text: 工作区 /
+        - strong [ref=f2e53]: 虚拟 Office
+      - generic [ref=f2e54]:
+        - button "刷新快照" [ref=f2e55]
+        - button "＋ 添加人物" [ref=f2e56]
+    - generic [ref=f2e57]:
+      - generic [ref=f2e58]:
+        - generic [ref=f2e59]:
+          - heading "虚拟 Office" [level=1] [ref=f2e60]
+          - paragraph [ref=f2e61]: 实时查看人物、任务、Runner 与工作区状态。
+        - generic [ref=f2e62]:
+          - generic [ref=f2e63]: 实时同步中
+          - button "下发任务" [ref=f2e65]
+          - button "添加工位" [ref=f2e66]
+      - generic [ref=f2e67]:
+        - generic [ref=f2e68]:
+          - text: 人物
+          - strong [ref=f2e69]: "12"
+          - text: 8 活跃
+        - generic [ref=f2e70]:
+          - text: 工位
+          - strong [ref=f2e71]: 14 / 20
+          - text: 已启用
+        - generic [ref=f2e72]:
+          - text: 任务
+          - strong [ref=f2e73]: "6"
+          - text: 进行中
+        - generic [ref=f2e74]:
+          - text: 设备
+          - strong [ref=f2e75]: 9 / 12
+          - text: 可用
+      - generic [ref=f2e76]:
+        - complementary [ref=f2e77]:
+          - generic [ref=f2e78]:
+            - strong [ref=f2e79]: 人物
+            - generic [ref=f2e80]: 12 位
+          - generic [ref=f2e81]:
+            - generic [ref=f2e82]:
+              - generic [ref=f2e83]: 林
+              - generic [ref=f2e84]:
+                - strong [ref=f2e85]: 林舟
+                - generic [ref=f2e86]: 工程 / Hermes
+            - generic [ref=f2e88]:
+              - generic [ref=f2e89]: 苏
+              - generic [ref=f2e90]:
+                - strong [ref=f2e91]: 苏晴
+                - generic [ref=f2e92]: 产品 / Hermes
+            - generic [ref=f2e94]:
+              - generic [ref=f2e95]: 周
+              - generic [ref=f2e96]:
+                - strong [ref=f2e97]: 周屿
+                - generic [ref=f2e98]: 研究 / OpenClaw
+            - generic [ref=f2e100]:
+              - generic [ref=f2e101]: 陈
+              - generic [ref=f2e102]:
+                - strong [ref=f2e103]: 陈默
+                - generic [ref=f2e104]: 运营 / Hermes
+            - generic [ref=f2e106]:
+              - generic [ref=f2e107]: 顾
+              - generic [ref=f2e108]:
+                - strong [ref=f2e109]: 顾远
+                - generic [ref=f2e110]: 设计 / OpenClaw
+        - generic [ref=f2e112]:
+          - generic [ref=f2e115]: ENGINEERING
+          - generic [ref=f2e119]: PRODUCT
+          - generic [ref=f2e123]: RESEARCH
+          - generic [ref=f2e127]: OPERATIONS
+          - generic [ref=f2e131]: 林
+          - generic [ref=f2e132]: 苏
+          - generic [ref=f2e133]: 周
+          - generic [ref=f2e134]: 陈
+          - generic [ref=f2e135]: 快照 07-10 15:34
+          - generic [ref=f2e136]:
+            - button "−" [ref=f2e137]
+            - button "↺" [ref=f2e138]
+            - button "＋" [ref=f2e139]
+        - complementary [ref=f2e140]:
+          - generic [ref=f2e141]:
+            - strong [ref=f2e142]: 人物详情
+            - generic [ref=f2e143]: •••
+          - generic [ref=f2e144]:
+            - generic [ref=f2e145]:
+              - generic [ref=f2e146]: 林
+              - generic [ref=f2e147]:
+                - heading "林舟" [level=2] [ref=f2e148]
+                - paragraph [ref=f2e149]: 工程负责人 · Hermes K8s
+            - generic [ref=f2e150]: 执行中
+            - generic [ref=f2e151]:
+              - generic [ref=f2e152]:
+                - text: 当前任务
+                - strong [ref=f2e153]: 模型服务灰度发布
+              - generic [ref=f2e154]:
+                - text: 设备状态
+                - strong [ref=f2e155]: 在线
+              - generic [ref=f2e156]:
+                - text: 负载
+                - strong [ref=f2e157]: 72%
+              - generic [ref=f2e158]:
+                - text: 所在区域
+                - strong [ref=f2e159]: Engineering
+            - paragraph [ref=f2e160]: 正在核对推理服务的路由与回滚条件，最近一次心跳正常。
+            - generic [ref=f2e161]:
+              - button "下发任务" [ref=f2e162]
+              - button "打开工作区" [ref=f2e163]
+              - button "取消任务" [ref=f2e164]
+              - button "删除人物" [ref=f2e165]

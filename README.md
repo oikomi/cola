@@ -154,6 +154,7 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - `./cleanup-containers.sh --all`：清理本地数据库和 runner 容器
 - `npm run db:setup:office`：执行 migration 并注入示例办公室数据
 - `./scripts/vision-inference-image.sh build-and-load`：基于 NVIDIA TensorRT 构建并分发视觉检测推理镜像，供 `/deployments` 的 `视觉检测` 运行时使用
+- `./scripts/sam2-inference-image.sh build-and-load`：构建固定版本的 SAM 2 推理镜像，并按 `infra/k8s/cluster` 配置分发到对应架构节点
 
 ## 文档索引
 
@@ -169,3 +170,5 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - [AI-Native 公司环境工作流模板](./docs/ai-native-workflow-templates.md)
 - [训练平台 Unsloth on Kubernetes 说明](./docs/training-unsloth-k8s.md)
 - [视觉推理运行时说明](./docs/vision-inference-runtime.md)
+- [SAM 2 推理运行时说明](./docs/sam2-inference-runtime.md)
+- [LocateAnything-3B SGLang 部署说明](./docs/locate-anything-sglang.md)

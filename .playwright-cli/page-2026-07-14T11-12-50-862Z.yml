@@ -1,0 +1,104 @@
+- generic [active] [ref=f4e1]:
+  - generic [ref=f4e3]:
+    - complementary [ref=f4e4]:
+      - generic [ref=f4e5]:
+        - img "XDream Cloud" [ref=f4e10]
+        - navigation "产品区域导航" [ref=f4e11]:
+          - generic [ref=f4e12]:
+            - generic [ref=f4e13]:
+              - link "虚拟 Office：统一查看 agent、任务、审批、执行状态和 workspace 路由。" [ref=f4e14] [cursor=pointer]:
+                - /url: /
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 虚拟 Office
+                    - generic: Agent / Task
+                - generic: 统一查看 agent、任务、审批、执行状态和 workspace 路由。
+            - generic [ref=f4e21]:
+              - link "云桌面：集中管理 remote workspace、浏览器桌面、入口地址与节点资源。" [ref=f4e22] [cursor=pointer]:
+                - /url: /workspace
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 云桌面
+                    - generic: Desktop / Node
+                - generic: 集中管理 remote workspace、浏览器桌面、入口地址与节点资源。
+            - generic [ref=f4e28]:
+              - link "Isaac：运行 Isaac Sim headless 仿真和 Isaac Lab GPU 任务。" [ref=f4e29] [cursor=pointer]:
+                - /url: /isaac
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: Isaac
+                    - generic: Sim / WebRTC
+                - generic: 运行 Isaac Sim headless 仿真和 Isaac Lab GPU 任务。
+            - generic [ref=f4e35]:
+              - link "训练作业：统一管理训练任务、数据集、优先级和 GPU 消耗。" [ref=f4e36] [cursor=pointer]:
+                - /url: /training
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 训练作业
+                    - generic: Job / Dataset
+                - generic: 统一管理训练任务、数据集、优先级和 GPU 消耗。
+            - generic [ref=f4e51]:
+              - link "存储管理：管理 SeaweedFS S3、数据集对象和训练产物归档。" [ref=f4e52] [cursor=pointer]:
+                - /url: /storage
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 存储管理
+                    - generic: SeaweedFS / S3
+                - generic: 管理 SeaweedFS S3、数据集对象和训练产物归档。
+            - generic [ref=f4e59]:
+              - link "推理部署：管理模型服务、规格、入口地址和服务状态。" [ref=f4e60] [cursor=pointer]:
+                - /url: /deployments
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 推理部署
+                    - generic: Model / Route
+                - generic: 管理模型服务、规格、入口地址和服务状态。
+            - generic [ref=f4e66]:
+              - link "集群管理：查看 Kubernetes Dashboard 入口与集群连接信息。" [ref=f4e67] [cursor=pointer]:
+                - /url: /system
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: 集群管理
+                    - generic: Dashboard / Host
+                - generic: 查看 Kubernetes Dashboard 入口与集群连接信息。
+            - generic [ref=f4e75]:
+              - link "CMDB：统一管理服务器资产、GitLab 项目、代码部署和运行监控。" [ref=f4e76] [cursor=pointer]:
+                - /url: /cmdb
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: CMDB
+                    - generic: Server / GitLab
+                - generic: 统一管理服务器资产、GitLab 项目、代码部署和运行监控。
+        - generic [ref=f4e83]:
+          - generic [ref=f4e84]: U
+          - generic [ref=f4e86]:
+            - button [disabled]
+    - main [ref=f4e87]:
+      - generic [ref=f4e90]:
+        - generic [ref=f4e92]:
+          - generic [ref=f4e99]:
+            - generic [ref=f4e100]:
+              - generic [ref=f4e101]: Inference Ops
+              - generic [ref=f4e102]: K8s 检查中
+              - generic [ref=f4e103]: Master NodePort
+              - generic [ref=f4e104]: 部署 0
+              - generic [ref=f4e105]: 服务中 0
+              - generic [ref=f4e106]: 启动中 0
+              - generic [ref=f4e107]: 活跃 GPU 0
+            - heading "推理部署" [level=1] [ref=f4e108]
+            - paragraph [ref=f4e109]: 管理 LLM 与视觉推理服务：vLLM、LMDeploy、SGLang、llama.cpp、目标检测和 SAM 2 分割，集中查看入口、资源和远程 API 状态。
+          - generic [ref=f4e111]:
+            - button "刷新列表" [ref=f4e112]
+            - button "创建推理部署" [disabled]
+        - generic [ref=f4e114]:
+          - heading "运行时列表" [level=2] [ref=f4e116]
+          - generic [ref=f4e117]: 已暂停 0
+  - region "Notifications alt+T"

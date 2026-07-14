@@ -18,6 +18,9 @@ import {
   lmDeployModelRefExample,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
+  locateAnythingModelRef,
+  maxInferenceReplicaCount,
+  sam2ModelRefExample,
   s3ModelRefExample,
   visionDetectionModelRefExample,
 } from "@/server/deployments/catalog";
@@ -36,10 +39,13 @@ function modelRefValidationMessage(engine: InferenceDeploymentEngine) {
     case "lmdeploy":
       return `LMDeploy 模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 ${lmDeployModelRefExample}、${s3ModelRefExample}。`;
     case "vllm":
-    case "sglang":
       return `模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 Qwen/Qwen3-8B-Instruct、${s3ModelRefExample}。`;
+    case "sglang":
+      return `SGLang 模型引用支持 Hugging Face 模型 ID 或 S3 模型目录，例如 ${locateAnythingModelRef}、${s3ModelRefExample}。`;
     case "vision-detection":
       return `视觉检测模型引用目前只支持 Hugging Face 模型 ID，例如 ${visionDetectionModelRefExample}。`;
+    case "sam2":
+      return `SAM 2 目前只支持官方 Hugging Face 模型，例如 ${sam2ModelRefExample}。`;
     default:
       return "模型引用格式不正确。";
   }
@@ -79,6 +85,14 @@ const createInferenceDeploymentInput = z
         message: "显存模式下必须填写每个 GPU 份额的显存大小。",
       });
     }
+
+    if (input.replicaCount > maxInferenceReplicaCount(input.engine)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["replicaCount"],
+        message: "SAM 2 视频会话运行时只支持单副本部署。",
+      });
+    }
   });
 
 const inferenceDeploymentActionInput = z.object({
@@ -97,6 +111,8 @@ function runtimeLabel(engine: InferenceDeploymentEngine) {
       return "SGLang";
     case "vision-detection":
       return "视觉检测";
+    case "sam2":
+      return "SAM 2 分割";
     default:
       return engine;
   }
