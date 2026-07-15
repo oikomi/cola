@@ -40,6 +40,12 @@ switch (command) {
     }
     break;
 
+  case "harborUrl":
+    if (typeof config.harbor?.url === "string") {
+      console.log(config.harbor.url);
+    }
+    break;
+
   case "localArch":
     console.log(localArch());
     break;

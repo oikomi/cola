@@ -19,6 +19,9 @@ Groups and actions:
   image build-and-load     Build and load the workspace image
   image prewarm            Preload external images into Kubernetes nodes
 
+  registry configure       Configure Harbor proxy caches and containerd mirrors
+  registry status          Check Harbor proxy caches and containerd mirrors
+
   secondary-arch export    Export a kubeasz bundle for another architecture
   secondary-arch import    Import the bundle and optionally add a node
 
@@ -87,6 +90,12 @@ case "$GROUP:$ACTION" in
     ;;
   image:prewarm)
     exec "$SCRIPT_DIR/internal/image-prewarm.sh" "$@"
+    ;;
+  registry:configure)
+    exec "$SCRIPT_DIR/internal/registry-cache.sh" configure "$@"
+    ;;
+  registry:status)
+    exec "$SCRIPT_DIR/internal/registry-cache.sh" status "$@"
     ;;
   workspace:create)
     echo "WARN: workspace 生命周期已迁移到 ./scripts/workspace.sh" >&2

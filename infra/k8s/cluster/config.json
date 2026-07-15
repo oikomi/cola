@@ -7,5 +7,54 @@
   "enableChrony": false,
   "workspaceNamespace": "remote-work",
   "workspaceLabelKey": "remote-work/workspace",
-  "gpuLabelKey": "remote-work/gpu"
+  "gpuLabelKey": "remote-work/gpu",
+  "harbor": {
+    "url": "http://172.16.60.198:21726",
+    "proxyCaches": [
+      {
+        "registry": "docker.io",
+        "server": "https://registry-1.docker.io",
+        "project": "proxy-dockerhub",
+        "endpoint": {
+          "name": "dockerhub-daocloud",
+          "type": "docker-registry",
+          "url": "https://docker.m.daocloud.io",
+          "insecure": false
+        }
+      },
+      {
+        "registry": "registry.k8s.io",
+        "server": "https://registry.k8s.io",
+        "project": "proxy-k8s",
+        "endpoint": {
+          "name": "registry-k8s",
+          "type": "docker-registry",
+          "url": "https://registry.k8s.io",
+          "insecure": false
+        }
+      },
+      {
+        "registry": "quay.io",
+        "server": "https://quay.io",
+        "project": "proxy-quay",
+        "endpoint": {
+          "name": "quay",
+          "type": "docker-registry",
+          "url": "https://quay.io",
+          "insecure": false
+        }
+      },
+      {
+        "registry": "ghcr.io",
+        "server": "https://ghcr.io",
+        "project": "proxy-ghcr",
+        "endpoint": {
+          "name": "ghcr",
+          "type": "docker-registry",
+          "url": "https://ghcr.io",
+          "insecure": false
+        }
+      }
+    ]
+  }
 }

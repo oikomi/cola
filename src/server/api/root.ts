@@ -1,5 +1,6 @@
 import { authRouter } from "@/server/api/routers/auth";
 import { cmdbRouter } from "@/server/api/routers/cmdb";
+import { computeRouter } from "@/server/api/routers/compute";
 import { deploymentsRouter } from "@/server/api/routers/deployments";
 import { isaacStationRouter } from "@/server/api/routers/isaac-station";
 import { officeRouter } from "@/server/api/routers/office";
@@ -17,6 +18,7 @@ import { workspaceRouter } from "@/server/api/routers/workspace";
 export const appRouter = createTRPCRouter({
   auth: authRouter,
   cmdb: cmdbRouter,
+  compute: computeRouter,
   deployments: deploymentsRouter,
   isaacStation: isaacStationRouter,
   office: officeRouter,

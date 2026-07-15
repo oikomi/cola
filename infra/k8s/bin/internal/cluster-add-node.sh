@@ -208,6 +208,11 @@ node "$ROOT_DIR/bin/update-node-list.mjs" \
 render_cluster_inventory --mode full --out "$GENERATED_DIR/hosts"
 copy_hosts_into_kubeasz
 
+if [[ -n "$(cluster_query harborUrl || true)" ]]; then
+  print_step "配置新节点的 Harbor 镜像代理"
+  "$ROOT_DIR/bin/cluster.sh" registry configure --skip-harbor --nodes "$NAME"
+fi
+
 best_effort_prewarm_cluster_system_images_on_node "$NAME" "$ARCH"
 
 if cluster_has_mixed_arch_nodes_configured; then

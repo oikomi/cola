@@ -34,6 +34,7 @@ import {
   maxInferenceReplicaCount,
   sam2ModelRefExample,
   s3ModelRefExample,
+  sglangRuntimeProfileForModel,
   supportsS3ModelRef,
 } from "@/server/deployments/catalog";
 import {
@@ -87,6 +88,10 @@ const DEFAULT_INFERENCE_S3_ENDPOINT =
 const INFERENCE_S3_SECRET_NAME =
   process.env.INFERENCE_S3_SECRET_NAME?.trim() ??
   process.env.SEAWEEDFS_S3_SECRET_NAME?.trim();
+const PYTHON_DEPENDENCY_ROOT = "/opt/cola/python-dependencies";
+const INFERENCE_PYPI_INDEX_URL =
+  process.env.INFERENCE_PYPI_INDEX_URL?.trim() ??
+  "https://mirrors.huaweicloud.com/repository/pypi/simple";
 
 const INFERENCE_METADATA = {
   engine: `${METADATA_PREFIX}/inference-engine`,
@@ -526,10 +531,17 @@ function positiveIntegerEnv(name: string, fallback: number) {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
-function buildRuntimeEnv() {
+function buildRuntimeEnv(input: {
+  engine: InferenceDeploymentEngine;
+  modelRef: string;
+}) {
   const hfEndpoint =
     process.env.INFERENCE_HF_ENDPOINT?.trim() ??
     process.env.HF_ENDPOINT?.trim();
+  const runtimeProfile =
+    input.engine === "sglang"
+      ? sglangRuntimeProfileForModel(input.modelRef)
+      : null;
 
   return [
     {
@@ -545,6 +557,9 @@ function buildRuntimeEnv() {
       value: DEFAULT_INFERENCE_CACHE_ROOT,
     },
     ...(hfEndpoint ? [{ name: "HF_ENDPOINT", value: hfEndpoint }] : []),
+    ...(runtimeProfile?.pythonPackages?.length
+      ? [{ name: "PYTHONPATH", value: PYTHON_DEPENDENCY_ROOT }]
+      : []),
   ];
 }
 
@@ -619,7 +634,15 @@ function buildS3SyncEnv() {
   ].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 }
 
-function buildStartupProbe(engine: InferenceDeploymentEngine) {
+function buildStartupProbe(input: {
+  engine: InferenceDeploymentEngine;
+  modelRef: string;
+}) {
+  const runtimeProfile =
+    input.engine === "sglang"
+      ? sglangRuntimeProfileForModel(input.modelRef)
+      : null;
+
   return {
     tcpSocket: { port: 8000 },
     initialDelaySeconds: positiveIntegerEnv(
@@ -629,7 +652,10 @@ function buildStartupProbe(engine: InferenceDeploymentEngine) {
     periodSeconds: positiveIntegerEnv("INFERENCE_STARTUP_PERIOD_SECONDS", 10),
     failureThreshold: positiveIntegerEnv(
       "INFERENCE_STARTUP_FAILURE_THRESHOLD",
-      engine === "vision-detection" || engine === "sam2" ? 120 : 60,
+      runtimeProfile?.startupFailureThreshold ??
+        (input.engine === "vision-detection" || input.engine === "sam2"
+          ? 120
+          : 60),
     ),
   };
 }
@@ -638,7 +664,60 @@ function buildInitContainers(input: {
   name: string;
   engine: InferenceDeploymentEngine;
   modelRef: string;
+  image: string;
 }) {
+  const runtimeProfile =
+    input.engine === "sglang"
+      ? sglangRuntimeProfileForModel(input.modelRef)
+      : null;
+
+  if (runtimeProfile?.pythonPackages?.length) {
+    return [
+      {
+        name: "python-dependencies",
+        image: input.image,
+        imagePullPolicy: imagePullPolicyFor(input.image),
+        command: ["/bin/sh", "-lc"],
+        args: [
+          `set -eu
+mkdir -p "$COLA_PYTHON_DEPENDENCY_ROOT" "$PIP_CACHE_DIR"
+python3 -m pip install \
+  --disable-pip-version-check \
+  --no-deps \
+  --prefer-binary \
+  --target "$COLA_PYTHON_DEPENDENCY_ROOT" \
+  "$@"`,
+          "install-python-dependencies",
+          ...runtimeProfile.pythonPackages,
+        ],
+        env: [
+          {
+            name: "COLA_PYTHON_DEPENDENCY_ROOT",
+            value: PYTHON_DEPENDENCY_ROOT,
+          },
+          {
+            name: "PIP_INDEX_URL",
+            value: INFERENCE_PYPI_INDEX_URL,
+          },
+          {
+            name: "PIP_CACHE_DIR",
+            value: `${DEFAULT_INFERENCE_CACHE_ROOT}/pip`,
+          },
+        ],
+        volumeMounts: [
+          {
+            name: "hf-cache",
+            mountPath: DEFAULT_INFERENCE_CACHE_ROOT,
+          },
+          {
+            name: "python-dependencies",
+            mountPath: PYTHON_DEPENDENCY_ROOT,
+          },
+        ],
+      },
+    ];
+  }
+
   if (supportsS3ModelRef(input.engine) && isS3ModelRef(input.modelRef)) {
     const targetPath = resolveS3ModelPath(input.name, input.modelRef);
 
@@ -793,7 +872,13 @@ function buildInferenceDeployment(input: {
     name: input.name,
     engine: input.engine,
     modelRef: input.modelRef,
+    image: input.image,
   });
+  const runtimeProfile =
+    input.engine === "sglang"
+      ? sglangRuntimeProfileForModel(input.modelRef)
+      : null;
+  const hasPythonDependencies = Boolean(runtimeProfile?.pythonPackages?.length);
   const ownerLabels = ownerMetadata(input.ownerUserId);
 
   return {
@@ -866,8 +951,14 @@ function buildInferenceDeployment(input: {
                 : {}),
               args: runtimeCommand.args,
               ports: [{ containerPort: 8000, name: "http" }],
-              env: buildRuntimeEnv(),
-              startupProbe: buildStartupProbe(input.engine),
+              env: buildRuntimeEnv({
+                engine: input.engine,
+                modelRef: input.modelRef,
+              }),
+              startupProbe: buildStartupProbe({
+                engine: input.engine,
+                modelRef: input.modelRef,
+              }),
               readinessProbe: {
                 tcpSocket: { port: 8000 },
                 initialDelaySeconds: 15,
@@ -903,6 +994,14 @@ function buildInferenceDeployment(input: {
                   name: "dev-shm",
                   mountPath: "/dev/shm",
                 },
+                ...(hasPythonDependencies
+                  ? [
+                      {
+                        name: "python-dependencies",
+                        mountPath: PYTHON_DEPENDENCY_ROOT,
+                      },
+                    ]
+                  : []),
                 ...(input.engine === "sam2"
                   ? [
                       {
@@ -935,6 +1034,14 @@ function buildInferenceDeployment(input: {
                 medium: "Memory",
               },
             },
+            ...(hasPythonDependencies
+              ? [
+                  {
+                    name: "python-dependencies",
+                    emptyDir: {},
+                  },
+                ]
+              : []),
             ...(input.engine === "sam2"
               ? [
                   {

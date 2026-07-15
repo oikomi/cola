@@ -462,12 +462,17 @@ PY
 }
 
 patch_kubeasz_registry_mirrors() {
-  sudo python3 - "$KUBEASZ_DIR" <<'PY'
+  sudo python3 - "$KUBEASZ_DIR" "$ROOT_DIR/cluster/config.json" <<'PY'
 from pathlib import Path
+import json
 import sys
 
 runtime_root = Path(sys.argv[1])
-template = """# https://github.com/containerd/containerd/blob/main/docs/hosts.md
+config_path = Path(sys.argv[2])
+config = json.loads(config_path.read_text())
+harbor = config.get("harbor")
+
+fallback_template = """# https://github.com/containerd/containerd/blob/main/docs/hosts.md
 server = "https://registry-1.docker.io"
 
 [host."https://docker.m.daocloud.io"]
@@ -477,18 +482,62 @@ server = "https://registry-1.docker.io"
   capabilities = ["pull", "resolve"]
 """
 
-targets = [
+docker_template = fallback_template
+managed_templates = {}
+
+if isinstance(harbor, dict):
+    harbor_url = str(harbor.get("url", "")).rstrip("/")
+    for cache in harbor.get("proxyCaches", []):
+        registry = cache.get("registry")
+        server = str(cache.get("server", "")).rstrip("/")
+        project = cache.get("project")
+        if not registry or not server or not project or not harbor_url:
+            continue
+        template = f'''# Managed by ./bin/cluster.sh registry configure.
+# {registry} -> Harbor project {project}
+server = "{server}"
+
+[host."{harbor_url}/v2/{project}"]
+  capabilities = ["pull", "resolve"]
+  override_path = true
+'''
+        managed_templates[registry] = template
+        if registry == "docker.io":
+            docker_template = template
+
+    if harbor_url:
+        from urllib.parse import urlparse
+        harbor_host = urlparse(harbor_url).netloc
+        if harbor_host:
+            managed_templates[harbor_host] = f'''# Managed by ./bin/cluster.sh registry configure.
+server = "{harbor_url}"
+
+[host."{harbor_url}"]
+  capabilities = ["pull", "resolve", "push"]
+'''
+
+managed_templates.setdefault("docker.io", docker_template)
+
+docker_targets = [
     runtime_root / "roles/containerd/templates/docker.io/hosts.toml.j2",
     Path("/etc/kubeasz/roles/containerd/templates/docker.io/hosts.toml.j2"),
-    Path("/etc/containerd/certs.d/docker.io/hosts.toml"),
 ]
 
-for path in targets:
+for path in docker_targets:
     if not path.exists():
         continue
-    if path.read_text() == template:
+    if path.read_text() == docker_template:
         continue
-    path.write_text(template)
+    path.write_text(docker_template)
+
+certs_root = Path("/etc/containerd/certs.d")
+if certs_root.is_dir():
+    for registry, template in managed_templates.items():
+        target = certs_root / registry / "hosts.toml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and target.read_text() == template:
+            continue
+        target.write_text(template)
 PY
 }
 
@@ -1625,7 +1674,7 @@ remote_sudo_ssh_retry() {
     fi
 
     if (( attempt < attempts )); then
-      echo "WARN: 节点 $node_name 的远端 sudo 命令失败，准备第 $((attempt + 1)) 次重试。"
+      echo "WARN: 节点 $node_name 的远端 sudo 命令失败，准备第 $((attempt + 1)) 次重试。" >&2
       sleep 3
     fi
   done

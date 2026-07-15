@@ -4,6 +4,7 @@ export type ProductAreaKey =
   | "office"
   | "workspace"
   | "isaacStation"
+  | "compute"
   | "cmdb"
   | "training"
   | "storage"
@@ -39,6 +40,12 @@ export const PRODUCT_AREAS: Array<{
     href: "/training",
     title: "训练作业",
     description: "统一管理训练任务、数据集、优先级和 GPU 消耗。",
+  },
+  {
+    key: "compute",
+    href: "/compute",
+    title: "算力分析",
+    description: "分析 GPU 分配、使用者归属与运行容器的实时负载。",
   },
   {
     key: "storage",
@@ -99,6 +106,10 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/cmdb")) {
     return "cmdb";
+  }
+
+  if (pathname.startsWith("/compute")) {
+    return "compute";
   }
 
   if (pathname.startsWith("/training")) {

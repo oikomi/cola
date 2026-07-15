@@ -86,6 +86,23 @@ docker login 172.16.60.198:32248
 
 因为默认是 HTTP，Docker/containerd 客户端需要把 `172.16.60.198:32248` 配成 insecure registry。不要把这个 HTTP NodePort 暴露到公网。
 
+## 作为集群镜像代理
+
+Harbor 的部署入口和集群实际使用的 Harbor 可以不同。Kubernetes 节点的镜像加速地址只以 `../k8s/cluster/config.json` 中的 `harbor` 配置为准；当前集群使用的是已有实例 `http://172.16.60.198:21726`，不会由本目录的 Helm 默认值覆盖。
+
+配置已有 Harbor 的 proxy cache 项目并下发 containerd 镜像源：
+
+```bash
+cd ../k8s
+read -r -s COLA_HARBOR_PASSWORD
+export COLA_HARBOR_PASSWORD
+./bin/cluster.sh registry configure
+./bin/cluster.sh registry status
+unset COLA_HARBOR_PASSWORD
+```
+
+密码只通过进程环境传递，不应写入 `cluster/config.json`。命令会保留原始公网 registry 作为 Harbor 故障时的回退源。
+
 ## 存储
 
 默认开启持久化：

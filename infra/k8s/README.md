@@ -73,6 +73,8 @@ K8S_PIP_TRUSTED_HOST=your-pypi-mirror \
 
 - `./bin/cluster.sh cluster bootstrap`
 - `./bin/cluster.sh cluster install`
+- `./bin/cluster.sh registry configure`
+- `./bin/cluster.sh registry status`
 - `./bin/cluster.sh gpu enable`
 - `./bin/cluster.sh stack up`
 - `./bin/cluster.sh dashboard deploy`
@@ -264,6 +266,8 @@ Isaac 的验收重点不是 `DISPLAY=:1 glxinfo -B`，而是 Pod 内 `nvidia-smi
 - `chronyServerNode`：仅当 `enableChrony=true` 时使用，可指定哪台节点做内部时间源
 - `proxyMode`：可选 `iptables` 或 `ipvs`；未显式设置时，混合架构集群默认使用 `iptables`，单架构集群默认使用 `ipvs`
 - `sandboxImage`：可选；未显式设置时，secondary-arch 接力默认使用官方多架构 `registry.k8s.io/pause:3.10`
+- `harbor.url`：集群统一使用的 Harbor 地址；当前配置为 `http://172.16.60.198:21726`
+- `harbor.proxyCaches`：原始 registry、Harbor 代理项目和上游端点的映射；该配置也是节点 `hosts.toml` 的唯一来源
 
 ## 2. 下载 kubeasz 并渲染集群 inventory
 
@@ -303,6 +307,55 @@ cd infra/k8s
 - 同步一份用户可读的 kubeconfig 到 `~/.kube/<clusterName>.config`
 - 让 `/etc/kubeasz/clusters/<clusterName>/kubectl.kubeconfig` 对当前用户组可读
 - 在混合架构场景下，自动刷新本地 kubeasz inventory，并为异构节点预拉官方多架构的 Calico 镜像
+
+## 3.1 配置 Harbor 镜像加速
+
+当前 Harbor 地址和代理映射只读取 `cluster/config.json`。管理员密码不写入仓库，执行前通过环境变量传入：
+
+```bash
+read -r -s COLA_HARBOR_PASSWORD
+export COLA_HARBOR_PASSWORD
+./bin/cluster.sh registry configure
+unset COLA_HARBOR_PASSWORD
+```
+
+这个命令会幂等完成两层配置：
+
+- 在 Harbor 创建或核对公开的 proxy cache 项目
+- 在 `cluster/nodes.json` 的每台节点写入 `/etc/containerd/certs.d/<registry>/hosts.toml`
+
+当前映射：
+
+| 原始镜像源        | Harbor 项目       | Harbor 上游                    |
+| ----------------- | ----------------- | ------------------------------ |
+| `docker.io`       | `proxy-dockerhub` | `https://docker.m.daocloud.io` |
+| `registry.k8s.io` | `proxy-k8s`       | `https://registry.k8s.io`      |
+| `quay.io`         | `proxy-quay`      | `https://quay.io`              |
+| `ghcr.io`         | `proxy-ghcr`      | `https://ghcr.io`              |
+
+containerd 仍然使用原始镜像名，先访问 Harbor；Harbor 不可用时再回退到各自的 `server`。因此现有 Pod、Helm chart 和业务代码无需批量改写镜像地址。`hosts.toml` 支持热加载，执行这个命令不会重启 containerd。
+
+四个上游统一使用 Harbor 的 distribution (`docker-registry`) adapter。当前 Harbor 构建能探测专用 Quay adapter，但创建对应 proxy cache 项目时会拒绝该类型；通用 adapter 已对四个上游逐一通过实例连通性和真实拉取检查。
+
+先只看计划、不写配置：
+
+```bash
+./bin/cluster.sh registry configure --dry-run
+```
+
+检查 Harbor 项目、上游端点和所有节点是否一致：
+
+```bash
+./bin/cluster.sh registry status
+```
+
+`status` 不提供密码时仍会检查 Harbor 健康和公开代理项目；设置 `COLA_HARBOR_PASSWORD` 后还会检查每个上游端点的健康状态。
+
+当前不透明代理 `nvcr.io`。NVIDIA NGC 中的 Isaac Sim、Isaac Lab 和 DCGM 镜像可能需要 NGC API key 及许可授权，在没有专用最小权限凭证前继续直连，避免把个人凭证绑定到公开代理项目。阿里云杭州 registry 属于内网可达的国内源，也维持直连。
+
+多架构镜像的首次代理拉取可能缓存多个平台的 manifest 和 layer，`registry.k8s.io/pause` 这类包含 Windows 变体的索引会明显放大首次写入量。上线更多大型镜像前应在 Harbor 中监控项目用量，并按实际磁盘容量设置 quota、retention 和垃圾回收计划。
+
+当前 Harbor 使用 HTTP，只适用于受控内网。不要把该端口暴露到公网；迁移到 HTTPS 后只需更新 `cluster/config.json` 的 `harbor.url` 并重新执行 `registry configure`。
 
 ## 4. 启用 GPU 支持
 
@@ -525,6 +578,12 @@ http://<节点IP>:<自动分配端口>/
 ```
 
 这个脚本当前只支持扩容 `worker` / `worker,gpu` 节点，不负责把新机器升级成 `master` 或 `etcd`。这样更稳，也更贴合“后续任意增加 node 服务器”的常见路径。
+
+`cluster add-node` 会自动把同一份 Harbor 镜像源配置到新节点。需要单独修复或核对某个节点时，可以重跑：
+
+```bash
+./bin/cluster.sh registry configure --skip-harbor --nodes rw-node-023
+```
 
 如果节点架构与当前部署机不一致，`cluster add-node` 会直接拒绝执行，并提示你改到同架构部署机上继续。
 

@@ -48,6 +48,109 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function parseHttpUrl(value, fieldName, { requireRootPath = false } = {}) {
+  if (typeof value !== "string" || value.trim() !== value || !value) {
+    throw new Error(`${fieldName} 必须是非空 HTTP(S) URL。`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${fieldName} 不是合法 URL: ${value}`);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${fieldName} 只支持 http 或 https: ${value}`);
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error(`${fieldName} 不能包含凭证、query 或 fragment。`);
+  }
+  if (requireRootPath && parsed.pathname !== "/") {
+    throw new Error(`${fieldName} 不能包含路径: ${value}`);
+  }
+
+  return parsed;
+}
+
+function validateHarborConfig(harbor) {
+  if (!isObject(harbor)) {
+    throw new Error("cluster/config.json 中的 harbor 必须是 JSON object。");
+  }
+
+  parseHttpUrl(harbor.url, "cluster/config.json harbor.url", {
+    requireRootPath: true,
+  });
+
+  if (!Array.isArray(harbor.proxyCaches) || harbor.proxyCaches.length === 0) {
+    throw new Error(
+      "cluster/config.json harbor.proxyCaches 至少需要配置一个代理缓存。",
+    );
+  }
+
+  const seenRegistries = new Set();
+  const seenProjects = new Set();
+  const seenEndpoints = new Set();
+  const registryPattern =
+    /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:]+\])(?::[1-9][0-9]{0,4})?$/;
+  const harborNamePattern = /^[a-z0-9][a-z0-9._-]*$/;
+
+  for (const cache of harbor.proxyCaches) {
+    if (!isObject(cache)) {
+      throw new Error("harbor.proxyCaches 中的每一项都必须是 JSON object。");
+    }
+
+    const { registry, server, project, endpoint } = cache;
+    if (typeof registry !== "string" || !registryPattern.test(registry)) {
+      throw new Error(`harbor.proxyCaches registry 非法: ${registry}`);
+    }
+    if (seenRegistries.has(registry)) {
+      throw new Error(`harbor.proxyCaches registry 重复: ${registry}`);
+    }
+    seenRegistries.add(registry);
+
+    parseHttpUrl(server, `harbor.proxyCaches[${registry}].server`);
+
+    if (typeof project !== "string" || !harborNamePattern.test(project)) {
+      throw new Error(`Harbor 代理项目名非法: ${project}`);
+    }
+    if (seenProjects.has(project)) {
+      throw new Error(`Harbor 代理项目名重复: ${project}`);
+    }
+    seenProjects.add(project);
+
+    if (!isObject(endpoint)) {
+      throw new Error(
+        `harbor.proxyCaches[${registry}].endpoint 必须是 object。`,
+      );
+    }
+    if (
+      typeof endpoint.name !== "string" ||
+      !harborNamePattern.test(endpoint.name)
+    ) {
+      throw new Error(`Harbor 上游端点名非法: ${endpoint.name}`);
+    }
+    if (seenEndpoints.has(endpoint.name)) {
+      throw new Error(`Harbor 上游端点名重复: ${endpoint.name}`);
+    }
+    seenEndpoints.add(endpoint.name);
+
+    if (typeof endpoint.type !== "string" || !endpoint.type.trim()) {
+      throw new Error(`Harbor 上游端点 ${endpoint.name} 缺少 type。`);
+    }
+    parseHttpUrl(endpoint.url, `harbor.proxyCaches[${registry}].endpoint.url`);
+    if (
+      "insecure" in endpoint &&
+      endpoint.insecure !== undefined &&
+      typeof endpoint.insecure !== "boolean"
+    ) {
+      throw new Error(
+        `Harbor 上游端点 ${endpoint.name} 的 insecure 必须是布尔值。`,
+      );
+    }
+  }
+}
+
 export function validateClusterData(config, nodes) {
   if (!isObject(config)) {
     throw new Error("cluster/config.json 必须是一个 JSON object。");
@@ -86,6 +189,10 @@ export function validateClusterData(config, nodes) {
     typeof config.sandboxImage !== "string"
   ) {
     throw new Error("cluster/config.json 中的 sandboxImage 必须是字符串。");
+  }
+
+  if ("harbor" in config && config.harbor !== undefined) {
+    validateHarborConfig(config.harbor);
   }
 
   if (!Array.isArray(nodes) || nodes.length === 0) {

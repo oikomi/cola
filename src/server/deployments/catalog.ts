@@ -55,12 +55,18 @@ export const defaultSam2Image = "cola-sam2:local";
 export const locateAnythingModelRef = "nvidia/LocateAnything-3B";
 export const locateAnythingModelRevision =
   "c32291ca5e996f5a7a485845b4f57a233936bba0";
+export const locateAnythingPythonPackages = [
+  "decord==0.6.0",
+  "lmdb==1.7.5",
+] as const;
 export const defaultSglangImage = "lmsysorg/sglang:v0.5.15.post1-cu129";
 
 export type SglangModelRuntimeProfile = Readonly<{
   revision: string;
   trustRemoteCode: boolean;
   modelImpl: "sglang";
+  pythonPackages?: readonly string[];
+  startupFailureThreshold?: number;
 }>;
 
 // Keep remote-code execution limited to audited model IDs and immutable revisions.
@@ -71,6 +77,8 @@ const sglangModelRuntimeProfiles = new Map<string, SglangModelRuntimeProfile>([
       revision: locateAnythingModelRevision,
       trustRemoteCode: true,
       modelImpl: "sglang",
+      pythonPackages: locateAnythingPythonPackages,
+      startupFailureThreshold: 360,
     },
   ],
 ]);

@@ -9,6 +9,7 @@ import {
   Building2Icon,
   DatabaseIcon,
   CpuIcon,
+  GaugeIcon,
   MonitorSmartphoneIcon,
   NetworkIcon,
   ServerIcon,
@@ -28,6 +29,7 @@ const areaIcons = {
   office: Building2Icon,
   workspace: MonitorSmartphoneIcon,
   isaacStation: CpuIcon,
+  compute: GaugeIcon,
   cmdb: ServerIcon,
   training: BrainCircuitIcon,
   storage: DatabaseIcon,
@@ -61,6 +63,12 @@ const areaChrome = {
     tag: "队列",
     signal: "Job / Dataset",
     marker: "bg-cyan-300",
+  },
+  compute: {
+    label: "Compute",
+    tag: "分析",
+    signal: "GPU / Workload",
+    marker: "bg-emerald-300",
   },
   storage: {
     label: "Storage",

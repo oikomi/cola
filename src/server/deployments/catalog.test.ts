@@ -17,6 +17,7 @@ import {
   llamaCppModelRefExample,
   locateAnythingModelRef,
   locateAnythingModelRevision,
+  locateAnythingPythonPackages,
   maxInferenceReplicaCount,
   sam2ModelRefExample,
   s3ModelRefExample,
@@ -163,6 +164,8 @@ void test("SGLang LocateAnything profile pins trusted remote code", () => {
     revision: locateAnythingModelRevision,
     trustRemoteCode: true,
     modelImpl: "sglang",
+    pythonPackages: locateAnythingPythonPackages,
+    startupFailureThreshold: 360,
   });
   assert.deepEqual(
     sglangRuntimeProfileForModel(`  ${locateAnythingModelRef}  `),
