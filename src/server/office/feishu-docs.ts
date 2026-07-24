@@ -2,11 +2,15 @@ const FEISHU_OPEN_API_BASE_URL = "https://open.feishu.cn/open-apis";
 const MAX_DOCUMENT_REFERENCES = 4;
 const MAX_DOCUMENT_CONTENT_LENGTH = 18000;
 const MAX_TOTAL_CONTENT_LENGTH = 36000;
+const MAX_REPORT_MARKDOWN_LENGTH = 16000;
 
 type FeishuApiResponse<T> = {
   code?: number;
   msg?: string;
   data?: T;
+  error?: {
+    log_id?: string;
+  };
 } & Partial<T>;
 
 export type FeishuDocumentType = "docx" | "doc" | "wiki";
