@@ -34,7 +34,7 @@ void test("Hermes task output preserves Markdown line breaks for report document
 
 void test("Hermes bootstrap routes large prompts through the local API Server", () => {
   assert.match(source, /shouldUseHermesTaskApi\(prompt, maxCliPromptBytes\)/);
-  assert.match(source, /runHermesTaskViaApi\(\{/);
+  assert.match(source, /runHermesTaskViaApi\(\s*\{/);
   assert.match(source, /promptByteLength\(prompt\)/);
   assert.match(source, /HERMES_API_CALL_STALE_TIMEOUT/);
   assert.match(source, /api_max_retries: \$\{hermesApiMaxRetries\}/);

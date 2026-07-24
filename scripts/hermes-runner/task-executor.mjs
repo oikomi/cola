@@ -31,10 +31,7 @@ function errorDetails(error) {
   const cause = error.cause;
   if (isRecord(cause)) {
     if (typeof cause.code === "string") details.push(cause.code);
-    if (
-      typeof cause.message === "string" &&
-      cause.message !== error.message
-    ) {
+    if (typeof cause.message === "string" && cause.message !== error.message) {
       details.push(cause.message);
     }
   }
@@ -213,12 +210,10 @@ export async function runHermesTaskViaApi(
 
   const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
   const requestImpl =
-    options.requestImpl ?? (options.fetchImpl ? options.fetchImpl : nodeHttpResponse);
+    options.requestImpl ??
+    (options.fetchImpl ? options.fetchImpl : nodeHttpResponse);
   const requestAttempts = taskId
-    ? positiveInteger(
-        options.requestAttempts,
-        DEFAULT_TASK_REQUEST_ATTEMPTS,
-      )
+    ? positiveInteger(options.requestAttempts, DEFAULT_TASK_REQUEST_ATTEMPTS)
     : 1;
   const requestTimeoutMs = positiveInteger(
     options.requestTimeoutMs,

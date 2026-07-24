@@ -139,14 +139,8 @@ void test("large task retries a broken API transport with the same idempotency k
   assert.equal(postCount, 2);
   assert.equal(retries.length, 1);
   assert.match(retries[0].error, /ECONNRESET/);
-  assert.equal(
-    postHeaders[0]["Idempotency-Key"],
-    "cola-task-retry-task-1",
-  );
-  assert.equal(
-    postHeaders[1]["Idempotency-Key"],
-    "cola-task-retry-task-1",
-  );
+  assert.equal(postHeaders[0]["Idempotency-Key"], "cola-task-retry-task-1");
+  assert.equal(postHeaders[1]["Idempotency-Key"], "cola-task-retry-task-1");
 });
 
 void test("default task transport has an explicit long-running request timeout", async () => {
