@@ -277,6 +277,7 @@ async function postFeishu<T>(
   body: unknown,
   tenantAccessToken: string,
   fetchImpl: typeof fetch,
+  operation = "飞书接口请求",
 ) {
   const response = await fetchImpl(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
     method: "POST",
@@ -291,7 +292,18 @@ async function postFeishu<T>(
     .json()
     .catch(() => ({}))) as FeishuApiResponse<T>;
   if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.msg ?? `飞书接口请求失败：HTTP ${response.status}`);
+    const code = typeof payload.code === "number" ? payload.code : null;
+    const requestId =
+      response.headers.get("x-request-id") ?? payload.error?.log_id ?? null;
+    const details = [
+      code !== null ? `code=${code}` : null,
+      requestId ? `request_id=${requestId}` : null,
+    ].filter((value): value is string => Boolean(value));
+    throw new Error(
+      `${operation}失败：${payload.msg ?? `HTTP ${response.status}`}${
+        details.length > 0 ? `（${details.join("，")}）` : ""
+      }`,
+    );
   }
 
   return (payload.data ?? payload) as T;
