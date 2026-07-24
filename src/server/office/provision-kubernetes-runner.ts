@@ -29,6 +29,11 @@ import type {
   ProvisionRunnerResult,
 } from "@/server/office/provision-types";
 import { createKubeConfig } from "@/server/kubernetes/kubeconfig";
+import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+} from "@/server/kubernetes/force-delete";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import { resolveRunnerApiBaseUrl } from "@/server/office/runner-api-base-url";
 import { buildHermesDashboardAuthEnv } from "@/server/office/hermes-dashboard-auth";
@@ -1415,15 +1420,6 @@ export async function provisionKubernetesRunner(
   }
 }
 
-async function deleteResource(options: { action: () => Promise<unknown> }) {
-  try {
-    await options.action();
-  } catch (error) {
-    if (isNotFoundError(error)) return;
-    throw error;
-  }
-}
-
 export async function cleanupKubernetesRunner(options: {
   namespace?: string | null;
   deploymentName?: string | null;
@@ -1434,54 +1430,56 @@ export async function cleanupKubernetesRunner(options: {
   hermesGitLabSecretName?: string | null;
   hermesGitLabSecretManaged?: boolean;
 }) {
-  const { appsApi, coreApi } = createKubeClients();
+  const { coreApi, kubeConfig } = createKubeClients();
   const namespace = options.namespace?.trim() ?? runnerNamespace();
+  const deleteApi = createKubernetesForceDeleteApi(kubeConfig);
+
+  if (options.deploymentName) {
+    await forceDeleteKubernetesResource(deleteApi, {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      namespace,
+      name: options.deploymentName,
+    });
+    await forceDeleteNamespacedPods({
+      coreApi,
+      deleteApi,
+      namespace,
+      labelSelectors: [`cola/runner=${options.deploymentName}`],
+    });
+  }
 
   await Promise.all([
-    options.deploymentName
-      ? deleteResource({
-          action: () =>
-            appsApi.deleteNamespacedDeployment({
-              name: options.deploymentName!,
-              namespace,
-              propagationPolicy: "Foreground",
-            }),
-        })
-      : Promise.resolve(),
     options.serviceName
-      ? deleteResource({
-          action: () =>
-            coreApi.deleteNamespacedService({
-              name: options.serviceName!,
-              namespace,
-            }),
+      ? forceDeleteKubernetesResource(deleteApi, {
+          apiVersion: "v1",
+          kind: "Service",
+          namespace,
+          name: options.serviceName,
         })
       : Promise.resolve(),
     options.configMapName
-      ? deleteResource({
-          action: () =>
-            coreApi.deleteNamespacedConfigMap({
-              name: options.configMapName!,
-              namespace,
-            }),
+      ? forceDeleteKubernetesResource(deleteApi, {
+          apiVersion: "v1",
+          kind: "ConfigMap",
+          namespace,
+          name: options.configMapName,
         })
       : Promise.resolve(),
     options.codexSecretManaged && options.codexSecretName
-      ? deleteResource({
-          action: () =>
-            coreApi.deleteNamespacedSecret({
-              name: options.codexSecretName!,
-              namespace,
-            }),
+      ? forceDeleteKubernetesResource(deleteApi, {
+          apiVersion: "v1",
+          kind: "Secret",
+          namespace,
+          name: options.codexSecretName,
         })
       : Promise.resolve(),
     options.hermesGitLabSecretManaged && options.hermesGitLabSecretName
-      ? deleteResource({
-          action: () =>
-            coreApi.deleteNamespacedSecret({
-              name: options.hermesGitLabSecretName!,
-              namespace,
-            }),
+      ? forceDeleteKubernetesResource(deleteApi, {
+          apiVersion: "v1",
+          kind: "Secret",
+          namespace,
+          name: options.hermesGitLabSecretName,
         })
       : Promise.resolve(),
   ]);

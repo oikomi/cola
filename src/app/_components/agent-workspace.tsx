@@ -175,11 +175,11 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
 
         <main className="mx-auto mt-6 max-w-4xl rounded-[var(--radius-shell)] border border-black/8 bg-white/82 px-6 py-8 shadow-[0_24px_80px_rgba(24,19,14,0.1)]">
           <Link
-            href="/"
+            href="/office"
             className="inline-flex items-center gap-2 text-sm text-[#6f5f52] transition-colors hover:text-[#17120d]"
           >
             <ArrowLeftIcon className="size-4" />
-            返回首页
+            返回人物总览
           </Link>
           <h1 className="mt-6 text-3xl font-semibold tracking-normal text-[#17120d]">
             人物不存在
@@ -232,7 +232,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
           <div className="relative grid gap-10 px-6 py-7 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
             <div className="space-y-6">
               <Link
-                href="/"
+                href="/office"
                 className="inline-flex items-center gap-2 text-sm text-white/72 transition-colors hover:text-white"
               >
                 <ArrowLeftIcon className="size-4" />
@@ -385,7 +385,7 @@ export function AgentWorkspace({ snapshot, agentId, engine }: Props) {
                     快速返回
                   </p>
                   <Link
-                    href="/"
+                    href="/office"
                     className="mt-2 inline-flex items-center gap-2 font-medium text-[#17120d] transition-colors hover:text-[#7d5518]"
                   >
                     回到人物列表

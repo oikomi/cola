@@ -59,6 +59,12 @@ import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
 import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
@@ -131,6 +137,7 @@ type KubeContext = {
   namespace: string;
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
 };
 
 export type InferenceDeploymentItem = {
@@ -1171,6 +1178,7 @@ async function createKubeContext(): Promise<KubeContext> {
     namespace,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
   };
 }
 
@@ -1226,15 +1234,6 @@ async function listInferenceResources(ctx: KubeContext) {
     ),
     liveNodes: liveNodes.items ?? [],
   };
-}
-
-async function deleteResource(options: { action: () => Promise<unknown> }) {
-  try {
-    await options.action();
-  } catch (error) {
-    if (isNotFoundError(error)) return;
-    throw error;
-  }
 }
 
 export async function listInferenceDeployments(): Promise<InferenceDeploymentListResult> {
@@ -1697,21 +1696,24 @@ export async function deleteInferenceDeployment(name: string) {
 
   const ctx = await createKubeContext();
 
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    namespace: ctx.namespace,
+    name: inferenceDeploymentName(name),
+  });
   await Promise.all([
-    deleteResource({
-      action: () =>
-        ctx.appsApi.deleteNamespacedDeployment({
-          name: inferenceDeploymentName(name),
-          namespace: ctx.namespace,
-          propagationPolicy: "Foreground",
-        }),
+    forceDeleteNamespacedPods({
+      coreApi: ctx.coreApi,
+      deleteApi: ctx.deleteApi,
+      namespace: ctx.namespace,
+      labelSelectors: [`cola.dev/inference-name=${name}`],
     }),
-    deleteResource({
-      action: () =>
-        ctx.coreApi.deleteNamespacedService({
-          name: inferenceServiceName(name),
-          namespace: ctx.namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Service",
+      namespace: ctx.namespace,
+      name: inferenceServiceName(name),
     }),
   ]);
 

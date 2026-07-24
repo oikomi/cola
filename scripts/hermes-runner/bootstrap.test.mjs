@@ -22,3 +22,12 @@ void test("Hermes bootstrap disables basic-provider auto SSO redirect", () => {
   assert.match(source, /supports_password/);
   assert.match(source, /patchHermesDashboardBasicAutoSso\(\)/);
 });
+
+void test("Hermes task output preserves Markdown line breaks for report documents", () => {
+  assert.match(
+    source,
+    /function compactOutputText\(value, maxLength = 36000\)/,
+  );
+  assert.ok(source.includes('value.replace(/\\r\\n?/g, "\\n").trim()'));
+  assert.ok(!source.includes('value.replace(/\\s+/g, " ").trim()'));
+});

@@ -14,6 +14,7 @@ type HermesTaskResultNotificationInput = {
   artifactPath: string | null;
   logPath: string | null;
   outputText: string | null;
+  documentUrl?: string | null;
 };
 
 type FeishuApiResponse<T> = {
@@ -220,6 +221,16 @@ function stripFeishuDocumentUrls(value: string | null | undefined) {
   );
 }
 
+function notificationDocumentReferences(
+  input: HermesTaskResultNotificationInput,
+) {
+  return extractFeishuDocumentReferences(
+    [input.documentUrl, input.taskSummary, input.outputText]
+      .filter((value): value is string => typeof value === "string")
+      .join("\n"),
+  );
+}
+
 function normalizeResultText(value: string | null | undefined) {
   if (!value) return "";
   return value.replace(/\r\n?/g, "\n").trim();
@@ -252,7 +263,7 @@ function buildHermesTaskResultCard(
   options: { includeReviewActions?: boolean } = {},
 ): FeishuCard {
   const mentionText = buildFeishuAtText(mentionOpenIds);
-  const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
+  const documentReferences = notificationDocumentReferences(input);
   const actions: FeishuCardButton[] = documentReferences
     .slice(0, 1)
     .map((document) => ({
@@ -341,7 +352,7 @@ function buildHermesTaskTemplateVariables(
   input: HermesTaskResultNotificationInput,
   mentionOpenIds: string[] = [],
 ) {
-  const documentReferences = extractFeishuDocumentReferences(input.taskSummary);
+  const documentReferences = notificationDocumentReferences(input);
   const documentUrl = documentReferences[0]?.url ?? "";
   const summaryText = compactText(
     stripFeishuDocumentUrls(input.taskSummary),
@@ -546,7 +557,7 @@ async function listFeishuBotGroupChatIds(tenantAccessToken: string) {
       chatIds.push(item.chat_id);
     }
 
-    pageToken = data.has_more ? data.page_token || undefined : undefined;
+    pageToken = data.has_more ? (data.page_token ?? undefined) : undefined;
   } while (pageToken);
 
   return uniqueStrings(chatIds);

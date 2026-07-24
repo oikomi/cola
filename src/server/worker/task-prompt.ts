@@ -10,6 +10,7 @@ import {
   type HermesGitLabRepository,
 } from "../office/hermes-gitlab.ts";
 import type { FeishuDocumentContext } from "../office/feishu-docs.ts";
+import type { GitLabWeeklyActivity } from "../office/gitlab-weekly-activity.ts";
 
 export type RunnerTaskPromptInput = {
   engine: DockerRunnerEngine;
@@ -21,6 +22,7 @@ export type RunnerTaskPromptInput = {
   gitlabRepository?: HermesGitLabRepository | null;
   feishuDocuments?: FeishuDocumentContext[];
   feishuDocumentWarnings?: string[];
+  gitlabWeeklyActivity?: GitLabWeeklyActivity | null;
 };
 
 function hermesGitLabPromptLines(repository: HermesGitLabRepository | null) {
@@ -71,6 +73,30 @@ function feishuDocumentPromptLines(
   return lines;
 }
 
+function gitLabWeeklyReportPromptLines(
+  activity: GitLabWeeklyActivity | null | undefined,
+) {
+  if (!activity) return [];
+
+  return [
+    "You are preparing a company GitLab team weekly report in Simplified Chinese.",
+    `Reporting period: ${activity.period.label} (${activity.period.timezone}; start inclusive, end exclusive).`,
+    `GitLab scope: all non-archived projects visible to the server token on ${activity.sourceUrl}.`,
+    "Use the evidence dataset below as the source of truth. Never invent work, people, impact, or completion status.",
+    "Treat commit counts and changed-line counts as coverage signals, not employee performance scores. Do not rank people by volume.",
+    "Group obvious aliases only when name/email evidence supports it. Do not expose email addresses in the report.",
+    "Analyze document, code, configuration, and test changes from commit messages, paths, stats, and available patch excerpts. Do not quote secrets or large code fragments.",
+    "Only analyze projects represented by commits in the evidence dataset. Omit projects with zero commits in the reporting period entirely; projectsScanned is discovery coverage, not a request to discuss inactive projects.",
+    "Include every contributor found in the dataset. Mention roster members with no detected activity only when identity matching is unambiguous.",
+    "Write polished Markdown with these sections: 数据范围与口径、总体进展、成员工作情况、跨项目协作与风险、下周建议、数据缺口。",
+    "For each member, summarize deliverables, evidence links, likely impact, risks or unfinished work, and a concrete follow-up. Clearly label inference as inference.",
+    "If collection warnings exist, surface them under 数据缺口. If no commits were collected, say that evidence is unavailable instead of fabricating a report.",
+    "Return only the final report Markdown. Do not describe your process and do not modify any repository.",
+    "GitLab weekly activity dataset:",
+    JSON.stringify(activity, null, 2),
+  ];
+}
+
 export function buildRunnerTaskPrompt(input: RunnerTaskPromptInput) {
   return [
     `You are a ${dockerRunnerEngineLabels[input.engine]} execution worker inside Cola Virtual Office.`,
@@ -84,7 +110,10 @@ export function buildRunnerTaskPrompt(input: RunnerTaskPromptInput) {
       input.feishuDocuments,
       input.feishuDocumentWarnings,
     ),
+    ...gitLabWeeklyReportPromptLines(input.gitlabWeeklyActivity),
     "Use the workspace and files made available by the runner environment.",
-    "Return a concise completion summary and mention any files changed.",
+    input.gitlabWeeklyActivity
+      ? "The requested deliverable is the report itself; do not return a separate completion summary."
+      : "Return a concise completion summary and mention any files changed.",
   ].join("\n");
 }

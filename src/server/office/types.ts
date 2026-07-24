@@ -129,6 +129,10 @@ export type OfficeSnapshot = {
   integrations?: {
     hermesGitLab: {
       configured: boolean;
+      url: string | null;
+    };
+    feishuDocuments: {
+      configured: boolean;
     };
   };
   headline: string;

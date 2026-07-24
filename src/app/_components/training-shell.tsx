@@ -1620,6 +1620,9 @@ export function TrainingShell() {
   const [pendingDeletedLabNames, setPendingDeletedLabNames] = useState<
     string[]
   >([]);
+  const [pendingDeletedRunIds, setPendingDeletedRunIds] = useState<string[]>(
+    [],
+  );
   const [labPublicPortDrafts, setLabPublicPortDrafts] = useState<
     Record<string, string>
   >({});
@@ -1630,7 +1633,9 @@ export function TrainingShell() {
   const jupyterLabs = (jupyterLabsQuery.data?.items ?? []).filter(
     (lab) => !pendingDeletedLabNames.includes(lab.name),
   );
-  const studioRuns = studioRunsQuery.data ?? [];
+  const studioRuns = (studioRunsQuery.data ?? []).filter(
+    (run) => !pendingDeletedRunIds.includes(run.id),
+  );
 
   const studioAvailable = studiosQuery.data?.available === true;
   const studioCapabilityReason = studiosQuery.data?.reason ?? null;
@@ -1854,6 +1859,34 @@ export function TrainingShell() {
     }));
   }, [labDraft.image, labImageOptions]);
 
+  useEffect(() => {
+    const liveNames = new Set(
+      (studiosQuery.data?.items ?? []).map((studio) => studio.name),
+    );
+    setPendingDeletedStudioNames((current) => {
+      const next = current.filter((name) => liveNames.has(name));
+      return next.length === current.length ? current : next;
+    });
+  }, [studiosQuery.data?.items]);
+
+  useEffect(() => {
+    const liveNames = new Set(
+      (jupyterLabsQuery.data?.items ?? []).map((lab) => lab.name),
+    );
+    setPendingDeletedLabNames((current) => {
+      const next = current.filter((name) => liveNames.has(name));
+      return next.length === current.length ? current : next;
+    });
+  }, [jupyterLabsQuery.data?.items]);
+
+  useEffect(() => {
+    const liveIds = new Set((studioRunsQuery.data ?? []).map((run) => run.id));
+    setPendingDeletedRunIds((current) => {
+      const next = current.filter((id) => liveIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [studioRunsQuery.data]);
+
   const createStudio = api.training.createUnslothStudio.useMutation({
     onSuccess: (result) => {
       notifySuccess(result.message);
@@ -1870,9 +1903,12 @@ export function TrainingShell() {
         current.includes(name) ? current : [...current, name],
       );
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       notifySuccess(result.message);
-      void utils.training.listUnslothStudios.invalidate();
+      await Promise.all([
+        studiosQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error, variables) => {
       setPendingDeletedStudioNames((current) =>
@@ -1909,11 +1945,24 @@ export function TrainingShell() {
   });
 
   const deleteRun = api.training.deleteStudioRun.useMutation({
-    onSuccess: (result) => {
-      notifySuccess(result.message);
-      void utils.training.listStudioRuns.invalidate();
+    onMutate: ({ id }) => {
+      setPendingDeletedRunIds((current) =>
+        current.includes(id) ? current : [...current, id],
+      );
     },
-    onError: (error) => notifyError(error.message),
+    onSuccess: async (result) => {
+      notifySuccess(result.message);
+      await Promise.all([
+        studioRunsQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
+    },
+    onError: (error, variables) => {
+      setPendingDeletedRunIds((current) =>
+        current.filter((id) => id !== variables.id),
+      );
+      notifyError(error.message);
+    },
   });
 
   const createJupyterLab = api.training.createJupyterLab.useMutation({
@@ -1932,9 +1981,12 @@ export function TrainingShell() {
         current.includes(name) ? current : [...current, name],
       );
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       notifySuccess(result.message);
-      void utils.training.listJupyterLabs.invalidate();
+      await Promise.all([
+        jupyterLabsQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error, variables) => {
       setPendingDeletedLabNames((current) =>
@@ -2043,9 +2095,10 @@ export function TrainingShell() {
 
   async function handleDeleteStudio(name: string) {
     const confirmed = await confirm({
-      title: `确认删除 Unsloth Studio「${name}」？`,
-      description: "系统会删除对应的 Kubernetes Deployment 和 Service。",
-      confirmLabel: "删除 Studio",
+      title: `确认强制删除 Unsloth Studio「${name}」？`,
+      description:
+        "系统会立即强制删除对应的 Kubernetes Deployment、Pod 和 Service。",
+      confirmLabel: "强制删除",
       cancelLabel: "取消",
       confirmVariant: "destructive",
     });
@@ -2070,10 +2123,10 @@ export function TrainingShell() {
 
   async function handleDeleteRun(run: StudioRun) {
     const confirmed = await confirm({
-      title: `确认删除训练运行「${run.title}」？`,
+      title: `确认强制删除训练运行「${run.title}」？`,
       description:
-        "系统会删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap，并移除运行记录。",
-      confirmLabel: "删除运行",
+        "系统会立即强制删除对应的 Kubernetes Job、Pod、Service 和 ConfigMap，并移除运行记录。",
+      confirmLabel: "强制删除",
       cancelLabel: "取消",
       confirmVariant: "destructive",
     });
@@ -2084,10 +2137,10 @@ export function TrainingShell() {
 
   async function handleDeleteJupyterLab(name: string) {
     const confirmed = await confirm({
-      title: `确认删除 JupyterLab「${name}」？`,
+      title: `确认强制删除 JupyterLab「${name}」？`,
       description:
-        "系统会删除对应的 Kubernetes Deployment、Lab Service 和已公开端口 Service。",
-      confirmLabel: "删除 JupyterLab",
+        "系统会立即强制删除对应的 Kubernetes Deployment、Pod、Lab Service 和已公开端口 Service。",
+      confirmLabel: "强制删除",
       cancelLabel: "取消",
       confirmVariant: "destructive",
     });

@@ -22,6 +22,7 @@ import {
   resolveRunnerRuntime,
 } from "@/server/office/domain";
 import {
+  createFeishuDocumentFromMarkdown,
   loadFeishuDocumentContext,
   readFeishuDocumentReferences,
 } from "@/server/office/feishu-docs";
@@ -31,6 +32,15 @@ import {
   type FeishuUserNotificationMessage,
 } from "@/server/office/feishu-notifier";
 import { readHermesGitLabRepository } from "@/server/office/hermes-gitlab";
+import {
+  collectGitLabWeeklyActivity,
+  gitLabWeeklyActivityFailure,
+} from "@/server/office/gitlab-weekly-activity";
+import {
+  attachWeeklyReportDocument,
+  readGitLabWeeklyReportRequest,
+  readWeeklyReportDocument,
+} from "@/server/office/weekly-report";
 import { readExecutionResult } from "@/server/office/execution-result";
 import { buildRunnerTaskPrompt } from "@/server/worker/task-prompt";
 import type {
@@ -565,18 +575,8 @@ export async function reportRunnerSession(
       const executionResult = readExecutionResult(
         input.artifactPath ?? session.artifactPath,
       );
-      const notificationInput = {
-        taskId: task.id,
-        sessionId: session.id,
-        taskTitle: task.title,
-        taskSummary: task.summary,
-        agentName: agent?.name ?? deviceMetadata.agentName ?? null,
-        deviceName: device.name,
-        status: input.status,
-        artifactPath: input.artifactPath ?? session.artifactPath,
-        logPath: input.logPath ?? session.logPath,
-        outputText: input.outputText ?? executionResult?.outputText ?? null,
-      };
+      const executionOutputText =
+        input.outputText ?? executionResult?.outputText ?? null;
       const recipientOpenIds =
         notificationUsers.length > 0
           ? notificationUsers.map((user) => user.feishuOpenId)
@@ -593,6 +593,78 @@ export async function reportRunnerSession(
           : taskOwner?.feishuOpenId
             ? [taskOwner.feishuOpenId]
             : [];
+      const weeklyReportRequest = readGitLabWeeklyReportRequest(
+        task.inputPayload,
+      );
+      let weeklyReportDocument = readWeeklyReportDocument(task.outputPayload);
+      let weeklyReportDocumentError: string | null = null;
+
+      if (
+        input.status === "succeeded" &&
+        weeklyReportRequest &&
+        !weeklyReportDocument
+      ) {
+        try {
+          const createdDocument = await createFeishuDocumentFromMarkdown({
+            title: task.title,
+            markdown: executionOutputText ?? "",
+            viewerOpenIds: targetOpenIds,
+          });
+          weeklyReportDocument = createdDocument;
+          await tx
+            .update(tasks)
+            .set({
+              outputPayload: attachWeeklyReportDocument(
+                task.outputPayload,
+                weeklyReportRequest,
+                createdDocument,
+              ),
+              updatedAt: now,
+            })
+            .where(eq(tasks.id, task.id));
+        } catch (error) {
+          weeklyReportDocumentError =
+            error instanceof Error ? error.message : "飞书文档生成失败。";
+          notificationWarnings.push(weeklyReportDocumentError);
+        }
+      }
+
+      if (weeklyReportDocument?.warnings.length) {
+        notificationWarnings.push(...weeklyReportDocument.warnings);
+      }
+
+      const notificationOutputText =
+        weeklyReportRequest && input.status === "succeeded"
+          ? weeklyReportDocument
+            ? [
+                `团队周报已生成：${weeklyReportDocument.title}`,
+                weeklyReportDocument.url,
+                executionOutputText
+                  ? `报告摘要：\n${executionOutputText.slice(0, 2400)}`
+                  : null,
+              ]
+                .filter((line): line is string => Boolean(line))
+                .join("\n\n")
+            : [
+                `团队周报正文已生成，但飞书文档创建失败：${weeklyReportDocumentError ?? "未知错误"}`,
+                executionOutputText?.slice(0, 4000) ?? null,
+              ]
+                .filter((line): line is string => Boolean(line))
+                .join("\n\n")
+          : executionOutputText;
+      const notificationInput = {
+        taskId: task.id,
+        sessionId: session.id,
+        taskTitle: task.title,
+        taskSummary: task.summary,
+        agentName: agent?.name ?? deviceMetadata.agentName ?? null,
+        deviceName: device.name,
+        status: input.status,
+        artifactPath: input.artifactPath ?? session.artifactPath,
+        logPath: input.logPath ?? session.logPath,
+        outputText: notificationOutputText,
+        documentUrl: weeklyReportDocument?.url ?? null,
+      };
 
       try {
         await notifyHermesTaskResultToFeishu(notificationInput, targetOpenIds);
@@ -738,12 +810,22 @@ export async function pullNextTaskForRunner(
     engine === "hermes-agent"
       ? readHermesGitLabRepository(nextTask.inputPayload)
       : null;
-  const feishuDocumentResult =
+  const weeklyReportRequest =
     engine === "hermes-agent"
-      ? await loadFeishuDocumentContext(
+      ? readGitLabWeeklyReportRequest(nextTask.inputPayload)
+      : null;
+  const [feishuDocumentResult, gitlabWeeklyActivity] = await Promise.all([
+    engine === "hermes-agent"
+      ? loadFeishuDocumentContext(
           readFeishuDocumentReferences(nextTask.inputPayload, nextTask.summary),
         )
-      : { documents: [], warnings: [] };
+      : Promise.resolve({ documents: [], warnings: [] }),
+    weeklyReportRequest
+      ? collectGitLabWeeklyActivity(weeklyReportRequest).catch((error) =>
+          gitLabWeeklyActivityFailure(weeklyReportRequest, error),
+        )
+      : Promise.resolve(null),
+  ]);
 
   return {
     task: {
@@ -764,6 +846,7 @@ export async function pullNextTaskForRunner(
         gitlabRepository,
         feishuDocuments: feishuDocumentResult.documents,
         feishuDocumentWarnings: feishuDocumentResult.warnings,
+        gitlabWeeklyActivity,
       }),
       gitlab: gitlabRepository,
       feishu: {

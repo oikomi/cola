@@ -18,8 +18,14 @@ export const PRODUCT_AREAS: Array<{
   description: string;
 }> = [
   {
-    key: "office",
+    key: "compute",
     href: "/",
+    title: "算力分析",
+    description: "分析 GPU 分配、使用者归属与运行容器的实时负载。",
+  },
+  {
+    key: "office",
+    href: "/office",
     title: "虚拟 Office",
     description: "统一查看 agent、任务、审批、执行状态和 workspace 路由。",
   },
@@ -40,12 +46,6 @@ export const PRODUCT_AREAS: Array<{
     href: "/training",
     title: "训练作业",
     description: "统一管理训练任务、数据集、优先级和 GPU 消耗。",
-  },
-  {
-    key: "compute",
-    href: "/compute",
-    title: "算力分析",
-    description: "分析 GPU 分配、使用者归属与运行容器的实时负载。",
   },
   {
     key: "storage",
@@ -86,9 +86,12 @@ export const k8sWorkspaceSurfaceLabels: Record<DockerRunnerEngine, string> = {
 export function productAreaForPath(
   pathname: string | null | undefined,
 ): ProductAreaKey {
+  if (!pathname || pathname === "/" || pathname.startsWith("/compute")) {
+    return "compute";
+  }
+
   if (
-    !pathname ||
-    pathname === "/" ||
+    pathname.startsWith("/office") ||
     pathname.startsWith("/control") ||
     pathname.startsWith("/openclaw") ||
     pathname.startsWith("/hermes")
@@ -106,10 +109,6 @@ export function productAreaForPath(
 
   if (pathname.startsWith("/cmdb")) {
     return "cmdb";
-  }
-
-  if (pathname.startsWith("/compute")) {
-    return "compute";
   }
 
   if (pathname.startsWith("/training")) {

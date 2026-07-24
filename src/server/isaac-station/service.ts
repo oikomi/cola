@@ -31,6 +31,12 @@ import {
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
 import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
+import {
   loadResourceOwnerMap,
   ownerForUserId,
   type ResourceOwner,
@@ -98,6 +104,7 @@ type IsaacStationKubeContext = {
   apiServer: string | null;
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
 };
 
 type IsaacStationResources = {
@@ -207,6 +214,7 @@ async function createKubeContext(): Promise<IsaacStationKubeContext> {
     apiServer: kubeConfig.getCurrentCluster()?.server ?? null,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
   };
 }
 
@@ -1245,32 +1253,27 @@ export async function deleteIsaacStation(nameInput: string) {
   validateStationName(name);
 
   const ctx = await createKubeContext();
-  const errors: unknown[] = [];
 
-  try {
-    await ctx.appsApi.deleteNamespacedDeployment({
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    namespace: ctx.namespace,
+    name: deploymentName(name),
+  });
+  await Promise.all([
+    forceDeleteNamespacedPods({
+      coreApi: ctx.coreApi,
+      deleteApi: ctx.deleteApi,
       namespace: ctx.namespace,
-      name: deploymentName(name),
-    });
-  } catch (error) {
-    if (!isNotFoundError(error)) errors.push(error);
-  }
-
-  try {
-    await ctx.coreApi.deleteNamespacedService({
+      labelSelectors: [`cola.isaac/station-name=${name}`],
+    }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Service",
       namespace: ctx.namespace,
       name: serviceName(name),
-    });
-  } catch (error) {
-    if (!isNotFoundError(error)) errors.push(error);
-  }
-
-  if (errors.length > 0) {
-    const detail = errors
-      .map((error) => (error instanceof Error ? error.message : String(error)))
-      .join("；");
-    throw new Error(`删除 Isaac Station 失败：${detail}`);
-  }
+    }),
+  ]);
 
   return { name };
 }

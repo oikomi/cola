@@ -50,7 +50,7 @@ export default async function LoginPage({
                   进入 Cola 控制面
                 </h2>
                 <p className="mt-4 text-sm leading-6 text-slate-200/72">
-                  使用企业飞书账号访问虚拟 Office、训练作业、推理部署和 CMDB 运维入口。
+                  使用企业飞书账号访问算力分析、虚拟 Office、训练作业、推理部署和 CMDB 运维入口。
                 </p>
               </div>
             </div>

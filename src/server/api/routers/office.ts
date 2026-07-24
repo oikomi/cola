@@ -8,6 +8,10 @@ import {
 } from "@/server/api/trpc";
 import { users } from "@/server/db/schema";
 import {
+  officeTaskWorkflowValues,
+  weeklyReportPeriodPresetValues,
+} from "@/lib/office-task-workflows";
+import {
   agentRoleValues,
   approvalTypeValues,
   dockerRunnerEngineValues,
@@ -56,6 +60,8 @@ const createTaskInput = z.object({
   gitlabRef: z.string().trim().max(128).optional(),
   notifyUserId: z.string().uuid().optional(),
   notifyUserIds: z.array(z.string().uuid()).max(20).optional(),
+  workflow: z.enum(officeTaskWorkflowValues).default("general"),
+  weeklyReportPeriod: z.enum(weeklyReportPeriodPresetValues).optional(),
 });
 
 const updateTaskStatusInput = z.object({

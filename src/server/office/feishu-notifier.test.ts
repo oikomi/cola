@@ -71,6 +71,11 @@ function stringifyFetchBody(body: BodyInit | null | undefined) {
   return typeof body === "string" ? body : "";
 }
 
+function parseFetchBody(body: BodyInit | null | undefined): unknown {
+  const value = stringifyFetchBody(body);
+  return value ? (JSON.parse(value) as unknown) : null;
+}
+
 function requestUrlString(url: string | URL | Request) {
   return typeof url === "string"
     ? url
@@ -268,7 +273,7 @@ void test("Hermes group notification falls back when the Feishu card template is
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const requestUrl = requestUrlString(url);
-    const body = init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null;
+    const body = parseFetchBody(init?.body);
     requests.push({
       url: requestUrl,
       body,
@@ -291,7 +296,9 @@ void test("Hermes group notification falls back when the Feishu card template is
       });
     }
 
-    const content = JSON.parse(recordBody<{ content: string }>(body).content);
+    const content = recordBody<{ type?: string }>(
+      JSON.parse(recordBody<{ content: string }>(body).content) as unknown,
+    );
     if (content.type === "template") {
       return Response.json({
         code: 200380,
@@ -385,6 +392,51 @@ void test("Hermes group notification sends an interactive card", async () => {
   assert.equal(
     body.card.elements[3]?.actions?.[0]?.url,
     "https://example.feishu.cn/wiki/wiki-token",
+  );
+});
+
+void test("Hermes result card opens a generated document outside task summary", async () => {
+  const requests: Array<{ body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    requests.push({
+      body: init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null,
+    });
+    return new Response("{}", { status: 200 });
+  };
+
+  try {
+    await withEnv(
+      {
+        FEISHU_APP_ID: undefined,
+        FEISHU_APP_SECRET: undefined,
+        COLA_HERMES_FEISHU_WEBHOOK_URL: "https://open.feishu.example/webhook",
+        COLA_HERMES_FEISHU_WEBHOOK_SECRET: undefined,
+      },
+      () =>
+        notifyHermesTaskResultToFeishu({
+          ...taskResultInput(),
+          documentUrl: "https://feishu.cn/docx/generated-report",
+        }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const body = recordBody<{
+    card: {
+      elements: Array<{
+        actions?: Array<{ url: string; text: { content: string } }>;
+      }>;
+    };
+  }>(requests[0]?.body);
+  const documentAction = body.card.elements.find(
+    (element) => element.actions?.[0]?.text.content === "打开飞书文档",
+  );
+
+  assert.equal(
+    documentAction?.actions?.[0]?.url,
+    "https://feishu.cn/docx/generated-report",
   );
 });
 
@@ -607,7 +659,7 @@ void test("Hermes user notification falls back when the Feishu card template is 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const requestUrl = requestUrlString(url);
-    const body = init?.body ? JSON.parse(stringifyFetchBody(init.body)) : null;
+    const body = parseFetchBody(init?.body);
     requests.push({
       url: requestUrl,
       body,
@@ -620,7 +672,9 @@ void test("Hermes user notification falls back when the Feishu card template is 
       });
     }
 
-    const content = JSON.parse(recordBody<{ content: string }>(body).content);
+    const content = recordBody<{ type?: string }>(
+      JSON.parse(recordBody<{ content: string }>(body).content) as unknown,
+    );
     if (content.type === "template") {
       return Response.json({
         code: 200380,
@@ -715,7 +769,7 @@ void test("Hermes user notification displays the complete long result", async ()
   assert.match(resultContent, /第二部分：风险和建议。/);
   assert.match(
     resultContent,
-    new RegExp(input.outputText!.replaceAll("\n", "\\n")),
+    new RegExp(input.outputText.replaceAll("\n", "\\n")),
   );
   assert.doesNotMatch(resultContent, /结果摘要/);
   assert.doesNotMatch(resultContent, /只展示摘要/);

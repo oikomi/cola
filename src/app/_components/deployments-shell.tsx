@@ -706,6 +706,8 @@ export function DeploymentsShell() {
   const { confirm, confirmDialog } = useConfirmDialog();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [draft, setDraft] = useState<DraftState>(defaultDraft);
+  const [pendingDeletedDeploymentNames, setPendingDeletedDeploymentNames] =
+    useState<string[]>([]);
 
   const deploymentsQuery = api.deployments.list.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -734,16 +736,39 @@ export function DeploymentsShell() {
   });
 
   const deleteDeployment = api.deployments.delete.useMutation({
-    onSuccess: async () => {
-      await utils.deployments.list.invalidate();
-      notifySuccess("推理部署已删除。");
+    onMutate: ({ name }) => {
+      setPendingDeletedDeploymentNames((current) =>
+        current.includes(name) ? current : [...current, name],
+      );
     },
-    onError: (error) => {
+    onSuccess: async () => {
+      notifySuccess("推理部署已删除。");
+      await Promise.all([
+        deploymentsQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
+    },
+    onError: (error, variables) => {
+      setPendingDeletedDeploymentNames((current) =>
+        current.filter((name) => name !== variables.name),
+      );
       notifyError(error.message);
     },
   });
 
-  const rows = deploymentsQuery.data?.items ?? [];
+  useEffect(() => {
+    const liveNames = new Set(
+      (deploymentsQuery.data?.items ?? []).map((deployment) => deployment.name),
+    );
+    setPendingDeletedDeploymentNames((current) => {
+      const next = current.filter((name) => liveNames.has(name));
+      return next.length === current.length ? current : next;
+    });
+  }, [deploymentsQuery.data?.items]);
+
+  const rows = (deploymentsQuery.data?.items ?? []).filter(
+    (deployment) => !pendingDeletedDeploymentNames.includes(deployment.name),
+  );
   const capabilityReason =
     deploymentsQuery.data?.reason ?? deploymentsQuery.error?.message ?? null;
   const clusterStatus = deploymentsQuery.isLoading
@@ -841,9 +866,10 @@ export function DeploymentsShell() {
 
   const handleDelete = async (name: string) => {
     const confirmed = await confirm({
-      title: `确认删除推理部署 ${name}？`,
-      description: "删除后会同步清理对应的服务入口和运行资源，且不能自动恢复。",
-      confirmLabel: "删除部署",
+      title: `确认强制删除推理部署 ${name}？`,
+      description:
+        "系统会立即强制删除对应的 Deployment、Pod 和 Service，且不能恢复。",
+      confirmLabel: "强制删除",
     });
     if (!confirmed) return;
 

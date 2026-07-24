@@ -29,6 +29,12 @@ import {
   createKubeConfig as createSharedKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
 import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
@@ -88,6 +94,7 @@ type UnslothStudioKubeContext = {
   apiServer: string | null;
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
 };
 
 type UnslothStudioResources = {
@@ -199,6 +206,7 @@ async function createKubeContext(): Promise<UnslothStudioKubeContext> {
     apiServer: kubeConfig.getCurrentCluster()?.server ?? null,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
   };
 }
 
@@ -1011,36 +1019,30 @@ export async function createUnslothStudioRuntime(
   };
 }
 
-async function deleteResource(options: { action: () => Promise<unknown> }) {
-  try {
-    await options.action();
-  } catch (error) {
-    if (isNotFoundError(error)) return;
-    throw error;
-  }
-}
-
 export async function deleteUnslothStudioRuntime(name: string) {
   const normalizedName = name.trim().toLowerCase();
   validateStudioName(normalizedName);
 
   const ctx = await createKubeContext();
 
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    namespace: ctx.namespace,
+    name: deploymentName(normalizedName),
+  });
   await Promise.all([
-    deleteResource({
-      action: () =>
-        ctx.appsApi.deleteNamespacedDeployment({
-          name: deploymentName(normalizedName),
-          namespace: ctx.namespace,
-          propagationPolicy: "Foreground",
-        }),
+    forceDeleteNamespacedPods({
+      coreApi: ctx.coreApi,
+      deleteApi: ctx.deleteApi,
+      namespace: ctx.namespace,
+      labelSelectors: [`cola.training/unsloth-studio-name=${normalizedName}`],
     }),
-    deleteResource({
-      action: () =>
-        ctx.coreApi.deleteNamespacedService({
-          name: serviceName(normalizedName),
-          namespace: ctx.namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Service",
+      namespace: ctx.namespace,
+      name: serviceName(normalizedName),
     }),
   ]);
 

@@ -28,6 +28,12 @@ import {
 } from "@/server/gpu/hami";
 import { createKubeConfig as createSharedKubeConfig } from "@/server/kubernetes/kubeconfig";
 import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
+import {
   type TrainingDistributedBackend,
   type TrainingJobStatus,
   type TrainingLauncherType,
@@ -77,6 +83,7 @@ type TrainingKubeContext = {
   gpuLabelKey: string;
   batchApi: BatchV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
   image: string;
 };
 
@@ -219,6 +226,7 @@ async function createKubeContext(): Promise<TrainingKubeContext> {
     image: resolveTrainingImage(),
     batchApi: kubeConfig.makeApiClient(BatchV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
   };
 }
 
@@ -1267,80 +1275,36 @@ async function deleteRuntimeResources(
   const runtimeServiceName = serviceName ?? buildRuntimeServiceName(jobName);
   const runtimeConfigMapName = buildRuntimeConfigMapName(jobName);
 
-  async function deleteRuntimePods() {
-    const podMap = new Map<string, V1Pod>();
-    const labelSelectors = [
-      `cola.training/runtime-name=${jobName}`,
-      `job-name=${jobName}`,
-      `batch.kubernetes.io/job-name=${jobName}`,
-    ];
-
-    for (const labelSelector of labelSelectors) {
-      try {
-        const podList = await ctx.coreApi.listNamespacedPod({
-          namespace,
-          labelSelector,
-        });
-
-        for (const pod of podList.items) {
-          const podName = pod.metadata?.name;
-          if (podName) podMap.set(podName, pod);
-        }
-      } catch (error) {
-        if (isNotFoundError(error)) return;
-        throw error;
-      }
-    }
-
-    await Promise.all(
-      [...podMap.values()].map(async (pod) => {
-        const podName = pod.metadata?.name;
-        if (!podName) return;
-
-        try {
-          await ctx.coreApi.deleteNamespacedPod({
-            namespace,
-            name: podName,
-            gracePeriodSeconds: 0,
-            propagationPolicy: "Background",
-          });
-        } catch (error) {
-          if (isNotFoundError(error)) return;
-          throw error;
-        }
-      }),
-    );
-  }
-
-  const cleanupActions = [
-    async () =>
-      ctx.batchApi.deleteNamespacedJob({
-        namespace,
-        name: jobName,
-        propagationPolicy: "Foreground",
-        gracePeriodSeconds: 0,
-      }),
-    deleteRuntimePods,
-    async () =>
-      ctx.coreApi.deleteNamespacedService({
-        namespace,
-        name: runtimeServiceName,
-      }),
-    async () =>
-      ctx.coreApi.deleteNamespacedConfigMap({
-        namespace,
-        name: runtimeConfigMapName,
-      }),
-  ];
-
-  for (const cleanup of cleanupActions) {
-    try {
-      await cleanup();
-    } catch (error) {
-      if (isNotFoundError(error)) continue;
-      throw error;
-    }
-  }
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "batch/v1",
+    kind: "Job",
+    namespace,
+    name: jobName,
+  });
+  await Promise.all([
+    forceDeleteNamespacedPods({
+      coreApi: ctx.coreApi,
+      deleteApi: ctx.deleteApi,
+      namespace,
+      labelSelectors: [
+        `cola.training/runtime-name=${jobName}`,
+        `job-name=${jobName}`,
+        `batch.kubernetes.io/job-name=${jobName}`,
+      ],
+    }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Service",
+      namespace,
+      name: runtimeServiceName,
+    }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "ConfigMap",
+      namespace,
+      name: runtimeConfigMapName,
+    }),
+  ]);
 }
 
 export async function submitTrainingJob(job: TrainingJobRecord) {

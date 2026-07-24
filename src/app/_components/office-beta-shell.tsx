@@ -3,9 +3,12 @@
 import {
   BriefcaseBusinessIcon,
   BanIcon,
+  ChartNoAxesColumnIncreasingIcon,
   ClipboardListIcon,
   CpuIcon,
   ExternalLinkIcon,
+  FileTextIcon,
+  GitBranchIcon,
   LoaderCircleIcon,
   PlusIcon,
   RadarIcon,
@@ -46,6 +49,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { notifyError, notifySuccess } from "@/components/ui/toast";
+import {
+  resolveWeeklyReportPeriod,
+  type OfficeTaskWorkflow,
+  type WeeklyReportPeriodPreset,
+} from "@/lib/office-task-workflows";
 import { k8sWorkspaceEngineLabels } from "@/lib/product-areas";
 import { resolveBrowserNativeWorkspaceHref } from "@/lib/office-routing";
 import { useOfficeBetaStore } from "@/lib/office-beta-store";
@@ -197,6 +205,14 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
   procurement: "采购流转",
   coordination: "跨部门协作",
 };
+
+const WEEKLY_REPORT_PERIOD_LABELS: Record<WeeklyReportPeriodPreset, string> = {
+  previous_week: "上一完整周",
+  current_week: "本周至今",
+};
+
+const DEFAULT_WEEKLY_REPORT_FOCUS =
+  "按成员归纳本周交付、文档与代码证据、协作影响、风险和下周建议；没有证据的内容不要推测。";
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
   "command",
@@ -1903,6 +1919,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
     riskLevel: RiskLevel;
     gitlabRepository: string;
     gitlabRef: string;
+    workflow: OfficeTaskWorkflow;
+    weeklyReportPeriod: WeeklyReportPeriodPreset;
   }>({
     ownerAgentId:
       snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
@@ -1915,6 +1933,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
     riskLevel: "medium",
     gitlabRepository: "",
     gitlabRef: "",
+    workflow: "general",
+    weeklyReportPeriod: "previous_week",
   });
   const [workstationZoneId, setWorkstationZoneId] =
     useState<ZoneKey>("engineering");
@@ -1947,13 +1967,19 @@ export function OfficeBetaShell({ snapshot }: Props) {
   );
   const getNativeDashboardUrl = api.office.getNativeDashboardUrl.useMutation();
   const createTask = api.office.createTask.useMutation({
-    onSuccess: () => {
-      notifySuccess("任务已下发给 Hermes，执行结果会在完成后推送到飞书。");
+    onSuccess: (_result, variables) => {
+      notifySuccess(
+        variables.workflow === "gitlab_weekly_report"
+          ? "团队周报任务已下发，完成后会生成飞书文档并推送通知。"
+          : "任务已下发给 Hermes，执行结果会在完成后推送到飞书。",
+      );
       setIsCreateTaskOpen(false);
       setTaskDraft((current) => ({
         ...current,
         title: "",
         summary: "",
+        workflow: "general",
+        weeklyReportPeriod: "previous_week",
       }));
       void utils.office.getSnapshot.invalidate();
     },
@@ -1996,14 +2022,17 @@ export function OfficeBetaShell({ snapshot }: Props) {
     },
   });
   const deleteAgent = api.office.deleteAgent.useMutation({
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       notifySuccess(result.message);
       startTransition(() => {
         if (selectedAgentIdRef.current === result.agentId) {
           setSelectedAgentId(null);
         }
       });
-      void utils.office.getSnapshot.invalidate();
+      await Promise.all([
+        utils.office.getSnapshot.invalidate(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error) => {
       notifyError(error.message);
@@ -2329,6 +2358,18 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const trimmedTaskSummary = taskDraft.summary.trim();
   const trimmedGitLabRepository = taskDraft.gitlabRepository.trim();
   const trimmedGitLabRef = taskDraft.gitlabRef.trim();
+  const isWeeklyReportTask = taskDraft.workflow === "gitlab_weekly_report";
+  const weeklyReportPeriod = resolveWeeklyReportPeriod(
+    taskDraft.weeklyReportPeriod,
+  );
+  const weeklyReportConfigurationIssues = [
+    liveSnapshot.integrations?.hermesGitLab.configured
+      ? null
+      : "未配置 Hermes GitLab 凭据",
+    liveSnapshot.integrations?.feishuDocuments.configured
+      ? null
+      : "未配置飞书文档应用凭据",
+  ].filter((issue): issue is string => Boolean(issue));
   const hermesAgents = liveSnapshot.agents.filter(
     (agent) => agent.engine === "hermes-agent",
   );
@@ -2399,12 +2440,72 @@ export function OfficeBetaShell({ snapshot }: Props) {
       ...taskDraft,
       title: trimmedTaskTitle,
       summary: trimmedTaskSummary,
+      taskType: isWeeklyReportTask ? "coordination" : taskDraft.taskType,
+      priority: isWeeklyReportTask ? "medium" : taskDraft.priority,
+      riskLevel: isWeeklyReportTask ? "low" : taskDraft.riskLevel,
       notifyUserIds:
         taskDraft.notifyUserIds.length > 0
           ? taskDraft.notifyUserIds
           : undefined,
-      gitlabRepository: trimmedGitLabRepository || undefined,
-      gitlabRef: trimmedGitLabRef || undefined,
+      gitlabRepository:
+        !isWeeklyReportTask && trimmedGitLabRepository
+          ? trimmedGitLabRepository
+          : undefined,
+      gitlabRef:
+        !isWeeklyReportTask && trimmedGitLabRef ? trimmedGitLabRef : undefined,
+      weeklyReportPeriod: isWeeklyReportTask
+        ? taskDraft.weeklyReportPeriod
+        : undefined,
+    });
+  };
+
+  const handleTaskWorkflowChange = (workflow: OfficeTaskWorkflow) => {
+    setTaskDraft((current) => {
+      if (workflow === current.workflow) return current;
+      if (workflow === "general") {
+        const period = resolveWeeklyReportPeriod(current.weeklyReportPeriod);
+        return {
+          ...current,
+          workflow,
+          title:
+            current.title === `团队工作周报 · ${period.label}`
+              ? ""
+              : current.title,
+          summary:
+            current.summary === DEFAULT_WEEKLY_REPORT_FOCUS
+              ? ""
+              : current.summary,
+        };
+      }
+
+      const period = resolveWeeklyReportPeriod(current.weeklyReportPeriod);
+      return {
+        ...current,
+        workflow,
+        title: current.title.trim() || `团队工作周报 · ${period.label}`,
+        summary: current.summary.trim() || DEFAULT_WEEKLY_REPORT_FOCUS,
+      };
+    });
+  };
+
+  const handleWeeklyReportPeriodChange = (
+    weeklyReportPeriod: WeeklyReportPeriodPreset,
+  ) => {
+    setTaskDraft((current) => {
+      const previousPeriod = resolveWeeklyReportPeriod(
+        current.weeklyReportPeriod,
+      );
+      const nextPeriod = resolveWeeklyReportPeriod(weeklyReportPeriod);
+      const automaticTitle = `团队工作周报 · ${previousPeriod.label}`;
+
+      return {
+        ...current,
+        weeklyReportPeriod,
+        title:
+          current.title === automaticTitle
+            ? `团队工作周报 · ${nextPeriod.label}`
+            : current.title,
+      };
     });
   };
 
@@ -2417,9 +2518,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
     }
 
     const confirmed = await confirm({
-      title: `确认删除人物 ${selectedAgent.name}？`,
-      description: "这会同时清理关联的 runner 资源，且不能自动恢复。",
-      confirmLabel: "删除人物",
+      title: `确认强制删除人物 ${selectedAgent.name}？`,
+      description:
+        "这会立即强制删除关联的 Kubernetes runner、Pod 和入口资源，且不能恢复。",
+      confirmLabel: "强制删除",
     });
     if (!confirmed) return;
 
@@ -3206,12 +3308,51 @@ export function OfficeBetaShell({ snapshot }: Props) {
               <DialogHeader className="border-b border-[#dce8df] px-4 py-4 sm:px-5">
                 <DialogTitle>下发 Hermes 任务</DialogTitle>
                 <DialogDescription>
-                  任务会进入所选人物的队列，由对应 Hermes runner 认领执行。
+                  {isWeeklyReportTask
+                    ? "Hermes 会分析团队所选周期的 GitLab 活动，并生成一份飞书文档。"
+                    : "任务会进入所选人物的队列，由对应 Hermes runner 认领执行。"}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
                 <div className="grid gap-3">
+                  <div
+                    className="grid grid-cols-2 gap-1 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white p-1"
+                    aria-label="任务模式"
+                    role="group"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={!isWeeklyReportTask}
+                      className={cn(
+                        "flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] px-3 text-sm font-medium transition-colors",
+                        !isWeeklyReportTask
+                          ? "bg-[#e8f4ec] text-[#174d38] shadow-sm"
+                          : "text-[#5f7169] hover:bg-[#f3f8f4] hover:text-[#29483b]",
+                      )}
+                      onClick={() => handleTaskWorkflowChange("general")}
+                    >
+                      <ClipboardListIcon className="size-4" />
+                      普通任务
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={isWeeklyReportTask}
+                      className={cn(
+                        "flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-control)] px-3 text-sm font-medium transition-colors",
+                        isWeeklyReportTask
+                          ? "bg-[#e8f4ec] text-[#174d38] shadow-sm"
+                          : "text-[#5f7169] hover:bg-[#f3f8f4] hover:text-[#29483b]",
+                      )}
+                      onClick={() =>
+                        handleTaskWorkflowChange("gitlab_weekly_report")
+                      }
+                    >
+                      <ChartNoAxesColumnIncreasingIcon className="size-4" />
+                      团队周报
+                    </button>
+                  </div>
+
                   <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
                     <FormField label="目标人物">
                       <Select
@@ -3327,164 +3468,271 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     </FormField>
                   </div>
 
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
-                    <FormField label="任务标题">
-                      <Input
-                        className="bg-white"
-                        value={taskDraft.title}
-                        onChange={(event) =>
-                          setTaskDraft((current) => ({
-                            ...current,
-                            title: event.target.value,
-                          }))
-                        }
-                        placeholder="例如：整理本周用户反馈并给出优先级"
-                      />
-                    </FormField>
+                  {isWeeklyReportTask ? (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
+                        <FormField label="报告标题">
+                          <Input
+                            className="bg-white"
+                            value={taskDraft.title}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                            placeholder="团队工作周报"
+                          />
+                        </FormField>
 
-                    <FormField label="任务说明">
-                      <textarea
-                        className="min-h-24 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8] lg:min-h-20"
-                        value={taskDraft.summary}
-                        onChange={(event) =>
-                          setTaskDraft((current) => ({
-                            ...current,
-                            summary: event.target.value,
-                          }))
-                        }
-                        placeholder="写清目标、背景、输入材料、期望输出和验收标准。"
-                      />
-                    </FormField>
-                  </div>
+                        <FormField label="统计周期">
+                          <Select
+                            value={taskDraft.weeklyReportPeriod}
+                            onValueChange={(value) => {
+                              if (
+                                value !== "previous_week" &&
+                                value !== "current_week"
+                              ) {
+                                return;
+                              }
+                              handleWeeklyReportPeriodChange(value);
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-white">
+                              <SelectValue placeholder="统计周期">
+                                {() =>
+                                  WEEKLY_REPORT_PERIOD_LABELS[
+                                    taskDraft.weeklyReportPeriod
+                                  ]
+                                }
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="previous_week">
+                                  上一完整周
+                                </SelectItem>
+                                <SelectItem value="current_week">
+                                  本周至今
+                                </SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+                      </div>
 
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
-                    <FormField label="GitLab 仓库">
-                      <Input
-                        className="bg-white"
-                        value={taskDraft.gitlabRepository}
-                        onChange={(event) =>
-                          setTaskDraft((current) => ({
-                            ...current,
-                            gitlabRepository: event.target.value,
-                          }))
-                        }
-                        placeholder="group/project 或 GitLab HTTPS 地址"
-                      />
-                    </FormField>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                        <FormField label="GitLab 数据源">
+                          <div className="flex min-h-20 items-start gap-3 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2.5 text-sm text-[#24342f] shadow-sm">
+                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-[#367458]" />
+                            <span className="min-w-0">
+                              <span className="block leading-5 font-medium break-all">
+                                {liveSnapshot.integrations?.hermesGitLab.url ??
+                                  "未配置"}
+                              </span>
+                              <span className="mt-1 block text-xs leading-5 text-[#65776e]">
+                                仅处理所选周期内有提交的非归档项目
+                              </span>
+                            </span>
+                          </div>
+                        </FormField>
 
-                    <FormField label="分支/提交">
-                      <Input
-                        className="bg-white"
-                        value={taskDraft.gitlabRef}
-                        onChange={(event) =>
-                          setTaskDraft((current) => ({
-                            ...current,
-                            gitlabRef: event.target.value,
-                          }))
-                        }
-                        placeholder="main"
-                      />
-                    </FormField>
-                  </div>
+                        <FormField label="分析重点">
+                          <textarea
+                            className="min-h-20 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8]"
+                            value={taskDraft.summary}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                summary: event.target.value,
+                              }))
+                            }
+                            placeholder={DEFAULT_WEEKLY_REPORT_FOCUS}
+                          />
+                        </FormField>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                        <FormField label="任务标题">
+                          <Input
+                            className="bg-white"
+                            value={taskDraft.title}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                            placeholder="例如：整理本周用户反馈并给出优先级"
+                          />
+                        </FormField>
 
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <FormField label="任务类型">
-                      <Select
-                        value={taskDraft.taskType}
-                        onValueChange={(value) => {
-                          if (!value) return;
-                          setTaskDraft((current) => ({
-                            ...current,
-                            taskType: value,
-                          }));
-                        }}
-                      >
-                        <SelectTrigger className="w-full bg-white">
-                          <SelectValue placeholder="任务类型">
-                            {optionLabel(TASK_TYPE_LABELS, "任务类型")}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {taskTypeValues.map((taskType) => (
-                              <SelectItem key={taskType} value={taskType}>
-                                {TASK_TYPE_LABELS[taskType]}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </FormField>
+                        <FormField label="任务说明">
+                          <textarea
+                            className="min-h-24 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8] lg:min-h-20"
+                            value={taskDraft.summary}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                summary: event.target.value,
+                              }))
+                            }
+                            placeholder="写清目标、背景、输入材料、期望输出和验收标准。"
+                          />
+                        </FormField>
+                      </div>
 
-                    <FormField label="优先级">
-                      <Select
-                        value={taskDraft.priority}
-                        onValueChange={(value) => {
-                          if (!value) return;
-                          setTaskDraft((current) => ({
-                            ...current,
-                            priority: value,
-                          }));
-                        }}
-                      >
-                        <SelectTrigger className="w-full bg-white">
-                          <SelectValue placeholder="优先级">
-                            {optionLabel(priorityLabels, "优先级")}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {priorityValues.map((priority) => (
-                              <SelectItem key={priority} value={priority}>
-                                {priorityLabels[priority]}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </FormField>
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+                        <FormField label="GitLab 仓库">
+                          <Input
+                            className="bg-white"
+                            value={taskDraft.gitlabRepository}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                gitlabRepository: event.target.value,
+                              }))
+                            }
+                            placeholder="group/project 或 GitLab HTTPS 地址"
+                          />
+                        </FormField>
 
-                    <FormField label="风险级别">
-                      <Select
-                        value={taskDraft.riskLevel}
-                        onValueChange={(value) => {
-                          if (!value) return;
-                          setTaskDraft((current) => ({
-                            ...current,
-                            riskLevel: value,
-                          }));
-                        }}
-                      >
-                        <SelectTrigger className="w-full bg-white">
-                          <SelectValue placeholder="风险级别">
-                            {optionLabel(riskLevelLabels, "风险级别")}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {riskLevelValues.map((riskLevel) => (
-                              <SelectItem key={riskLevel} value={riskLevel}>
-                                {riskLevelLabels[riskLevel]}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </FormField>
-                  </div>
+                        <FormField label="分支/提交">
+                          <Input
+                            className="bg-white"
+                            value={taskDraft.gitlabRef}
+                            onChange={(event) =>
+                              setTaskDraft((current) => ({
+                                ...current,
+                                gitlabRef: event.target.value,
+                              }))
+                            }
+                            placeholder="main"
+                          />
+                        </FormField>
+                      </div>
 
-                  <div className="rounded-[var(--radius-card)] border border-[#d6e4da] bg-white/86 px-3 py-2 text-xs leading-5 text-[#4f655d]">
-                    {taskTargetAgents.length === 0
-                      ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
-                      : trimmedGitLabRef.length > 0 &&
-                          trimmedGitLabRepository.length === 0
-                        ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
-                        : trimmedGitLabRepository.length > 0 &&
-                            !liveSnapshot.integrations?.hermesGitLab.configured
-                          ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
-                          : selectedNotificationUsers.length > 0
-                            ? `完成后会发送到飞书群，并发送给 ${notificationUserLabel}。`
-                            : "完成后会发送到飞书群，并发送给任务创建人；也可以选择指定通知人。"}
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <FormField label="任务类型">
+                          <Select
+                            value={taskDraft.taskType}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              setTaskDraft((current) => ({
+                                ...current,
+                                taskType: value,
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-white">
+                              <SelectValue placeholder="任务类型">
+                                {optionLabel(TASK_TYPE_LABELS, "任务类型")}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {taskTypeValues.map((taskType) => (
+                                  <SelectItem key={taskType} value={taskType}>
+                                    {TASK_TYPE_LABELS[taskType]}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+
+                        <FormField label="优先级">
+                          <Select
+                            value={taskDraft.priority}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              setTaskDraft((current) => ({
+                                ...current,
+                                priority: value,
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-white">
+                              <SelectValue placeholder="优先级">
+                                {optionLabel(priorityLabels, "优先级")}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {priorityValues.map((priority) => (
+                                  <SelectItem key={priority} value={priority}>
+                                    {priorityLabels[priority]}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+
+                        <FormField label="风险级别">
+                          <Select
+                            value={taskDraft.riskLevel}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              setTaskDraft((current) => ({
+                                ...current,
+                                riskLevel: value,
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-white">
+                              <SelectValue placeholder="风险级别">
+                                {optionLabel(riskLevelLabels, "风险级别")}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {riskLevelValues.map((riskLevel) => (
+                                  <SelectItem key={riskLevel} value={riskLevel}>
+                                    {riskLevelLabels[riskLevel]}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </FormField>
+                      </div>
+                    </>
+                  )}
+
+                  <div
+                    className={cn(
+                      "flex min-h-12 items-start gap-2 rounded-[var(--radius-card)] border px-3 py-2 text-xs leading-5",
+                      isWeeklyReportTask &&
+                        weeklyReportConfigurationIssues.length > 0
+                        ? "border-[#e6c8a4] bg-[#fff9f0] text-[#78532e]"
+                        : "border-[#d6e4da] bg-white/86 text-[#4f655d]",
+                    )}
+                  >
+                    {isWeeklyReportTask ? (
+                      <FileTextIcon className="mt-0.5 size-4 shrink-0" />
+                    ) : null}
+                    <span>
+                      {taskTargetAgents.length === 0
+                        ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
+                        : isWeeklyReportTask &&
+                            weeklyReportConfigurationIssues.length > 0
+                          ? `团队周报暂不可下发：${weeklyReportConfigurationIssues.join("；")}。`
+                          : isWeeklyReportTask
+                            ? `将统计 ${weeklyReportPeriod.label} 的团队提交，完成后生成飞书文档并发送给${selectedNotificationUsers.length > 0 ? notificationUserLabel : "任务创建人"}。`
+                            : trimmedGitLabRef.length > 0 &&
+                                trimmedGitLabRepository.length === 0
+                              ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
+                              : trimmedGitLabRepository.length > 0 &&
+                                  !liveSnapshot.integrations?.hermesGitLab
+                                    .configured
+                                ? "当前未配置 Hermes GitLab 凭据。公开仓库可直接分析；私有仓库会在 runner 中提示认证失败。"
+                                : selectedNotificationUsers.length > 0
+                                  ? `完成后会发送到飞书群，并发送给 ${notificationUserLabel}。`
+                                  : "完成后会发送到飞书群，并发送给任务创建人；也可以选择指定通知人。"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3507,8 +3755,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     !taskDraft.ownerAgentId ||
                     trimmedTaskTitle.length < 3 ||
                     trimmedTaskSummary.length < 8 ||
-                    (trimmedGitLabRef.length > 0 &&
-                      trimmedGitLabRepository.length === 0) ||
+                    (isWeeklyReportTask
+                      ? weeklyReportConfigurationIssues.length > 0
+                      : trimmedGitLabRef.length > 0 &&
+                        trimmedGitLabRepository.length === 0) ||
                     Boolean(liveSnapshot.readOnlyReason)
                   }
                   onClick={() => void handleCreateTask()}
@@ -3518,10 +3768,16 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       className="animate-spin"
                       data-icon="inline-start"
                     />
+                  ) : isWeeklyReportTask ? (
+                    <FileTextIcon data-icon="inline-start" />
                   ) : (
                     <ClipboardListIcon data-icon="inline-start" />
                   )}
-                  {createTask.isPending ? "正在下发" : "下发给 Hermes"}
+                  {createTask.isPending
+                    ? "正在下发"
+                    : isWeeklyReportTask
+                      ? "生成团队周报"
+                      : "下发给 Hermes"}
                 </Button>
               </DialogFooter>
             </DialogContent>

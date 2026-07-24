@@ -1,6 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 
+import type {
+  OfficeTaskWorkflow,
+  WeeklyReportPeriodPreset,
+} from "@/lib/office-task-workflows";
 import type { db } from "@/server/db";
 import {
   agents,
@@ -24,11 +28,19 @@ import {
   type ZoneId,
 } from "@/server/office/catalog";
 import { parseRunnerMetadata } from "@/server/office/domain";
-import { extractFeishuDocumentReferences } from "@/server/office/feishu-docs";
+import {
+  extractFeishuDocumentReferences,
+  hasFeishuDocumentCredentials,
+} from "@/server/office/feishu-docs";
 import {
   normalizeHermesGitLabRepository,
+  resolveHermesGitLabCredentials,
   type HermesGitLabRepository,
 } from "@/server/office/hermes-gitlab";
+import {
+  createGitLabWeeklyReportRequest,
+  type GitLabWeeklyReportRequest,
+} from "@/server/office/weekly-report";
 
 type Database = typeof db;
 
@@ -49,6 +61,8 @@ export type CreateOfficeTaskInput = {
   notifyUserId?: string;
   notifyUserIds?: string[];
   ownerUserId: string;
+  weeklyReportPeriod?: WeeklyReportPeriodPreset;
+  workflow?: OfficeTaskWorkflow;
 };
 
 export type UpdateOfficeTaskStatusInput = {
@@ -99,11 +113,13 @@ function taskInputPayload(
   gitlabRepository: HermesGitLabRepository | null,
   feishuDocuments: ReturnType<typeof extractFeishuDocumentReferences>,
   notifyUserIds: string[],
+  workflow: GitLabWeeklyReportRequest | null,
 ) {
   if (
     !gitlabRepository &&
     feishuDocuments.length === 0 &&
-    notifyUserIds.length === 0
+    notifyUserIds.length === 0 &&
+    !workflow
   ) {
     return undefined;
   }
@@ -133,6 +149,7 @@ function taskInputPayload(
           },
         }
       : {}),
+    ...(workflow ? { workflow } : {}),
   };
 }
 
@@ -235,8 +252,45 @@ export async function createOfficeTask(
       input.gitlabRef,
     );
     const feishuDocuments = extractFeishuDocumentReferences(input.summary);
+    const workflow = input.workflow ?? "general";
+    const gitlabCredentials = resolveHermesGitLabCredentials();
+    const weeklyReportRequest =
+      workflow === "gitlab_weekly_report" && gitlabCredentials
+        ? createGitLabWeeklyReportRequest({
+            gitlabUrl: gitlabCredentials.url,
+            periodPreset: input.weeklyReportPeriod ?? "previous_week",
+            now,
+          })
+        : null;
 
-    if (gitlabRepository) {
+    if (workflow === "gitlab_weekly_report" && !gitlabCredentials) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "团队周报需要先配置 Hermes GitLab 服务端凭据。",
+      });
+    }
+
+    if (
+      workflow === "gitlab_weekly_report" &&
+      !hasFeishuDocumentCredentials()
+    ) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "团队周报需要先配置飞书应用凭据，才能创建飞书文档。",
+      });
+    }
+
+    if (
+      workflow === "gitlab_weekly_report" &&
+      (gitlabRepository || input.gitlabRef?.trim())
+    ) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "团队周报会扫描全部可见项目，不需要指定单个 GitLab 仓库。",
+      });
+    }
+
+    if (gitlabRepository || workflow === "gitlab_weekly_report") {
       const deviceRows = await tx.select().from(devices);
       const targetDevice = deviceRows.find(
         (device) => linkedAgentId(device.metadata) === owner.id,
@@ -245,7 +299,10 @@ export async function createOfficeTask(
       if (targetEngine !== "hermes-agent") {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "GitLab 仓库任务只能分派给已绑定 Hermes runner 的人物。",
+          message:
+            workflow === "gitlab_weekly_report"
+              ? "团队周报只能分派给已绑定 Hermes runner 的人物。"
+              : "GitLab 仓库任务只能分派给已绑定 Hermes runner 的人物。",
         });
       }
     }
@@ -292,6 +349,7 @@ export async function createOfficeTask(
           gitlabRepository,
           feishuDocuments,
           notifyUsers.map((user) => user.id),
+          weeklyReportRequest,
         ),
         status: taskStatus,
         createdAt: now,
@@ -323,7 +381,10 @@ export async function createOfficeTask(
       ownerUserId: input.ownerUserId,
       severity: "info",
       title: `新任务已进入 ${owner.name} 的待办`,
-      description: `${input.title} 已创建，并分派给 ${owner.name}。`,
+      description:
+        workflow === "gitlab_weekly_report" && weeklyReportRequest
+          ? `${input.title} 已创建，将统计 ${weeklyReportRequest.period.label} 的 GitLab 活动并生成飞书文档。`
+          : `${input.title} 已创建，并分派给 ${owner.name}。`,
       occurredAt: now,
     });
 

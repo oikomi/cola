@@ -2157,8 +2157,10 @@ export function IsaacShell() {
           : [...current, variables.name],
       );
       notifySuccess(`Isaac Station ${variables.name} 已删除。`);
-      await stationQuery.refetch();
-      await utils.isaacStation.list.invalidate();
+      await Promise.all([
+        stationQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error, variables) => {
       setPendingDeletedStationNames((current) =>
@@ -2196,8 +2198,10 @@ export function IsaacShell() {
         current?.name === variables.name ? null : current,
       );
       notifySuccess(`Isaac Lab Job ${variables.name} 已删除。`);
-      await labQuery.refetch();
-      await utils.isaacStation.listLabJobs.invalidate();
+      await Promise.all([
+        labQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error, variables) => {
       setPendingDeletedLabNames((current) =>
@@ -2440,10 +2444,10 @@ export function IsaacShell() {
 
   const handleDeleteStation = async (name: string) => {
     const confirmed = await confirm({
-      title: `确认删除 Sim Station ${name}？`,
+      title: `确认强制删除 Sim Station ${name}？`,
       description:
-        "删除后会释放对应的 Isaac Sim GPU Pod 和 streaming 入口，运行中的仿真会立即停止。",
-      confirmLabel: "删除 Station",
+        "系统会立即强制删除对应的 Deployment、GPU Pod 和 Service，运行中的仿真会立即停止。",
+      confirmLabel: "强制删除",
     });
     if (!confirmed) return;
     await deleteStation.mutateAsync({ name });
@@ -2451,9 +2455,9 @@ export function IsaacShell() {
 
   const handleDeleteLabJob = async (name: string) => {
     const confirmed = await confirm({
-      title: `确认删除 Isaac Lab Job ${name}？`,
-      description: "删除后会停止并清理对应的 Kubernetes Job 和 Pod。",
-      confirmLabel: "删除 Job",
+      title: `确认强制删除 Isaac Lab Job ${name}？`,
+      description: "系统会立即强制删除对应的 Kubernetes Job 和 Pod。",
+      confirmLabel: "强制删除",
     });
     if (!confirmed) return;
     await deleteLabJob.mutateAsync({ name });

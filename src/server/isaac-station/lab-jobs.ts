@@ -23,6 +23,12 @@ import {
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
 import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
+import {
   loadResourceOwnerMap,
   ownerForUserId,
   type ResourceOwner,
@@ -95,6 +101,7 @@ type IsaacLabKubeContext = {
   apiServer: string | null;
   batchApi: BatchV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
 };
 
 type IsaacLabResources = {
@@ -214,6 +221,7 @@ async function createKubeContext(): Promise<IsaacLabKubeContext> {
     apiServer: kubeConfig.getCurrentCluster()?.server ?? null,
     batchApi: kubeConfig.makeApiClient(BatchV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
   };
 }
 
@@ -1185,19 +1193,22 @@ export async function deleteIsaacLabJob(nameInput: string) {
 
   const ctx = await createKubeContext();
 
-  try {
-    await ctx.batchApi.deleteNamespacedJob({
-      namespace: ctx.namespace,
-      name: jobName(name),
-      propagationPolicy: "Foreground",
-      gracePeriodSeconds: 0,
-    });
-  } catch (error) {
-    if (!isNotFoundError(error)) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`删除 Isaac Lab Job 失败：${message}`);
-    }
-  }
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "batch/v1",
+    kind: "Job",
+    namespace: ctx.namespace,
+    name: jobName(name),
+  });
+  await forceDeleteNamespacedPods({
+    coreApi: ctx.coreApi,
+    deleteApi: ctx.deleteApi,
+    namespace: ctx.namespace,
+    labelSelectors: [
+      `cola.isaac/lab-job-name=${name}`,
+      `job-name=${jobName(name)}`,
+      `batch.kubernetes.io/job-name=${jobName(name)}`,
+    ],
+  });
 
   return { name };
 }

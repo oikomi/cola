@@ -23,7 +23,8 @@ import {
   agentPresentation,
   zonePresentation,
 } from "@/server/office/presentation";
-import { hasHermesGitLabCredentials } from "@/server/office/hermes-gitlab";
+import { hasFeishuDocumentCredentials } from "@/server/office/feishu-docs";
+import { resolveHermesGitLabCredentials } from "@/server/office/hermes-gitlab";
 import { loadResourceOwnerMap, ownerForUserId } from "@/server/resource-owners";
 import type { ResourceOwner } from "@/server/resource-owners";
 import type { OfficeSnapshot } from "@/server/office/types";
@@ -32,9 +33,14 @@ import { readExecutionResult } from "@/server/office/execution-result";
 type Database = typeof db;
 
 function integrationStatus() {
+  const gitlabCredentials = resolveHermesGitLabCredentials();
   return {
     hermesGitLab: {
-      configured: hasHermesGitLabCredentials(),
+      configured: Boolean(gitlabCredentials),
+      url: gitlabCredentials?.url ?? null,
+    },
+    feishuDocuments: {
+      configured: hasFeishuDocumentCredentials(),
     },
   };
 }

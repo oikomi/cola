@@ -736,9 +736,9 @@ async function reportTaskSession(taskId, status, extra = {}) {
   }
 }
 
-function compactOutputText(value, maxLength = 12000) {
+function compactOutputText(value, maxLength = 36000) {
   if (typeof value !== "string") return undefined;
-  const normalized = value.replace(/\s+/g, " ").trim();
+  const normalized = value.replace(/\r\n?/g, "\n").trim();
   if (!normalized) return undefined;
   return normalized.length <= maxLength
     ? normalized

@@ -37,6 +37,12 @@ import {
   createKubeConfig,
   resolveKubeconfigPath as resolveSharedKubeconfigPath,
 } from "@/server/kubernetes/kubeconfig";
+import {
+  createKubernetesForceDeleteApi,
+  forceDeleteKubernetesResource,
+  forceDeleteNamespacedPods,
+  type KubernetesForceDeleteApi,
+} from "@/server/kubernetes/force-delete";
 import { resolveAvailableNodePort } from "@/server/kubernetes/node-port";
 import { NODE_PORT_RANGES } from "@/server/kubernetes/node-port-ranges";
 import {
@@ -109,6 +115,7 @@ type KubeContext = {
   apiServer: string | null;
   appsApi: AppsV1Api;
   coreApi: CoreV1Api;
+  deleteApi: KubernetesForceDeleteApi;
   networkingApi: NetworkingV1Api;
 };
 
@@ -617,6 +624,7 @@ async function createKubeContext(): Promise<KubeContext> {
     apiServer,
     appsApi: kubeConfig.makeApiClient(AppsV1Api),
     coreApi: kubeConfig.makeApiClient(CoreV1Api),
+    deleteApi: createKubernetesForceDeleteApi(kubeConfig),
     networkingApi: kubeConfig.makeApiClient(NetworkingV1Api),
   };
 }
@@ -1544,42 +1552,42 @@ export async function deleteWorkspace(name: string) {
   const ctx = await createKubeContext();
   const namespace = ctx.config.workspaceNamespace;
 
+  await forceDeleteKubernetesResource(ctx.deleteApi, {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    namespace,
+    name: `workspace-${name}`,
+  });
   await Promise.all([
-    deleteResource({
-      action: () =>
-        ctx.appsApi.deleteNamespacedDeployment({
-          name: `workspace-${name}`,
-          namespace,
-          propagationPolicy: "Foreground",
-        }),
+    forceDeleteNamespacedPods({
+      coreApi: ctx.coreApi,
+      deleteApi: ctx.deleteApi,
+      namespace,
+      labelSelectors: [`remote-work/name=${name}`],
     }),
-    deleteResource({
-      action: () =>
-        ctx.coreApi.deleteNamespacedService({
-          name: `workspace-${name}-svc`,
-          namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Service",
+      namespace,
+      name: `workspace-${name}-svc`,
     }),
-    deleteResource({
-      action: () =>
-        ctx.coreApi.deleteNamespacedSecret({
-          name: `workspace-${name}-secret`,
-          namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Secret",
+      namespace,
+      name: `workspace-${name}-secret`,
     }),
-    deleteResource({
-      action: () =>
-        ctx.coreApi.deleteNamespacedSecret({
-          name: `workspace-${name}-codex`,
-          namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "v1",
+      kind: "Secret",
+      namespace,
+      name: `workspace-${name}-codex`,
     }),
-    deleteResource({
-      action: () =>
-        ctx.networkingApi.deleteNamespacedIngress({
-          name: `workspace-${name}-ing`,
-          namespace,
-        }),
+    forceDeleteKubernetesResource(ctx.deleteApi, {
+      apiVersion: "networking.k8s.io/v1",
+      kind: "Ingress",
+      namespace,
+      name: `workspace-${name}-ing`,
     }),
   ]);
 

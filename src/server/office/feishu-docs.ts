@@ -50,6 +50,25 @@ type MarkdownContentData = {
   content?: string;
 };
 
+type CreateDocumentData = {
+  document?: {
+    document_id?: string;
+    title?: string;
+  };
+};
+
+type ConvertDocumentData = {
+  blocks?: Array<Record<string, unknown> & { block_type?: number }>;
+  first_level_block_ids?: string[];
+};
+
+export type CreatedFeishuDocument = {
+  documentId: string;
+  title: string;
+  url: string;
+  warnings: string[];
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -61,6 +80,13 @@ function compactErrorMessage(message: string) {
 function trimEnv(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+export function hasFeishuDocumentCredentials() {
+  return Boolean(
+    trimEnv(process.env.FEISHU_APP_ID) &&
+    trimEnv(process.env.FEISHU_APP_SECRET),
+  );
 }
 
 function truncateContent(content: string, maxLength: number) {
@@ -84,7 +110,9 @@ function isSupportedFeishuHost(hostname: string) {
   );
 }
 
-function parseFeishuDocumentUrl(rawUrl: string): FeishuDocumentReference | null {
+function parseFeishuDocumentUrl(
+  rawUrl: string,
+): FeishuDocumentReference | null {
   let url: URL;
   try {
     url = new URL(stripTrailingUrlPunctuation(rawUrl));
@@ -180,7 +208,7 @@ export function readFeishuDocumentReferences(
     : extractFeishuDocumentReferences(fallbackText);
 }
 
-async function getTenantAccessToken() {
+async function getTenantAccessToken(fetchImpl: typeof fetch = fetch) {
   const appId = trimEnv(process.env.FEISHU_APP_ID);
   const appSecret = trimEnv(process.env.FEISHU_APP_SECRET);
 
@@ -188,7 +216,7 @@ async function getTenantAccessToken() {
     throw new Error("缺少 FEISHU_APP_ID 或 FEISHU_APP_SECRET。");
   }
 
-  const response = await fetch(
+  const response = await fetchImpl(
     `${FEISHU_OPEN_API_BASE_URL}/auth/v3/tenant_access_token/internal`,
     {
       method: "POST",
@@ -211,13 +239,18 @@ async function getTenantAccessToken() {
     );
   }
 
-  const token = payload.data?.tenant_access_token ?? payload.tenant_access_token;
+  const token =
+    payload.data?.tenant_access_token ?? payload.tenant_access_token;
   if (!token) throw new Error("飞书没有返回 tenant_access_token。");
   return token;
 }
 
-async function getFeishu<T>(path: string, tenantAccessToken: string) {
-  const response = await fetch(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
+async function getFeishu<T>(
+  path: string,
+  tenantAccessToken: string,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const response = await fetchImpl(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${tenantAccessToken}`,
@@ -233,6 +266,127 @@ async function getFeishu<T>(path: string, tenantAccessToken: string) {
   }
 
   return (payload.data ?? payload) as T;
+}
+
+async function postFeishu<T>(
+  path: string,
+  body: unknown,
+  tenantAccessToken: string,
+  fetchImpl: typeof fetch,
+) {
+  const response = await fetchImpl(`${FEISHU_OPEN_API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${tenantAccessToken}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = (await response
+    .json()
+    .catch(() => ({}))) as FeishuApiResponse<T>;
+  if (!response.ok || payload.code !== 0) {
+    throw new Error(payload.msg ?? `飞书接口请求失败：HTTP ${response.status}`);
+  }
+
+  return (payload.data ?? payload) as T;
+}
+
+function uniqueNonEmptyStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()))).filter(
+    Boolean,
+  );
+}
+
+export async function createFeishuDocumentFromMarkdown(
+  input: {
+    markdown: string;
+    title: string;
+    viewerOpenIds?: string[];
+  },
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<CreatedFeishuDocument> {
+  const markdown = input.markdown.trim();
+  if (!markdown) throw new Error("Hermes 没有返回可写入飞书文档的周报正文。");
+
+  const title = input.title.trim().slice(0, 160) || "团队工作周报";
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const tenantAccessToken = await getTenantAccessToken(fetchImpl);
+  const folderToken = trimEnv(
+    process.env.COLA_HERMES_FEISHU_REPORT_FOLDER_TOKEN,
+  );
+  const created = await postFeishu<CreateDocumentData>(
+    "/docx/v1/documents",
+    {
+      title,
+      ...(folderToken ? { folder_token: folderToken } : {}),
+    },
+    tenantAccessToken,
+    fetchImpl,
+  );
+  const documentId = created.document?.document_id?.trim();
+  if (!documentId)
+    throw new Error("飞书创建文档成功，但没有返回 document_id。");
+
+  const converted = await postFeishu<ConvertDocumentData>(
+    "/docx/v1/documents/blocks/convert",
+    {
+      content_type: "markdown",
+      content: markdown,
+    },
+    tenantAccessToken,
+    fetchImpl,
+  );
+  const firstLevelBlockIds = converted.first_level_block_ids ?? [];
+  const blocks = (converted.blocks ?? []).filter(
+    (block) => typeof block.block_type === "number",
+  );
+  if (firstLevelBlockIds.length === 0 || blocks.length === 0) {
+    throw new Error("飞书没有把周报 Markdown 转换为可写入的文档块。");
+  }
+
+  await postFeishu(
+    `/docx/v1/documents/${encodeURIComponent(documentId)}/blocks/${encodeURIComponent(documentId)}/descendant?document_revision_id=-1`,
+    {
+      children_id: firstLevelBlockIds,
+      descendants: blocks,
+    },
+    tenantAccessToken,
+    fetchImpl,
+  );
+
+  const warnings: string[] = [];
+  const viewerOpenIds = uniqueNonEmptyStrings(input.viewerOpenIds ?? []);
+  if (viewerOpenIds.length > 0) {
+    try {
+      await postFeishu(
+        `/drive/v1/permissions/${encodeURIComponent(documentId)}/members/batch_create?type=docx&need_notification=false`,
+        {
+          members: viewerOpenIds.map((openId) => ({
+            member_type: "openid",
+            member_id: openId,
+            perm: "view",
+          })),
+        },
+        tenantAccessToken,
+        fetchImpl,
+      );
+    } catch (error) {
+      warnings.push(
+        `文档已生成，但通知人权限添加失败：${compactErrorMessage(
+          error instanceof Error ? error.message : "未知错误",
+        )}`,
+      );
+    }
+  }
+
+  return {
+    documentId,
+    title: created.document?.title?.trim() ?? title,
+    url: `https://feishu.cn/docx/${encodeURIComponent(documentId)}`,
+    warnings,
+  };
 }
 
 async function resolveWikiReference(
@@ -263,10 +417,7 @@ async function resolveWikiReference(
   } satisfies Pick<FeishuDocumentContext, "documentToken" | "title" | "type">;
 }
 
-async function readRawContent(
-  token: string,
-  tenantAccessToken: string,
-) {
+async function readRawContent(token: string, tenantAccessToken: string) {
   const path = `/docx/v1/documents/${encodeURIComponent(token)}/raw_content`;
   const data = await getFeishu<RawContentData>(path, tenantAccessToken);
   return data.content?.trim() ?? "";

@@ -46,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { notifyError } from "@/components/ui/toast";
+import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
   formatGpuAllocationLabel,
   gpuAllocationModeLabels,
@@ -324,7 +324,11 @@ export function WorkspaceShell() {
       );
     },
     onSuccess: async () => {
-      await utils.workspace.list.invalidate();
+      notifySuccess("远程桌面已强制删除。");
+      await Promise.all([
+        workspaceQuery.refetch(),
+        utils.compute.getSnapshot.invalidate(),
+      ]);
     },
     onError: (error, variables) => {
       setPendingDeletedWorkspaceNames((current) =>
@@ -438,10 +442,10 @@ export function WorkspaceShell() {
 
   const handleDelete = async (name: string) => {
     const confirmed = await confirm({
-      title: `确认删除远程桌面 ${name}？`,
+      title: `确认强制删除远程桌面 ${name}？`,
       description:
-        "删除后会释放对应的 workspace 资源和访问入口，且不能自动恢复。",
-      confirmLabel: "删除桌面",
+        "系统会立即强制删除对应的 Deployment、Pod、Service、Ingress 和运行密钥，且不能恢复。",
+      confirmLabel: "强制删除",
     });
     if (!confirmed) return;
 
