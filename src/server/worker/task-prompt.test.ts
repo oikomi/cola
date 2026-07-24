@@ -117,7 +117,10 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   assert.match(prompt, /every active project with one compact bullet/);
   assert.match(prompt, /every contributor a separate level-3 heading/);
   assert.match(prompt, /never combine distinct contributor names/);
-  assert.match(prompt, /concrete code, document, configuration, or test changes/);
+  assert.match(
+    prompt,
+    /concrete code, document, configuration, or test changes/,
+  );
   assert.match(prompt, /一个项目读取失败/);
   assert.match(prompt, /Return only the final report Markdown/);
 });
