@@ -31,3 +31,10 @@ void test("Hermes task output preserves Markdown line breaks for report document
   assert.ok(source.includes('value.replace(/\\r\\n?/g, "\\n").trim()'));
   assert.ok(!source.includes('value.replace(/\\s+/g, " ").trim()'));
 });
+
+void test("Hermes bootstrap routes large prompts through the local API Server", () => {
+  assert.match(source, /shouldUseHermesTaskApi\(prompt, maxCliPromptBytes\)/);
+  assert.match(source, /runHermesTaskViaApi\(\{/);
+  assert.match(source, /promptByteLength\(prompt\)/);
+  assert.ok(!source.includes("COLA_TASK_PROMPT: prompt"));
+});

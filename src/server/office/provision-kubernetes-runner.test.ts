@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveHermesApiServerKey } from "./provision-kubernetes-runner.ts";
+import {
+  buildBootstrapConfigMap,
+  resolveHermesApiServerKey,
+} from "./provision-kubernetes-runner.ts";
 import { buildHermesDashboardAuthEnv } from "./hermes-dashboard-auth.ts";
 
 function withEnv<T>(
@@ -96,5 +99,18 @@ void test("Hermes API Server key keeps configured strong values", () => {
         "configured-hermes-api-secret",
       );
     },
+  );
+});
+
+void test("Hermes runner ConfigMap includes the large-task API transport", () => {
+  const configMap = buildBootstrapConfigMap("hermes-runner-test", "owner-1");
+
+  assert.match(
+    configMap.data?.["hermes-bootstrap.mjs"] ?? "",
+    /from "\.\/task-executor\.mjs"/,
+  );
+  assert.match(
+    configMap.data?.["task-executor.mjs"] ?? "",
+    /export async function runHermesTaskViaApi/,
   );
 });

@@ -83,6 +83,7 @@ COLA_HERMES_DASHBOARD_HIDDEN_PLUGINS=example
 - 如果没配置 `COLA_K8S_CODEX_SECRET_NAME`，控制面会尝试从本地文件创建每个 runner 自己的 Secret
 - dashboard 通过 NodePort 暴露
 - 新创建的 Hermes runner 会默认启用 API Server，容器内端口为 `8642`，外部 NodePort 会写入设备 metadata 的 `hermesApiNodePort` / `hermesApiServerUrl` / `hermesApiServerKey`。Bearer token 默认自动生成，也可通过 `COLA_HERMES_API_SERVER_KEY` 覆盖。
+- 大型任务会自动通过 Pod 内部 API 传递 prompt；普通任务仍使用 Hermes CLI。新建 runner 会自动挂载所需脚本；升级已有 runner 时，需要先更新脚本 ConfigMap，再滚动重启 Pod。
 - 如果前端配置了 `NEXT_PUBLIC_OPENCLAW_NATIVE_URL` / `NEXT_PUBLIC_HERMES_NATIVE_URL`，人物卡仍会优先打开 Cola 自带工作区页
 
 Hermes API Server 调用示例：

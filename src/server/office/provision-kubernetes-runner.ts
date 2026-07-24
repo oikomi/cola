@@ -427,13 +427,17 @@ async function ensureNamespace(coreApi: CoreV1Api, namespace: string) {
   await coreApi.createNamespace({ body });
 }
 
-function bootstrapScriptPath(engine: DockerRunnerEngine) {
+function runnerScriptPath(engine: DockerRunnerEngine, fileName: string) {
   return path.join(
     process.cwd(),
     "scripts",
     engine === "hermes-agent" ? "hermes-runner" : "openclaw-runner",
-    "bootstrap.mjs",
+    fileName,
   );
+}
+
+function bootstrapScriptPath(engine: DockerRunnerEngine) {
+  return runnerScriptPath(engine, "bootstrap.mjs");
 }
 
 function runnerImage(engine: DockerRunnerEngine) {
@@ -758,7 +762,7 @@ function buildHermesCommand() {
   return `(${prepareCommand}) >/tmp/hermes-prepare.log 2>&1 && ((${bootstrapCommand}) >/tmp/hermes-bootstrap.log 2>&1 &) && (${gatewayCommand}) && ${sourceEnvCommand} && exec ${hermesBin} dashboard --host 0.0.0.0 --port ${HERMES_DASHBOARD_PORT} --no-open --insecure`;
 }
 
-function buildBootstrapConfigMap(
+export function buildBootstrapConfigMap(
   workloadName: string,
   ownerUserId?: string | null,
 ): V1ConfigMap {
@@ -778,6 +782,10 @@ function buildBootstrapConfigMap(
       ),
       "hermes-bootstrap.mjs": readFileSync(
         bootstrapScriptPath("hermes-agent"),
+        "utf8",
+      ),
+      "task-executor.mjs": readFileSync(
+        runnerScriptPath("hermes-agent", "task-executor.mjs"),
         "utf8",
       ),
     },

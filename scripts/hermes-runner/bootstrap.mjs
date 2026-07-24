@@ -11,6 +11,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
+import {
+  promptByteLength,
+  runHermesTaskViaApi,
+  shouldUseHermesTaskApi,
+} from "./task-executor.mjs";
+
 const apiBaseUrl =
   process.env.COLA_API_BASE_URL ?? "http://host.docker.internal:50038";
 const runnerName = process.env.COLA_RUNNER_NAME ?? "Hermes Runner";
@@ -46,6 +52,13 @@ const taskPollIntervalMs = Number(
   process.env.COLA_TASK_POLL_INTERVAL_MS ?? "10000",
 );
 const taskCommand = process.env.HERMES_TASK_COMMAND;
+const maxCliPromptBytes = Number(
+  process.env.COLA_HERMES_MAX_CLI_PROMPT_BYTES ?? "65536",
+);
+const taskApiBaseUrl =
+  process.env.COLA_HERMES_TASK_API_BASE_URL ??
+  `http://127.0.0.1:${process.env.API_SERVER_PORT ?? "8642"}`;
+const taskApiKey = process.env.API_SERVER_KEY?.trim() ?? "";
 const workdir = process.env.HERMES_WORKDIR ?? "/workspace";
 const logDir = process.env.HERMES_LOG_DIR ?? "/workspace/.hermes-runner";
 const sessionLogPath = path.join(logDir, "bootstrap.log");
@@ -851,6 +864,18 @@ async function runHermesForTask(task) {
     return shell(taskCommand);
   }
 
+  if (shouldUseHermesTaskApi(prompt, maxCliPromptBytes)) {
+    await logLine(
+      `task ${task.id} prompt is ${promptByteLength(prompt)} bytes; using Hermes API Server`,
+    );
+    return runHermesTaskViaApi({
+      apiBaseUrl: taskApiBaseUrl,
+      apiKey: taskApiKey,
+      prompt,
+      taskId: task.id,
+    });
+  }
+
   return await new Promise((resolve, reject) => {
     const child = spawn(
       hermesBin,
@@ -871,7 +896,6 @@ async function runHermesForTask(task) {
           COLA_TASK_TYPE: task.taskType,
           COLA_TASK_PRIORITY: task.priority,
           COLA_TASK_RISK_LEVEL: task.riskLevel,
-          COLA_TASK_PROMPT: prompt,
           ...(task.gitlab?.repositoryUrl
             ? { COLA_TASK_GITLAB_REPOSITORY_URL: task.gitlab.repositoryUrl }
             : {}),
