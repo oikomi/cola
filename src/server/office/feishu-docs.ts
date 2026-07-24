@@ -315,6 +315,101 @@ function uniqueNonEmptyStrings(values: string[]) {
   );
 }
 
+function markdownTableCells(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return null;
+
+  const escapedPipe = "\u0000";
+  return trimmed
+    .slice(1, -1)
+    .replaceAll("\\|", escapedPipe)
+    .split("|")
+    .map((cell) => cell.replaceAll(escapedPipe, "|").trim());
+}
+
+function isMarkdownTableSeparator(cells: string[] | null) {
+  return Boolean(
+    cells?.length && cells.every((cell) => /^:?-{3,}:?$/.test(cell)),
+  );
+}
+
+function convertMarkdownTables(markdown: string) {
+  const lines = markdown.split("\n");
+  const output: string[] = [];
+  let tablesConverted = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const headers = markdownTableCells(lines[index] ?? "");
+    const separator = markdownTableCells(lines[index + 1] ?? "");
+    if (
+      !headers ||
+      !isMarkdownTableSeparator(separator) ||
+      separator?.length !== headers.length
+    ) {
+      output.push(lines[index] ?? "");
+      continue;
+    }
+
+    const rows: string[][] = [];
+    let rowIndex = index + 2;
+    while (rowIndex < lines.length) {
+      const row = markdownTableCells(lines[rowIndex] ?? "");
+      if (!row || row.length !== headers.length) break;
+      rows.push(row);
+      rowIndex += 1;
+    }
+
+    for (const row of rows) {
+      const fields = row
+        .map((value, cellIndex) =>
+          value
+            ? `${headers[cellIndex] || `字段 ${cellIndex + 1}`}：${value}`
+            : "",
+        )
+        .filter(Boolean);
+      if (fields.length > 0) output.push(`- ${fields.join("；")}`);
+    }
+    tablesConverted += 1;
+    index = rowIndex - 1;
+  }
+
+  return {
+    markdown: output.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+    tablesConverted,
+  };
+}
+
+export function prepareFeishuReportMarkdown(
+  input: string,
+  maxLength = MAX_REPORT_MARKDOWN_LENGTH,
+) {
+  const normalized = input.replace(/\r\n?/g, "\n").trim();
+  const converted = convertMarkdownTables(normalized);
+  if (converted.markdown.length <= maxLength) {
+    return { ...converted, truncated: false };
+  }
+
+  const notice =
+    "> 报告已按飞书文档写入上限精简；完整统计证据仍保留在原任务中。";
+  const contentBudget = Math.max(0, maxLength - notice.length - 2);
+  const candidate = converted.markdown.slice(0, contentBudget);
+  const paragraphBoundary = candidate.lastIndexOf("\n\n");
+  const lineBoundary = candidate.lastIndexOf("\n");
+  const preferredBoundary =
+    paragraphBoundary >= Math.floor(contentBudget * 0.65)
+      ? paragraphBoundary
+      : lineBoundary;
+  const clipped = candidate
+    .slice(0, preferredBoundary > 0 ? preferredBoundary : contentBudget)
+    .trimEnd();
+
+  return {
+    markdown: `${clipped}\n\n${notice}`,
+    tablesConverted: converted.tablesConverted,
+    truncated: true,
+  };
+}
+
 export async function createFeishuDocumentFromMarkdown(
   input: {
     markdown: string;
