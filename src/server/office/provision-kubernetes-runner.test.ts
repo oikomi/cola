@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildBootstrapConfigMap,
+  buildHermesReliabilityEnv,
   resolveHermesApiServerKey,
 } from "./provision-kubernetes-runner.ts";
 import { buildHermesDashboardAuthEnv } from "./hermes-dashboard-auth.ts";
@@ -98,6 +99,56 @@ void test("Hermes API Server key keeps configured strong values", () => {
         resolveHermesApiServerKey(() => "generated-hermes-api-secret"),
         "configured-hermes-api-secret",
       );
+    },
+  );
+});
+
+void test("Hermes runner gives slow upstream models a larger retry budget", () => {
+  withEnv(
+    {
+      COLA_HERMES_API_CALL_STALE_TIMEOUT_SECONDS: undefined,
+      HERMES_API_CALL_STALE_TIMEOUT: undefined,
+      COLA_HERMES_API_MAX_RETRIES: undefined,
+      COLA_HERMES_TASK_API_TIMEOUT_MS: undefined,
+      COLA_HERMES_TASK_API_ATTEMPTS: undefined,
+      COLA_HERMES_TASK_API_RETRY_INTERVAL_MS: undefined,
+    },
+    () => {
+      assert.deepEqual(buildHermesReliabilityEnv(), [
+        { name: "HERMES_API_CALL_STALE_TIMEOUT", value: "300" },
+        { name: "COLA_HERMES_API_MAX_RETRIES", value: "5" },
+        { name: "COLA_HERMES_TASK_API_TIMEOUT_MS", value: "3600000" },
+        { name: "COLA_HERMES_TASK_API_ATTEMPTS", value: "2" },
+        {
+          name: "COLA_HERMES_TASK_API_RETRY_INTERVAL_MS",
+          value: "3000",
+        },
+      ]);
+    },
+  );
+});
+
+void test("Hermes reliability budget accepts Cola environment overrides", () => {
+  withEnv(
+    {
+      COLA_HERMES_API_CALL_STALE_TIMEOUT_SECONDS: "600",
+      HERMES_API_CALL_STALE_TIMEOUT: undefined,
+      COLA_HERMES_API_MAX_RETRIES: "7",
+      COLA_HERMES_TASK_API_TIMEOUT_MS: "7200000",
+      COLA_HERMES_TASK_API_ATTEMPTS: "3",
+      COLA_HERMES_TASK_API_RETRY_INTERVAL_MS: "5000",
+    },
+    () => {
+      assert.deepEqual(buildHermesReliabilityEnv(), [
+        { name: "HERMES_API_CALL_STALE_TIMEOUT", value: "600" },
+        { name: "COLA_HERMES_API_MAX_RETRIES", value: "7" },
+        { name: "COLA_HERMES_TASK_API_TIMEOUT_MS", value: "7200000" },
+        { name: "COLA_HERMES_TASK_API_ATTEMPTS", value: "3" },
+        {
+          name: "COLA_HERMES_TASK_API_RETRY_INTERVAL_MS",
+          value: "5000",
+        },
+      ]);
     },
   );
 });

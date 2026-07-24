@@ -502,6 +502,7 @@ export async function collectGitLabWeeklyActivity(
     );
   }
 
+  let commitCollectionTruncated = false;
   const projectCommitResults = await mapWithConcurrency(
     projectsResult.items,
     API_CONCURRENCY,
@@ -521,6 +522,7 @@ export async function collectGitLabWeeklyActivity(
           maxPages: Math.ceil(MAX_COMMITS_PER_PROJECT / 100),
         });
         if (result.truncated) {
+          commitCollectionTruncated = true;
           warnings.push(
             `${project.path_with_namespace} 的提交超过单项目 ${MAX_COMMITS_PER_PROJECT} 条采集上限，已截断。`,
           );
@@ -545,7 +547,8 @@ export async function collectGitLabWeeklyActivity(
       Date.parse(left.commit.authored_date),
   );
   const commits = selectReportCommits(allCommits);
-  const commitsTruncated = allCommits.length > commits.length;
+  const commitsSampled = allCommits.length > commits.length;
+  const commitsTruncated = commitCollectionTruncated || commitsSampled;
   const detailedCommits = selectCommitsForDetails(commits);
   let remainingDiffChars = MAX_TOTAL_DIFF_CHARS;
 
@@ -651,7 +654,7 @@ export async function collectGitLabWeeklyActivity(
   if (projectsResult.truncated) {
     warnings.push(`可见项目超过 ${MAX_PROJECTS} 个，项目清单已截断。`);
   }
-  if (commitsTruncated) {
+  if (commitsSampled) {
     warnings.push(
       `所选周期共采集 ${allCommits.length} 条提交；报告保留 ${commits.length} 条代表提交，项目和成员汇总仍按完整采集结果计算。`,
     );

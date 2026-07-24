@@ -36,5 +36,10 @@ void test("Hermes bootstrap routes large prompts through the local API Server", 
   assert.match(source, /shouldUseHermesTaskApi\(prompt, maxCliPromptBytes\)/);
   assert.match(source, /runHermesTaskViaApi\(\{/);
   assert.match(source, /promptByteLength\(prompt\)/);
+  assert.match(source, /HERMES_API_CALL_STALE_TIMEOUT/);
+  assert.match(source, /api_max_retries: \$\{hermesApiMaxRetries\}/);
+  assert.match(source, /requestAttempts: taskApiRequestAttempts/);
+  assert.match(source, /requestTimeoutMs: taskApiRequestTimeoutMs/);
+  assert.match(source, /onRetry:/);
   assert.ok(!source.includes("COLA_TASK_PROMPT: prompt"));
 });

@@ -46,6 +46,11 @@ const HERMES_DASHBOARD_PORT = 9119;
 const HERMES_API_SERVER_PORT = 8642;
 const DEFAULT_HERMES_API_SERVER_KEY = "cola-hermes-api";
 const HERMES_API_SERVER_KEY_MIN_LENGTH = 16;
+const DEFAULT_HERMES_API_CALL_STALE_TIMEOUT_SECONDS = 300;
+const DEFAULT_HERMES_API_MAX_RETRIES = 5;
+const DEFAULT_HERMES_TASK_API_TIMEOUT_MS = 60 * 60 * 1000;
+const DEFAULT_HERMES_TASK_API_ATTEMPTS = 2;
+const DEFAULT_HERMES_TASK_API_RETRY_INTERVAL_MS = 3000;
 const RUNNER_CONTAINER_NAME = "runner";
 const DASHBOARD_URL_PREFIX = "Dashboard URL: ";
 const DASHBOARD_TOKEN_PREFIX = "Dashboard Token: ";
@@ -96,6 +101,68 @@ export function resolveHermesApiServerKey(
   assertStrongHermesApiServerKey(key);
 
   return key;
+}
+
+function positiveIntegerEnv(names: string[], fallback: number) {
+  for (const name of names) {
+    const parsed = Number.parseInt(process.env[name] ?? "", 10);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+
+  return fallback;
+}
+
+export function buildHermesReliabilityEnv() {
+  return [
+    {
+      name: "HERMES_API_CALL_STALE_TIMEOUT",
+      value: String(
+        positiveIntegerEnv(
+          [
+            "COLA_HERMES_API_CALL_STALE_TIMEOUT_SECONDS",
+            "HERMES_API_CALL_STALE_TIMEOUT",
+          ],
+          DEFAULT_HERMES_API_CALL_STALE_TIMEOUT_SECONDS,
+        ),
+      ),
+    },
+    {
+      name: "COLA_HERMES_API_MAX_RETRIES",
+      value: String(
+        positiveIntegerEnv(
+          ["COLA_HERMES_API_MAX_RETRIES"],
+          DEFAULT_HERMES_API_MAX_RETRIES,
+        ),
+      ),
+    },
+    {
+      name: "COLA_HERMES_TASK_API_TIMEOUT_MS",
+      value: String(
+        positiveIntegerEnv(
+          ["COLA_HERMES_TASK_API_TIMEOUT_MS"],
+          DEFAULT_HERMES_TASK_API_TIMEOUT_MS,
+        ),
+      ),
+    },
+    {
+      name: "COLA_HERMES_TASK_API_ATTEMPTS",
+      value: String(
+        positiveIntegerEnv(
+          ["COLA_HERMES_TASK_API_ATTEMPTS"],
+          DEFAULT_HERMES_TASK_API_ATTEMPTS,
+        ),
+      ),
+    },
+    {
+      name: "COLA_HERMES_TASK_API_RETRY_INTERVAL_MS",
+      value: String(
+        positiveIntegerEnv(
+          ["COLA_HERMES_TASK_API_RETRY_INTERVAL_MS"],
+          DEFAULT_HERMES_TASK_API_RETRY_INTERVAL_MS,
+        ),
+      ),
+    },
+  ];
 }
 
 function readClusterConfig() {
@@ -1052,6 +1119,7 @@ function buildRunnerResources(
                         name: "API_SERVER_PORT",
                         value: String(HERMES_API_SERVER_PORT),
                       },
+                      ...buildHermesReliabilityEnv(),
                       {
                         name: "HERMES_ALLOW_ROOT_GATEWAY",
                         value: "1",

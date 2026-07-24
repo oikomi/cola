@@ -59,6 +59,27 @@ const taskApiBaseUrl =
   process.env.COLA_HERMES_TASK_API_BASE_URL ??
   `http://127.0.0.1:${process.env.API_SERVER_PORT ?? "8642"}`;
 const taskApiKey = process.env.API_SERVER_KEY?.trim() ?? "";
+const taskApiRequestTimeoutMs = positiveInteger(
+  process.env.COLA_HERMES_TASK_API_TIMEOUT_MS,
+  60 * 60 * 1000,
+);
+const taskApiRequestAttempts = positiveInteger(
+  process.env.COLA_HERMES_TASK_API_ATTEMPTS,
+  2,
+);
+const taskApiRetryIntervalMs = positiveInteger(
+  process.env.COLA_HERMES_TASK_API_RETRY_INTERVAL_MS,
+  3000,
+);
+const hermesApiCallStaleTimeoutSeconds = positiveInteger(
+  process.env.HERMES_API_CALL_STALE_TIMEOUT ??
+    process.env.COLA_HERMES_API_CALL_STALE_TIMEOUT_SECONDS,
+  300,
+);
+const hermesApiMaxRetries = positiveInteger(
+  process.env.COLA_HERMES_API_MAX_RETRIES,
+  5,
+);
 const workdir = process.env.HERMES_WORKDIR ?? "/workspace";
 const logDir = process.env.HERMES_LOG_DIR ?? "/workspace/.hermes-runner";
 const sessionLogPath = path.join(logDir, "bootstrap.log");
@@ -142,6 +163,11 @@ function parseCsv(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function hiddenDashboardPlugins() {
@@ -622,6 +648,9 @@ providers:
 
 fallback_providers: []
 
+agent:
+  api_max_retries: ${hermesApiMaxRetries}
+
 terminal:
   backend: "local"
   cwd: "."
@@ -640,6 +669,7 @@ ${yamlList(hiddenDashboardPlugins())}
     `OPENAI_BASE_URL=${baseUrl}`,
     `HERMES_INFERENCE_PROVIDER=${resolvedProvider}`,
     `HERMES_INFERENCE_MODEL=${model}`,
+    `HERMES_API_CALL_STALE_TIMEOUT=${hermesApiCallStaleTimeoutSeconds}`,
   ];
 
   if (process.env.COLA_HERMES_GITLAB_URL) {
@@ -868,12 +898,23 @@ async function runHermesForTask(task) {
     await logLine(
       `task ${task.id} prompt is ${promptByteLength(prompt)} bytes; using Hermes API Server`,
     );
-    return runHermesTaskViaApi({
-      apiBaseUrl: taskApiBaseUrl,
-      apiKey: taskApiKey,
-      prompt,
-      taskId: task.id,
-    });
+    return runHermesTaskViaApi(
+      {
+        apiBaseUrl: taskApiBaseUrl,
+        apiKey: taskApiKey,
+        prompt,
+        taskId: task.id,
+      },
+      {
+        requestAttempts: taskApiRequestAttempts,
+        requestTimeoutMs: taskApiRequestTimeoutMs,
+        requestRetryIntervalMs: taskApiRetryIntervalMs,
+        onRetry: ({ nextAttempt, maxAttempts, error }) =>
+          logLine(
+            `task ${task.id} Hermes API transport failed: ${error}; retrying ${nextAttempt}/${maxAttempts}`,
+          ),
+      },
+    );
   }
 
   return await new Promise((resolve, reject) => {
