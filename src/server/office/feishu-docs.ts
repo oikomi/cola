@@ -354,7 +354,7 @@ function convertMarkdownTables(markdown: string) {
     let rowIndex = index + 2;
     while (rowIndex < lines.length) {
       const row = markdownTableCells(lines[rowIndex] ?? "");
-      if (!row || row.length !== headers.length) break;
+      if (row?.length !== headers.length) break;
       rows.push(row);
       rowIndex += 1;
     }
@@ -363,7 +363,7 @@ function convertMarkdownTables(markdown: string) {
       const fields = row
         .map((value, cellIndex) =>
           value
-            ? `${headers[cellIndex] || `字段 ${cellIndex + 1}`}：${value}`
+            ? `${headers[cellIndex] ?? `字段 ${cellIndex + 1}`}：${value}`
             : "",
         )
         .filter(Boolean);
@@ -374,7 +374,10 @@ function convertMarkdownTables(markdown: string) {
   }
 
   return {
-    markdown: output.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+    markdown: output
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
     tablesConverted,
   };
 }

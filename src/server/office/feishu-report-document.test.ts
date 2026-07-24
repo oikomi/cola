@@ -44,8 +44,9 @@ void test("Feishu report preparation converts tables and clips at Markdown bound
       "",
       "## 成员工作情况",
       "",
-      ...Array.from({ length: 20 }, (_, index) =>
-        `- 成员 ${index + 1}：完成一项有证据的交付。`,
+      ...Array.from(
+        { length: 20 },
+        (_, index) => `- 成员 ${index + 1}：完成一项有证据的交付。`,
       ),
     ].join("\n"),
     260,
@@ -105,7 +106,8 @@ void test("weekly report Markdown is converted into a shared Feishu document", a
     const document = await createFeishuDocumentFromMarkdown(
       {
         title: "团队工作周报",
-        markdown: "# 总体进展\n\n本周完成任务队列优化。",
+        markdown:
+          "# 总体进展\n\n| 项目 | 结果 |\n|---|---|\n| cola | 完成任务队列优化 |",
         viewerOpenIds: ["ou_owner", "ou_owner", "ou_reviewer"],
       },
       { fetchImpl },
@@ -115,13 +117,13 @@ void test("weekly report Markdown is converted into a shared Feishu document", a
       documentId: "docx-token",
       title: "团队工作周报",
       url: "https://feishu.cn/docx/docx-token",
-      warnings: [],
+      warnings: ["为兼容飞书文档，已将 1 个 Markdown 表格转换为列表。"],
     });
     assert.deepEqual(
       requests.find((request) => request.url.includes("/blocks/convert"))?.body,
       {
         content_type: "markdown",
-        content: "# 总体进展\n\n本周完成任务队列优化。",
+        content: "# 总体进展\n\n- 项目：cola；结果：完成任务队列优化",
       },
     );
     assert.deepEqual(
