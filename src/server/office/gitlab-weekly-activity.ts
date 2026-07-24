@@ -5,11 +5,11 @@ import type { GitLabWeeklyReportRequest } from "./weekly-report.ts";
 const MAX_PROJECTS = 200;
 const MAX_USERS = 500;
 const MAX_COMMITS_PER_PROJECT = 1_000;
-const MAX_REPORT_COMMITS = 240;
-const MAX_DETAILED_COMMITS = 160;
-const MAX_FILES_PER_COMMIT = 60;
-const MAX_DIFF_CHARS_PER_FILE = 900;
-const MAX_TOTAL_DIFF_CHARS = 72_000;
+const MAX_REPORT_COMMITS = 96;
+const MAX_DETAILED_COMMITS = 48;
+const MAX_FILES_PER_COMMIT = 20;
+const MAX_DIFF_CHARS_PER_FILE = 500;
+const MAX_TOTAL_DIFF_CHARS = 24_000;
 const API_CONCURRENCY = 6;
 
 type GitLabProject = {

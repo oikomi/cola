@@ -112,6 +112,10 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   assert.match(prompt, /Include every project in that array/);
   assert.match(prompt, /complete member-level counts and project paths/);
   assert.match(prompt, /数据范围与口径、总体进展、成员工作情况/);
+  assert.match(prompt, /at or below 12,000 Chinese characters/);
+  assert.match(prompt, /do not use Markdown tables/);
+  assert.match(prompt, /every active project with one compact bullet/);
+  assert.match(prompt, /every contributor exactly once/);
   assert.match(prompt, /一个项目读取失败/);
   assert.match(prompt, /Return only the final report Markdown/);
 });

@@ -221,7 +221,7 @@ void test("high-volume projects cannot hide other active projects", async () => 
   });
 
   assert.equal(activity.coverage.commitCount, 241);
-  assert.equal(activity.coverage.sampledCommitCount, 240);
+  assert.equal(activity.coverage.sampledCommitCount, 96);
   assert.equal(activity.coverage.projectsWithActivity, 2);
   assert.equal(activity.coverage.commitsTruncated, true);
   assert.deepEqual(activity.projects.map((project) => project.path).sort(), [
