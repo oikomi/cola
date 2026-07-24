@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createFeishuDocumentFromMarkdown } from "./feishu-docs.ts";
+import {
+  createFeishuDocumentFromMarkdown,
+  prepareFeishuReportMarkdown,
+} from "./feishu-docs.ts";
 
 function feishuResponse(data: unknown, status = 200) {
   return new Response(
@@ -28,6 +31,36 @@ function requestUrlString(input: string | URL | Request) {
 function parseRequestBody(body: BodyInit | null | undefined): unknown {
   return typeof body === "string" ? (JSON.parse(body) as unknown) : null;
 }
+
+void test("Feishu report preparation converts tables and clips at Markdown boundaries", () => {
+  const prepared = prepareFeishuReportMarkdown(
+    [
+      "# 团队工作周报",
+      "",
+      "| 项目 | 提交 |",
+      "|---|---:|",
+      "| [alpha](https://code.example.com/alpha) | 12 |",
+      "| [beta](https://code.example.com/beta) | 4 |",
+      "",
+      "## 成员工作情况",
+      "",
+      ...Array.from({ length: 20 }, (_, index) =>
+        `- 成员 ${index + 1}：完成一项有证据的交付。`,
+      ),
+    ].join("\n"),
+    260,
+  );
+
+  assert.equal(prepared.tablesConverted, 1);
+  assert.equal(prepared.truncated, true);
+  assert.ok(prepared.markdown.length <= 260);
+  assert.doesNotMatch(prepared.markdown, /\|---\|/);
+  assert.match(
+    prepared.markdown,
+    /- 项目：\[alpha\]\(https:\/\/code\.example\.com\/alpha\)；提交：12/,
+  );
+  assert.match(prepared.markdown, /报告已按飞书文档写入上限精简/);
+});
 
 void test("weekly report Markdown is converted into a shared Feishu document", async () => {
   const originalAppId = process.env.FEISHU_APP_ID;
@@ -148,6 +181,10 @@ void test("document creation reports viewer permission failures without losing t
 
     assert.equal(document.url, "https://feishu.cn/docx/docx-token");
     assert.match(document.warnings[0] ?? "", /权限添加失败/);
+    assert.match(
+      document.warnings[0] ?? "",
+      /添加飞书文档查看权限失败：permission denied（code=999）/,
+    );
   } finally {
     if (originalAppId === undefined) delete process.env.FEISHU_APP_ID;
     else process.env.FEISHU_APP_ID = originalAppId;
