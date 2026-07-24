@@ -420,6 +420,7 @@ export async function createFeishuDocumentFromMarkdown(
 ): Promise<CreatedFeishuDocument> {
   const markdown = input.markdown.trim();
   if (!markdown) throw new Error("Hermes 没有返回可写入飞书文档的周报正文。");
+  const preparedMarkdown = prepareFeishuReportMarkdown(markdown);
 
   const title = input.title.trim().slice(0, 160) || "团队工作周报";
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -435,6 +436,7 @@ export async function createFeishuDocumentFromMarkdown(
     },
     tenantAccessToken,
     fetchImpl,
+    "创建飞书周报文档",
   );
   const documentId = created.document?.document_id?.trim();
   if (!documentId)
@@ -444,10 +446,11 @@ export async function createFeishuDocumentFromMarkdown(
     "/docx/v1/documents/blocks/convert",
     {
       content_type: "markdown",
-      content: markdown,
+      content: preparedMarkdown.markdown,
     },
     tenantAccessToken,
     fetchImpl,
+    "转换周报 Markdown",
   );
   const firstLevelBlockIds = converted.first_level_block_ids ?? [];
   const blocks = (converted.blocks ?? []).filter(
@@ -465,9 +468,20 @@ export async function createFeishuDocumentFromMarkdown(
     },
     tenantAccessToken,
     fetchImpl,
+    "写入飞书周报文档块",
   );
 
   const warnings: string[] = [];
+  if (preparedMarkdown.tablesConverted > 0) {
+    warnings.push(
+      `为兼容飞书文档，已将 ${preparedMarkdown.tablesConverted} 个 Markdown 表格转换为列表。`,
+    );
+  }
+  if (preparedMarkdown.truncated) {
+    warnings.push(
+      `周报正文超过 ${MAX_REPORT_MARKDOWN_LENGTH} 字符，已按完整 Markdown 边界精简后写入。`,
+    );
+  }
   const viewerOpenIds = uniqueNonEmptyStrings(input.viewerOpenIds ?? []);
   if (viewerOpenIds.length > 0) {
     try {
@@ -482,6 +496,7 @@ export async function createFeishuDocumentFromMarkdown(
         },
         tenantAccessToken,
         fetchImpl,
+        "添加飞书文档查看权限",
       );
     } catch (error) {
       warnings.push(
