@@ -86,6 +86,7 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
         label: "2026-07-13 至 2026-07-19",
       },
       roster: [],
+      projects: [],
       contributors: [],
       coverage: {
         projectsScanned: 3,
@@ -93,6 +94,7 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
         projectsTruncated: false,
         rosterCount: 0,
         commitCount: 0,
+        sampledCommitCount: 0,
         commitsTruncated: false,
         contributorCount: 0,
         detailedCommitCount: 0,
@@ -107,6 +109,8 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   );
   assert.match(prompt, /Do not rank people by volume/);
   assert.match(prompt, /Omit projects with zero commits/);
+  assert.match(prompt, /Include every project in that array/);
+  assert.match(prompt, /complete member-level counts and project paths/);
   assert.match(prompt, /数据范围与口径、总体进展、成员工作情况/);
   assert.match(prompt, /一个项目读取失败/);
   assert.match(prompt, /Return only the final report Markdown/);

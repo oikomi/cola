@@ -258,7 +258,7 @@ export async function createOfficeTask(
       workflow === "gitlab_weekly_report" && gitlabCredentials
         ? createGitLabWeeklyReportRequest({
             gitlabUrl: gitlabCredentials.url,
-            periodPreset: input.weeklyReportPeriod ?? "previous_week",
+            periodPreset: input.weeklyReportPeriod ?? "last_7_days",
             now,
           })
         : null;

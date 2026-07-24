@@ -4,6 +4,9 @@ export const officeTaskWorkflowValues = [
 ] as const;
 
 export const weeklyReportPeriodPresetValues = [
+  "last_7_days",
+  "last_14_days",
+  "last_30_days",
   "previous_week",
   "current_week",
 ] as const;
@@ -11,6 +14,15 @@ export const weeklyReportPeriodPresetValues = [
 export type OfficeTaskWorkflow = (typeof officeTaskWorkflowValues)[number];
 export type WeeklyReportPeriodPreset =
   (typeof weeklyReportPeriodPresetValues)[number];
+
+export function isWeeklyReportPeriodPreset(
+  value: unknown,
+): value is WeeklyReportPeriodPreset {
+  return (
+    typeof value === "string" &&
+    (weeklyReportPeriodPresetValues as readonly string[]).includes(value)
+  );
+}
 
 export type WeeklyReportPeriod = {
   endAt: string;
@@ -22,6 +34,11 @@ export type WeeklyReportPeriod = {
 
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ROLLING_PERIOD_DAYS: Partial<Record<WeeklyReportPeriodPreset, number>> = {
+  last_7_days: 7,
+  last_14_days: 14,
+  last_30_days: 30,
+};
 
 function formatShanghaiDate(date: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -38,6 +55,20 @@ export function resolveWeeklyReportPeriod(
   preset: WeeklyReportPeriodPreset,
   now = new Date(),
 ): WeeklyReportPeriod {
+  const rollingDays = ROLLING_PERIOD_DAYS[preset];
+  if (rollingDays) {
+    const endAtMs = now.getTime();
+    const startAtMs = endAtMs - rollingDays * DAY_MS;
+
+    return {
+      preset,
+      startAt: new Date(startAtMs).toISOString(),
+      endAt: new Date(endAtMs).toISOString(),
+      timezone: "Asia/Shanghai",
+      label: `${formatShanghaiDate(new Date(startAtMs))} 至 ${formatShanghaiDate(now)}`,
+    };
+  }
+
   const shanghaiNow = new Date(now.getTime() + SHANGHAI_UTC_OFFSET_MS);
   const daysSinceMonday = (shanghaiNow.getUTCDay() + 6) % 7;
   const currentWeekStart =

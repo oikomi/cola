@@ -1,4 +1,5 @@
 import {
+  isWeeklyReportPeriodPreset,
   resolveWeeklyReportPeriod,
   type WeeklyReportPeriod,
   type WeeklyReportPeriodPreset,
@@ -58,7 +59,7 @@ export function readGitLabWeeklyReportRequest(
 
   const period = workflow.period;
   if (
-    (period.preset !== "previous_week" && period.preset !== "current_week") ||
+    !isWeeklyReportPeriodPreset(period.preset) ||
     typeof period.startAt !== "string" ||
     typeof period.endAt !== "string" ||
     period.timezone !== "Asia/Shanghai" ||

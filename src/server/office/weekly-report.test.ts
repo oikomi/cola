@@ -21,6 +21,19 @@ void test("weekly report request round-trips through task input payload", () => 
   );
 });
 
+void test("rolling monthly report request round-trips through task input payload", () => {
+  const request = createGitLabWeeklyReportRequest({
+    gitlabUrl: "https://code.example.com/",
+    periodPreset: "last_30_days",
+    now: new Date("2026-07-24T08:00:00.000Z"),
+  });
+
+  assert.deepEqual(
+    readGitLabWeeklyReportRequest({ workflow: request }),
+    request,
+  );
+});
+
 void test("weekly report document reader rejects incomplete output", () => {
   assert.equal(readWeeklyReportDocument({ weeklyReport: {} }), null);
   assert.deepEqual(

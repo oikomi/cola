@@ -50,7 +50,9 @@ import {
 } from "@/components/ui/select";
 import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
+  isWeeklyReportPeriodPreset,
   resolveWeeklyReportPeriod,
+  weeklyReportPeriodPresetValues,
   type OfficeTaskWorkflow,
   type WeeklyReportPeriodPreset,
 } from "@/lib/office-task-workflows";
@@ -207,12 +209,15 @@ const TASK_TYPE_LABELS: Record<TaskType, string> = {
 };
 
 const WEEKLY_REPORT_PERIOD_LABELS: Record<WeeklyReportPeriodPreset, string> = {
+  last_7_days: "近 1 周",
+  last_14_days: "近 2 周",
+  last_30_days: "近 1 个月（30 天）",
   previous_week: "上一完整周",
   current_week: "本周至今",
 };
 
 const DEFAULT_WEEKLY_REPORT_FOCUS =
-  "按成员归纳本周交付、文档与代码证据、协作影响、风险和下周建议；没有证据的内容不要推测。";
+  "按成员归纳所选周期的交付、文档与代码证据、协作影响、风险和后续建议；没有证据的内容不要推测。";
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
   "command",
@@ -1934,7 +1939,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     gitlabRepository: "",
     gitlabRef: "",
     workflow: "general",
-    weeklyReportPeriod: "previous_week",
+    weeklyReportPeriod: "last_7_days",
   });
   const [workstationZoneId, setWorkstationZoneId] =
     useState<ZoneKey>("engineering");
@@ -1979,7 +1984,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
         title: "",
         summary: "",
         workflow: "general",
-        weeklyReportPeriod: "previous_week",
+        weeklyReportPeriod: "last_7_days",
       }));
       void utils.office.getSnapshot.invalidate();
     },
@@ -3489,12 +3494,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                           <Select
                             value={taskDraft.weeklyReportPeriod}
                             onValueChange={(value) => {
-                              if (
-                                value !== "previous_week" &&
-                                value !== "current_week"
-                              ) {
-                                return;
-                              }
+                              if (!isWeeklyReportPeriodPreset(value)) return;
                               handleWeeklyReportPeriodChange(value);
                             }}
                           >
@@ -3509,12 +3509,20 @@ export function OfficeBetaShell({ snapshot }: Props) {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectGroup>
-                                <SelectItem value="previous_week">
-                                  上一完整周
-                                </SelectItem>
-                                <SelectItem value="current_week">
-                                  本周至今
-                                </SelectItem>
+                                {weeklyReportPeriodPresetValues.map(
+                                  (periodPreset) => (
+                                    <SelectItem
+                                      key={periodPreset}
+                                      value={periodPreset}
+                                    >
+                                      {
+                                        WEEKLY_REPORT_PERIOD_LABELS[
+                                          periodPreset
+                                        ]
+                                      }
+                                    </SelectItem>
+                                  ),
+                                )}
                               </SelectGroup>
                             </SelectContent>
                           </Select>
