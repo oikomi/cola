@@ -70,11 +70,20 @@ void test("Hermes task prompt includes fetched Feishu document context", () => {
 void test("Hermes weekly report prompt requires evidence-based Chinese Markdown", () => {
   const prompt = buildRunnerTaskPrompt({
     engine: "hermes-agent",
-    title: "团队工作周报",
+    title: "团队进展",
     summary: "重点关注跨项目协作和交付风险。",
     taskType: "coordination",
     priority: "medium",
     riskLevel: "low",
+    feishuDocuments: [
+      {
+        content: "乐天行：完成控制链路联调，当前阻塞是视觉回归。",
+        documentToken: "weekly-doc-token",
+        sourceUrl: "https://example.feishu.cn/wiki/weekly-wiki-token",
+        title: "研发团队周报",
+        type: "docx",
+      },
+    ],
     gitlabWeeklyActivity: {
       generatedAt: "2026-07-20T00:00:00.000Z",
       sourceUrl: "https://code.example.com",
@@ -103,24 +112,32 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
     },
   });
 
+  assert.match(prompt, /company team progress analysis in Simplified Chinese/);
   assert.match(
     prompt,
-    /company GitLab team weekly report in Simplified Chinese/,
+    /Use both the fetched Feishu weekly report and the GitLab activity dataset/,
   );
+  assert.match(prompt, /Reconcile the two sources member by member/);
+  assert.match(prompt, /report-only statements, GitLab-only changes/);
   assert.match(prompt, /Do not rank people by volume/);
   assert.match(prompt, /Omit projects with zero commits/);
   assert.match(prompt, /Include every project in that array/);
   assert.match(prompt, /complete member-level counts and project paths/);
-  assert.match(prompt, /数据范围与口径、总体进展、成员工作情况/);
+  assert.match(prompt, /数据范围与口径、总体进展、成员进展/);
   assert.match(prompt, /at or below 15,000 Chinese characters/);
   assert.match(prompt, /do not use Markdown tables/);
   assert.match(prompt, /every active project with one compact bullet/);
-  assert.match(prompt, /every contributor a separate level-3 heading/);
-  assert.match(prompt, /never combine distinct contributor names/);
+  assert.match(
+    prompt,
+    /every member named in either the Feishu weekly report or GitLab contributors/,
+  );
+  assert.match(prompt, /never combine distinct names/);
   assert.match(
     prompt,
     /concrete code, document, configuration, or test changes/,
   );
+  assert.match(prompt, /inspect that contributor's commits/);
+  assert.match(prompt, /must not replace the available analysis/);
   assert.match(prompt, /一个项目读取失败/);
   assert.match(prompt, /Return only the final report Markdown/);
 });

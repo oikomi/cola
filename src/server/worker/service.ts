@@ -637,7 +637,7 @@ export async function reportRunnerSession(
         weeklyReportRequest && input.status === "succeeded"
           ? weeklyReportDocument
             ? [
-                `团队周报已生成：${weeklyReportDocument.title}`,
+                `团队进展已生成：${weeklyReportDocument.title}`,
                 weeklyReportDocument.url,
                 executionOutputText
                   ? `报告摘要：\n${executionOutputText.slice(0, 2400)}`
@@ -646,7 +646,7 @@ export async function reportRunnerSession(
                 .filter((line): line is string => Boolean(line))
                 .join("\n\n")
             : [
-                `团队周报正文已生成，但飞书文档创建失败：${weeklyReportDocumentError ?? "未知错误"}`,
+                `团队进展正文已生成，但飞书文档创建失败：${weeklyReportDocumentError ?? "未知错误"}`,
                 executionOutputText?.slice(0, 4000) ?? null,
               ]
                 .filter((line): line is string => Boolean(line))

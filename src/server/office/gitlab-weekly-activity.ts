@@ -6,6 +6,7 @@ const MAX_PROJECTS = 200;
 const MAX_USERS = 500;
 const MAX_COMMITS_PER_PROJECT = 1_000;
 const MAX_REPORT_COMMITS = 96;
+const MAX_COMMITS_PER_CONTRIBUTOR = 6;
 const MAX_DETAILED_COMMITS = 48;
 const MAX_FILES_PER_COMMIT = 20;
 const MAX_DIFF_CHARS_PER_FILE = 500;
@@ -547,8 +548,6 @@ export async function collectGitLabWeeklyActivity(
       Date.parse(left.commit.authored_date),
   );
   const commits = selectReportCommits(allCommits);
-  const commitsSampled = allCommits.length > commits.length;
-  const commitsTruncated = commitCollectionTruncated || commitsSampled;
   const detailedCommits = selectCommitsForDetails(commits);
   let remainingDiffChars = MAX_TOTAL_DIFF_CHARS;
 
@@ -627,18 +626,35 @@ export async function collectGitLabWeeklyActivity(
     contributorMap.set(key, contributor);
   }
 
+  let includedDetailedCommitCount = 0;
   const contributors = Array.from(contributorMap.values())
     .map((contributor): GitLabWeeklyActivityContributor => {
       const sampledItems = contributor.items.filter((item) =>
         sampledCommitKeys.has(projectCommitKey(item)),
       );
+      const prioritizedItems = [
+        ...sampledItems.filter((item) =>
+          detailByCommit.has(projectCommitKey(item)),
+        ),
+        ...sampledItems.filter(
+          (item) => !detailByCommit.has(projectCommitKey(item)),
+        ),
+      ];
+      const contributorCommits = selectCommitsWithCoverage(
+        prioritizedItems,
+        MAX_COMMITS_PER_CONTRIBUTOR,
+        [(item) => String(item.project.id)],
+      );
+      includedDetailedCommitCount += contributorCommits.filter((item) =>
+        detailByCommit.has(projectCommitKey(item)),
+      ).length;
       return {
         name: contributor.name,
         email: contributor.email,
         commitCount: contributor.items.length,
-        commitsTruncated: sampledItems.length < contributor.items.length,
+        commitsTruncated: contributorCommits.length < contributor.items.length,
         projectPaths: Array.from(contributor.projectPaths).sort(),
-        commits: sampledItems.map(
+        commits: contributorCommits.map(
           (item) =>
             detailByCommit.get(projectCommitKey(item)) ?? baseCommit(item),
         ),
@@ -650,13 +666,19 @@ export async function collectGitLabWeeklyActivity(
         left.name.localeCompare(right.name, "zh-CN"),
     );
   const projects = summarizeProjects(allCommits);
+  const sampledCommitCount = contributors.reduce(
+    (total, contributor) => total + contributor.commits.length,
+    0,
+  );
+  const commitsSampled = allCommits.length > sampledCommitCount;
+  const commitsTruncated = commitCollectionTruncated || commitsSampled;
 
   if (projectsResult.truncated) {
     warnings.push(`可见项目超过 ${MAX_PROJECTS} 个，项目清单已截断。`);
   }
   if (commitsSampled) {
     warnings.push(
-      `所选周期共采集 ${allCommits.length} 条提交；报告保留 ${commits.length} 条代表提交，项目和成员汇总仍按完整采集结果计算。`,
+      `所选周期共采集 ${allCommits.length} 条提交；报告按成员均衡保留 ${sampledCommitCount} 条代表提交，项目和成员汇总仍按完整采集结果计算。`,
     );
   }
   if (remainingDiffChars <= 0) {
@@ -676,10 +698,10 @@ export async function collectGitLabWeeklyActivity(
       projectsTruncated: projectsResult.truncated,
       rosterCount: roster.length,
       commitCount: allCommits.length,
-      sampledCommitCount: commits.length,
+      sampledCommitCount,
       commitsTruncated,
       contributorCount: contributors.length,
-      detailedCommitCount: detailedCommits.length,
+      detailedCommitCount: includedDetailedCommitCount,
     },
     warnings,
   };

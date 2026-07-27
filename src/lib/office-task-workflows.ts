@@ -24,6 +24,33 @@ export function isWeeklyReportPeriodPreset(
   );
 }
 
+export function isFeishuDocumentUrl(value: string | null | undefined) {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value.trim());
+    const hostname = url.hostname.toLowerCase();
+    const isWebProtocol = url.protocol === "https:" || url.protocol === "http:";
+    const isFeishuHost =
+      hostname === "feishu.cn" ||
+      hostname.endsWith(".feishu.cn") ||
+      hostname === "larksuite.com" ||
+      hostname.endsWith(".larksuite.com") ||
+      hostname === "larkoffice.com" ||
+      hostname.endsWith(".larkoffice.com");
+    const segments = url.pathname.split("/").filter(Boolean);
+    const documentTypeIndex = segments.findIndex((segment) =>
+      ["docx", "docs", "doc", "wiki"].includes(segment),
+    );
+
+    return (
+      isWebProtocol && isFeishuHost && Boolean(segments[documentTypeIndex + 1])
+    );
+  } catch {
+    return false;
+  }
+}
+
 export type WeeklyReportPeriod = {
   endAt: string;
   label: string;

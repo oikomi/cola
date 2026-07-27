@@ -221,7 +221,7 @@ void test("high-volume projects cannot hide other active projects", async () => 
   });
 
   assert.equal(activity.coverage.commitCount, 241);
-  assert.equal(activity.coverage.sampledCommitCount, 96);
+  assert.equal(activity.coverage.sampledCommitCount, 7);
   assert.equal(activity.coverage.projectsWithActivity, 2);
   assert.equal(activity.coverage.commitsTruncated, true);
   assert.deepEqual(activity.projects.map((project) => project.path).sort(), [
@@ -236,5 +236,5 @@ void test("high-volume projects cannot hide other active projects", async () => 
     smallerContributor?.commits[0]?.projectPath,
     "team/smaller-but-active",
   );
-  assert.match(activity.warnings.join("\n"), /完整采集结果计算/);
+  assert.match(activity.warnings.join("\n"), /按成员均衡保留 7 条代表提交/);
 });

@@ -1,7 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveWeeklyReportPeriod } from "./office-task-workflows.ts";
+import {
+  isFeishuDocumentUrl,
+  resolveWeeklyReportPeriod,
+} from "./office-task-workflows.ts";
+
+void test("team progress accepts supported Feishu document URLs", () => {
+  assert.equal(
+    isFeishuDocumentUrl("https://example.feishu.cn/wiki/wiki-token"),
+    true,
+  );
+  assert.equal(
+    isFeishuDocumentUrl("https://example.larksuite.com/docx/docx-token"),
+    true,
+  );
+  assert.equal(
+    isFeishuDocumentUrl("https://example.larkoffice.com/docs/doc-token"),
+    true,
+  );
+});
+
+void test("team progress rejects non-document or non-Feishu URLs", () => {
+  assert.equal(isFeishuDocumentUrl("https://code.xdreamdev.com/team"), false);
+  assert.equal(isFeishuDocumentUrl("https://example.feishu.cn/wiki"), false);
+  assert.equal(
+    isFeishuDocumentUrl("ftp://example.feishu.cn/wiki/wiki-token"),
+    false,
+  );
+  assert.equal(isFeishuDocumentUrl("not-a-url"), false);
+  assert.equal(isFeishuDocumentUrl(""), false);
+});
 
 void test("previous weekly report period uses a complete Shanghai work week", () => {
   const period = resolveWeeklyReportPeriod(

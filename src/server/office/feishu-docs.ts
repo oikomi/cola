@@ -425,7 +425,7 @@ export async function createFeishuDocumentFromMarkdown(
   if (!markdown) throw new Error("Hermes 没有返回可写入飞书文档的周报正文。");
   const preparedMarkdown = prepareFeishuReportMarkdown(markdown);
 
-  const title = input.title.trim().slice(0, 160) || "团队工作周报";
+  const title = input.title.trim().slice(0, 160) || "团队进展";
   const fetchImpl = options.fetchImpl ?? fetch;
   const tenantAccessToken = await getTenantAccessToken(fetchImpl);
   const folderToken = trimEnv(

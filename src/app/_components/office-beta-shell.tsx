@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/select";
 import { notifyError, notifySuccess } from "@/components/ui/toast";
 import {
+  isFeishuDocumentUrl,
   isWeeklyReportPeriodPreset,
   resolveWeeklyReportPeriod,
   weeklyReportPeriodPresetValues,
@@ -217,7 +218,7 @@ const WEEKLY_REPORT_PERIOD_LABELS: Record<WeeklyReportPeriodPreset, string> = {
 };
 
 const DEFAULT_WEEKLY_REPORT_FOCUS =
-  "按成员归纳所选周期的交付、文档与代码证据、协作影响、风险和后续建议；没有证据的内容不要推测。";
+  "结合周报中的目标、交付与问题，以及所选周期的 GitLab 提交、文件、文档和测试变化，按成员分析整体进展、协作影响、风险与后续建议。";
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
   "command",
@@ -1926,6 +1927,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     gitlabRef: string;
     workflow: OfficeTaskWorkflow;
     weeklyReportPeriod: WeeklyReportPeriodPreset;
+    weeklyReportDocumentUrl: string;
   }>({
     ownerAgentId:
       snapshot.agents.find((agent) => agent.engine === "hermes-agent")?.id ??
@@ -1940,6 +1942,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     gitlabRef: "",
     workflow: "general",
     weeklyReportPeriod: "last_7_days",
+    weeklyReportDocumentUrl: "",
   });
   const [workstationZoneId, setWorkstationZoneId] =
     useState<ZoneKey>("engineering");
@@ -1975,7 +1978,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     onSuccess: (_result, variables) => {
       notifySuccess(
         variables.workflow === "gitlab_weekly_report"
-          ? "团队周报任务已下发，完成后会生成飞书文档并推送通知。"
+          ? "团队进展任务已下发，完成后会生成飞书文档并推送通知。"
           : "任务已下发给 Hermes，执行结果会在完成后推送到飞书。",
       );
       setIsCreateTaskOpen(false);
@@ -1985,6 +1988,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
         summary: "",
         workflow: "general",
         weeklyReportPeriod: "last_7_days",
+        weeklyReportDocumentUrl: "",
       }));
       void utils.office.getSnapshot.invalidate();
     },
@@ -2363,6 +2367,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
   const trimmedTaskSummary = taskDraft.summary.trim();
   const trimmedGitLabRepository = taskDraft.gitlabRepository.trim();
   const trimmedGitLabRef = taskDraft.gitlabRef.trim();
+  const trimmedWeeklyReportDocumentUrl =
+    taskDraft.weeklyReportDocumentUrl.trim();
+  const weeklyReportDocumentUrlIsValid = isFeishuDocumentUrl(
+    trimmedWeeklyReportDocumentUrl,
+  );
   const isWeeklyReportTask = taskDraft.workflow === "gitlab_weekly_report";
   const weeklyReportPeriod = resolveWeeklyReportPeriod(
     taskDraft.weeklyReportPeriod,
@@ -2441,6 +2450,11 @@ export function OfficeBetaShell({ snapshot }: Props) {
       return;
     }
 
+    if (isWeeklyReportTask && !weeklyReportDocumentUrlIsValid) {
+      notifyError("请填写有效的周报飞书文档地址。");
+      return;
+    }
+
     await createTask.mutateAsync({
       ...taskDraft,
       title: trimmedTaskTitle,
@@ -2461,6 +2475,9 @@ export function OfficeBetaShell({ snapshot }: Props) {
       weeklyReportPeriod: isWeeklyReportTask
         ? taskDraft.weeklyReportPeriod
         : undefined,
+      weeklyReportDocumentUrl: isWeeklyReportTask
+        ? trimmedWeeklyReportDocumentUrl
+        : undefined,
     });
   };
 
@@ -2473,9 +2490,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
           ...current,
           workflow,
           title:
-            current.title === `团队工作周报 · ${period.label}`
-              ? ""
-              : current.title,
+            current.title === `团队进展 · ${period.label}` ? "" : current.title,
           summary:
             current.summary === DEFAULT_WEEKLY_REPORT_FOCUS
               ? ""
@@ -2487,7 +2502,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
       return {
         ...current,
         workflow,
-        title: current.title.trim() || `团队工作周报 · ${period.label}`,
+        title: current.title.trim() || `团队进展 · ${period.label}`,
         summary: current.summary.trim() || DEFAULT_WEEKLY_REPORT_FOCUS,
       };
     });
@@ -2501,14 +2516,14 @@ export function OfficeBetaShell({ snapshot }: Props) {
         current.weeklyReportPeriod,
       );
       const nextPeriod = resolveWeeklyReportPeriod(weeklyReportPeriod);
-      const automaticTitle = `团队工作周报 · ${previousPeriod.label}`;
+      const automaticTitle = `团队进展 · ${previousPeriod.label}`;
 
       return {
         ...current,
         weeklyReportPeriod,
         title:
           current.title === automaticTitle
-            ? `团队工作周报 · ${nextPeriod.label}`
+            ? `团队进展 · ${nextPeriod.label}`
             : current.title,
       };
     });
@@ -3314,7 +3329,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 <DialogTitle>下发 Hermes 任务</DialogTitle>
                 <DialogDescription>
                   {isWeeklyReportTask
-                    ? "Hermes 会分析团队所选周期的 GitLab 活动，并生成一份飞书文档。"
+                    ? "Hermes 会结合团队周报与所选周期的 GitLab 活动，分析成员整体进展并生成飞书文档。"
                     : "任务会进入所选人物的队列，由对应 Hermes runner 认领执行。"}
                 </DialogDescription>
               </DialogHeader>
@@ -3354,7 +3369,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                       }
                     >
                       <ChartNoAxesColumnIncreasingIcon className="size-4" />
-                      团队周报
+                      团队进展
                     </button>
                   </div>
 
@@ -3476,7 +3491,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   {isWeeklyReportTask ? (
                     <>
                       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
-                        <FormField label="报告标题">
+                        <FormField label="进展标题">
                           <Input
                             className="bg-white"
                             value={taskDraft.title}
@@ -3486,7 +3501,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                                 title: event.target.value,
                               }))
                             }
-                            placeholder="团队工作周报"
+                            placeholder="团队进展"
                           />
                         </FormField>
 
@@ -3529,36 +3544,52 @@ export function OfficeBetaShell({ snapshot }: Props) {
                         </FormField>
                       </div>
 
-                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         <FormField label="GitLab 数据源">
-                          <div className="flex min-h-20 items-start gap-3 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2.5 text-sm text-[#24342f] shadow-sm">
-                            <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-[#367458]" />
+                          <div className="flex min-h-10 items-center gap-3 rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm text-[#24342f] shadow-sm">
+                            <GitBranchIcon className="size-4 shrink-0 text-[#367458]" />
                             <span className="min-w-0">
                               <span className="block leading-5 font-medium break-all">
                                 {liveSnapshot.integrations?.hermesGitLab.url ??
                                   "未配置"}
                               </span>
-                              <span className="mt-1 block text-xs leading-5 text-[#65776e]">
-                                仅处理所选周期内有提交的非归档项目
-                              </span>
                             </span>
                           </div>
                         </FormField>
 
-                        <FormField label="分析重点">
-                          <textarea
-                            className="min-h-20 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8]"
-                            value={taskDraft.summary}
+                        <FormField label="周报飞书文档地址">
+                          <Input
+                            className="bg-white"
+                            type="url"
+                            autoComplete="off"
+                            maxLength={1024}
+                            required
+                            spellCheck={false}
+                            value={taskDraft.weeklyReportDocumentUrl}
                             onChange={(event) =>
                               setTaskDraft((current) => ({
                                 ...current,
-                                summary: event.target.value,
+                                weeklyReportDocumentUrl: event.target.value,
                               }))
                             }
-                            placeholder={DEFAULT_WEEKLY_REPORT_FOCUS}
+                            placeholder="https://example.feishu.cn/wiki/..."
                           />
                         </FormField>
                       </div>
+
+                      <FormField label="分析重点">
+                        <textarea
+                          className="min-h-20 w-full rounded-[var(--radius-card)] border border-[#cbd8cf] bg-white px-3 py-2 text-sm leading-6 text-[#24342f] shadow-sm transition-colors outline-none placeholder:text-[#8a9a91] focus:border-[#67a184] focus:ring-2 focus:ring-[#cfe5d8]"
+                          value={taskDraft.summary}
+                          onChange={(event) =>
+                            setTaskDraft((current) => ({
+                              ...current,
+                              summary: event.target.value,
+                            }))
+                          }
+                          placeholder={DEFAULT_WEEKLY_REPORT_FOCUS}
+                        />
+                      </FormField>
                     </>
                   ) : (
                     <>
@@ -3714,7 +3745,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     className={cn(
                       "flex min-h-12 items-start gap-2 rounded-[var(--radius-card)] border px-3 py-2 text-xs leading-5",
                       isWeeklyReportTask &&
-                        weeklyReportConfigurationIssues.length > 0
+                        (weeklyReportConfigurationIssues.length > 0 ||
+                          !weeklyReportDocumentUrlIsValid)
                         ? "border-[#e6c8a4] bg-[#fff9f0] text-[#78532e]"
                         : "border-[#d6e4da] bg-white/86 text-[#4f655d]",
                     )}
@@ -3727,9 +3759,13 @@ export function OfficeBetaShell({ snapshot }: Props) {
                         ? "当前还没有 Hermes 人物。请先添加执行引擎为 Hermes Agent 的人物，或等待 Hermes runner 完成注册。"
                         : isWeeklyReportTask &&
                             weeklyReportConfigurationIssues.length > 0
-                          ? `团队周报暂不可下发：${weeklyReportConfigurationIssues.join("；")}。`
+                          ? `团队进展暂不可下发：${weeklyReportConfigurationIssues.join("；")}。`
                           : isWeeklyReportTask
-                            ? `将统计 ${weeklyReportPeriod.label} 的团队提交，完成后生成飞书文档并发送给${selectedNotificationUsers.length > 0 ? notificationUserLabel : "任务创建人"}。`
+                            ? trimmedWeeklyReportDocumentUrl.length === 0
+                              ? "请填写周报飞书文档地址，Hermes 将结合周报与 GitLab 提交分析成员整体进展。"
+                              : !weeklyReportDocumentUrlIsValid
+                                ? "请输入有效的飞书 doc、docx 或 wiki 文档地址。"
+                                : `将结合周报与 ${weeklyReportPeriod.label} 的 GitLab 提交分析成员进展，完成后发送给${selectedNotificationUsers.length > 0 ? notificationUserLabel : "任务创建人"}。`
                             : trimmedGitLabRef.length > 0 &&
                                 trimmedGitLabRepository.length === 0
                               ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"
@@ -3764,7 +3800,8 @@ export function OfficeBetaShell({ snapshot }: Props) {
                     trimmedTaskTitle.length < 3 ||
                     trimmedTaskSummary.length < 8 ||
                     (isWeeklyReportTask
-                      ? weeklyReportConfigurationIssues.length > 0
+                      ? weeklyReportConfigurationIssues.length > 0 ||
+                        !weeklyReportDocumentUrlIsValid
                       : trimmedGitLabRef.length > 0 &&
                         trimmedGitLabRepository.length === 0) ||
                     Boolean(liveSnapshot.readOnlyReason)
@@ -3784,7 +3821,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                   {createTask.isPending
                     ? "正在下发"
                     : isWeeklyReportTask
-                      ? "生成团队周报"
+                      ? "生成团队进展"
                       : "下发给 Hermes"}
                 </Button>
               </DialogFooter>

@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { and, eq, inArray } from "drizzle-orm";
 
-import type {
-  OfficeTaskWorkflow,
-  WeeklyReportPeriodPreset,
+import {
+  isFeishuDocumentUrl,
+  type OfficeTaskWorkflow,
+  type WeeklyReportPeriodPreset,
 } from "@/lib/office-task-workflows";
 import type { db } from "@/server/db";
 import {
@@ -62,6 +63,7 @@ export type CreateOfficeTaskInput = {
   notifyUserIds?: string[];
   ownerUserId: string;
   weeklyReportPeriod?: WeeklyReportPeriodPreset;
+  weeklyReportDocumentUrl?: string;
   workflow?: OfficeTaskWorkflow;
 };
 
@@ -251,8 +253,14 @@ export async function createOfficeTask(
       input.gitlabRepository,
       input.gitlabRef,
     );
-    const feishuDocuments = extractFeishuDocumentReferences(input.summary);
     const workflow = input.workflow ?? "general";
+    const weeklyReportDocuments = extractFeishuDocumentReferences(
+      input.weeklyReportDocumentUrl,
+    );
+    const feishuDocuments =
+      workflow === "gitlab_weekly_report"
+        ? weeklyReportDocuments
+        : extractFeishuDocumentReferences(input.summary);
     const gitlabCredentials = resolveHermesGitLabCredentials();
     const weeklyReportRequest =
       workflow === "gitlab_weekly_report" && gitlabCredentials
@@ -263,10 +271,21 @@ export async function createOfficeTask(
           })
         : null;
 
+    if (
+      workflow === "gitlab_weekly_report" &&
+      (!isFeishuDocumentUrl(input.weeklyReportDocumentUrl) ||
+        weeklyReportDocuments.length !== 1)
+    ) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "请填写有效的周报飞书文档地址。",
+      });
+    }
+
     if (workflow === "gitlab_weekly_report" && !gitlabCredentials) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
-        message: "团队周报需要先配置 Hermes GitLab 服务端凭据。",
+        message: "团队进展需要先配置 Hermes GitLab 服务端凭据。",
       });
     }
 
@@ -276,7 +295,7 @@ export async function createOfficeTask(
     ) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
-        message: "团队周报需要先配置飞书应用凭据，才能创建飞书文档。",
+        message: "团队进展需要先配置飞书应用凭据，才能读取周报并创建进展文档。",
       });
     }
 
@@ -286,7 +305,7 @@ export async function createOfficeTask(
     ) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "团队周报会扫描全部可见项目，不需要指定单个 GitLab 仓库。",
+        message: "团队进展会扫描全部可见项目，不需要指定单个 GitLab 仓库。",
       });
     }
 
@@ -301,7 +320,7 @@ export async function createOfficeTask(
           code: "BAD_REQUEST",
           message:
             workflow === "gitlab_weekly_report"
-              ? "团队周报只能分派给已绑定 Hermes runner 的人物。"
+              ? "团队进展只能分派给已绑定 Hermes runner 的人物。"
               : "GitLab 仓库任务只能分派给已绑定 Hermes runner 的人物。",
         });
       }
@@ -383,7 +402,7 @@ export async function createOfficeTask(
       title: `新任务已进入 ${owner.name} 的待办`,
       description:
         workflow === "gitlab_weekly_report" && weeklyReportRequest
-          ? `${input.title} 已创建，将统计 ${weeklyReportRequest.period.label} 的 GitLab 活动并生成飞书文档。`
+          ? `${input.title} 已创建，将结合周报与 ${weeklyReportRequest.period.label} 的 GitLab 活动分析成员进展并生成飞书文档。`
           : `${input.title} 已创建，并分派给 ${owner.name}。`,
       occurredAt: now,
     });

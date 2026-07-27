@@ -62,6 +62,7 @@ const createTaskInput = z.object({
   notifyUserIds: z.array(z.string().uuid()).max(20).optional(),
   workflow: z.enum(officeTaskWorkflowValues).default("general"),
   weeklyReportPeriod: z.enum(weeklyReportPeriodPresetValues).optional(),
+  weeklyReportDocumentUrl: z.string().trim().max(1024).optional(),
 });
 
 const updateTaskStatusInput = z.object({
