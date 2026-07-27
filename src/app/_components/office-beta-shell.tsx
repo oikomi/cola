@@ -218,7 +218,7 @@ const WEEKLY_REPORT_PERIOD_LABELS: Record<WeeklyReportPeriodPreset, string> = {
 };
 
 const DEFAULT_WEEKLY_REPORT_FOCUS =
-  "结合周报中的目标、交付与问题，以及所选周期的 GitLab 提交、文件、文档和测试变化，按成员分析整体进展、协作影响、风险与后续建议。";
+  "结合周报中的目标、交付与问题，以及所选周期的 GitLab 提交、文件、文档和测试变化，按成员分析整体进展并给出有客观论据支撑的百分制评分、协作影响、风险与后续建议。";
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
   "command",

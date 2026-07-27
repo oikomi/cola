@@ -120,6 +120,7 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   assert.match(prompt, /Reconcile the two sources member by member/);
   assert.match(prompt, /report-only statements, GitLab-only changes/);
   assert.match(prompt, /Do not rank people by volume/);
+  assert.match(prompt, /use relative grading/);
   assert.match(prompt, /Omit projects with zero commits/);
   assert.match(prompt, /Include every project in that array/);
   assert.match(prompt, /complete member-level counts and project paths/);
@@ -131,10 +132,32 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
     prompt,
     /every member named in either the Feishu weekly report or GitLab contributors/,
   );
-  assert.match(prompt, /never combine distinct names/);
+  assert.match(prompt, /总分 NN\/100（证据置信度：高\/中\/低）/);
+  assert.match(prompt, /目标与交付 40 points/);
+  assert.match(prompt, /质量与可信证据 25 points/);
+  assert.match(prompt, /协作与影响 20 points/);
+  assert.match(prompt, /风险管理与闭环 15 points/);
+  assert.match(prompt, /add up exactly to the displayed total/);
   assert.match(
     prompt,
-    /concrete code, document, configuration, or test changes/,
+    /interpolate only when the evidence clearly falls between/,
+  );
+  assert.match(prompt, /40=committed outcomes completed and validated/);
+  assert.match(prompt, /25=strong multi-source validation/);
+  assert.match(prompt, /20=documented material cross-team impact/);
+  assert.match(prompt, /15=mitigation or closure verified/);
+  assert.match(prompt, /label evidence as 周报、GitLab、or 双源印证/);
+  assert.match(prompt, /Every awarded score needs an objective rationale/);
+  assert.match(prompt, /described as unknown rather than failed/);
+  assert.match(prompt, /never invent a default score/);
+  assert.match(
+    prompt,
+    /Missing GitLab activity alone must not reduce the score/,
+  );
+  assert.match(prompt, /Never combine distinct names/);
+  assert.match(
+    prompt,
+    /concrete GitLab code, document, configuration, or test changes/,
   );
   assert.match(prompt, /inspect that contributor's commits/);
   assert.match(prompt, /must not replace the available analysis/);
