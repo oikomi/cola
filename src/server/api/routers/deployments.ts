@@ -20,6 +20,7 @@ import {
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
   locateAnythingModelRef,
+  maxInferenceGpuCount,
   maxInferenceReplicaCount,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
@@ -87,6 +88,14 @@ const createInferenceDeploymentInput = z
         code: z.ZodIssueCode.custom,
         path: ["gpuMemoryGi"],
         message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+      });
+    }
+
+    if (input.gpuCount > maxInferenceGpuCount(input.engine)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gpuCount"],
+        message: "Qwen3 Embedding TEI 运行时每个副本固定使用 1 个 GPU 份额。",
       });
     }
 

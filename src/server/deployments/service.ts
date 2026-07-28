@@ -32,6 +32,7 @@ import {
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
   lmDeployModelRefExample,
+  maxInferenceGpuCount,
   maxInferenceReplicaCount,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
@@ -44,6 +45,7 @@ import {
   buildInferenceRuntimeCommand,
   DEFAULT_INFERENCE_CACHE_ROOT,
   DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
+  defaultInferenceContainerSecurityContext,
   isInferencePodFailed,
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
@@ -277,6 +279,7 @@ function normalizeInferenceGpuAllocation(
   return normalizeGpuAllocation(spec, {
     minGpuCount:
       engine === "llama.cpp" && spec.gpuAllocationMode === "whole" ? 0 : 1,
+    maxGpuCount: maxInferenceGpuCount(engine),
   });
 }
 
@@ -887,6 +890,9 @@ function buildInferenceDeployment(input: {
     modelRef: input.modelRef,
     gpuSpec,
   });
+  const securityContext = defaultInferenceContainerSecurityContext(
+    input.engine,
+  );
   const initContainers = buildInitContainers({
     name: input.name,
     engine: input.engine,
@@ -965,6 +971,7 @@ function buildInferenceDeployment(input: {
               name: "server",
               image: input.image,
               imagePullPolicy: imagePullPolicyFor(input.image),
+              ...(securityContext ? { securityContext } : {}),
               ...(runtimeCommand.command
                 ? { command: runtimeCommand.command }
                 : {}),

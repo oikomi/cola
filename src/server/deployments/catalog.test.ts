@@ -20,6 +20,7 @@ import {
   locateAnythingModelRef,
   locateAnythingModelRevision,
   locateAnythingPythonPackages,
+  maxInferenceGpuCount,
   maxInferenceReplicaCount,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
@@ -203,12 +204,17 @@ void test("SGLang defaults to a version with native LocateAnything support", () 
   assert.equal(defaultSglangImage, "lmsysorg/sglang:v0.5.15.post1-cu129");
 });
 
-void test("Qwen3 Embedding 4B uses a pinned compatible vLLM image", () => {
+void test("Qwen3 Embedding 4B uses a pinned lightweight TEI image", () => {
   assert.equal(
     defaultInferenceImage("qwen3-embedding", 1),
     defaultQwen3EmbeddingImage,
   );
-  assert.equal(defaultQwen3EmbeddingImage, "vllm/vllm-openai:v0.11.2");
+  assert.equal(
+    defaultQwen3EmbeddingImage,
+    "ghcr.io/huggingface/text-embeddings-inference:89-1.8.3",
+  );
+  assert.equal(maxInferenceGpuCount("qwen3-embedding"), 1);
+  assert.equal(maxInferenceGpuCount("vllm"), 16);
 });
 
 void test("SAM 2 uses its dedicated image and remains single replica", () => {

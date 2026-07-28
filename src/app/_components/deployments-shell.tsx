@@ -58,6 +58,7 @@ import {
   llamaCppModelRoot,
   llamaCppRemoteModelRefExample,
   locateAnythingModelRef,
+  maxInferenceGpuCount,
   maxInferenceReplicaCount,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
@@ -168,7 +169,7 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
     case "lmdeploy":
       return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等模型。模型可来自 Hugging Face，也可在启动前从 NAS S3 同步。创建后会先保存为草稿，点击上线时再拉起 Pod。";
     case "qwen3-embedding":
-      return "Qwen3 Embedding 4B 运行时使用固定版本 vLLM 以 embedding 任务启动，提供 OpenAI 兼容的向量接口。创建后会先保存为草稿，确认资源配置后再点击上线。";
+      return "Qwen3 Embedding 4B 使用针对 RTX 4090 裁剪的 TEI CUDA 运行时，提供 OpenAI 兼容的向量接口。创建后会先保存为草稿，确认资源配置后再点击上线。";
     case "vllm":
       return "当前运行时支持 Hugging Face 模型引用或 S3 模型目录。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
     case "sglang":
@@ -210,7 +211,7 @@ function gpuRequirementCopy(
   }
 
   if (engine === "qwen3-embedding") {
-    return "Qwen3 Embedding 4B 默认使用 1 张 GPU；多卡时会通过 tensor parallel 拆分模型。";
+    return "Qwen3 Embedding 4B 的 TEI 运行时固定使用 1 张 GPU；要提升吞吐量请增加副本数。";
   }
 
   return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
@@ -820,6 +821,7 @@ export function DeploymentsShell() {
   const parsedGpuMemoryGi = Number.parseInt(draft.gpuMemoryGi, 10);
   const parsedGpuCount = Number.parseInt(draft.gpuCount, 10);
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
+  const maximumGpuCount = maxInferenceGpuCount(draft.engine);
   const maximumReplicaCount = maxInferenceReplicaCount(draft.engine);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
@@ -832,7 +834,7 @@ export function DeploymentsShell() {
   const gpuCountValid =
     Number.isInteger(parsedGpuCount) &&
     parsedGpuCount >= minGpuCount &&
-    parsedGpuCount <= 16;
+    parsedGpuCount <= maximumGpuCount;
   const gpuMemoryValid =
     draft.gpuAllocationMode !== "memory" ||
     (Number.isInteger(parsedGpuMemoryGi) &&
@@ -1112,6 +1114,8 @@ export function DeploymentsShell() {
                       setDraft((current) => ({
                         ...current,
                         engine: value,
+                        gpuCount:
+                          value === "qwen3-embedding" ? "1" : current.gpuCount,
                         modelRef:
                           value === "sglang" &&
                           current.engine === defaultDraft.engine &&
@@ -1298,11 +1302,17 @@ export function DeploymentsShell() {
                   }
                 >
                   <Input
-                    className="h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none"
+                    className={cn(
+                      "h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none",
+                      draft.engine === "qwen3-embedding"
+                        ? "bg-slate-100/90 text-slate-500"
+                        : undefined,
+                    )}
                     type="number"
                     min={minGpuCount}
-                    max={16}
+                    max={maximumGpuCount}
                     value={draft.gpuCount}
+                    disabled={draft.engine === "qwen3-embedding"}
                     onChange={(event) =>
                       setDraft((current) => ({
                         ...current,

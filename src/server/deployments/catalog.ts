@@ -41,7 +41,8 @@ export const llamaCppRemoteModelRefExample =
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
 export const lmDeployModelRefExample = "internlm/internlm3-8b-instruct";
 export const qwen3Embedding4BModelRef = "Qwen/Qwen3-Embedding-4B";
-export const defaultQwen3EmbeddingImage = "vllm/vllm-openai:v0.11.2";
+export const defaultQwen3EmbeddingImage =
+  "ghcr.io/huggingface/text-embeddings-inference:89-1.8.3";
 export const s3ModelRefExample = "s3://xdream/models/qwen3-8b-instruct/";
 export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
 export const sam2ModelRefValues = [
@@ -116,6 +117,10 @@ export function isQwen3Embedding4BModelRef(modelRef: string) {
 
 export function maxInferenceReplicaCount(engine: InferenceDeploymentEngine) {
   return engine === "sam2" ? 1 : 16;
+}
+
+export function maxInferenceGpuCount(engine: InferenceDeploymentEngine) {
+  return engine === "qwen3-embedding" ? 1 : 16;
 }
 
 export function sglangRuntimeProfileForModel(modelRef: string) {

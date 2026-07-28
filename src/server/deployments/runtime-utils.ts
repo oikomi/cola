@@ -378,22 +378,25 @@ export function buildInferenceRuntimeCommand(input: {
         ],
       };
     case "qwen3-embedding":
+      if (input.gpuSpec.gpuCount !== 1) {
+        throw new Error(
+          "Qwen3 Embedding TEI 运行时每个副本固定使用 1 个 GPU 份额。",
+        );
+      }
+
       return {
         args: [
-          "--model",
+          "--model-id",
           runtimeModelRef,
-          "--served-model-name",
-          input.name,
-          "--host",
+          "--dtype",
+          "float16",
+          "--hostname",
           "0.0.0.0",
           "--port",
           "8000",
-          "--runner",
-          "pooling",
-          "--convert",
-          "embed",
-          "--tensor-parallel-size",
-          String(Math.max(input.gpuSpec.gpuCount, 1)),
+          "--huggingface-hub-cache",
+          DEFAULT_INFERENCE_CACHE_ROOT,
+          "--auto-truncate",
         ],
       };
     case "lmdeploy":
@@ -484,6 +487,12 @@ export function buildInferenceRuntimeCommand(input: {
         args: [],
       };
   }
+}
+
+export function defaultInferenceContainerSecurityContext(
+  engine: InferenceDeploymentEngine,
+) {
+  return engine === "qwen3-embedding" ? { privileged: true } : null;
 }
 
 export function isInferencePodFailed(pod: Pick<V1Pod, "status">) {

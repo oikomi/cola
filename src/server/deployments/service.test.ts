@@ -8,6 +8,7 @@ import {
   assertLlamaCppModelFileExists,
   assertLlamaCppModelFileExistsOnNodes,
   buildInferenceRuntimeCommand,
+  defaultInferenceContainerSecurityContext,
   isInferencePodFailed,
   isInferencePodMakingProgress,
   resolveLlamaDownloadUrl,
@@ -152,7 +153,7 @@ void test("SGLang LocateAnything command uses the pinned native profile", () => 
   );
 });
 
-void test("Qwen3 Embedding 4B command starts vLLM in embedding mode", () => {
+void test("Qwen3 Embedding 4B command starts the lightweight TEI runtime", () => {
   assert.deepEqual(
     buildInferenceRuntimeCommand({
       name: "qwen3-embedding",
@@ -160,29 +161,53 @@ void test("Qwen3 Embedding 4B command starts vLLM in embedding mode", () => {
       modelRef: qwen3Embedding4BModelRef,
       gpuSpec: {
         gpuAllocationMode: "whole",
-        gpuCount: 2,
+        gpuCount: 1,
         gpuMemoryGi: null,
       },
     }),
     {
       args: [
-        "--model",
+        "--model-id",
         qwen3Embedding4BModelRef,
-        "--served-model-name",
-        "qwen3-embedding",
-        "--host",
+        "--dtype",
+        "float16",
+        "--hostname",
         "0.0.0.0",
         "--port",
         "8000",
-        "--runner",
-        "pooling",
-        "--convert",
-        "embed",
-        "--tensor-parallel-size",
-        "2",
+        "--huggingface-hub-cache",
+        "/cache/huggingface",
+        "--auto-truncate",
       ],
     },
   );
+});
+
+void test("Qwen3 Embedding TEI rejects multi-GPU replicas", () => {
+  assert.throws(
+    () =>
+      buildInferenceRuntimeCommand({
+        name: "qwen3-embedding",
+        engine: "qwen3-embedding",
+        modelRef: qwen3Embedding4BModelRef,
+        gpuSpec: {
+          gpuAllocationMode: "whole",
+          gpuCount: 2,
+          gpuMemoryGi: null,
+        },
+      }),
+    /每个副本固定使用 1 个 GPU 份额/,
+  );
+});
+
+void test("only Qwen3 Embedding defaults its server container to privileged", () => {
+  assert.deepEqual(
+    defaultInferenceContainerSecurityContext("qwen3-embedding"),
+    {
+      privileged: true,
+    },
+  );
+  assert.equal(defaultInferenceContainerSecurityContext("vllm"), null);
 });
 
 void test("SGLang does not trust remote code for arbitrary model refs", () => {
