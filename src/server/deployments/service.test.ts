@@ -20,6 +20,7 @@ import {
 import {
   locateAnythingModelRef,
   locateAnythingModelRevision,
+  qwen3Embedding4BModelRef,
 } from "./catalog.ts";
 
 void test("llama.cpp model refs map into the host model root", () => {
@@ -146,6 +147,39 @@ void test("SGLang LocateAnything command uses the pinned native profile", () => 
         locateAnythingModelRevision,
         "--model-impl",
         "sglang",
+      ],
+    },
+  );
+});
+
+void test("Qwen3 Embedding 4B command starts vLLM in embedding mode", () => {
+  assert.deepEqual(
+    buildInferenceRuntimeCommand({
+      name: "qwen3-embedding",
+      engine: "qwen3-embedding",
+      modelRef: qwen3Embedding4BModelRef,
+      gpuSpec: {
+        gpuAllocationMode: "whole",
+        gpuCount: 2,
+        gpuMemoryGi: null,
+      },
+    }),
+    {
+      args: [
+        "--model",
+        qwen3Embedding4BModelRef,
+        "--served-model-name",
+        "qwen3-embedding",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--runner",
+        "pooling",
+        "--convert",
+        "embed",
+        "--tensor-parallel-size",
+        "2",
       ],
     },
   );

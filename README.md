@@ -171,4 +171,5 @@ COLA_OPENCLAW_DISABLE_DEVICE_IDENTITY="1"
 - [训练平台 Unsloth on Kubernetes 说明](./docs/training-unsloth-k8s.md)
 - [视觉推理运行时说明](./docs/vision-inference-runtime.md)
 - [SAM 2 推理运行时说明](./docs/sam2-inference-runtime.md)
+- [Qwen3 Embedding 4B 推理运行时说明](./docs/qwen3-embedding-runtime.md)
 - [LocateAnything-3B SGLang 部署说明](./docs/locate-anything-sglang.md)

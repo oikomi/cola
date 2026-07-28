@@ -377,6 +377,25 @@ export function buildInferenceRuntimeCommand(input: {
           String(Math.max(input.gpuSpec.gpuCount, 1)),
         ],
       };
+    case "qwen3-embedding":
+      return {
+        args: [
+          "--model",
+          runtimeModelRef,
+          "--served-model-name",
+          input.name,
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8000",
+          "--runner",
+          "pooling",
+          "--convert",
+          "embed",
+          "--tensor-parallel-size",
+          String(Math.max(input.gpuSpec.gpuCount, 1)),
+        ],
+      };
     case "lmdeploy":
       return {
         command: ["lmdeploy"],

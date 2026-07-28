@@ -13,6 +13,7 @@ import {
 import {
   canCreateInferenceDeploymentWithEngine,
   type InferenceDeploymentEngine,
+  inferenceDeploymentEngineLabels,
   inferenceDeploymentEngineValues,
   isValidInferenceModelRef,
   lmDeployModelRefExample,
@@ -20,6 +21,7 @@ import {
   llamaCppRemoteModelRefExample,
   locateAnythingModelRef,
   maxInferenceReplicaCount,
+  qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
   visionDetectionModelRefExample,
@@ -34,6 +36,8 @@ import {
 
 function modelRefValidationMessage(engine: InferenceDeploymentEngine) {
   switch (engine) {
+    case "qwen3-embedding":
+      return `Qwen3 Embedding 4B 运行时只支持官方模型 ${qwen3Embedding4BModelRef} 或 S3 模型目录，例如 ${s3ModelRefExample}。`;
     case "llama.cpp":
       return `llama.cpp 支持 /models 下的本地 GGUF，例如 ${llamaCppModelRefExample}；也支持可直接下载的 GGUF 来源，例如 ${llamaCppRemoteModelRefExample}。`;
     case "lmdeploy":
@@ -100,22 +104,7 @@ const inferenceDeploymentActionInput = z.object({
 });
 
 function runtimeLabel(engine: InferenceDeploymentEngine) {
-  switch (engine) {
-    case "vllm":
-      return "vLLM";
-    case "lmdeploy":
-      return "LMDeploy";
-    case "llama.cpp":
-      return "llama.cpp";
-    case "sglang":
-      return "SGLang";
-    case "vision-detection":
-      return "视觉检测";
-    case "sam2":
-      return "SAM 2 分割";
-    default:
-      return engine;
-  }
+  return inferenceDeploymentEngineLabels[engine];
 }
 
 export const deploymentsRouter = createTRPCRouter({

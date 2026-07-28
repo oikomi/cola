@@ -1,5 +1,6 @@
 export const inferenceDeploymentEngineValues = [
   "vllm",
+  "qwen3-embedding",
   "lmdeploy",
   "llama.cpp",
   "sglang",
@@ -9,6 +10,7 @@ export const inferenceDeploymentEngineValues = [
 
 export const creatableInferenceDeploymentEngineValues = [
   "vllm",
+  "qwen3-embedding",
   "lmdeploy",
   "llama.cpp",
   "sglang",
@@ -38,6 +40,8 @@ export const llamaCppRemoteModelRefExample =
   "hf://unsloth/gemma-4-E2B-it-GGUF/gemma-4-E2B-it-Q3_K_M.gguf";
 export const llamaCppRemoteModelUrlExample = "https://example.com/model.gguf";
 export const lmDeployModelRefExample = "internlm/internlm3-8b-instruct";
+export const qwen3Embedding4BModelRef = "Qwen/Qwen3-Embedding-4B";
+export const defaultQwen3EmbeddingImage = "vllm/vllm-openai:v0.11.2";
 export const s3ModelRefExample = "s3://xdream/models/qwen3-8b-instruct/";
 export const visionDetectionModelRefExample = "PekingU/rtdetr_v2_r50vd";
 export const sam2ModelRefValues = [
@@ -106,6 +110,10 @@ export function isSam2ModelRef(modelRef: string) {
   return sam2ModelRefSet.has(modelRef.trim());
 }
 
+export function isQwen3Embedding4BModelRef(modelRef: string) {
+  return modelRef.trim() === qwen3Embedding4BModelRef;
+}
+
 export function maxInferenceReplicaCount(engine: InferenceDeploymentEngine) {
   return engine === "sam2" ? 1 : 16;
 }
@@ -138,7 +146,12 @@ export function isS3ModelRef(modelRef: string) {
 }
 
 export function supportsS3ModelRef(engine: InferenceDeploymentEngine) {
-  return engine === "vllm" || engine === "lmdeploy" || engine === "sglang";
+  return (
+    engine === "vllm" ||
+    engine === "qwen3-embedding" ||
+    engine === "lmdeploy" ||
+    engine === "sglang"
+  );
 }
 
 function hasValidLlamaCppFilePathSegments(segments: string[]) {
@@ -216,6 +229,8 @@ export function isValidInferenceModelRef(
   modelRef: string,
 ) {
   switch (engine) {
+    case "qwen3-embedding":
+      return isQwen3Embedding4BModelRef(modelRef) || isS3ModelRef(modelRef);
     case "llama.cpp":
       return isLlamaCppModelRef(modelRef);
     case "lmdeploy":
@@ -236,6 +251,7 @@ export const inferenceDeploymentEngineLabels: Record<
   string
 > = {
   vllm: "vLLM",
+  "qwen3-embedding": "Qwen3 Embedding 4B",
   lmdeploy: "LMDeploy",
   "llama.cpp": "llama.cpp",
   sglang: "SGLang",
@@ -261,6 +277,8 @@ export function defaultInferenceImage(
   switch (engine) {
     case "vllm":
       return "vllm/vllm-openai:latest";
+    case "qwen3-embedding":
+      return defaultQwen3EmbeddingImage;
     case "lmdeploy":
       return "openmmlab/lmdeploy:latest";
     case "llama.cpp":

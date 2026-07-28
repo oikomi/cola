@@ -26,12 +26,14 @@ import {
   isLlamaCppLocalModelRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelRef,
+  isQwen3Embedding4BModelRef,
   isSam2ModelRef,
   isS3ModelRef,
   llamaCppModelRefExample,
   llamaCppRemoteModelRefExample,
   lmDeployModelRefExample,
   maxInferenceReplicaCount,
+  qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
   sglangRuntimeProfileForModel,
@@ -309,6 +311,16 @@ function normalizeCreateEngine(engine: InferenceDeploymentEngine) {
 
 function normalizeModelRef(engine: InferenceDeploymentEngine, input: string) {
   const value = input.trim();
+
+  if (engine === "qwen3-embedding") {
+    if (!isQwen3Embedding4BModelRef(value) && !isS3ModelRef(value)) {
+      throw new Error(
+        `Qwen3 Embedding 4B 运行时只支持官方模型 ${qwen3Embedding4BModelRef} 或 S3 模型目录。`,
+      );
+    }
+
+    return value;
+  }
 
   if (engine === "llama.cpp") {
     if (!isLlamaCppModelRef(value)) {

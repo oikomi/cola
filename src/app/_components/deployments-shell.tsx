@@ -59,6 +59,7 @@ import {
   llamaCppRemoteModelRefExample,
   locateAnythingModelRef,
   maxInferenceReplicaCount,
+  qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
   visionDetectionModelRefExample,
@@ -102,6 +103,8 @@ function modelRefHint(engine: DraftState["engine"]) {
       return `支持官方 SAM 2 / SAM 2.1 模型，例如 ${sam2ModelRefExample}。服务提供图片提示分割和有状态视频跟踪 API。`;
     case "lmdeploy":
       return `支持 Hugging Face 模型 ID，例如 ${lmDeployModelRefExample}；也支持 NAS/SeaweedFS 上的 S3 模型目录，例如 ${s3ModelRefExample}。`;
+    case "qwen3-embedding":
+      return `支持官方 ${qwen3Embedding4BModelRef} 或 S3 模型目录 ${s3ModelRefExample}，通过 POST /v1/embeddings 生成文本向量。`;
     case "vllm":
       return `支持 Hugging Face 模型 ID，例如 Qwen/Qwen3-8B-Instruct；也支持 S3 模型目录，例如 ${s3ModelRefExample}。`;
     case "sglang":
@@ -121,6 +124,8 @@ function modelRefPlaceholder(engine: DraftState["engine"]) {
       return sam2ModelRefExample;
     case "lmdeploy":
       return s3ModelRefExample;
+    case "qwen3-embedding":
+      return qwen3Embedding4BModelRef;
     case "vllm":
       return "Qwen/Qwen3-8B-Instruct";
     case "sglang":
@@ -142,6 +147,8 @@ function modelRefValidationLabel(engine: DraftState["engine"], valid: boolean) {
       return "请选择受支持的官方 SAM 2 Hugging Face 模型";
     case "lmdeploy":
       return "请输入合法的 Hugging Face 模型 ID 或 s3:// 模型目录";
+    case "qwen3-embedding":
+      return `请输入官方模型 ID ${qwen3Embedding4BModelRef} 或 s3:// 模型目录`;
     case "vllm":
     case "sglang":
       return "请输入合法的 Hugging Face 模型 ID 或 s3:// 模型目录";
@@ -160,6 +167,8 @@ function runtimeDialogDescription(engine: DraftState["engine"]) {
       return "SAM 2 运行时提供图片点/框提示分割和视频目标跟踪。视频状态保存在单个推理进程中，因此部署固定为单副本。";
     case "lmdeploy":
       return "LMDeploy 使用 Turbomind/PyTorch 后端启动 OpenAI 兼容服务，适合 InternLM、Qwen、Llama 等模型。模型可来自 Hugging Face，也可在启动前从 NAS S3 同步。创建后会先保存为草稿，点击上线时再拉起 Pod。";
+    case "qwen3-embedding":
+      return "Qwen3 Embedding 4B 运行时使用固定版本 vLLM 以 embedding 任务启动，提供 OpenAI 兼容的向量接口。创建后会先保存为草稿，确认资源配置后再点击上线。";
     case "vllm":
       return "当前运行时支持 Hugging Face 模型引用或 S3 模型目录。创建后会先保存为草稿，确认配置无误后再点击上线扩到目标副本。";
     case "sglang":
@@ -200,6 +209,10 @@ function gpuRequirementCopy(
     return "LMDeploy 默认使用 1 张 GPU，并通过 --tp 与 GPU 数量对齐；也可以用 HAMi 显存模式按份额调度。";
   }
 
+  if (engine === "qwen3-embedding") {
+    return "Qwen3 Embedding 4B 默认使用 1 张 GPU；多卡时会通过 tensor parallel 拆分模型。";
+  }
+
   return "当前运行时至少需要 1 张 GPU。创建完成后会先保留为草稿，再由你确认是否扩到目标副本。";
 }
 
@@ -211,6 +224,8 @@ function serviceEntryCopy(engine: DraftState["engine"]) {
       return "外部服务通过 master NodePort 暴露；目标检测使用 POST /predict 上传图片，完整接口可在 /docs 查看。";
     case "llama.cpp":
       return "外部服务通过 master NodePort 暴露，并提供 llama.cpp HTTP API。";
+    case "qwen3-embedding":
+      return "外部服务通过 master NodePort 暴露，并提供 OpenAI 兼容的 POST /v1/embeddings API。";
     default:
       return "外部服务通过 master NodePort 暴露，并提供 OpenAI 兼容 API。";
   }
@@ -218,6 +233,11 @@ function serviceEntryCopy(engine: DraftState["engine"]) {
 
 function apiPathHint(row: DeploymentRow) {
   switch (row.engine) {
+    case "qwen3-embedding":
+      return {
+        label: "Embedding API",
+        value: row.endpoint ? `${row.endpoint}/v1/embeddings` : null,
+      };
     case "vision-detection":
     case "sam2":
       return {
@@ -881,7 +901,7 @@ export function DeploymentsShell() {
       <ModuleHero
         eyebrow="Inference Ops"
         title="推理部署"
-        description="管理 LLM 与视觉推理服务：vLLM、LMDeploy、SGLang、llama.cpp、目标检测和 SAM 2 分割，集中查看入口、资源和远程 API 状态。"
+        description="管理生成、向量与视觉推理服务：vLLM、Qwen3 Embedding、LMDeploy、SGLang、llama.cpp、目标检测和 SAM 2 分割，集中查看入口、资源和远程 API 状态。"
         icon={BlocksIcon}
         size="compact"
         density="dense"

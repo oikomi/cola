@@ -5,12 +5,14 @@ import {
   canCreateInferenceDeploymentWithEngine,
   creatableInferenceDeploymentEngineValues,
   defaultInferenceImage,
+  defaultQwen3EmbeddingImage,
   defaultSam2Image,
   defaultSglangImage,
   isHuggingFaceModelRef,
   isLlamaCppHuggingFaceFileRef,
   isLlamaCppModelRef,
   isLlamaCppRemoteModelUrl,
+  isQwen3Embedding4BModelRef,
   isSam2ModelRef,
   isS3ModelRef,
   isValidInferenceModelRef,
@@ -19,6 +21,7 @@ import {
   locateAnythingModelRevision,
   locateAnythingPythonPackages,
   maxInferenceReplicaCount,
+  qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
   sglangRuntimeProfileForModel,
@@ -28,6 +31,7 @@ import {
 void test("create flow exposes all supported runtimes", () => {
   assert.deepEqual(creatableInferenceDeploymentEngineValues, [
     "vllm",
+    "qwen3-embedding",
     "lmdeploy",
     "llama.cpp",
     "sglang",
@@ -35,6 +39,7 @@ void test("create flow exposes all supported runtimes", () => {
     "sam2",
   ]);
   assert.equal(canCreateInferenceDeploymentWithEngine("vllm"), true);
+  assert.equal(canCreateInferenceDeploymentWithEngine("qwen3-embedding"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("lmdeploy"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("llama.cpp"), true);
   assert.equal(canCreateInferenceDeploymentWithEngine("sglang"), true);
@@ -113,6 +118,22 @@ void test("S3 model refs accept bucket prefixes and reject unsafe values", () =>
 
 void test("model ref validation follows runtime selection", () => {
   assert.equal(
+    isValidInferenceModelRef("qwen3-embedding", qwen3Embedding4BModelRef),
+    true,
+  );
+  assert.equal(
+    isValidInferenceModelRef("qwen3-embedding", "Qwen/Qwen3-Embedding-8B"),
+    false,
+  );
+  assert.equal(
+    isValidInferenceModelRef("qwen3-embedding", s3ModelRefExample),
+    true,
+  );
+  assert.equal(
+    isQwen3Embedding4BModelRef(`  ${qwen3Embedding4BModelRef}  `),
+    true,
+  );
+  assert.equal(
     isValidInferenceModelRef("vllm", "Qwen/Qwen3-8B-Instruct"),
     true,
   );
@@ -180,6 +201,14 @@ void test("SGLang LocateAnything profile pins trusted remote code", () => {
 void test("SGLang defaults to a version with native LocateAnything support", () => {
   assert.equal(defaultInferenceImage("sglang", 1), defaultSglangImage);
   assert.equal(defaultSglangImage, "lmsysorg/sglang:v0.5.15.post1-cu129");
+});
+
+void test("Qwen3 Embedding 4B uses a pinned compatible vLLM image", () => {
+  assert.equal(
+    defaultInferenceImage("qwen3-embedding", 1),
+    defaultQwen3EmbeddingImage,
+  );
+  assert.equal(defaultQwen3EmbeddingImage, "vllm/vllm-openai:v0.11.2");
 });
 
 void test("SAM 2 uses its dedicated image and remains single replica", () => {
