@@ -36,13 +36,18 @@ curl http://<master-ip>:<node-port>/v1/embeddings \
 - 默认镜像针对当前 `infra/k8s/cluster` 中 RTX 4090 的 CUDA 8.9 计算能力构建。该固定版本的压缩镜像约为 0.57 GiB，最大单层约为 0.48 GiB。
 - Hugging Face 模型权重由 TEI 下载；S3 模型目录会在启动前同步到本地缓存。两种来源都会复用推理部署共享的缓存目录。
 - TEI 每个副本固定使用 1 个 GPU 份额，不做 tensor parallel；需要更高吞吐量时增加副本数。
+- 显存模式每个 GPU 份额至少分配 12 GiB；首次验证仍建议使用 1 张整卡 GPU。
+- 首次从 Hugging Face 下载权重时，startup probe 最多等待 2 小时，避免慢链路下载过程中被 kubelet 周期重启。
 - Qwen3 Embedding 的主推理容器默认启用 `securityContext.privileged: true`。该设置不扩展到初始化容器或其他推理引擎。
+- 部署会固定到创建或重新上线时筛选出的 Ready worker 节点，并优先排除同时承担 master 角色的节点。按当前 `infra/k8s/cluster` 配置，Qwen3 Embedding 会调度到 `node-01`。
 - 外部入口为 `POST /v1/embeddings`，不是聊天模型使用的 `/v1/chat/completions`。
 - Kubernetes 集群地址、命名空间和节点信息以 `infra/k8s/cluster` 为准。
 
-首次上线前可以通过项目已有脚本预热到全部 GPU 节点，避免 Pod 启动阶段承担镜像下载：
+TEI 下载权重时要求模型文件响应包含 `ETag`。不要为该运行时配置会移除 `ETag` 的 Hugging Face 代理；当前集群实测 `https://hf-mirror.com` 不满足这个要求。外网不稳定时优先把完整模型目录同步到 S3，再使用 `s3://` 模型引用上线。
+
+首次上线前可以通过项目已有脚本预热到目标推理节点，避免 Pod 启动阶段承担镜像下载：
 
 ```bash
 cd infra/k8s
-./bin/cluster.sh image prewarm --gpu-only ghcr.io/huggingface/text-embeddings-inference:89-1.8.3
+./bin/cluster.sh image prewarm --nodes node-01 ghcr.io/huggingface/text-embeddings-inference:89-1.8.3
 ```

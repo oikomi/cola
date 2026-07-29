@@ -123,8 +123,26 @@ export function maxInferenceGpuCount(engine: InferenceDeploymentEngine) {
   return engine === "qwen3-embedding" ? 1 : 16;
 }
 
+export function minInferenceGpuMemoryGi(engine: InferenceDeploymentEngine) {
+  return engine === "qwen3-embedding" ? 12 : 1;
+}
+
 export function sglangRuntimeProfileForModel(modelRef: string) {
   return sglangModelRuntimeProfiles.get(modelRef.trim()) ?? null;
+}
+
+export function defaultInferenceStartupFailureThreshold(
+  engine: InferenceDeploymentEngine,
+  modelRef: string,
+) {
+  if (engine === "qwen3-embedding") return 720;
+  if (engine === "vision-detection" || engine === "sam2") return 120;
+  if (engine === "sglang") {
+    return (
+      sglangRuntimeProfileForModel(modelRef)?.startupFailureThreshold ?? 60
+    );
+  }
+  return 60;
 }
 
 export function isS3ModelRef(modelRef: string) {

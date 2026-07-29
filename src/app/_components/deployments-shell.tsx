@@ -60,6 +60,7 @@ import {
   locateAnythingModelRef,
   maxInferenceGpuCount,
   maxInferenceReplicaCount,
+  minInferenceGpuMemoryGi,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
@@ -823,6 +824,7 @@ export function DeploymentsShell() {
   const parsedReplicaCount = Number.parseInt(draft.replicaCount, 10);
   const maximumGpuCount = maxInferenceGpuCount(draft.engine);
   const maximumReplicaCount = maxInferenceReplicaCount(draft.engine);
+  const minimumGpuMemoryGi = minInferenceGpuMemoryGi(draft.engine);
   const trimmedModelRef = draft.modelRef.trim();
   const trimmedImage = draft.image.trim();
   const modelRefValid = isValidInferenceModelRef(draft.engine, trimmedModelRef);
@@ -838,7 +840,7 @@ export function DeploymentsShell() {
   const gpuMemoryValid =
     draft.gpuAllocationMode !== "memory" ||
     (Number.isInteger(parsedGpuMemoryGi) &&
-      parsedGpuMemoryGi >= 1 &&
+      parsedGpuMemoryGi >= minimumGpuMemoryGi &&
       parsedGpuMemoryGi <= 1024);
   const defaultImageForDraft = defaultInferenceImage(
     draft.engine,
@@ -1116,6 +1118,12 @@ export function DeploymentsShell() {
                         engine: value,
                         gpuCount:
                           value === "qwen3-embedding" ? "1" : current.gpuCount,
+                        gpuMemoryGi:
+                          current.gpuAllocationMode === "memory" &&
+                          (Number.parseInt(current.gpuMemoryGi, 10) || 0) <
+                            minInferenceGpuMemoryGi(value)
+                            ? String(minInferenceGpuMemoryGi(value))
+                            : current.gpuMemoryGi,
                         modelRef:
                           value === "sglang" &&
                           current.engine === defaultDraft.engine &&
@@ -1226,12 +1234,22 @@ export function DeploymentsShell() {
                         const nextMode =
                           value === "memory" ? "memory" : "whole";
                         const nextMinGpu = gpuMinimum(current.engine, nextMode);
+                        const nextMinGpuMemory = minInferenceGpuMemoryGi(
+                          current.engine,
+                        );
+                        const currentGpuMemory = Number.parseInt(
+                          current.gpuMemoryGi,
+                          10,
+                        );
                         return {
                           ...current,
                           gpuAllocationMode: nextMode,
                           gpuMemoryGi:
                             nextMode === "memory"
-                              ? current.gpuMemoryGi || "8"
+                              ? Number.isInteger(currentGpuMemory) &&
+                                currentGpuMemory >= nextMinGpuMemory
+                                ? current.gpuMemoryGi
+                                : String(nextMinGpuMemory)
                               : "",
                           gpuCount:
                             Number.parseInt(current.gpuCount, 10) >= nextMinGpu
@@ -1333,7 +1351,14 @@ export function DeploymentsShell() {
                   />
                 </Field>
 
-                <Field label="每份额显存 (Gi)">
+                <Field
+                  label="每份额显存 (Gi)"
+                  hint={
+                    draft.engine === "qwen3-embedding"
+                      ? "Qwen3 Embedding 4B 的 FP16 权重与运行时至少需要 12 GiB。"
+                      : undefined
+                  }
+                >
                   <Input
                     className={cn(
                       "h-10 rounded-2xl border-slate-200/90 bg-white/92 px-3 shadow-none",
@@ -1342,7 +1367,7 @@ export function DeploymentsShell() {
                         : undefined,
                     )}
                     type="number"
-                    min={1}
+                    min={minimumGpuMemoryGi}
                     max={1024}
                     value={draft.gpuMemoryGi}
                     onChange={(event) =>
@@ -1351,7 +1376,7 @@ export function DeploymentsShell() {
                         gpuMemoryGi: event.target.value,
                       }))
                     }
-                    placeholder="8"
+                    placeholder={String(minimumGpuMemoryGi)}
                     disabled={draft.gpuAllocationMode !== "memory"}
                   />
                 </Field>

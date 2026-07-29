@@ -18,9 +18,11 @@ import {
 } from "@/lib/gpu-allocation";
 import {
   canCreateInferenceDeploymentWithEngine,
+  defaultInferenceStartupFailureThreshold,
   defaultInferenceImage,
   type InferenceDeploymentEngine,
   type InferenceDeploymentStatus,
+  inferenceDeploymentEngineLabels,
   inferenceDeploymentEngineValues,
   isHuggingFaceModelRef,
   isLlamaCppLocalModelRef,
@@ -34,6 +36,7 @@ import {
   lmDeployModelRefExample,
   maxInferenceGpuCount,
   maxInferenceReplicaCount,
+  minInferenceGpuMemoryGi,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
@@ -42,6 +45,7 @@ import {
 } from "@/server/deployments/catalog";
 import {
   assertLlamaCppModelFileExistsOnNodes,
+  buildInferenceNodeAffinity,
   buildInferenceRuntimeCommand,
   DEFAULT_INFERENCE_CACHE_ROOT,
   DEFAULT_INFERENCE_MODEL_ROOT as MODEL_ROOT,
@@ -276,11 +280,23 @@ function normalizeInferenceGpuAllocation(
   engine: InferenceDeploymentEngine,
   spec: GpuAllocationSpec,
 ) {
-  return normalizeGpuAllocation(spec, {
+  const normalized = normalizeGpuAllocation(spec, {
     minGpuCount:
       engine === "llama.cpp" && spec.gpuAllocationMode === "whole" ? 0 : 1,
     maxGpuCount: maxInferenceGpuCount(engine),
   });
+
+  const minimumGpuMemoryGi = minInferenceGpuMemoryGi(engine);
+  if (
+    normalized.gpuAllocationMode === "memory" &&
+    (normalized.gpuMemoryGi ?? 0) < minimumGpuMemoryGi
+  ) {
+    throw new Error(
+      `${inferenceDeploymentEngineLabels[engine]} 显存模式每个 GPU 份额至少需要 ${minimumGpuMemoryGi} Gi。`,
+    );
+  }
+
+  return normalized;
 }
 
 function normalizeReplicaCount(
@@ -474,6 +490,8 @@ function assertInferenceSchedulable(params: {
         : "没有找到可用的 Ready worker 节点。",
     );
   }
+
+  return preferred.map((entry) => entry.node.name).sort();
 }
 
 function resolveInferenceNodePort(services: V1Service[]) {
@@ -660,11 +678,6 @@ function buildStartupProbe(input: {
   engine: InferenceDeploymentEngine;
   modelRef: string;
 }) {
-  const runtimeProfile =
-    input.engine === "sglang"
-      ? sglangRuntimeProfileForModel(input.modelRef)
-      : null;
-
   return {
     tcpSocket: { port: 8000 },
     initialDelaySeconds: positiveIntegerEnv(
@@ -674,10 +687,7 @@ function buildStartupProbe(input: {
     periodSeconds: positiveIntegerEnv("INFERENCE_STARTUP_PERIOD_SECONDS", 10),
     failureThreshold: positiveIntegerEnv(
       "INFERENCE_STARTUP_FAILURE_THRESHOLD",
-      runtimeProfile?.startupFailureThreshold ??
-        (input.engine === "vision-detection" || input.engine === "sam2"
-          ? 120
-          : 60),
+      defaultInferenceStartupFailureThreshold(input.engine, input.modelRef),
     ),
   };
 }
@@ -877,6 +887,7 @@ function buildInferenceDeployment(input: {
   gpuCount: number;
   gpuMemoryGi: number | null;
   replicaCount: number;
+  eligibleNodeNames: string[];
   ownerUserId?: string;
 }) {
   const gpuSpec = {
@@ -893,6 +904,7 @@ function buildInferenceDeployment(input: {
   const securityContext = defaultInferenceContainerSecurityContext(
     input.engine,
   );
+  const affinity = buildInferenceNodeAffinity(input.eligibleNodeNames);
   const initContainers = buildInitContainers({
     name: input.name,
     engine: input.engine,
@@ -953,6 +965,7 @@ function buildInferenceDeployment(input: {
             ? { runtimeClassName: "nvidia" }
             : {}),
           ...buildHamiSchedulerSpec(gpuSpec),
+          ...(affinity ? { affinity } : {}),
           ...(initContainers.length > 0 ? { initContainers } : {}),
           topologySpreadConstraints: [
             {
@@ -1456,7 +1469,7 @@ export async function createInferenceDeployment(
     throw new Error(`推理部署 ${input.name} 已存在。`);
   }
 
-  assertInferenceSchedulable({
+  const eligibleNodeNames = assertInferenceSchedulable({
     configNodes: ctx.nodes,
     liveNodes,
     requestedGpuSpec: gpuSpec,
@@ -1477,6 +1490,7 @@ export async function createInferenceDeployment(
       gpuCount: gpuSpec.gpuCount,
       gpuMemoryGi: gpuSpec.gpuMemoryGi,
       replicaCount,
+      eligibleNodeNames,
       ownerUserId: input.ownerUserId,
     }),
   });
@@ -1516,7 +1530,7 @@ export async function createInferenceDeployment(
         ownerUserId: input.ownerUserId,
       }),
     }),
-    eligibleNodeNames: [],
+    eligibleNodeNames,
     nodePort,
   };
 }
@@ -1540,12 +1554,14 @@ function buildReplacementDeployment(input: {
   deployment: V1Deployment;
   name: string;
   replicas: number;
+  eligibleNodeNames?: string[];
   refreshStartedAt?: boolean;
 }) {
   const spec = input.deployment.spec;
   const metadata = input.deployment.metadata;
+  const podSpec = spec?.template?.spec;
 
-  if (!spec?.selector || !spec.template) {
+  if (!spec?.selector || !spec.template || !podSpec?.containers) {
     throw new Error(`推理部署 ${input.name} 的 Kubernetes 模板不完整。`);
   }
 
@@ -1566,6 +1582,9 @@ function buildReplacementDeployment(input: {
       {}) as Record<string, string | number | null | undefined>,
   );
   const refreshedAt = input.refreshStartedAt ? new Date().toISOString() : null;
+  const affinity = input.eligibleNodeNames
+    ? buildInferenceNodeAffinity(input.eligibleNodeNames)
+    : spec.template.spec?.affinity;
 
   return {
     apiVersion: input.deployment.apiVersion,
@@ -1617,6 +1636,11 @@ function buildReplacementDeployment(input: {
               : {}),
           },
         },
+        spec: {
+          ...podSpec,
+          containers: podSpec.containers,
+          ...(affinity ? { affinity } : {}),
+        },
       },
       replicas: input.replicas,
     },
@@ -1640,6 +1664,22 @@ export async function startInferenceDeployment(name: string) {
   const modelRef =
     deployment.metadata?.annotations?.[INFERENCE_METADATA.modelRef] ?? name;
   const currentReplicas = deployment.spec?.replicas ?? 0;
+  const container = deployment.spec?.template?.spec?.containers?.[0];
+  const gpuSpec = normalizeInferenceGpuAllocation(
+    engine,
+    parseGpuAllocationFromResources(
+      (container?.resources?.limits ??
+        container?.resources?.requests ??
+        {}) as Record<string, string | number | null | undefined>,
+    ),
+  );
+  const liveNodes = (await ctx.coreApi.listNode()).items ?? [];
+  const eligibleNodeNames = assertInferenceSchedulable({
+    configNodes: ctx.nodes,
+    liveNodes,
+    requestedGpuSpec: gpuSpec,
+    gpuLabelKey: ctx.config.gpuLabelKey,
+  });
 
   if (engine === "llama.cpp") {
     if (isLlamaCppLocalModelRef(modelRef)) {
@@ -1670,6 +1710,7 @@ export async function startInferenceDeployment(name: string) {
       deployment,
       name,
       replicas: Number.isFinite(desiredReplicas) ? desiredReplicas : 1,
+      eligibleNodeNames,
       refreshStartedAt: true,
     }),
   });

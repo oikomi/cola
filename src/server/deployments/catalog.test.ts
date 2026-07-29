@@ -5,6 +5,7 @@ import {
   canCreateInferenceDeploymentWithEngine,
   creatableInferenceDeploymentEngineValues,
   defaultInferenceImage,
+  defaultInferenceStartupFailureThreshold,
   defaultQwen3EmbeddingImage,
   defaultSam2Image,
   defaultSglangImage,
@@ -22,6 +23,7 @@ import {
   locateAnythingPythonPackages,
   maxInferenceGpuCount,
   maxInferenceReplicaCount,
+  minInferenceGpuMemoryGi,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
@@ -215,6 +217,33 @@ void test("Qwen3 Embedding 4B uses a pinned lightweight TEI image", () => {
   );
   assert.equal(maxInferenceGpuCount("qwen3-embedding"), 1);
   assert.equal(maxInferenceGpuCount("vllm"), 16);
+  assert.equal(minInferenceGpuMemoryGi("qwen3-embedding"), 12);
+  assert.equal(minInferenceGpuMemoryGi("vllm"), 1);
+  assert.equal(
+    defaultInferenceStartupFailureThreshold(
+      "qwen3-embedding",
+      qwen3Embedding4BModelRef,
+    ),
+    720,
+  );
+});
+
+void test("inference startup windows match runtime initialization costs", () => {
+  assert.equal(
+    defaultInferenceStartupFailureThreshold("sglang", locateAnythingModelRef),
+    360,
+  );
+  assert.equal(
+    defaultInferenceStartupFailureThreshold("sglang", "Qwen/Qwen3-8B"),
+    60,
+  );
+  assert.equal(
+    defaultInferenceStartupFailureThreshold(
+      "vision-detection",
+      visionDetectionModelRefExample,
+    ),
+    120,
+  );
 });
 
 void test("SAM 2 uses its dedicated image and remains single replica", () => {

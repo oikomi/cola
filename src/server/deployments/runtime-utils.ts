@@ -495,6 +495,32 @@ export function defaultInferenceContainerSecurityContext(
   return engine === "qwen3-embedding" ? { privileged: true } : null;
 }
 
+export function buildInferenceNodeAffinity(eligibleNodeNames: string[]) {
+  const nodeNames = [...new Set(eligibleNodeNames.map((name) => name.trim()))]
+    .filter(Boolean)
+    .sort();
+
+  if (nodeNames.length === 0) return null;
+
+  return {
+    nodeAffinity: {
+      requiredDuringSchedulingIgnoredDuringExecution: {
+        nodeSelectorTerms: [
+          {
+            matchExpressions: [
+              {
+                key: "kubernetes.io/hostname",
+                operator: "In",
+                values: nodeNames,
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
+
 export function isInferencePodFailed(pod: Pick<V1Pod, "status">) {
   if (pod.status?.phase === "Failed") return true;
 

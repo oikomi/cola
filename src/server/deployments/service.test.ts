@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   assertLlamaCppModelFileExists,
   assertLlamaCppModelFileExistsOnNodes,
+  buildInferenceNodeAffinity,
   buildInferenceRuntimeCommand,
   defaultInferenceContainerSecurityContext,
   isInferencePodFailed,
@@ -208,6 +209,30 @@ void test("only Qwen3 Embedding defaults its server container to privileged", ()
     },
   );
   assert.equal(defaultInferenceContainerSecurityContext("vllm"), null);
+});
+
+void test("inference node affinity pins pods to the selected worker nodes", () => {
+  assert.deepEqual(
+    buildInferenceNodeAffinity(["node-b", "node-a", "node-b", " "]),
+    {
+      nodeAffinity: {
+        requiredDuringSchedulingIgnoredDuringExecution: {
+          nodeSelectorTerms: [
+            {
+              matchExpressions: [
+                {
+                  key: "kubernetes.io/hostname",
+                  operator: "In",
+                  values: ["node-a", "node-b"],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  );
+  assert.equal(buildInferenceNodeAffinity([]), null);
 });
 
 void test("SGLang does not trust remote code for arbitrary model refs", () => {

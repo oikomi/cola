@@ -22,6 +22,7 @@ import {
   locateAnythingModelRef,
   maxInferenceGpuCount,
   maxInferenceReplicaCount,
+  minInferenceGpuMemoryGi,
   qwen3Embedding4BModelRef,
   sam2ModelRefExample,
   s3ModelRefExample,
@@ -88,6 +89,19 @@ const createInferenceDeploymentInput = z
         code: z.ZodIssueCode.custom,
         path: ["gpuMemoryGi"],
         message: "显存模式下必须填写每个 GPU 份额的显存大小。",
+      });
+    }
+
+    const minimumGpuMemoryGi = minInferenceGpuMemoryGi(input.engine);
+    if (
+      input.gpuAllocationMode === "memory" &&
+      input.gpuMemoryGi !== null &&
+      input.gpuMemoryGi < minimumGpuMemoryGi
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gpuMemoryGi"],
+        message: `${inferenceDeploymentEngineLabels[input.engine]} 显存模式每个 GPU 份额至少需要 ${minimumGpuMemoryGi} Gi。`,
       });
     }
 
