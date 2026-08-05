@@ -218,7 +218,7 @@ const WEEKLY_REPORT_PERIOD_LABELS: Record<WeeklyReportPeriodPreset, string> = {
 };
 
 const DEFAULT_WEEKLY_REPORT_FOCUS =
-  "结合周报中的目标、交付与问题，以及所选周期的 GitLab 提交、文件、文档和测试变化，按成员分析整体进展并给出有客观论据支撑的百分制评分、协作影响、风险与后续建议。";
+  "先将周报成员与 GitLab 用户或提交身份匹配；无法确认 GitLab 账号的成员跳过，不进入成员评分。对已匹配成员，再按成员和项目逐项对照同周期提交的标题、路径、变更片段与测试，判断代码是否能印证周报内容；标记双源印证、部分印证、仅周报、仅代码、证据冲突或无法判断，并给出证据、风险与后续建议。";
 
 const ZONE_KEY_SET = new Set<ZoneKey>([
   "command",
@@ -1978,7 +1978,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
     onSuccess: (_result, variables) => {
       notifySuccess(
         variables.workflow === "gitlab_weekly_report"
-          ? "团队进展任务已下发，完成后会生成飞书文档并推送通知。"
+          ? "团队进展任务已下发，将先匹配 GitLab 账号再核验周报与提交的关联性，完成后生成飞书文档并推送通知。"
           : "任务已下发给 Hermes，执行结果会在完成后推送到飞书。",
       );
       setIsCreateTaskOpen(false);
@@ -3329,7 +3329,7 @@ export function OfficeBetaShell({ snapshot }: Props) {
                 <DialogTitle>下发 Hermes 任务</DialogTitle>
                 <DialogDescription>
                   {isWeeklyReportTask
-                    ? "Hermes 会结合团队周报与所选周期的 GitLab 活动，分析成员整体进展并生成飞书文档。"
+                    ? "Hermes 会先匹配周报成员的 GitLab 账号，再逐项对照提交，判断代码是否印证目标、交付和问题，并生成飞书文档。"
                     : "任务会进入所选人物的队列，由对应 Hermes runner 认领执行。"}
                 </DialogDescription>
               </DialogHeader>
@@ -3590,6 +3590,43 @@ export function OfficeBetaShell({ snapshot }: Props) {
                           placeholder={DEFAULT_WEEKLY_REPORT_FOCUS}
                         />
                       </FormField>
+
+                      <div
+                        aria-label="周报与代码关联性核验"
+                        className="flex items-start gap-2 rounded-[var(--radius-card)] border border-[#cbded2] bg-[#f1f8f3] px-3 py-2.5 text-xs leading-5 text-[#385b4b]"
+                        data-testid="weekly-report-relevance-check"
+                      >
+                        <GitBranchIcon className="mt-0.5 size-4 shrink-0 text-[#367458]" />
+                        <div className="min-w-0">
+                          <p className="font-medium text-[#214b38]">
+                            周报-代码关联性核验
+                          </p>
+                          <p className="mt-0.5">
+                            无法匹配 GitLab
+                            账号的周报成员会跳过；已匹配但没有提交的成员会标记为缺少代码证据。只有能与具体周报事项建立证据链的提交，才用于对应交付判断。
+                          </p>
+                          <div
+                            className="mt-2 flex flex-wrap gap-1.5"
+                            aria-label="关联性结论"
+                          >
+                            {[
+                              "双源印证",
+                              "部分印证",
+                              "仅周报",
+                              "仅代码",
+                              "证据冲突",
+                              "无法判断",
+                            ].map((status) => (
+                              <span
+                                key={status}
+                                className="rounded-full border border-[#b9d2c2] bg-white/80 px-2 py-0.5 text-[11px] text-[#426557]"
+                              >
+                                {status}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </>
                   ) : (
                     <>
@@ -3762,10 +3799,10 @@ export function OfficeBetaShell({ snapshot }: Props) {
                           ? `团队进展暂不可下发：${weeklyReportConfigurationIssues.join("；")}。`
                           : isWeeklyReportTask
                             ? trimmedWeeklyReportDocumentUrl.length === 0
-                              ? "请填写周报飞书文档地址，Hermes 将结合周报与 GitLab 提交分析成员整体进展。"
+                              ? "请填写周报飞书文档地址，Hermes 将先匹配 GitLab 账号，再结合周报与提交分析成员进展。"
                               : !weeklyReportDocumentUrlIsValid
                                 ? "请输入有效的飞书 doc、docx 或 wiki 文档地址。"
-                                : `将结合周报与 ${weeklyReportPeriod.label} 的 GitLab 提交分析成员进展，完成后发送给${selectedNotificationUsers.length > 0 ? notificationUserLabel : "任务创建人"}。`
+                                : `将先匹配 GitLab 账号，再结合周报与 ${weeklyReportPeriod.label} 的提交分析成员进展；无账号成员跳过，完成后发送给${selectedNotificationUsers.length > 0 ? notificationUserLabel : "任务创建人"}。`
                             : trimmedGitLabRef.length > 0 &&
                                 trimmedGitLabRepository.length === 0
                               ? "填写分支或提交时，也需要填写 GitLab 仓库。Hermes 的 GitLab 凭据由服务端注入，不会显示在任务里。"

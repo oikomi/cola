@@ -119,19 +119,42 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   );
   assert.match(prompt, /Reconcile the two sources member by member/);
   assert.match(prompt, /report-only statements, GitLab-only changes/);
+  assert.match(
+    prompt,
+    /GitLab-account eligibility gate before any member-level analysis/,
+  );
+  assert.match(
+    prompt,
+    /Skip weekly-report members with no confirmed GitLab account entirely/,
+  );
+  assert.match(
+    prompt,
+    /A confirmed GitLab account with zero commits remains eligible/,
+  );
+  assert.match(
+    prompt,
+    /weekly-report-to-code relevance a required analysis dimension/,
+  );
+  assert.match(
+    prompt,
+    /双源印证, 部分印证, 仅周报, 仅代码, 证据冲突, 无法判断/,
+  );
+  assert.match(
+    prompt,
+    /weekly-report item -> member\/project identity -> commit title/,
+  );
+  assert.match(prompt, /must not directly increase that member's 目标与交付/);
+  assert.match(prompt, /exact heading '## 周报与代码关联性'/);
   assert.match(prompt, /Do not rank people by volume/);
   assert.match(prompt, /use relative grading/);
   assert.match(prompt, /Omit projects with zero commits/);
   assert.match(prompt, /Include every project in that array/);
   assert.match(prompt, /complete member-level counts and project paths/);
-  assert.match(prompt, /数据范围与口径、总体进展、成员进展/);
+  assert.match(prompt, /数据范围与口径、总体进展、周报与代码关联性、成员进展/);
   assert.match(prompt, /at or below 15,000 Chinese characters/);
   assert.match(prompt, /do not use Markdown tables/);
   assert.match(prompt, /every active project with one compact bullet/);
-  assert.match(
-    prompt,
-    /every member named in either the Feishu weekly report or GitLab contributors/,
-  );
+  assert.match(prompt, /every eligible member \(a GitLab contributor/);
   assert.match(prompt, /总分 NN\/100（证据置信度：高\/中\/低）/);
   assert.match(prompt, /目标与交付 40 points/);
   assert.match(prompt, /质量与可信证据 25 points/);
@@ -153,6 +176,10 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
   assert.match(
     prompt,
     /Missing GitLab activity alone must not reduce the score/,
+  );
+  assert.match(
+    prompt,
+    /an unaccounted weekly-report name must be skipped rather than scored/,
   );
   assert.match(prompt, /Never combine distinct names/);
   assert.match(
