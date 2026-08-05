@@ -144,13 +144,27 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
     /weekly-report item -> member\/project identity -> commit title/,
   );
   assert.match(prompt, /must not directly increase that member's 目标与交付/);
-  assert.match(prompt, /exact heading '## 周报与代码关联性'/);
+  assert.match(
+    prompt,
+    /Do not create a standalone 周报与代码关联性 section; place every relation conclusion, label count, and evidence list inside the corresponding eligible member's 成员进展 entry/,
+  );
+  assert.match(
+    prompt,
+    /Do not repeat a cross-member relation summary outside the member entries/,
+  );
+  assert.match(prompt, /exact level-4 heading '#### 周报与代码关联性'/);
+  assert.match(
+    prompt,
+    /If the member has GitLab activity but no matching weekly-report item/,
+  );
+  assert.match(prompt, /confirmed account but no commits/);
+  assert.match(prompt, /Never put another member's work in the subsection/);
   assert.match(prompt, /Do not rank people by volume/);
   assert.match(prompt, /use relative grading/);
   assert.match(prompt, /Omit projects with zero commits/);
   assert.match(prompt, /Include every project in that array/);
   assert.match(prompt, /complete member-level counts and project paths/);
-  assert.match(prompt, /数据范围与口径、总体进展、周报与代码关联性、成员进展/);
+  assert.match(prompt, /数据范围与口径、总体进展、成员进展、跨项目协作与风险/);
   assert.match(prompt, /at or below 15,000 Chinese characters/);
   assert.match(prompt, /do not use Markdown tables/);
   assert.match(prompt, /every active project with one compact bullet/);
@@ -186,6 +200,7 @@ void test("Hermes weekly report prompt requires evidence-based Chinese Markdown"
     prompt,
     /concrete GitLab code, document, configuration, or test changes/,
   );
+  assert.match(prompt, /After that member-scoped relation subsection/);
   assert.match(prompt, /inspect that contributor's commits/);
   assert.match(prompt, /must not replace the available analysis/);
   assert.match(prompt, /一个项目读取失败/);

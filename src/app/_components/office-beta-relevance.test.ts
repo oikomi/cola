@@ -10,7 +10,8 @@ const source = readFileSync(
 void test("team progress dialog exposes the weekly-report/code relevance contract", () => {
   assert.match(source, /周报-代码关联性核验/);
   assert.match(source, /data-testid="weekly-report-relevance-check"/);
-  assert.match(source, /只有能与具体周报事项建立证据链的提交/);
+  assert.match(source, /只有能建立证据链的提交才用于交付判断/);
+  assert.match(source, /关联结论和证据会写入对应成员进展/);
   for (const status of [
     "双源印证",
     "部分印证",

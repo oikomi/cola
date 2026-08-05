@@ -402,7 +402,7 @@ export async function createOfficeTask(
       title: `新任务已进入 ${owner.name} 的待办`,
       description:
         workflow === "gitlab_weekly_report" && weeklyReportRequest
-          ? `${input.title} 已创建，将先匹配 GitLab 账号，再逐项核验周报事项与 ${weeklyReportRequest.period.label} 的提交关联性，分析成员进展并生成飞书文档。`
+          ? `${input.title} 已创建，将先匹配 GitLab 账号，再把周报事项与 ${weeklyReportRequest.period.label} 的提交关联性写入对应成员进展，分析成员并生成飞书文档。`
           : `${input.title} 已创建，并分派给 ${owner.name}。`,
       occurredAt: now,
     });

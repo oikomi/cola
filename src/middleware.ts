@@ -12,7 +12,6 @@ const PUBLIC_PATH_PREFIXES = [
   "/_next",
   "/favicon.ico",
   "/xdream-cloud-mark.svg",
-  "/preview-office",
 ];
 
 const PROTECTED_API_PREFIXES = [
